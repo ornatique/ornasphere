@@ -3,16 +3,14 @@
 
 <div class="content-wrapper">
     <div class="card">
-        <div class="card-header ">
+        <div class="card-header d-flex justify-content-between">
+            <h4 class="card-title">Company List</h4>
 
-            <div class="">
-                <a href="{{ route('superadmin.companies.create') }}" class="btn btn-primary float-end">
+             <a href="{{ route('superadmin.companies.create') }}" class="btn btn-primary float-end">
                     + Add Company
                 </a>
-            </div>
-
-
         </div>
+      
         <div class="card-body">
             <h4 class="card-title">List Of Companies</h4>
 
