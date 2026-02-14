@@ -218,6 +218,9 @@ Route::middleware(['auth', 'company.2fa'])
 
         Route::post('other-charge/update/{id}', [OtherChargeController::class, 'update'])
             ->name('other-charge.update');
+            
+        Route::delete('/other-charge/{id}', [OtherChargeController::class, 'destroy'])
+            ->name('other-charge.destroy');
 
         // ================= YAJRA DATATABLE =================
         Route::get('/items-data', [ItemController::class, 'data'])

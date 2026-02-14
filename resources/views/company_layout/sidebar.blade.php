@@ -36,7 +36,7 @@
          href="#role-permission-menu"
          aria-expanded="{{ $rolePermissionActive ? 'true' : 'false' }}"
          aria-controls="role-permission-menu">
-         <i class="typcn typcn-briefcase menu-icon"></i>
+         <i class="typcn typcn-lock-closed menu-icon"></i>
          <span class="menu-title">Role & Permission</span>
          <i class="typcn typcn-chevron-right menu-arrow"></i>
        </a>
@@ -77,7 +77,7 @@
          href="#user-list-menu"
          aria-expanded="{{ $userActive ? 'true' : 'false' }}"
          aria-controls="user-list-menu">
-         <i class="typcn typcn-briefcase menu-icon"></i>
+        <i class="typcn typcn-user menu-icon"></i>
          <span class="menu-title">Users</span>
          <i class="typcn typcn-chevron-right menu-arrow"></i>
        </a>
@@ -100,7 +100,9 @@
      @php
      $itemActive =
      request()->routeIs('company.items.*')||
-     request()->routeIs('company.label_config.*');
+     request()->routeIs('company.label_config.*') ||
+     request()->routeIs('company.label.print.*') ||
+     request()->routeIs('company.other-charge.*');
      @endphp
 
      <li class="nav-item {{ $itemActive ? 'active' : '' }}">
@@ -109,7 +111,7 @@
          href="#item-list-menu"
          aria-expanded="{{ $itemActive ? 'true' : 'false' }}"
          aria-controls="item-list-menu">
-         <i class="typcn typcn-briefcase menu-icon"></i>
+         <i class="typcn typcn-shopping-bag menu-icon"></i>
          <span class="menu-title">Items</span>
          <i class="typcn typcn-chevron-right menu-arrow"></i>
        </a>
@@ -137,6 +139,14 @@
                    {{ request()->routeIs('company.label.print*') ? 'active' : '' }}"
                href="{{ route('company.label.print', auth()->user()->company->slug) }}">
                Label Printing
+             </a>
+           </li>
+
+           <li class="nav-item">
+             <a class="nav-link
+                   {{ request()->routeIs('company.other-charge.index*') ? 'active' : '' }}"
+               href="{{ route('company.other-charge.index', auth()->user()->company->slug) }}">
+               Other Charges
              </a>
            </li>
          </ul>

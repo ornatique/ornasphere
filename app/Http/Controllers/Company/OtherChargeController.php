@@ -19,7 +19,7 @@ class OtherChargeController extends Controller
 
         if ($request->ajax()) {
 
-            $data = OtherCharge::where('company_id',$company->id);
+            $data = OtherCharge::where('company_id', $company->id);
 
             return DataTables::of($data)
 
@@ -29,12 +29,21 @@ class OtherChargeController extends Controller
 
                     $id = Crypt::encryptString($row->id);
 
-                    $edit = route('company.other-charge.edit', [$company->slug,$id]);
+                    $edit = route('company.other-charge.edit', [$company->slug, $id]);
 
-                    return "
-                        <a href='$edit' class='btn btn-sm btn-primary'>Edit</a>
-                    ";
+                    $delete = route('company.other-charge.destroy', [$company->slug, $id]);
+
+                    return '
+                        <a href="' . $edit . '" class="btn btn-sm btn-primary">Edit</a>
+
+                        <button type="button"
+                            class="btn btn-sm btn-danger deleteBtn"
+                            data-url="' . $delete . '">
+                            Delete
+                        </button>
+                    ';
                 })
+
 
                 ->rawColumns(['action'])
                 ->make(true);
@@ -47,9 +56,9 @@ class OtherChargeController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
-        $items = Item::where('company_id',$company->id)->get();
+        $items = Item::where('company_id', $company->id)->get();
 
-        return view('company.other_charge.create', compact('company','items'));
+        return view('company.other_charge.create', compact('company', 'items'));
     }
 
     public function store(Request $request, $slug)
@@ -63,11 +72,11 @@ class OtherChargeController extends Controller
         OtherCharge::create($data);
 
         return redirect()
-            ->route('company.other-charge.index',$slug)
-            ->with('success','Created successfully');
+            ->route('company.other-charge.index', $slug)
+            ->with('success', 'Created successfully');
     }
 
-    public function edit($slug,$encryptedId)
+    public function edit($slug, $encryptedId)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
@@ -75,23 +84,71 @@ class OtherChargeController extends Controller
 
         $data = OtherCharge::findOrFail($id);
 
-        $items = Item::where('company_id',$company->id)->get();
+        $items = Item::where('company_id', $company->id)->get();
 
-        return view('company.other_charge.edit',compact('company','data','items'));
+        return view('company.other_charge.create', compact('company', 'data', 'items'));
     }
 
-    public function update(Request $request,$slug,$encryptedId)
+    public function update(Request $request, $slug, $encryptedId)
     {
-        $id = Crypt::decryptString($encryptedId);
+        $company = Company::whereSlug($slug)->firstOrFail();
 
-        $data = OtherCharge::findOrFail($id);
+        // FIX HERE
+        $id = Crypt::decrypt($encryptedId);
 
-        $data->update($request->all());
+        $otherCharge = OtherCharge::where('company_id', $company->id)
+            ->where('id', $id)
+            ->firstOrFail();
+
+        $otherCharge->update([
+
+            'other_charge' => $request->other_charge,
+            'code' => $request->code,
+            'default_amount' => $request->default_amount,
+            'default_weight' => $request->default_weight,
+            'quantity_pcs' => $request->quantity_pcs,
+            'weight_formula' => $request->weight_formula,
+            'weight_percent' => $request->weight_percent,
+            'sale_weight_percent' => $request->sale_weight_percent,
+            'purchase_weight_percent' => $request->purchase_weight_percent,
+            'sequence_no' => $request->sequence_no,
+            'item_id' => $request->item_id,
+            'remarks' => $request->remarks,
+
+            'is_default' => $request->has('is_default'),
+            'is_selected' => $request->has('is_selected'),
+            'diamond' => $request->has('diamond'),
+            'stone' => $request->has('stone'),
+            'stock_effect' => $request->has('stock_effect'),
+            'other_amt_formula' => $request->other_amt_formula,
+            'other_charge_ol' => $request->other_charge_ol,
+            'purity' => $request->purity,
+            'required_purity' => $request->required_purity,
+            'merge_other_charge' => $request->merge_other_charge,
+            'wt_operation' => $request->wt_operation,
+            'carat_weight_auto_conversion' => $request->carat_weight_auto_conversion,
+            'party_account_effect' => $request->party_account_effect,
+        ]);
 
         return redirect()
-            ->route('company.other-charge.index',$slug)
-            ->with('success','Updated successfully');
+            ->route('company.other-charge.index', $slug)
+            ->with('success', 'Other Charge Updated Successfully');
     }
+    public function destroy($slug, $encryptedId)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
 
+        $id = Crypt::decryptString($encryptedId);
+
+        $data = OtherCharge::where('company_id', $company->id)
+            ->where('id', $id)
+            ->firstOrFail();
+
+        $data->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Other Charge deleted successfully'
+        ]);
+    }
 }
-
