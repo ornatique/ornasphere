@@ -1,0 +1,47 @@
+/* Google Charts */
+
+.google-chart-container {
+  overflow: hidden;
+  .google-charts {
+    width: 100%;
+    height: 280px;
+    min-height: 280px;
+    min-width: 100%;
+  }
+}
+
+#morris-line-example {
+  overflow: hidden;
+}
+
+#morris-bar-example {
+  overflow: hidden;
+}
+
+#morris-area-example {
+  overflow: hidden;
+}
+
+#c3-line-chart {
+  overflow: hidden;
+}
+
+#c3-spline-chart {
+  overflow: hidden;
+}
+
+#sparkline-line-chart {
+  overflow: hidden;
+}
+
+#sparkline-composite-chart {
+  overflow: hidden;
+}
+
+#sparkline-bullet-chart {
+  overflow: hidden;
+}
+
+#c3-step-chart {
+  overflow: hidden;
+}

@@ -1,0 +1,57 @@
+/* Context Menu */
+
+.context-menu-icon {
+  &:before {
+    color: $black;
+    font: normal normal normal 15px/1 "Material Design Icons";
+  }
+  &.context-menu-icon-cut {
+    &:before {
+      content: '\F0190';
+    }
+  }
+  &.context-menu-icon-edit {
+    &:before {
+      content: "\F03ef";
+    }
+  }
+  &.context-menu-icon-copy {
+    &:before {
+      content: '\F018F';
+    }
+  }
+  &.context-menu-icon-paste {
+    &:before {
+      content: '\F0613';
+    }
+  }
+  &.context-menu-icon-delete {
+    &:before {
+      content: '\F06CB';
+    }
+  }
+  &.context-menu-icon-quit {
+    &:before {
+      content: '\F0156';
+    }
+  }
+}
+.context-menu-list {
+  box-shadow: none;
+  border: 1px solid $border-color;
+  .context-menu-item {
+    color: $black;
+    span {
+      color: $black;
+      font-size: .75rem;
+      font-weight: 600;
+    }
+    &.context-menu-hover {
+      background: $blue;
+      color: $black;
+      span {
+        color: $black;
+      }
+    }
+  }
+}

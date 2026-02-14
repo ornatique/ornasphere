@@ -1,0 +1,19 @@
+.c3-legend-item {
+  fill: $body-color;
+}
+.c3 line,
+.c3 path {
+  stroke: $border-color;
+}
+.c3 {
+  text {
+    fill: $body-color;
+  }
+}
+.c3-tooltip td {
+  font-size: 13px;
+  padding: 3px 6px;
+  background-color: #fff;
+  border-left: 1px dotted #999;
+  color: #000;
+}
