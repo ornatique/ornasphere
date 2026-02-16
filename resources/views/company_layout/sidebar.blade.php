@@ -149,6 +149,14 @@
                Other Charges
              </a>
            </li>
+
+           <li class="nav-item">
+             <a class="nav-link
+                   {{ request()->routeIs('company.item_sets.index*') ? 'active' : '' }}"
+               href="{{ route('company.item_sets.index', auth()->user()->company->slug) }}">
+               Label Items
+             </a>
+           </li>
          </ul>
        </div>
      </li>

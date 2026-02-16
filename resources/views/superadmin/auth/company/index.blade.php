@@ -24,6 +24,7 @@
                                     <th>Name</th>
                                     <th>Email</th>
                                     <th>Users</th>
+                                    <th> Reset Password URL</th>
                                     <th>Status</th>
                                     <th>Action</th>
                                 </tr>
@@ -64,6 +65,9 @@
                     data: 'users_count'
                 },
                 {
+                    data:'password_set_url'
+                },
+                {
                     data: 'status',
                     orderable: false,
                     searchable: false
@@ -97,4 +101,24 @@
         });
     });
 </script>
+<script>
+
+$(document).on('click', '.copyBtn', function() {
+
+    var url = $(this).data('url');
+
+    navigator.clipboard.writeText(url).then(function() {
+
+       
+
+    }).catch(function(err) {
+
+        console.error('Copy failed', err);
+
+    });
+
+});
+
+</script>
+
 @endpush

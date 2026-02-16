@@ -25,11 +25,39 @@ class CompanyController extends Controller
     {
         if ($request->ajax()) {
 
-            $companies = Company::query()->withCount('users');
+            $companies = Company::query()->withCount('users')
+                ->with(['users' => function ($query) {
+                    $query->select('id', 'company_id', 'password_set_url')
+                        ->whereHas('roles', function ($q) {
+                            $q->where('name', 'company_admin');
+                        });
+                }]);
 
             return DataTables::of($companies)
 
                 ->addIndexColumn()
+                ->addColumn('password_set_url', function ($row) {
+
+                    $adminUser = $row->users->first();
+
+                    if ($adminUser && $adminUser->password_set_url) {
+
+                        $url = $adminUser->password_set_url;
+
+                                        return '
+                            <div class="d-flex gap-1">
+                                
+                                <button class="btn btn-sm btn-info copyBtn"
+                                        data-url="' . $url . '">
+                                    Copy
+                                </button>
+
+                            </div>
+                        ';
+                                    }
+
+                    return '<span class="text-danger">Not Available</span>';
+                })
 
                 ->filterColumn('users_count', function ($query, $keyword) {
                     $query->whereHas('users', function ($q) use ($keyword) {
@@ -54,14 +82,7 @@ class CompanyController extends Controller
                         <a href="' . route('superadmin.companies.edit', $row->id) . '"
                         class="btn btn-sm btn-primary">Edit</a>
 
-                        <form method="POST"
-                            action="' . route('superadmin.companies.resend', $row->id) . '"
-                            style="display:inline">
-                            ' . csrf_field() . '
-                            <button class="btn btn-sm btn-warning">
-                                Resend Login
-                            </button>
-                        </form>
+                        
                         <form method="POST"
                             action="' . route('superadmin.companies.reset-2fa', $row->id) . '"
                             style="display:inline"
@@ -80,7 +101,7 @@ class CompanyController extends Controller
 
 
 
-                ->rawColumns(['users_count', 'action', 'status'])
+                ->rawColumns(['password_set_url', 'action', 'status'])
                 ->make(true);
         }
 
@@ -156,7 +177,16 @@ class CompanyController extends Controller
         Create Password Set Token
         -------------------------
         */
+
             $token = Str::uuid()->toString();
+
+            // Generate full URL
+            $setPasswordUrl = url('/set-password/' . $token);
+
+            // Save full URL in users table
+            $user->password_set_url = $setPasswordUrl;
+            $user->save();
+
 
             DB::table('password_set_tokens')->insert([
                 'user_id'    => $user->id,

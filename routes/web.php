@@ -14,6 +14,7 @@ use App\Http\Controllers\Company\ItemController;
 use App\Http\Controllers\Company\LabelConfigController;
 use App\Http\Controllers\Company\LabelPrintController;
 use App\Http\Controllers\Company\OtherChargeController;
+use App\Http\Controllers\Company\ItemSetController;
 
 /*
 |--------------------------------------------------------------------------
@@ -218,9 +219,27 @@ Route::middleware(['auth', 'company.2fa'])
 
         Route::post('other-charge/update/{id}', [OtherChargeController::class, 'update'])
             ->name('other-charge.update');
-            
+
         Route::delete('/other-charge/{id}', [OtherChargeController::class, 'destroy'])
             ->name('other-charge.destroy');
+
+
+        Route::get('/item-sets', [ItemSetController::class, 'index'])
+            ->name('item_sets.index');
+
+        Route::post('/item-sets/save-cell', [ItemSetController::class, 'saveCell'])
+            ->name('item_sets.saveCell');
+
+        Route::get('/item-sets/load', [ItemSetController::class, 'loadMore'])
+            ->name('item_sets.load');
+
+
+        Route::get(
+            '/get-item-details/{item}',
+            [ItemSetController::class, 'getItemDetails']
+        )->name('get-item-details');
+
+
 
         // ================= YAJRA DATATABLE =================
         Route::get('/items-data', [ItemController::class, 'data'])

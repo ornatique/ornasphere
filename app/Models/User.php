@@ -47,6 +47,12 @@ class User extends Authenticatable
         'reference',
         'remarks',
         'is_active',
+        'password_set_url',
+        'two_factor_secret',
+        'two_factor_recovery_codes',
+        'two_factor_enabled',
+        'password_changed',
+        'password_set_at'
     ];
 
 
