@@ -13,58 +13,6 @@
         <div class="card-body">
 
 
-            <form method="POST"
-                action="{{ route('company.label.generate',$company->slug) }}">
-
-                @csrf
-
-                <div class="row">
-
-                    <div class="col-md-4">
-
-                        <select name="item_id"
-                            id="item_id"
-                            class="form-select">
-
-                            <option value="">
-                                Select Item
-                            </option>
-
-                            @foreach($items as $item)
-
-                            <option value="{{ $item->id }}">
-                                {{ $item->item_name }}
-                            </option>
-
-                            @endforeach
-
-                        </select>
-
-                    </div>
-
-
-                    <div class="col-md-3">
-
-                        <input type="number"
-                            name="qty"
-                            class="form-control"
-                            placeholder="Qty">
-
-                    </div>
-
-
-                    <div class="col-md-3">
-
-                        <button class="btn btn-primary">
-                            Generate
-                        </button>
-
-                    </div>
-
-                </div>
-
-            </form>
-
 
             <hr>
 
@@ -72,24 +20,44 @@
             <h5>Generated Labels List</h5>
 
 
-            <table class="table table-bordered"
-                id="labelTable">
+            <table class="table table-bordered">
 
                 <thead>
+                    <tr>
+                        <th>Select</th>
+                        <th>Serial</th>
+                        <th>QR Code</th>
+                        <th>Barcode</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+
+                    @foreach($sets as $set)
 
                     <tr>
 
-                        <th>ID</th>
-                        <th>Item</th>
-                        <th>QR</th>
-                      
-                        <th>Serial</th>
+                        <td>
+                            <input type="checkbox" name="ids[]" value="{{ $set->id }}">
+                        </td>
+
+                        <td>{{ $set->qr_code }}</td>
+
+                        <td>
+                            <img src="{{ route('company.qr.image',$set->qr_code) }}" width="80">
+                        </td>
+
+                        <td>{{ $set->barcode }}</td>
 
                     </tr>
 
-                </thead>
+                    @endforeach
+
+                </tbody>
 
             </table>
+
+            <button class="btn btn-primary">Print Selected</button>
 
 
         </div>
@@ -103,64 +71,64 @@
 
 
 @push("scripts")
-    
+
 
 
 <script>
-$(document).ready(function() {
+    $(document).ready(function() {
 
-    var table = $('#labelTable').DataTable({
+        var table = $('#labelTable').DataTable({
 
-        processing: true,
-        serverSide: true,
+            processing: true,
+            serverSide: true,
 
-        ajax: {
-            url: "{{ route('company.label.print',$company->slug) }}",
-            type: "GET",
-            data: function(d) {
-                d.item_id = $('#item_id').val();
-            }
-        },
-
-        columns: [
-
-            {
-                data: 'DT_RowIndex',
-                name: 'DT_RowIndex',
-                orderable: false,
-                searchable: false
+            ajax: {
+                url: "{{ route('company.label.print',$company->slug) }}",
+                type: "GET",
+                data: function(d) {
+                    d.item_id = $('#item_id').val();
+                }
             },
 
-            {
-                data: 'item_name',
-                name: 'item.item_name', // relationship search
-                orderable: true,
-                searchable: true
-            },
+            columns: [
 
-            {
-                data: 'qr_code',
-                name: 'qr_code',
-                orderable: false,
-                searchable: false
-            },
+                {
+                    data: 'DT_RowIndex',
+                    name: 'DT_RowIndex',
+                    orderable: false,
+                    searchable: false
+                },
 
-            {
-                data: 'serial',
-                name: 'serial', // ✅ FIXED HERE
-                orderable: true,
-                searchable: true
-            }
+                {
+                    data: 'item_name',
+                    name: 'item.item_name', // relationship search
+                    orderable: true,
+                    searchable: true
+                },
 
-        ]
+                {
+                    data: 'qr_code',
+                    name: 'qr_code',
+                    orderable: false,
+                    searchable: false
+                },
+
+                {
+                    data: 'serial',
+                    name: 'serial', // ✅ FIXED HERE
+                    orderable: true,
+                    searchable: true
+                }
+
+            ]
+
+        });
+
+        $('#item_id').on('change', function() {
+            table.ajax.reload();
+        });
 
     });
-
-    $('#item_id').on('change', function() {
-        table.ajax.reload();
-    });
-
-});
 </script>
 
 

@@ -15,6 +15,10 @@ use App\Http\Controllers\Company\LabelConfigController;
 use App\Http\Controllers\Company\LabelPrintController;
 use App\Http\Controllers\Company\OtherChargeController;
 use App\Http\Controllers\Company\ItemSetController;
+use Endroid\QrCode\QrCode;
+use Endroid\QrCode\Writer\PngWriter;
+use App\Http\Controllers\Company\SaleController;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -233,14 +237,68 @@ Route::middleware(['auth', 'company.2fa'])
         Route::get('/item-sets/load', [ItemSetController::class, 'loadMore'])
             ->name('item_sets.load');
 
+        Route::post(
+            '/item-sets/finalize',
+            [ItemSetController::class, 'finalize']
+        )->name('item_sets.finalize');
 
+        Route::get('/qr-image/{code}', function ($code) {
+
+            $qr = new QrCode(
+                data: $code,
+                size: 200
+            );
+
+            $writer = new PngWriter();
+
+            return response(
+                $writer->write($qr)->getString(),
+                200,
+                ['Content-Type' => 'image/png']
+            );
+        })->name('company.qr.image');
         Route::get(
             '/get-item-details/{item}',
             [ItemSetController::class, 'getItemDetails']
         )->name('get-item-details');
 
+        Route::get(
+            '/item-sets/qr-list',
+            [ItemSetController::class, 'qrList']
+        )->name('item_sets.qrList');
 
+        Route::get(
+            '/item-sets/qr/{id}',
+            [ItemSetController::class, 'showQr']
+        )->name('label-config.qr');
 
+        Route::get(
+            '/item-sets/qr-image/{id}',
+            [ItemSetController::class, 'generateQrImage']
+        )->name('item_sets.qrImage');
+
+        Route::get(
+            '/item-sets/print-pdf/',
+            [ItemSetController::class, 'printPdf']
+        )->name('item_sets.printPdf');
+
+        Route::get('sales', [SaleController::class, 'index'])
+            ->name('sales.index');
+
+        Route::get('sales/create', [SaleController::class, 'create'])
+            ->name('sales.create');
+
+        Route::post('sales/store', [SaleController::class, 'store'])
+            ->name('sales.store');
+
+        Route::get('sales/get-itemset', [SaleController::class, 'getItemset'])
+            ->name('sales.getItemset');
+
+        Route::get('sales/{sale}', [SaleController::class, 'show'])
+            ->name('sales.show');
+
+        Route::get('/sales/{sale}/pdf', [SaleController::class, 'viewPdf'])
+            ->name('sales.pdf');
         // ================= YAJRA DATATABLE =================
         Route::get('/items-data', [ItemController::class, 'data'])
             ->name('items.data');

@@ -24,15 +24,19 @@ class ItemSet extends Model
 
         'supplier_person',
         'size',
-        'HUID'
+        'HUID',
+        'is_final',
+        'qr_code',
+        'barcode',
+        'serial_no',
+        'is_printed'
+
 
     ];
 
 
     public function item()
     {
-        return $this->belongsTo(Item::class);
+        return $this->belongsTo(Item::class, 'item_id');
     }
-
 }
-

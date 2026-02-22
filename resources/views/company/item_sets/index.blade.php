@@ -99,7 +99,9 @@
             </div>
 
         </div>
-
+        <button onclick="finalize()" class="btn btn-success">
+            Finalize & Generate QR
+        </button>
     </div>
 
 </div>
@@ -331,6 +333,30 @@
         }
 
     });
+
+    function finalize() {
+
+        if (!itemId) {
+            alert("Select item first");
+            return;
+        }
+
+        $.post(
+            "{{ route('company.item_sets.finalize',$company->slug) }}", {
+                _token: "{{ csrf_token() }}",
+                item_id: itemId
+            },
+            function(res) {
+
+                alert(res.message);
+
+                offset = 0;
+                $('#setsBody').html('');
+                loadMore();
+
+            });
+
+    }
 </script>
 
 
