@@ -29,7 +29,7 @@
                         <h4>Two-Factor Verification 🔐</h4>
                         <h6 class="fw-light">Enter the OTP from Google Authenticator</h6>
 
-                        <form method="POST" action="/two-factor-challenge">
+                        <form method="POST" action="/superadmin/two-factor-challenge">
                             @csrf
 
                             <div class="form-group mt-4">

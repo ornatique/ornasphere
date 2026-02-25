@@ -157,9 +157,9 @@
                     </li>
 
                     <li class="nav-item">
-                        <a class="nav-link "
-                            href="#">
-                            Purchase / Reciver
+                       <a class="nav-link {{ request()->routeIs('company.returns.index') ? 'active' : '' }}"
+                            href="{{ route('company.returns.index', auth()->user()->company->slug) }}">
+                           Purchase / reciver
                         </a>
                     </li>
 

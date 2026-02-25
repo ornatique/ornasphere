@@ -27,6 +27,15 @@ class CompanyAuthController extends Controller
         if (Auth::attempt($credentials)) {
 
             $user = Auth::user();
+            // ❌ If status is not 1 → logout and show error
+            if ($user->is_active != 1) {
+                Auth::logout();
+
+                return back()->withErrors([
+                    'email' => 'Please contact admin. Your account is inactive.',
+                ]);
+            }
+
             $request->session()->regenerate();
 
             // 🔥 FIRST TIME → SETUP QR
@@ -41,7 +50,6 @@ class CompanyAuthController extends Controller
             return redirect()
                 ->route('company.2fa.challenge', $user->company->slug);
         }
-
 
         return back()->withErrors([
             'email' => 'Invalid login credentials.',

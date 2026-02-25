@@ -44,7 +44,7 @@ class CompanyController extends Controller
 
                         $url = $adminUser->password_set_url;
 
-                                        return '
+                        return '
                             <div class="d-flex gap-1">
                                 
                                 <button class="btn btn-sm btn-info copyBtn"
@@ -54,7 +54,7 @@ class CompanyController extends Controller
 
                             </div>
                         ';
-                                    }
+                    }
 
                     return '<span class="text-danger">Not Available</span>';
                 })
@@ -166,6 +166,7 @@ class CompanyController extends Controller
                 'email'            => $request->email,
                 'password'         => Hash::make($tempPassword),
                 'company_id'       => $company->id,
+                'role'             =>'admin',
                 'password_changed' => false,
             ]);
 
@@ -281,13 +282,23 @@ class CompanyController extends Controller
 
     public function toggleStatus(Company $company)
     {
+        // Toggle company status
+        $newStatus = !$company->status;
+
         $company->update([
-            'status' => !$company->status
+            'status' => $newStatus
         ]);
+
+        // Update Admin user of that company
+        User::where('company_id', $company->id)
+            ->where('role', 'Admin') // adjust if using role column
+            ->update([
+                'is_active' => $newStatus
+            ]);
 
         return response()->json([
             'success' => true,
-            'status'  => $company->status
+            'status'  => $newStatus
         ]);
     }
 

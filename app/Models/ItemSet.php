@@ -29,7 +29,8 @@ class ItemSet extends Model
         'qr_code',
         'barcode',
         'serial_no',
-        'is_printed'
+        'is_printed',
+        'is_sold'
 
 
     ];

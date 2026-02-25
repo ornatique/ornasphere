@@ -4,18 +4,19 @@ use Laravel\Fortify\Features;
 
 return [
 
-    'guard' => 'superadmin',
+    'guard' => 'web',
 
-    'passwords' => 'super_admins',
+    'passwords' => 'users',
 
     'username' => 'email',
 
-    'home' => '/superadmin/dashboard',
+    'home' => '/dashboard',
+
+    'views' => false,
 
     'features' => [
         Features::twoFactorAuthentication([
             'confirm' => true,
         ]),
     ],
-
 ];

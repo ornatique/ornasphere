@@ -16,7 +16,7 @@ class CompanySecurityController extends Controller
     public function showSetup($slug)
     {
         $user = Auth::user();
-
+            
         if ($user->two_factor_enabled) {
             return redirect()->route('company.2fa.challenge', $slug);
         }

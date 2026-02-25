@@ -18,6 +18,9 @@ use App\Http\Controllers\Company\ItemSetController;
 use Endroid\QrCode\QrCode;
 use Endroid\QrCode\Writer\PngWriter;
 use App\Http\Controllers\Company\SaleController;
+use App\Http\Controllers\Company\SaleReturnController;
+use App\Http\Controllers\SuperAdmin\SuperAdmin2FAController;
+
 
 
 /*
@@ -45,6 +48,18 @@ Route::prefix('superadmin')->name('superadmin.')->group(function () {
 
     Route::post('/logout', [SuperAdminAuthController::class, 'logout'])
         ->name('logout');
+
+    Route::get('/two-factor-challenge', [SuperAdmin2FAController::class, 'show'])
+        ->name('2fa.challenge');
+
+    Route::post('/two-factor-challenge', [SuperAdmin2FAController::class, 'verify'])
+        ->name('2fa.verify');
+
+    Route::get('/two-factor-setup', [SuperAdmin2FAController::class, 'setup'])
+        ->name('2fa.setup');
+
+    Route::post('/two-factor-setup', [SuperAdmin2FAController::class, 'store'])
+        ->name('2fa.store');
 });
 
 /*
@@ -299,6 +314,41 @@ Route::middleware(['auth', 'company.2fa'])
 
         Route::get('/sales/{sale}/pdf', [SaleController::class, 'viewPdf'])
             ->name('sales.pdf');
+
+        Route::get(
+            '/returns',
+            [SaleReturnController::class, 'index']
+        )->name('returns.index');
+
+        Route::get(
+            '/returns/select-sale',
+            [SaleReturnController::class, 'selectSale']
+        )->name('returns.selectSale');
+
+        Route::get(
+            '/returns/{sale}/create',
+            [SaleReturnController::class, 'create']
+        )->name('returns.create');
+
+        Route::post(
+            '/returns/{sale}',
+            [SaleReturnController::class, 'store']
+        )->name('returns.store');
+
+        Route::get(
+            '/returns/{return}/pdf',
+            [SaleReturnController::class, 'pdf']
+        )->name('returns.pdf');
+
+        Route::get(
+            '/returns/select-sale-data',
+            [SaleReturnController::class, 'getSalesForReturn']
+        )->name('returns.selectSaleData');
+
+        Route::post(
+            '/returns/{sale}',
+            [SaleReturnController::class, 'store']
+        )->name('sales.return.store');
         // ================= YAJRA DATATABLE =================
         Route::get('/items-data', [ItemController::class, 'data'])
             ->name('items.data');

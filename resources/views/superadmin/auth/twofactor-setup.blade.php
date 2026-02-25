@@ -40,7 +40,7 @@
                             <div class="text-center">
                                 <p class="mb-4">Secure your account with Google Authenticator</p>
 
-                                <form method="POST" action="/user/two-factor-authentication">
+                                <form method="POST" action="{{ route('superadmin.2fa.store') }}">
                                     @csrf
                                     <button type="submit"
                                         class="btn btn-primary btn-lg w-100">
@@ -63,13 +63,15 @@
                                 <div class="text-center my-4">
                                     <div class="d-flex justify-content-center">
                                         <div class="p-3 bg-white rounded shadow-sm">
-                                            {!! $user->twoFactorQrCodeSvg() !!}
+                                            <div class="text-center">
+                                                <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={{ urlencode($qrCodeUrl) }}">
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
 
 
-                                <form method="POST" action="/user/confirmed-two-factor-authentication">
+                                <form method="POST" action="{{ route('superadmin.2fa.store') }}">
                                     @csrf
 
                                     <div class="form-group">

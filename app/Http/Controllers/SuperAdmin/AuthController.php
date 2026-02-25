@@ -23,35 +23,39 @@ class AuthController extends Controller
         if (Auth::guard('superadmin')->attempt(
             $request->only('email', 'password')
         )) {
+
             $request->session()->regenerate();
 
             $user = Auth::guard('superadmin')->user();
 
-            // NOT enabled → setup QR
+            /*
+            |--------------------------------------------------------------------------
+            | IF 2FA NOT ENABLED → GO TO SETUP
+            |--------------------------------------------------------------------------
+            */
             if (!$user->two_factor_secret || !$user->two_factor_confirmed_at) {
-                return redirect()->route('superadmin.2fa.setup');
+                return redirect()->route('superadmin.dashboard');
             }
 
             /*
-        |--------------------------------------------------------------------------
-        | FORCE OTP EVERY LOGIN (IMPORTANT)
-        |--------------------------------------------------------------------------
-        */
+            |--------------------------------------------------------------------------
+            | FORCE 2FA EVERY LOGIN
+            |--------------------------------------------------------------------------
+            */
+
             session([
-                'login.id' => $user->id,
-                'login.remember' => false,
+                'superadmin_2fa_id' => $user->id,
             ]);
 
             Auth::guard('superadmin')->logout();
 
-            return redirect('/two-factor-challenge');
+            return redirect()->route('superadmin.2fa.challenge');
         }
 
         return back()->withErrors([
             'email' => 'Invalid credentials',
         ]);
     }
-
 
     public function logout(Request $request)
     {
