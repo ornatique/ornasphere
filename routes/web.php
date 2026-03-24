@@ -242,6 +242,20 @@ Route::middleware(['auth', 'company.2fa'])
         Route::delete('/other-charge/{id}', [OtherChargeController::class, 'destroy'])
             ->name('other-charge.destroy');
 
+        Route::get('/itemsets', [ItemSetController::class, 'list_data'])
+            ->name('itemsets.list_data');
+
+        Route::get('/list_itemset', [ItemSetController::class, 'list_data'])
+            ->name('list_itemset');
+
+        Route::get('/itemsets/{id}/edit', [ItemSetController::class, 'edit'])
+            ->name('itemsets.edit');
+
+        Route::post('/itemsets/{id}/update', [ItemSetController::class, 'update'])
+            ->name('itemsets.update');
+
+        Route::delete('/itemsets/{id}', [ItemSetController::class, 'destroy'])
+            ->name('itemsets.delete');
 
         Route::get('/item-sets', [ItemSetController::class, 'index'])
             ->name('item_sets.index');

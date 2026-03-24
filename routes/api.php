@@ -4,6 +4,13 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\Api\CompanyUserController;
+use App\Http\Controllers\Api\ItemController;
+use App\Http\Controllers\Api\LabelConfigController;
+use App\Http\Controllers\Api\ItemSetController;
+use App\Http\Controllers\Api\OtherChargeController;
+use App\Http\Controllers\Api\SaleApiController;
+use App\Http\Controllers\Api\SaleReturnApiController;
 
 Route::post('/company/login', [AuthController::class, 'login']);
 Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
@@ -15,12 +22,65 @@ Route::middleware('auth:sanctum')->group(function () {
 
 
 
+
 Route::middleware('auth:sanctum')->group(function () {
 
-    Route::get('/users', [UserController::class, 'index']);
-    Route::post('/users', [UserController::class, 'store']);
-    Route::get('/users/{id}', [UserController::class, 'show']);
-    Route::put('/users/{id}', [UserController::class, 'update']);
-    Route::delete('/users/{id}', [UserController::class, 'destroy']);
-
+    Route::get('/users', [CompanyUserController::class, 'index']);
+    Route::post('/create_users', [CompanyUserController::class, 'store']);
+   Route::put('/update_users/{id}', [CompanyUserController::class, 'update']);
+    Route::delete('/delete_users/{id}', [CompanyUserController::class, 'destroy']);
+    
+    
+    Route::get('/items', [ItemController::class, 'index']);
+    Route::post('/create_items', [ItemController::class, 'store']);
+    Route::get('/items/{id}', [ItemController::class, 'show']);
+    Route::put('/update_items/{id}', [ItemController::class, 'update']);
+    Route::delete('/delete_items/{id}', [ItemController::class, 'destroy']);
+    
+    Route::get('/label-configs', [LabelConfigController::class, 'index']);
+    Route::post('/create-label-configs', [LabelConfigController::class, 'store']);
+    Route::get('/label-configs/{id}', [LabelConfigController::class, 'show']);
+    Route::put('/update-label-configs/{id}', [LabelConfigController::class, 'update']);
+    Route::delete('/label-configs/{id}', [LabelConfigController::class, 'destroy']);
+    
+    Route::post('/item-sets', [ItemSetController::class, 'index']);
+    Route::post('/item-sets/save-cell', [ItemSetController::class, 'saveCell']);
+    Route::post('/item-sets/bulk-save', [ItemSetController::class, 'bulkSave']);
+    Route::post('/item-sets/finalize', [ItemSetController::class, 'finalize']);
+    Route::get('/item-sets/qr-list', [ItemSetController::class, 'qrList']);
+    
+    Route::get('itemsets_list/', [ItemSetController::class, 'listset_data']);     // list + filter
+    Route::get('itemsets_show/{id}', [ItemSetController::class, 'show']);  // edit data
+    Route::post('itemsets_update/{id}', [ItemSetController::class, 'update']); // update
+    Route::delete('itemsets_delete/{id}', [ItemSetController::class, 'destroy']); // delete
+    
+    Route::get('/other-charges', [OtherChargeController::class, 'index']);
+    Route::post('/add-other-charges', [OtherChargeController::class, 'store']);
+    Route::get('/other-charges/{id}', [OtherChargeController::class, 'show']);
+    Route::put('/update-other-charges/{id}', [OtherChargeController::class, 'update']);
+    Route::delete('/delete-other-charges/{id}', [OtherChargeController::class, 'destroy']);
+    
+    Route::get('/sale-list', [SaleApiController::class, 'index']);             // List sales
+    Route::post('/sales/get-item-by-qr', [SaleApiController::class, 'getItemByQr']);
+    Route::get('/sales/customerlist', [SaleApiController::class, 'customerlist']);
+    Route::post('/sales/add-to-cart', [SaleApiController::class, 'addToCart']);
+    Route::get('/sales/cart-items', [SaleApiController::class, 'cartItems']);
+    Route::delete('/sales/cart/remove/{id}', [SaleApiController::class, 'removeCartItem']);
+    Route::post('/sales/confirm-sale', [SaleApiController::class, 'confirmSale']);
+    Route::get('/itemsets/qr-list', [SaleApiController::class, 'qrListApi']);
+    Route::post('/itemsets/qr/pdf', [SaleApiController::class, 'downloadQrPdf']);
+    Route::post('/store', [SaleApiController::class, 'store']);       // Create sale
+    Route::get('/{id}', [SaleApiController::class, 'show']);          // Sale details
+    Route::get('/itemset', [SaleApiController::class, 'getItemset']); // Scan QR
+    
+    
+    Route::get('/returns/list', [SaleReturnApiController::class, 'list_of_return']);
+     Route::get('/returns/customers', [SaleReturnApiController::class, 'getSalesForReturn']);
+    Route::get('/returns/sale/{saleId}', [SaleReturnApiController::class, 'saleDetails']);
+    Route::post('/returns/store', [SaleReturnApiController::class, 'store']);
+    Route::get('/returns/pdf/{returnId}', [SaleReturnApiController::class, 'pdf']);
+    Route::post('/returns/scan-product', [SaleReturnApiController::class,'scanProduct']);
+    Route::get('/returns/cart-list', [SaleReturnApiController::class, 'returnCartList']);
+    Route::delete('/returns/cart-remove/{id}', [SaleReturnApiController::class, 'removeCartItem']);
+    Route::post('/returns/confirm-return', [SaleReturnApiController::class, 'confirmReturn']);
 });

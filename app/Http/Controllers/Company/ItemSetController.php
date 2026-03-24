@@ -19,6 +19,74 @@ use Endroid\QrCode\Builder\Builder;
 class ItemSetController extends Controller
 {
 
+    public function list_data(Request $request, $slug)
+    {
+
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        if ($request->ajax()) {
+
+            $data = ItemSet::with('item')
+                ->where('company_id', $company->id)
+                ->latest();
+
+            // ✅ DATE FILTER
+            if ($request->from_date && $request->to_date) {
+                $data->whereDate('created_at', '>=', $request->from_date)
+                    ->whereDate('created_at', '<=', $request->to_date);
+            }
+
+            return datatables()->of($data)
+                ->addIndexColumn()
+
+                ->addColumn('item_name', function ($row) {
+                    return $row->item->item_name ?? '-';
+                })
+
+                ->addColumn('gross_weight', fn($row) => $row->gross_weight)
+                ->addColumn('net_weight', fn($row) => $row->net_weight)
+                ->addColumn('qr_code', fn($row) => $row->qr_code)
+
+                ->addColumn('date', function ($row) {
+                    return $row->created_at
+                        ? $row->created_at->format('d-m-Y')
+                        : '-';
+                })
+                ->filterColumn('item_name', function ($query, $keyword) {
+                    $query->whereHas('item', function ($q) use ($keyword) {
+                        $q->where('item_name', 'like', "%{$keyword}%");
+                    });
+                })
+
+                ->filterColumn('qr_code', function ($query, $keyword) {
+                    $query->where('qr_code', 'like', "%{$keyword}%");
+                })
+
+                ->addColumn('action', function ($row) use ($company) {
+                    $editUrl = route('company.itemsets.edit', [$company->slug, $row->id]);
+
+                   
+                    $deleteUrl = route('company.itemsets.delete', [$company->slug, $row->id]);
+
+                    return '
+                     <button class="btn btn-sm btn-primary editBtn"
+                            data-url="' . $editUrl . '">
+                            Edit
+                        </button>
+                        <button class="btn btn-sm btn-danger deleteBtn"
+                            data-url="' . $deleteUrl . '">
+                            Delete
+                        </button>
+                    ';
+                })
+
+                ->rawColumns(['action'])
+                ->make(true);
+        }
+
+        return view('company.item_sets.list', compact('company'));
+    }
+
     public function index($slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
@@ -266,5 +334,40 @@ class ItemSetController extends Controller
         );
 
         return $pdf->stream('qr-labels.pdf');
+    }
+
+    public function edit($slug, $id)
+    {
+        $item = ItemSet::findOrFail($id);
+
+        return response()->json($item);
+    }
+
+    public function update(Request $request, $slug, $id)
+    {
+        $item = ItemSet::findOrFail($id);
+
+        $item->update([
+            'gross_weight' => $request->gross_weight,
+            'net_weight' => $request->net_weight,
+            'size' => $request->size,
+            'other' => $request->other,
+            'HUID' => $request->huid,
+        ]);
+
+        return response()->json(['success' => true]);
+    }
+
+    public function destroy($slug, $id)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        $item = ItemSet::where('company_id', $company->id)
+            ->where('id', $id)
+            ->firstOrFail();
+
+        $item->delete();
+
+        return response()->json(['success' => true]);
     }
 }

@@ -76,7 +76,8 @@
                 request()->routeIs('company.items.*') ||
                 request()->routeIs('company.label_config.*') ||
                 request()->routeIs('company.item_sets.*') ||
-                request()->routeIs('company.other-charge.*');
+                request()->routeIs('company.other-charge.*') || 
+                 request()->routeIs('company.item_sets.qrList.*');
         @endphp
 
         <li class="nav-item {{ $itemActive ? 'active' : '' }}">
@@ -100,8 +101,8 @@
                     </li>
 
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('company.item_sets.index') ? 'active' : '' }}"
-                            href="{{ route('company.item_sets.index', auth()->user()->company->slug) }}">
+                        <a class="nav-link {{ request()->routeIs('company.list_itemset') ? 'active' : '' }}"
+                            href="{{ route('company.list_itemset', auth()->user()->company->slug) }}">
                             Label Items
                         </a>
                     </li>
