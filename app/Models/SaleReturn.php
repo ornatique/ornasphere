@@ -11,7 +11,9 @@ class SaleReturn extends Model
         'sale_id',
         'return_voucher_no',
         'return_date',
-        'return_total'
+        'return_total',
+        'source_type' ,
+        'source_id' 
     ];
 
     public function items()
@@ -22,5 +24,9 @@ class SaleReturn extends Model
     public function sale()
     {
         return $this->belongsTo(Sale::class);
+    }
+    public function approval()
+    {
+        return $this->belongsTo(ApprovalHeader::class, 'source_id');
     }
 }

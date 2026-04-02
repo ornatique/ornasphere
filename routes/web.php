@@ -20,6 +20,7 @@ use Endroid\QrCode\Writer\PngWriter;
 use App\Http\Controllers\Company\SaleController;
 use App\Http\Controllers\Company\SaleReturnController;
 use App\Http\Controllers\SuperAdmin\SuperAdmin2FAController;
+use App\Http\Controllers\Company\ApprovalController;
 
 
 
@@ -242,6 +243,11 @@ Route::middleware(['auth', 'company.2fa'])
         Route::delete('/other-charge/{id}', [OtherChargeController::class, 'destroy'])
             ->name('other-charge.destroy');
 
+        Route::get(
+            '/other-charge/options',
+            [OtherChargeController::class, 'options']
+        )->name('other-charge.options');
+
         Route::get('/itemsets', [ItemSetController::class, 'list_data'])
             ->name('itemsets.list_data');
 
@@ -323,11 +329,22 @@ Route::middleware(['auth', 'company.2fa'])
         Route::get('sales/get-itemset', [SaleController::class, 'getItemset'])
             ->name('sales.getItemset');
 
+        Route::get(
+            '/sales/search',
+            [SaleReturnController::class, 'searchSales']
+        )->name('sales.search');
+
         Route::get('sales/{sale}', [SaleController::class, 'show'])
             ->name('sales.show');
 
         Route::get('/sales/{sale}/pdf', [SaleController::class, 'viewPdf'])
             ->name('sales.pdf');
+
+        Route::get('/item-search', [SaleController::class, 'search'])
+            ->name('items.search');
+
+        Route::get('/approval-items', [SaleController::class, 'approvalItems'])
+            ->name('approval.items');
 
         Route::get(
             '/returns',
@@ -340,14 +357,19 @@ Route::middleware(['auth', 'company.2fa'])
         )->name('returns.selectSale');
 
         Route::get(
-            '/returns/{sale}/create',
+            '/returns/create/{sale}',
             [SaleReturnController::class, 'create']
-        )->name('returns.create');
+        )->whereNumber('sale')->name('returns.create');
+
+        Route::post(
+            '/returns/process-selected',
+            [SaleReturnController::class, 'store']
+        )->name('returns.processSelected');
 
         Route::post(
             '/returns/{sale}',
             [SaleReturnController::class, 'store']
-        )->name('returns.store');
+        )->whereNumber('sale')->name('returns.store');
 
         Route::get(
             '/returns/{return}/pdf',
@@ -362,7 +384,8 @@ Route::middleware(['auth', 'company.2fa'])
         Route::post(
             '/returns/{sale}',
             [SaleReturnController::class, 'store']
-        )->name('sales.return.store');
+        )->whereNumber('sale')->name('sales.return.store');
+
         // ================= YAJRA DATATABLE =================
         Route::get('/items-data', [ItemController::class, 'data'])
             ->name('items.data');
@@ -401,6 +424,68 @@ Route::middleware(['auth', 'company.2fa'])
 
         Route::delete('permissions/{permission}', [CompanyPermissionController::class, 'destroy'])
             ->name('permissions.destroy');
+
+        Route::get('approval', [ApprovalController::class, 'index'])
+            ->name('approval.index');
+
+        Route::get('approval/data', [ApprovalController::class, 'index'])
+            ->name('approval.data');
+
+        Route::get('approval/create', [ApprovalController::class, 'create'])
+            ->name('approval.create');
+
+        Route::post('approval/store', [ApprovalController::class, 'store'])
+            ->name('approval.store');
+
+        Route::get('approval/{id}/view', [ApprovalController::class, 'view'])
+            ->name('approval.view');
+
+        Route::get('approval/{id}/items', [ApprovalController::class, 'itemsData'])
+            ->name('approval.items');
+
+        Route::post('approval/sale', [ApprovalController::class, 'sale'])
+            ->name('approval.sale');
+
+        Route::post('approval/return', [ApprovalController::class, 'returnItems'])
+            ->name('approval.return');
+
+        Route::get('/approval/itemsets/{item}', [ApprovalController::class, 'getItemSets'])
+            ->name('approval.itemsets');
+
+        Route::get(
+            'approval/search-itemsets',
+            [ApprovalController::class, 'searchItemSets']
+        )->name('approval.searchItemSets');
+
+        Route::get(
+            '/approval-return-items',
+            [ApprovalController::class, 'returnItems']
+        )->name('approval.returnItems');
+    });
+
+Route::middleware(['auth', 'company.2fa'])
+    ->prefix('company/{slug}')
+    ->name('company.')
+    ->group(function () {
+
+        // ✅ SALES FROM APPROVAL
+        Route::get('approval-sales/from-approval', [SaleController::class, 'approvalList'])
+            ->name('approval-sales.fromApproval');
+
+        Route::get('approval-sales/approval/{id}', [SaleController::class, 'approvalItems'])
+            ->name('approval-sales.approval.items');
+
+        Route::post('approval-sales/store-from-approval', [SaleController::class, 'storeFromApproval'])
+            ->name('approval-sales.store.fromApproval');
+
+        Route::get('approval-return', [ApprovalController::class, 'approvalReturnList'])
+            ->name('approval.return.list');
+
+        Route::get('approval-return/{id}', [ApprovalController::class, 'approvalReturnItems'])
+            ->name('approval.return.items');
+
+        Route::post('approval-return/store', [ApprovalController::class, 'approvalReturnStore'])
+            ->name('approval.return.store');
     });
 Route::prefix('company/{slug}')
     ->name('company.')

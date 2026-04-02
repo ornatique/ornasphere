@@ -41,4 +41,8 @@ class Item extends Model
     {
         return $this->hasOne(LabelConfig::class);
     }
+    public function approvalItems()
+    {
+        return $this->hasMany(ApprovalItem::class, 'item_id');
+    }
 }

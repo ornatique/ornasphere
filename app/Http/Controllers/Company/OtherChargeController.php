@@ -151,4 +151,43 @@ class OtherChargeController extends Controller
             'message' => 'Other Charge deleted successfully'
         ]);
     }
+
+    public function options(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        $itemId = (int) $request->input('item_id', 0);
+
+        $query = OtherCharge::query()
+            ->where('company_id', $company->id)
+            ->orderByRaw('COALESCE(sequence_no, 999999) asc')
+            ->orderBy('id');
+
+        if ($itemId > 0) {
+            $query->where(function ($q) use ($itemId) {
+                $q->whereNull('item_id')
+                    ->orWhere('item_id', 0)
+                    ->orWhere('item_id', $itemId);
+            });
+        }
+
+        $rows = $query->get();
+
+        return response()->json($rows->map(function ($row) {
+            return [
+                'id' => $row->id,
+                'name' => $row->other_charge,
+                'code' => $row->code,
+                'default_amount' => (float) ($row->default_amount ?? 0),
+                'default_weight' => (float) ($row->default_weight ?? 0),
+                'quantity_pcs' => (float) ($row->quantity_pcs ?? 1),
+                'weight_formula' => $row->weight_formula,
+                'weight_percent' => (float) ($row->weight_percent ?? 0),
+                'other_amt_formula' => $row->other_amt_formula,
+                'is_default' => (bool) $row->is_default,
+                'is_selected' => (bool) $row->is_selected,
+                'item_id' => $row->item_id,
+            ];
+        }));
+    }
 }

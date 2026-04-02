@@ -5,16 +5,32 @@
 <div class="content-wrapper">
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center text-end">
-            <h4 class="card-title">Sales Return  List</h4>
+            <h4 class="card-title">Sales Return List</h4>
             <a href="{{ route('company.returns.selectSale',$company->slug) }}"
                 class="btn btn-primary ">
                 Create Return
             </a>
-
         </div>
         <div class="card-body">
 
-            
+            <div class="row mb-3">
+
+                <div class="col-md-3">
+                    <label>From Date</label>
+                    <input type="date" id="from_date" class="form-control">
+                </div>
+
+                <div class="col-md-3">
+                    <label>To Date</label>
+                    <input type="date" id="to_date" class="form-control">
+                </div>
+
+                <div class="col-md-3 d-flex align-items-end gap-2">
+                    <button class="btn btn-success" id="filterBtn">Show</button>
+                    <button class="btn btn-secondary" id="resetBtn">Reset</button>
+                </div>
+
+            </div>
 
             <table class="table table-bordered yajra-datatable">
                 <thead>
@@ -39,13 +55,20 @@
 <script>
     $(function() {
 
-        $('.yajra-datatable').DataTable({
+        let table = $('.yajra-datatable').DataTable({
             processing: true,
             serverSide: true,
-            ajax: "{{ route('company.returns.index',$company->slug) }}",
+
+            ajax: {
+                url: "{{ route('company.returns.index',$company->slug) }}",
+                data: function(d) {
+                    d.from_date = $('#from_date').val();
+                    d.to_date = $('#to_date').val();
+                }
+            },
+
             columns: [{
                     data: 'DT_RowIndex',
-                    name: 'DT_RowIndex',
                     orderable: false,
                     searchable: false
                 },
@@ -63,11 +86,22 @@
                 },
                 {
                     data: 'action',
-                    name: 'action',
                     orderable: false,
                     searchable: false
-                },
+                }
             ]
+        });
+
+        // 🔍 FILTER
+        $('#filterBtn').click(function() {
+            table.draw();
+        });
+
+        // 🔄 RESET
+        $('#resetBtn').click(function() {
+            $('#from_date').val('');
+            $('#to_date').val('');
+            table.draw();
         });
 
     });

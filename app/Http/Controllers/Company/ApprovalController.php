@@ -1,0 +1,453 @@
+<?php
+
+namespace App\Http\Controllers\Company;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use App\Models\Company;
+use App\Models\ApprovalHeader;
+use App\Models\ApprovalItem;
+use App\Models\ItemSet;
+use App\Models\SaleReturn;
+use App\Models\SaleReturnItem;
+use App\Models\User;
+use Yajra\DataTables\Facades\DataTables;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+
+class ApprovalController extends Controller
+{
+    public function index(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        $customers = User::where('company_id', $company->id)
+            ->whereRaw('LOWER(role) = ?', ['customer'])
+            ->where('is_active', 1)
+            ->get();
+
+        if ($request->ajax()) {
+            $query = ApprovalHeader::with('customer')
+                ->withCount('items')
+                ->withSum('items as total_net_weight', 'net_weight')
+                ->withSum('items as total_item_amount', 'total_amount')
+                ->where('company_id', $company->id)
+                ->orderByDesc('approval_date')
+                ->orderByDesc('id');
+
+            if (!$request->customer_id) {
+                return datatables()->of(collect())->make(true);
+            }
+
+            $query->where('customer_id', $request->customer_id);
+
+            if ($request->from_date && $request->to_date) {
+                $query->whereBetween('approval_date', [
+                    $request->from_date,
+                    $request->to_date,
+                ]);
+            }
+
+            return datatables()->of($query)
+                ->addIndexColumn()
+                ->addColumn('customer_name', fn($row) => $row->customer->name ?? '-')
+                ->addColumn('approval_date', fn($row) => \Carbon\Carbon::parse($row->approval_date)->format('d-m-Y'))
+                ->addColumn('total_items', fn($row) => (int) ($row->items_count ?? 0))
+                ->addColumn('total_net_weight', fn($row) => number_format((float) ($row->total_net_weight ?? 0), 3))
+                ->addColumn('total_amount', fn($row) => number_format((float) ($row->total_item_amount ?? 0), 2))
+                ->addColumn('status', fn($row) => $row->status_badge)
+                ->addColumn('action', function ($row) use ($slug) {
+                    $url = route('company.approval.view', [$slug, $row->id]);
+                    return '<a href="' . $url . '" class="btn btn-sm btn-info">View</a>';
+                })
+                ->rawColumns(['status', 'action'])
+                ->make(true);
+        }
+
+        return view('company.approval.index', compact('company', 'customers'));
+    }
+
+    public function create($slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        $customers = User::where('company_id', $company->id)
+            ->whereRaw('LOWER(role) = ?', ['customer'])
+            ->get();
+
+        return view('company.approval.create', compact('company', 'customers'));
+    }
+
+    public function getItemSets($slug, $itemId)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        $data = ItemSet::with('item')
+            ->where('company_id', $company->id)
+            ->where('item_id', $itemId)
+            ->where('is_final', 1)
+            ->where('is_sold', 0)
+            ->get();
+
+        return response()->json($data);
+    }
+
+    public function searchItemSets($slug, Request $request)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        $keyword = trim((string) $request->keyword);
+
+        $data = ItemSet::with('item')
+            ->where('company_id', $company->id)
+            ->where('is_final', 1)
+            ->where('is_sold', 0)
+            ->where(function ($q) use ($keyword) {
+                $q->where('HUID', 'LIKE', "%{$keyword}%")
+                    ->orWhere('qr_code', 'LIKE', "%{$keyword}%");
+            })
+            ->limit(10)
+            ->get();
+
+        return response()->json($data);
+    }
+
+    public function store(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        DB::beginTransaction();
+
+        try {
+            $approval = ApprovalHeader::create([
+                'company_id' => $company->id,
+                'customer_id' => $request->customer_id,
+                'approval_no' => 'APP' . time(),
+                'approval_date' => now(),
+                'status' => 'open',
+            ]);
+
+            $items = collect($request->items ?? []);
+            if ($items->isEmpty()) {
+                throw new \Exception('No items provided');
+            }
+
+            foreach ($items as $row) {
+                $itemSetId = (int) ($row['itemset_id'] ?? $row['id'] ?? 0);
+                if (!$itemSetId) {
+                    continue;
+                }
+
+                $itemSet = ItemSet::with('item')
+                    ->where('company_id', $company->id)
+                    ->findOrFail($itemSetId);
+
+                if ((int) $itemSet->is_sold === 1) {
+                    throw new \Exception("Item already sold/used: {$itemSet->qr_code}");
+                }
+
+                $gross = (float) ($row['gross_weight'] ?? $itemSet->gross_weight ?? 0);
+                $otherWeight = (float) ($row['other_weight'] ?? $itemSet->other ?? 0);
+                $netWeight = (float) ($row['net_weight'] ?? ($gross - $otherWeight));
+                $purity = (float) ($row['purity'] ?? optional($itemSet->item)->outward_purity ?? 0);
+                $wastePercent = (float) ($row['waste_percent'] ?? 0);
+                $netPurity = (float) ($row['net_purity'] ?? max(0, $purity - $wastePercent));
+                $totalFineWeight = (float) ($row['total_fine_weight'] ?? ($netWeight * $netPurity / 100));
+                $metalRate = (float) ($row['metal_rate'] ?? 0);
+                $metalAmount = (float) ($row['metal_amount'] ?? ($netWeight * $metalRate));
+                $labourRate = (float) ($row['labour_rate'] ?? $itemSet->sale_labour_rate ?? optional($itemSet->item)->labour_rate ?? 0);
+                $labourAmount = (float) ($row['labour_amount'] ?? ($netWeight * $labourRate));
+                $otherAmount = (float) ($row['other_amount'] ?? $itemSet->sale_other ?? 0);
+                $totalAmount = (float) ($row['total_amount'] ?? ($metalAmount + $labourAmount + $otherAmount));
+
+                ApprovalItem::create([
+                    'approval_id' => $approval->id,
+                    'itemset_id' => $itemSet->id,
+                    'item_id' => $itemSet->item_id,
+                    'huid' => $row['huid'] ?? $itemSet->HUID,
+                    'qr_code' => $row['qr_code'] ?? $itemSet->qr_code,
+                    'gross_weight' => $gross,
+                    'other_weight' => $otherWeight,
+                    'net_weight' => $netWeight,
+                    'purity' => $purity,
+                    'waste_percent' => $wastePercent,
+                    'net_purity' => $netPurity,
+                    'total_fine_weight' => $totalFineWeight,
+                    'metal_rate' => $metalRate,
+                    'metal_amount' => $metalAmount,
+                    'labour_rate' => $labourRate,
+                    'labour_amount' => $labourAmount,
+                    'other_amount' => $otherAmount,
+                    'total_amount' => $totalAmount,
+                    'status' => 'pending',
+                ]);
+
+                $itemSet->update(['is_sold' => 1]);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Approval Created Successfully',
+            ]);
+        } catch (\Exception $e) {
+            DB::rollback();
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    public function view($slug, $id)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        $approval = ApprovalHeader::with('items.itemSet.item', 'items.legacyItemSet.item')
+            ->where('company_id', $company->id)
+            ->findOrFail($id);
+
+        return view('company.approval.view', compact('company', 'approval'));
+    }
+
+    public function itemsData(Request $request, $slug, $id)
+    {
+        $data = ApprovalItem::with('itemSet.item', 'legacyItemSet.item')
+            ->where('approval_id', $id);
+
+        return DataTables::of($data)
+            ->addIndexColumn()
+            ->addColumn('item_name', function ($row) {
+                $itemSet = $row->itemSet ?? $row->legacyItemSet;
+                return optional(optional($itemSet)->item)->item_name ?? '-';
+            })
+            ->addColumn('gross_weight', fn($row) => $row->gross_weight)
+            ->addColumn('net_weight', fn($row) => $row->net_weight)
+            ->addColumn('status', function ($row) {
+                if ($row->status == 'pending') {
+                    return '<span class="badge bg-warning">Pending</span>';
+                } elseif ($row->status == 'sold') {
+                    return '<span class="badge bg-success">Sold</span>';
+                }
+
+                return '<span class="badge bg-danger">Returned</span>';
+            })
+            ->addColumn('action', function ($row) {
+                if ($row->status == 'pending') {
+                    return '<input type="checkbox" class="selectItem" value="' . $row->id . '">';
+                }
+                return '-';
+            })
+            ->rawColumns(['status', 'action'])
+            ->make(true);
+    }
+
+    public function sale(Request $request, $slug)
+    {
+        DB::beginTransaction();
+
+        try {
+            $ids = $request->items;
+
+            foreach ($ids as $id) {
+                $item = ApprovalItem::findOrFail($id);
+                $item->update(['status' => 'sold']);
+            }
+
+            $this->updateApprovalStatus($ids);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Items sold successfully',
+            ]);
+        } catch (\Exception $e) {
+            DB::rollback();
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    public function returnItems(Request $request, $slug)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+
+        $customerId = $request->customer_id;
+
+        $items = ApprovalItem::with('itemSet.item', 'legacyItemSet.item')
+            ->whereHas('approval', function ($q) use ($company, $customerId) {
+                $q->where('company_id', $company->id)
+                    ->where('customer_id', $customerId);
+            })
+            ->where('status', 'pending')
+            ->get();
+
+        return response()->json($items->map(function ($row) {
+            $itemSet = $row->itemSet ?? $row->legacyItemSet;
+            $item = optional($itemSet)->item;
+            $gross = (float) ($row->gross_weight ?? 0);
+            $otherWeight = (float) ($row->other_weight ?? 0);
+            $net = (float) ($row->net_weight ?? ($gross - $otherWeight));
+            $purity = (float) ($row->purity ?? optional($item)->outward_purity ?? 0);
+            $wastePercent = (float) ($row->waste_percent ?? 0);
+            $netPurity = (float) ($row->net_purity ?? ($purity - $wastePercent));
+            $fineWeight = (float) ($row->total_fine_weight ?? (($net * $netPurity) / 100));
+            $metalRate = (float) ($row->metal_rate ?? 0);
+            $metalAmount = (float) ($row->metal_amount ?? ($net * $metalRate));
+            $labourRate = (float) ($row->labour_rate ?? optional($itemSet)->sale_labour_rate ?? optional($item)->labour_rate ?? 0);
+            $labourAmount = (float) ($row->labour_amount ?? ($net * $labourRate));
+            $otherAmount = (float) ($row->other_amount ?? optional($itemSet)->sale_other ?? 0);
+            $totalAmount = (float) ($row->total_amount ?? ($metalAmount + $labourAmount + $otherAmount));
+            return [
+                'id' => $row->id,
+                'item_id' => $row->item_id ?? optional($itemSet)->item_id,
+                'qr_code' => $row->qr_code ?? optional($itemSet)->qr_code,
+                'huid' => $row->huid ?? optional($itemSet)->HUID,
+                'name' => optional(optional($itemSet)->item)->item_name,
+                'gross_weight' => number_format($gross, 3, '.', ''),
+                'other_weight' => number_format($otherWeight, 3, '.', ''),
+                'net_weight' => number_format($net, 3, '.', ''),
+                'purity' => number_format($purity, 3, '.', ''),
+                'waste_percent' => number_format($wastePercent, 3, '.', ''),
+                'net_purity' => number_format($netPurity, 3, '.', ''),
+                'fine_weight' => number_format($fineWeight, 3, '.', ''),
+                'metal_rate' => number_format($metalRate, 2, '.', ''),
+                'metal_amount' => number_format($metalAmount, 2, '.', ''),
+                'labour_rate' => number_format($labourRate, 2, '.', ''),
+                'labour_amount' => number_format($labourAmount, 2, '.', ''),
+                'other_amount' => number_format($otherAmount, 2, '.', ''),
+                'total_amount' => number_format($totalAmount, 2, '.', ''),
+            ];
+        }));
+    }
+
+    private function updateApprovalStatus($itemIds)
+    {
+        $approvalId = ApprovalItem::whereIn('id', $itemIds)->first()->approval_id;
+
+        $total = ApprovalItem::where('approval_id', $approvalId)->count();
+        $done = ApprovalItem::where('approval_id', $approvalId)
+            ->whereIn('status', ['sold', 'returned'])
+            ->count();
+
+        $status = $total == $done ? 'closed' : 'partial';
+
+        ApprovalHeader::where('id', $approvalId)->update([
+            'status' => $status,
+        ]);
+    }
+
+    public function approvalReturnList($slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        $approvals = ApprovalHeader::with('customer')
+            ->where('company_id', $company->id)
+            ->latest()
+            ->get();
+
+        return view('company.returns.approval_return_list', compact('company', 'approvals'));
+    }
+
+    public function approvalReturnItems($slug, $id)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        $approval = ApprovalHeader::with([
+            'customer',
+            'items' => function ($q) {
+                $q->where('status', 'pending')
+                    ->with('itemSet');
+            },
+        ])->findOrFail($id);
+
+        return view('company.returns.approval_return_items', compact('company', 'approval'));
+    }
+
+    public function approvalReturnStore(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        DB::beginTransaction();
+
+        try {
+            $hasItemsetIdColumn = Schema::hasColumn('sale_return_items', 'itemset_id');
+            $hasProductIdColumn = Schema::hasColumn('sale_return_items', 'product_id');
+
+            if (!$request->has('items') || count($request->items) == 0) {
+                return response()->json(['error' => 'No items selected']);
+            }
+
+            $return = SaleReturn::create([
+                'company_id' => $company->id,
+                'sale_id' => null,
+                'source_type' => 'approval',
+                'source_id' => $request->approval_id,
+                'return_voucher_no' => 'SR' . time(),
+                'return_date' => now(),
+                'return_total' => 0,
+            ]);
+
+            $totalAmount = 0;
+
+            foreach ($request->items as $id) {
+                $approvalItem = ApprovalItem::with('itemSet')->findOrFail($id);
+
+                if ($approvalItem->status === 'returned') {
+                    continue;
+                }
+
+                $itemSet = $approvalItem->itemSet;
+                if (!$itemSet) {
+                    throw new \Exception("ItemSet not found for Approval Item ID: {$id}");
+                }
+
+                $rate = $itemSet->metal_rate ?? 1;
+                $amount = $approvalItem->net_weight * $rate;
+
+                $returnItemPayload = [
+                    'sale_return_id' => $return->id,
+                    'sale_item_id' => null,
+                    'return_amount' => $amount,
+                ];
+
+                if ($hasItemsetIdColumn) {
+                    $returnItemPayload['itemset_id'] = $itemSet->id;
+                }
+
+                if ($hasProductIdColumn) {
+                    $returnItemPayload['product_id'] = $approvalItem->item_id;
+                }
+
+                SaleReturnItem::create($returnItemPayload);
+
+                $totalAmount += $amount;
+
+                $approvalItem->update(['status' => 'returned']);
+
+                $itemSet->update(['is_sold' => 0]);
+            }
+
+            $return->update(['return_total' => $totalAmount]);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Approval Return Voucher Created Successfully',
+            ]);
+        } catch (\Exception $e) {
+            DB::rollback();
+
+            return response()->json([
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+}

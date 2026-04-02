@@ -10,10 +10,19 @@ class SaleItem extends Model
         'sale_id',
         'itemset_id',
         'gross_weight',
+        'other_weight',
         'net_weight',
         'purity',
+        'waste_percent',
+        'net_purity',
         'fine_weight',
-        'total_amount'
+        'metal_rate',
+        'metal_amount',
+        'labour_rate',
+        'labour_amount',
+        'other_amount',
+        'total_amount',
+        'approval_item_id',
     ];
 
     public function sale()

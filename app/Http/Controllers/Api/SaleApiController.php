@@ -21,25 +21,41 @@ class SaleApiController extends Controller
     // ================= LIST SALES =================
     public function index(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $company = $request->user()->company;
+        $companyId = $company->id;
 
         $sales = Sale::with('customer')
             ->where('company_id', $companyId)
             ->latest()
             ->get();
 
-        return response()->json([
-            'success' => true,
-            'data' => $sales
-        ]);
+        $data = $sales->map(function ($sale) use ($company) {
+
+            return [
+                'id' => $sale->id,
+                'company_id' => $sale->company_id,
+                'customer_id' => $sale->customer_id,
+                'voucher_no' => $sale->voucher_no,
+                'sale_date' => $sale->sale_date,
+                'net_total' => $sale->net_total,
+
+                'customer' => $sale->customer,
+
+                // ✅ ADD THIS ONLY
+                'pdf_url' => route('company.sales.pdf', [
+                    'slug' => $company->slug,
+                    'sale' => $sale->id
+                ])
+            ];
+        });
     }
-     public function customerlist(Request $request)
+    public function customerlist(Request $request)
     {
         $companyId = $request->user()->company_id;
-      
-       $customers = User::where('company_id', $companyId)
+
+        $customers = User::where('company_id', $companyId)
             ->where('role', 'Customer')
-             ->where('is_active', 1)
+            ->where('is_active', 1)
             ->get();
 
         return response()->json([
@@ -47,42 +63,42 @@ class SaleApiController extends Controller
             'data' => $customers
         ]);
     }
-    
+
     public function addToCart(Request $request)
     {
         $user = auth()->user(); // 🔐 logged-in user from token
-    
+
         $item = Itemset::where('qr_code', $request->qr_code)
             ->where('is_sold', 0)
             ->first();
-    
+
         if (!$item) {
             return response()->json([
                 'success' => false,
                 'message' => 'Item already sale'
             ]);
         }
-    
+
         // ✅ CHECK DUPLICATE IN CART
         $exists = SaleCart::where('user_id', $user->id)
             ->where('company_id', $user->company_id) // ✅ from token
             ->where('itemset_id', $item->id)
             ->exists();
-    
+
         if ($exists) {
             return response()->json([
                 'success' => false,
                 'message' => 'Product already added. Please add different product.'
             ]);
         }
-    
+
         // ✅ SAVE TO CART
         SaleCart::create([
             'user_id'    => $user->id,
             'company_id' => $user->company_id, // ✅ from token
             'itemset_id' => $item->id,
         ]);
-    
+
         return response()->json([
             'success' => true,
             'message' => 'Product added to cart',
@@ -91,126 +107,126 @@ class SaleApiController extends Controller
     }
     public function cartItems()
     {
-    $user = auth()->user();
+        $user = auth()->user();
 
-    $items = SaleCart::with('itemset.item') // ✅ nested relation
-        ->where('user_id', $user->id)
-        ->where('company_id', $user->company_id)
-        ->get();
+        $items = SaleCart::with('itemset.item') // ✅ nested relation
+            ->where('user_id', $user->id)
+            ->where('company_id', $user->company_id)
+            ->get();
 
-    return response()->json($items);
-}
-    
-    
+        return response()->json($items);
+    }
+
+
     public function removeCartItem($id)
     {
         $user = auth()->user();
-    
+
         $cartItem = SaleCart::where('id', $id)
             ->where('user_id', $user->id)
             ->where('company_id', $user->company_id)
             ->first();
-    
+
         if (!$cartItem) {
             return response()->json([
                 'success' => false,
                 'message' => 'Item not found in cart'
             ]);
         }
-    
+
         $cartItem->delete();
-    
+
         return response()->json([
             'success' => true,
             'message' => 'Item removed from cart'
         ]);
     }
-   
 
-   public function qrListApi(Request $request)
+
+    public function qrListApi(Request $request)
     {
-    $user = auth()->user();
+        $user = auth()->user();
 
-    $itemSets = ItemSet::with('item:id,item_name')
-        ->where('company_id', $user->company_id)
-        ->where('is_final', 1)
-        ->whereNotNull('qr_code')
-        ->latest()
-        ->get()
-        ->map(function ($set) {
+        $itemSets = ItemSet::with('item:id,item_name')
+            ->where('company_id', $user->company_id)
+            ->where('is_final', 1)
+            ->whereNotNull('qr_code')
+            ->latest()
+            ->get()
+            ->map(function ($set) {
 
-            $builder = new Builder(
-                writer: new PngWriter(),
-                data: $set->qr_code,
-                size: 120,
-                margin: 5
-            );
+                $builder = new Builder(
+                    writer: new PngWriter(),
+                    data: $set->qr_code,
+                    size: 120,
+                    margin: 5
+                );
 
-            $result = $builder->build();
-            $base64 = base64_encode($result->getString());
+                $result = $builder->build();
+                $base64 = base64_encode($result->getString());
 
-            return [
-                'id' => $set->id,
-                'item_name' => $set->item ? $set->item->item_name : 'N/A', // ✅ FIXED
-                'serial_no' => $set->serial_no,
-                'qr_code' => $set->qr_code,
-                'qr_image' => 'data:image/png;base64,' . $base64,
-            ];
-        });
+                return [
+                    'id' => $set->id,
+                    'item_name' => $set->item ? $set->item->item_name : 'N/A', // ✅ FIXED
+                    'serial_no' => $set->serial_no,
+                    'qr_code' => $set->qr_code,
+                    'qr_image' => 'data:image/png;base64,' . $base64,
+                ];
+            });
 
-    return response()->json([
-        'success' => true,
-        'data' => $itemSets
-    ]);
-}
+        return response()->json([
+            'success' => true,
+            'data' => $itemSets
+        ]);
+    }
     public function downloadQrPdf(Request $request)
     {
         $user = auth()->user();
-    
+
         // selected IDs from mobile
         $ids = $request->ids; // [25,26,27]
-    
+
         $items = ItemSet::with('item:id,item_name')
             ->where('company_id', $user->company_id)
             ->whereIn('id', $ids)
             ->get();
-    
+
         $qrData = [];
-    
+
         foreach ($items as $set) {
-    
+
             $builder = new Builder(
                 writer: new PngWriter(),
                 data: $set->qr_code,
                 size: 200,
                 margin: 10
             );
-    
+
             $result = $builder->build();
             $base64 = base64_encode($result->getString());
-    
+
             $qrData[] = [
                 'item_name' => optional($set->item)->item_name,
                 'serial_no' => $set->serial_no,
                 'qr_image' => 'data:image/png;base64,' . $base64,
             ];
         }
-    
+
         $pdf = Pdf::loadView('pdf.qr_codes', compact('qrData'));
-    
+
         return $pdf->download('qr-codes.pdf');
     }
     public function confirmSale(Request $request)
     {
         DB::beginTransaction();
-    
+
         try {
             $cartItems = SaleCart::where('user_id', auth()->id())->get();
-    
+
             if ($cartItems->isEmpty()) {
                 return response()->json(['success' => false, 'message' => 'Cart empty']);
             }
-    
+
             $sale = Sale::create([
                 'company_id'  => $request->company_id,
                 'customer_id' => $request->customer_id,
@@ -218,15 +234,15 @@ class SaleApiController extends Controller
                 'sale_date'   => now(),
                 'net_total'   => 0
             ]);
-    
+
             $total = 0;
-    
+
             foreach ($cartItems as $cart) {
-    
-               $item = Itemset::with('item')->find($cart->itemset_id);
-            //   dd($item);
+
+                $item = Itemset::with('item')->find($cart->itemset_id);
+                //   dd($item);
                 $purity = optional($item->item)->outward_purity;
-                 
+
                 SaleItem::create([
                     'sale_id'    => $sale->id,
                     'itemset_id' => $item->id,
@@ -236,49 +252,48 @@ class SaleApiController extends Controller
                     'fine_weight'  => $item->fine_weight,
                     'total_amount' => $item->other,
                 ]);
-    
+
                 $item->update(['is_sold' => 1]);
-    
+
                 $total += $item->other_amount;
             }
-    
+
             $sale->update(['net_total' => $total]);
-    
+
             // 🧹 CLEAR TEMP TABLE
             SaleCart::where('user_id', auth()->id())->delete();
-    
+
             DB::commit();
-    
+
             return response()->json(['success' => true]);
-    
         } catch (\Exception $e) {
             DB::rollback();
             return response()->json(['success' => false, 'message' => $e->getMessage()]);
         }
     }
 
-public function getItemByQr(Request $request)
-{
-    $companyId = $request->user()->company_id;
+    public function getItemByQr(Request $request)
+    {
+        $companyId = $request->user()->company_id;
 
-    $item = ItemSet::with('item')
-        ->where('company_id', $companyId)
-        ->where('qr_code', $request->qr_code)
-        ->where('is_sold', 0)
-        ->first();
+        $item = ItemSet::with('item')
+            ->where('company_id', $companyId)
+            ->where('qr_code', $request->qr_code)
+            ->where('is_sold', 0)
+            ->first();
 
-    if (!$item) {
+        if (!$item) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Item not found or already sold'
+            ]);
+        }
+
         return response()->json([
-            'success' => false,
-            'message' => 'Item not found or already sold'
+            'success' => true,
+            'data' => $item
         ]);
     }
-
-    return response()->json([
-        'success' => true,
-        'data' => $item
-    ]);
-}
     // ================= GET ITEMSET (QR SCAN) =================
     public function getItemset(Request $request)
     {
@@ -357,7 +372,6 @@ public function getItemByQr(Request $request)
                 'message' => 'Sale created successfully',
                 'data' => $sale
             ]);
-
         } catch (\Exception $e) {
 
             DB::rollback();
@@ -374,7 +388,7 @@ public function getItemByQr(Request $request)
     {
         $companyId = $request->user()->company_id;
 
-        $sale = Sale::with('customer','saleItems.itemset')
+        $sale = Sale::with('customer', 'saleItems.itemset')
             ->where('company_id', $companyId)
             ->find($id);
 

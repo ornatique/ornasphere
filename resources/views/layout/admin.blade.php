@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="{{ asset('celestial/assets/css/vertical-layout-dark/style.css') }}">
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
   <!-- endinject -->
-
+   @stack('styles')
   <link rel="shortcut icon" href="{{ asset('celestial/assets/images/favicon.png') }}" />
 </head>
 

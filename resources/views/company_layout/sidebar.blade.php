@@ -26,10 +26,10 @@
 
         {{-- ================= USERS MANAGEMENT ================= --}}
         @php
-            $userManagementActive =
-                request()->routeIs('company.roles.*') ||
-                request()->routeIs('company.permissions.*') ||
-                request()->routeIs('company.users.*');
+        $userManagementActive =
+        request()->routeIs('company.roles.*') ||
+        request()->routeIs('company.permissions.*') ||
+        request()->routeIs('company.users.*');
         @endphp
 
         <li class="nav-item {{ $userManagementActive ? 'active' : '' }}">
@@ -72,12 +72,12 @@
 
         {{-- ================= ITEM MANAGEMENT ================= --}}
         @php
-            $itemActive =
-                request()->routeIs('company.items.*') ||
-                request()->routeIs('company.label_config.*') ||
-                request()->routeIs('company.item_sets.*') ||
-                request()->routeIs('company.other-charge.*') || 
-                 request()->routeIs('company.item_sets.qrList.*');
+        $itemActive =
+        request()->routeIs('company.items.*') ||
+        request()->routeIs('company.label_config.*') ||
+        request()->routeIs('company.item_sets.*') ||
+        request()->routeIs('company.other-charge.*') ||
+        request()->routeIs('company.item_sets.qrList.*');
         @endphp
 
         <li class="nav-item {{ $itemActive ? 'active' : '' }}">
@@ -134,7 +134,9 @@
 
         {{-- ================= SALES ================= --}}
         @php
-            $salesActive = request()->routeIs('company.sales.*');
+        $salesActive = request()->routeIs('company.sales.*')
+        || request()->routeIs('company.returns.*')
+        || request()->routeIs('company.approval.*');
         @endphp
 
         <li class="nav-item {{ $salesActive ? 'active' : '' }}">
@@ -151,16 +153,23 @@
                 <ul class="nav flex-column sub-menu">
 
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('company.sales.index') ? 'active' : '' }}"
+                        <a class="nav-link {{ request()->routeIs('company.approval.*') ? 'active' : '' }}"
+                            href="{{ route('company.approval.index', auth()->user()->company->slug) }}">
+                            Approval
+                        </a>
+                    </li>
+
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.sales.*') ? 'active' : '' }}"
                             href="{{ route('company.sales.index', auth()->user()->company->slug) }}">
                             Sales Estimate
                         </a>
                     </li>
 
                     <li class="nav-item">
-                       <a class="nav-link {{ request()->routeIs('company.returns.index') ? 'active' : '' }}"
+                        <a class="nav-link {{ request()->routeIs('company.returns.*') ? 'active' : '' }}"
                             href="{{ route('company.returns.index', auth()->user()->company->slug) }}">
-                           Purchase / reciver
+                            Purchase / Receiver
                         </a>
                     </li>
 
