@@ -38,6 +38,6 @@ class SaleCart extends Model
     // Cart belongs to Itemset
     public function itemset()
     {
-        return $this->belongsTo(Itemset::class);
+        return $this->belongsTo(ItemSet::class);
     }
 }

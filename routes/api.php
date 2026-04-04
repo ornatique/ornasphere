@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\ItemSetController;
 use App\Http\Controllers\Api\OtherChargeController;
 use App\Http\Controllers\Api\SaleApiController;
 use App\Http\Controllers\Api\SaleReturnApiController;
+use App\Http\Controllers\Api\ApprovalApiController;
 
 Route::post('/company/login', [AuthController::class, 'login']);
 Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
@@ -55,6 +56,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('itemsets_delete/{id}', [ItemSetController::class, 'destroy']); // delete
     
     Route::get('/other-charges', [OtherChargeController::class, 'index']);
+    Route::get('/other-charges/options', [OtherChargeController::class, 'options']);
+    Route::post('/other-charges/calculate', [OtherChargeController::class, 'calculate']);
     Route::post('/add-other-charges', [OtherChargeController::class, 'store']);
     Route::get('/other-charges/{id}', [OtherChargeController::class, 'show']);
     Route::put('/update-other-charges/{id}', [OtherChargeController::class, 'update']);
@@ -63,15 +66,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/sale-list', [SaleApiController::class, 'index']);             // List sales
     Route::post('/sales/get-item-by-qr', [SaleApiController::class, 'getItemByQr']);
     Route::get('/sales/customerlist', [SaleApiController::class, 'customerlist']);
+    Route::post('/sales/scan-qr', [SaleApiController::class, 'scanQr']);
+    Route::get('/sales/approval-items', [SaleApiController::class, 'approvalItems']);
     Route::post('/sales/add-to-cart', [SaleApiController::class, 'addToCart']);
     Route::get('/sales/cart-items', [SaleApiController::class, 'cartItems']);
     Route::delete('/sales/cart/remove/{id}', [SaleApiController::class, 'removeCartItem']);
     Route::post('/sales/confirm-sale', [SaleApiController::class, 'confirmSale']);
     Route::get('/itemsets/qr-list', [SaleApiController::class, 'qrListApi']);
     Route::post('/itemsets/qr/pdf', [SaleApiController::class, 'downloadQrPdf']);
-    Route::post('/store', [SaleApiController::class, 'store']);       // Create sale
-    Route::get('/{id}', [SaleApiController::class, 'show']);          // Sale details
-    Route::get('/itemset', [SaleApiController::class, 'getItemset']); // Scan QR
+    Route::post('/sales/store', [SaleApiController::class, 'store']);       // Create sale
+    Route::get('/sales/{id}', [SaleApiController::class, 'show'])->whereNumber('id'); // Sale details
+    Route::get('/sales/itemset', [SaleApiController::class, 'getItemset']); // Scan QR
     
     
     Route::get('/returns/list', [SaleReturnApiController::class, 'list_of_return']);
@@ -80,7 +85,24 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/returns/store', [SaleReturnApiController::class, 'store']);
     Route::get('/returns/pdf/{returnId}', [SaleReturnApiController::class, 'pdf']);
     Route::post('/returns/scan-product', [SaleReturnApiController::class,'scanProduct']);
+    Route::post('/returns/scan-qr', [SaleReturnApiController::class,'scanQr']);
+    Route::get('/returns/approval-items', [SaleReturnApiController::class, 'approvalReturnItems']);
+    Route::post('/returns/process-selected', [SaleReturnApiController::class, 'processSelected']);
     Route::get('/returns/cart-list', [SaleReturnApiController::class, 'returnCartList']);
     Route::delete('/returns/cart-remove/{id}', [SaleReturnApiController::class, 'removeCartItem']);
     Route::post('/returns/confirm-return', [SaleReturnApiController::class, 'confirmReturn']);
+
+    Route::get('/approvals/customers', [ApprovalApiController::class, 'customers']);
+    Route::get('/approvals/items', [ApprovalApiController::class, 'items']);
+    Route::get('/approvals', [ApprovalApiController::class, 'index']);
+    Route::post('/approvals/scan-qr', [ApprovalApiController::class, 'scanQr']);
+    Route::get('/approvals/itemsets/{itemId}', [ApprovalApiController::class, 'getItemSets']);
+    Route::get('/approvals/search-itemsets', [ApprovalApiController::class, 'searchItemSets']);
+    Route::post('/approvals/store', [ApprovalApiController::class, 'store']);
+    Route::get('/approvals/{id}', [ApprovalApiController::class, 'show'])->whereNumber('id');
+    Route::post('/approvals/sale', [ApprovalApiController::class, 'markSold']);
+    Route::get('/approvals/pending-items', [ApprovalApiController::class, 'pendingItemsByCustomer']);
+    Route::post('/approvals/return', [ApprovalApiController::class, 'returnItems']);
+    Route::get('/approvals/{id}/pdf', [ApprovalApiController::class, 'pdf'])->whereNumber('id');
+    Route::get('/approvals/pdf/{id}', [ApprovalApiController::class, 'pdf'])->whereNumber('id');
 });

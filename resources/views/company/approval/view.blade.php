@@ -8,11 +8,17 @@
     {{-- HEADER --}}
     <div class="card-header d-flex justify-content-between">
         <h4 class="card-title">Approval Details</h4>
-
-        <a href="{{ route('company.approval.index', $company->slug) }}"
-           class="btn btn-secondary">
-            Back
-        </a>
+        <div class="d-flex gap-2">
+            <a href="{{ route('company.approval.pdf', [$company->slug, $approval->id]) }}"
+               class="btn btn-primary"
+               target="_blank">
+                View PDF
+            </a>
+            <a href="{{ route('company.approval.index', $company->slug) }}"
+               class="btn btn-secondary">
+                Back
+            </a>
+        </div>
     </div>
 
     <div class="card-body">
@@ -46,9 +52,10 @@
         </div>
 
         @php
-            $totalGross = (float) $approval->items->sum('gross_weight');
-            $totalNet = (float) $approval->items->sum('net_weight');
-            $totalAmount = (float) $approval->items->sum('total_amount');
+            $billableItems = $approval->items->where('status', '!=', 'returned');
+            $totalGross = (float) $billableItems->sum('gross_weight');
+            $totalNet = (float) $billableItems->sum('net_weight');
+            $totalAmount = (float) $billableItems->sum('total_amount');
         @endphp
 
         <div class="row mb-3">
@@ -90,7 +97,9 @@
                 @foreach($approval->items as $index => $row)
 
                     @php
-                        $totalOther += (float) ($row->other_weight ?? 0);
+                        if ($row->status !== 'returned') {
+                            $totalOther += (float) ($row->other_weight ?? 0);
+                        }
                     @endphp
 
                     <tr>

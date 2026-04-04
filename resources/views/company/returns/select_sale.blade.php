@@ -373,38 +373,89 @@ $(function() {
         return { qty, amount, wt_formula: wtFormula || 'flat', amt_formula: amtFormula || 'flat', total };
     }
 
+    const WEIGHT_FORMULA_OPTIONS = [
+        { value: 'flat', label: 'flat' },
+        { value: 'per_weight', label: 'per_weight' },
+        { value: 'per_quantity', label: 'per_quantity' }
+    ];
+
+    const AMOUNT_FORMULA_OPTIONS = [
+        { value: 'flat', label: 'flat' },
+        { value: 'per_weight', label: 'per_weight' },
+        { value: 'per_quantity', label: 'per_quantity' },
+        { value: 'carat', label: 'carat' }
+    ];
+
+    function normalizeFormula(value, allowed, fallback = 'flat') {
+        const v = String(value || fallback).toLowerCase();
+        return allowed.includes(v) ? v : fallback;
+    }
+
+    function buildFormulaSelect(type, currentValue) {
+        const options = type === 'wt' ? WEIGHT_FORMULA_OPTIONS : AMOUNT_FORMULA_OPTIONS;
+        const cls = type === 'wt' ? 'charge-wt-formula' : 'charge-amt-formula';
+        const allowed = options.map(o => o.value);
+        const selected = normalizeFormula(currentValue, allowed, 'flat');
+
+        let html = `<select class="form-control ${cls}">`;
+        options.forEach(opt => {
+            html += `<option value="${opt.value}" ${selected === opt.value ? 'selected' : ''}>${opt.label}</option>`;
+        });
+        html += `</select>`;
+        return html;
+    }
+
     function renderOtherChargeRows(lines) {
         const $tbody = $('#otherChargeTable tbody');
         $tbody.empty();
         const selectedIds = new Set((lines || []).map(x => Number(x.charge_id)));
+        const existingLineMap = new Map(
+            (lines || []).map(x => [Number(x.charge_id), x])
+        );
         const rowContext = selectedRows[modalRowId] || {};
 
         otherChargeOptions.slice(0, 10).forEach((opt, index) => {
             const calc = calculateChargeTotal(opt, rowContext);
+            const existing = existingLineMap.get(Number(opt.id)) || null;
             const checked = selectedIds.has(Number(opt.id)) ? 'checked' : '';
             const activeClass = checked ? 'table-active' : '';
-            const factor = calc.amount > 0 ? (calc.total / calc.amount) : 1;
+            const amount = existing ? toNum(existing.amount, calc.amount) : calc.amount;
+            const qty = existing ? toNum(existing.qty, calc.qty) : calc.qty;
+            const wtFormula = normalizeFormula(
+                existing ? (existing.formula ?? existing.wt_formula ?? calc.wt_formula) : calc.wt_formula,
+                WEIGHT_FORMULA_OPTIONS.map(o => o.value),
+                'flat'
+            );
+            const amtFormula = normalizeFormula(
+                existing ? (existing.other_amt_formula ?? existing.amt_formula ?? calc.amt_formula) : calc.amt_formula,
+                AMOUNT_FORMULA_OPTIONS.map(o => o.value),
+                'flat'
+            );
 
             $tbody.append(`
                 <tr class="charge-row ${activeClass}"
                     data-id="${opt.id}"
                     data-name="${escapeHtml(opt.name)}"
-                    data-amount="${nfix(calc.amount, 2)}"
-                    data-qty="${nfix(calc.qty, 3)}"
-                    data-factor="${nfix(factor, 6)}"
-                    data-wt-formula="${escapeHtml(calc.wt_formula)}"
-                    data-amt-formula="${escapeHtml(calc.amt_formula)}"
-                    data-total="${nfix(calc.total, 2)}">
+                    data-amount="${nfix(amount, 2)}"
+                    data-qty="${nfix(qty, 3)}"
+                    data-item-weight="${nfix(toNum(rowContext.net_weight || rowContext.gross_weight), 6)}"
+                    data-default-weight="${nfix(toNum(opt.default_weight, 0), 6)}"
+                    data-weight-percent="${nfix(toNum(opt.weight_percent, 0), 6)}"
+                    data-wt-formula="${escapeHtml(wtFormula)}"
+                    data-amt-formula="${escapeHtml(amtFormula)}"
+                    data-total="0">
                     <td class="charge-sr">${index + 1}</td>
                     <td>${escapeHtml(opt.name || '-')}</td>
-                    <td><input type="number" step="0.01" class="form-control charge-amount-input text-end" value="${nfix(calc.amount, 2)}"></td>
-                    <td><input type="number" step="0.001" class="form-control charge-qty-input text-end" value="${nfix(calc.qty, 3)}"></td>
-                    <td>${escapeHtml(calc.wt_formula)}</td>
-                    <td>${escapeHtml(calc.amt_formula)}</td>
-                    <td class="text-end charge-total-cell">${nfix(calc.total, 2)}</td>
+                    <td><input type="number" step="0.01" class="form-control charge-amount-input text-end" value="${nfix(amount, 2)}"></td>
+                    <td><input type="number" step="0.001" class="form-control charge-qty-input text-end" value="${nfix(qty, 3)}"></td>
+                    <td>${buildFormulaSelect('wt', wtFormula)}</td>
+                    <td>${buildFormulaSelect('amt', amtFormula)}</td>
+                    <td class="text-end charge-total-cell">0.00</td>
                     <td class="charge-select-col"><input type="checkbox" class="charge-check" ${checked}></td>
                 </tr>
             `);
+
+            recomputeChargeLine($tbody.find('tr:last'));
         });
 
         recalcModalCharges();
@@ -413,18 +464,42 @@ $(function() {
     function recomputeChargeLine($tr) {
         const amount = toNum($tr.find('.charge-amount-input').val());
         const qty = toNum($tr.find('.charge-qty-input').val(), 1);
-        const amtFormula = String($tr.data('amt-formula') || 'flat').toLowerCase();
-        const factor = toNum($tr.data('factor'), 1);
+        const wtFormula = normalizeFormula(
+            $tr.find('.charge-wt-formula').val(),
+            WEIGHT_FORMULA_OPTIONS.map(o => o.value),
+            'flat'
+        );
+        const amtFormula = normalizeFormula(
+            $tr.find('.charge-amt-formula').val(),
+            AMOUNT_FORMULA_OPTIONS.map(o => o.value),
+            'flat'
+        );
+        const itemWeight = toNum($tr.data('item-weight'));
+        const defaultWeight = toNum($tr.data('default-weight'));
+        const weightPercent = toNum($tr.data('weight-percent'));
+
+        let weight = defaultWeight;
+        if (weightPercent > 0) {
+            weight = (itemWeight * weightPercent) / 100;
+        } else if (wtFormula === 'per_weight') {
+            weight = itemWeight;
+        } else if (wtFormula === 'per_quantity') {
+            weight = defaultWeight * qty;
+        }
 
         let total = amount;
         if (amtFormula === 'per_quantity') {
             total = amount * qty;
-        } else if (amtFormula === 'per_weight' || amtFormula === 'carat') {
-            total = amount * factor;
+        } else if (amtFormula === 'per_weight') {
+            total = amount * weight;
+        } else if (amtFormula === 'carat') {
+            total = amount * itemWeight;
         }
 
         $tr.data('amount', nfix(amount, 2));
         $tr.data('qty', nfix(qty, 3));
+        $tr.data('wt-formula', wtFormula);
+        $tr.data('amt-formula', amtFormula);
         $tr.data('total', nfix(total, 2));
         $tr.find('.charge-total-cell').text(nfix(total, 2));
     }
@@ -646,7 +721,7 @@ $(function() {
     });
 
     $(document).on('click', '.charge-row', function (e) {
-        if ($(e.target).is('input')) return;
+        if ($(e.target).is('input, select, option')) return;
         const $check = $(this).find('.charge-check');
         $check.prop('checked', !$check.prop('checked')).trigger('change');
     });
@@ -656,7 +731,7 @@ $(function() {
         recalcModalCharges();
     });
 
-    $(document).on('input', '.charge-amount-input, .charge-qty-input', function () {
+    $(document).on('input change', '.charge-amount-input, .charge-qty-input, .charge-wt-formula, .charge-amt-formula', function () {
         const $tr = $(this).closest('tr');
         recomputeChargeLine($tr);
         recalcModalCharges();

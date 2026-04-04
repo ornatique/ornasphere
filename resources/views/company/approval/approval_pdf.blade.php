@@ -4,30 +4,84 @@
     <meta charset="utf-8">
     <style>
         @page { size: A4 portrait; margin: 8mm; }
-        body { font-family: DejaVu Sans, Arial, sans-serif; font-size: 10px; color: #111; margin: 0; }
-        .sheet { width: 100%; border: 1px solid #000; }
-        .sheet-title { border-bottom: 1px solid #000; padding: 6px 8px; font-weight: 700; font-size: 14px; }
-        .meta { width: 100%; border-collapse: collapse; border-bottom: 1px solid #000; }
-        .meta td { border-right: 1px solid #000; padding: 4px 6px; vertical-align: top; }
-        .meta td:last-child { border-right: none; }
-        .voucher-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        .voucher-grid th, .voucher-grid td { border: 1px solid #000; padding: 3px 4px; vertical-align: top; word-wrap: break-word; }
-        .voucher-grid th { background: #efefef; font-weight: 700; text-align: center; }
+        body {
+            font-family: DejaVu Sans, Arial, sans-serif;
+            font-size: 10px;
+            color: #111;
+            margin: 0;
+        }
+
+        .sheet {
+            width: 100%;
+            border: 1px solid #000;
+        }
+
+        .sheet-title {
+            border-bottom: 1px solid #000;
+            padding: 6px 8px;
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .meta {
+            width: 100%;
+            border-collapse: collapse;
+            border-bottom: 1px solid #000;
+        }
+
+        .meta td {
+            border-right: 1px solid #000;
+            padding: 4px 6px;
+            vertical-align: top;
+        }
+
+        .meta td:last-child {
+            border-right: none;
+        }
+
+        .voucher-grid {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        .voucher-grid th,
+        .voucher-grid td {
+            border: 1px solid #000;
+            padding: 3px 4px;
+            vertical-align: top;
+            word-wrap: break-word;
+        }
+
+        .voucher-grid th {
+            background: #efefef;
+            font-weight: 700;
+            text-align: center;
+        }
+
         .text-right { text-align: right; }
         .text-center { text-align: center; }
-        .grand-total { text-align: right; font-weight: 700; padding: 6px 8px 8px; }
+
+        .grand-total {
+            text-align: right;
+            font-weight: 700;
+            padding: 6px 8px 8px;
+        }
     </style>
 </head>
 <body>
+
 @php
-    $name = optional($sale->customer)->name ?? '-';
-    $city = optional($sale->customer)->city ?? '-';
-    $contact = optional($sale->customer)->mobile ?? optional($sale->customer)->phone ?? '-';
+    $name = optional($approval->customer)->name ?? '-';
+    $city = optional($approval->customer)->city ?? '-';
+    $contact = optional($approval->customer)->mobile ?? optional($approval->customer)->phone ?? '-';
+
+    $billableItems = $approval->items->where('status', '!=', 'returned');
     $sumGross = 0; $sumLess = 0; $sumNet = 0; $sumOther = 0; $sumTotal = 0;
 @endphp
 
 <div class="sheet">
-    <div class="sheet-title">Estimate</div>
+    <div class="sheet-title">Approval Estimate</div>
 
     <table class="meta">
         <tr>
@@ -36,8 +90,8 @@
                 <div style="margin-top:4px;"><strong>City</strong> : {{ $city }}</div>
             </td>
             <td style="width:44%;">
-                <div><strong>Estimate No</strong> : {{ $sale->voucher_no }}</div>
-                <div style="margin-top:4px;"><strong>Date</strong> : {{ \Carbon\Carbon::parse($sale->sale_date)->format('d-m-Y') }}</div>
+                <div><strong>Estimate No</strong> : {{ $approval->approval_no }}</div>
+                <div style="margin-top:4px;"><strong>Date</strong> : {{ optional($approval->approval_date)->format('d-m-Y') ?? \Carbon\Carbon::parse($approval->approval_date)->format('d-m-Y') }}</div>
                 <div style="margin-top:4px;"><strong>Contact No</strong> : {{ $contact }}</div>
             </td>
         </tr>
@@ -60,11 +114,11 @@
             </tr>
         </thead>
         <tbody>
-            @foreach($sale->saleItems as $index => $row)
+            @foreach($billableItems as $index => $row)
                 @php
-                    $itemSet = $row->itemset;
+                    $itemSet = $row->itemSet ?? $row->legacyItemSet;
                     $item = optional($itemSet)->item;
-                    $labelCode = optional($itemSet)->qr_code ?? '';
+                    $labelCode = $row->qr_code ?? optional($itemSet)->qr_code ?? '';
                     $itemName = optional($item)->item_name ?? '-';
                     $itemDisplay = trim(($labelCode ? ($labelCode . ' - ') : '') . $itemName);
                     $carat = (float) (optional($item)->outward_carat ?? 0);
@@ -77,7 +131,11 @@
                     $other = (float) ($row->other_amount ?? 0);
                     $total = (float) ($row->total_amount ?? 0);
 
-                    $sumGross += $gross; $sumLess += $less; $sumNet += $net; $sumOther += $other; $sumTotal += $total;
+                    $sumGross += $gross;
+                    $sumLess += $less;
+                    $sumNet += $net;
+                    $sumOther += $other;
+                    $sumTotal += $total;
                 @endphp
                 <tr>
                     <td class="text-center">{{ $index + 1 }}</td>
@@ -93,6 +151,11 @@
                     <td class="text-right">{{ number_format($total, 2) }}</td>
                 </tr>
             @endforeach
+            @if($billableItems->isEmpty())
+                <tr>
+                    <td colspan="11" class="text-center">No billable items</td>
+                </tr>
+            @endif
         </tbody>
         <tfoot>
             <tr>
@@ -108,7 +171,7 @@
         </tfoot>
     </table>
 
-    <div class="grand-total">Grand Total : {{ number_format((float)($sale->net_total ?? $sumTotal), 2) }}</div>
+    <div class="grand-total">Grand Total : {{ number_format($sumTotal, 2) }}</div>
 </div>
 
 </body>

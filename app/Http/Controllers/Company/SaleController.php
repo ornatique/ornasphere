@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Sale;
 use App\Models\SaleItem;
-use App\Models\Itemset;
+use App\Models\ItemSet;
 use App\Models\User;
 use App\Models\Company;
 use App\Models\ApprovalHeader;
@@ -116,7 +116,7 @@ class SaleController extends Controller
             ->whereRaw('LOWER(role) = ?', ['customer'])
             ->get();
 
-        $itemsets = Itemset::with('item')
+        $itemsets = ItemSet::with('item')
             ->where('company_id', $company->id)
             ->where('is_sold', 0)
             ->get();
@@ -133,7 +133,7 @@ class SaleController extends Controller
     {
         $company = Company::where('slug', $slug)->firstOrFail();
 
-        $items = Itemset::with('item')
+        $items = ItemSet::with('item')
             ->where('company_id', $company->id)
             ->where('is_final', 1)
             ->where('is_sold', 0)
@@ -189,7 +189,7 @@ class SaleController extends Controller
     public function getItemset(Request $request, $company)
     {
 
-        $query = Itemset::where('company_id', $company->id)
+        $query = ItemSet::where('company_id', $company->id)
             ->where('is_sold', 0);
 
         if ($request->qr_code) {
@@ -244,7 +244,7 @@ class SaleController extends Controller
 
                 if (empty($itemsetId)) continue;
 
-                $item = Itemset::find($itemsetId);
+                $item = ItemSet::find($itemsetId);
                 if (!$item) continue;
 
                 // ❗ prevent double sale
@@ -356,7 +356,8 @@ class SaleController extends Controller
             ->where('company_id', $company->id)
             ->findOrFail($saleId);
 
-        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale'));
+        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale'))
+            ->setPaper('a4', 'portrait');
 
         return $pdf->stream('Invoice-' . $sale->voucher_no . '.pdf');
     }

@@ -174,4 +174,119 @@ class OtherChargeController extends Controller
             'message' => 'Other Charge deleted successfully'
         ]);
     }
+
+    // POPUP OPTIONS (same as web flow)
+    public function options(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+        $itemId = (int) $request->input('item_id', 0);
+
+        $query = OtherCharge::query()
+            ->where('company_id', $companyId)
+            ->orderByRaw('COALESCE(sequence_no, 999999) asc')
+            ->orderBy('id');
+
+        if ($itemId > 0) {
+            $query->where(function ($q) use ($itemId) {
+                $q->whereNull('item_id')
+                    ->orWhere('item_id', 0)
+                    ->orWhere('item_id', $itemId);
+            });
+        }
+
+        $rows = $query->get()->map(function ($row) {
+            return [
+                'id' => $row->id,
+                'name' => $row->other_charge,
+                'code' => $row->code,
+                'default_amount' => (float) ($row->default_amount ?? 0),
+                'default_weight' => (float) ($row->default_weight ?? 0),
+                'quantity_pcs' => (float) ($row->quantity_pcs ?? 1),
+                'weight_formula' => $row->weight_formula,
+                'weight_percent' => (float) ($row->weight_percent ?? 0),
+                'other_amt_formula' => $row->other_amt_formula,
+                'is_default' => (bool) $row->is_default,
+                'is_selected' => (bool) $row->is_selected,
+                'item_id' => $row->item_id,
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $rows
+        ]);
+    }
+
+    // POPUP CALCULATION PREVIEW
+    public function calculate(Request $request)
+    {
+        $request->validate([
+            'item_weight' => 'nullable|numeric',
+            'rows' => 'required|array',
+        ]);
+
+        $itemWeight = (float) ($request->input('item_weight', 0));
+        $rows = collect($request->input('rows', []))->map(function ($row) use ($itemWeight) {
+            $amount = (float) ($row['amount'] ?? $row['default_amount'] ?? 0);
+            $qty = (float) ($row['qty'] ?? $row['quantity_pcs'] ?? 1);
+            $wtPercent = (float) ($row['wt_percent'] ?? $row['weight_percent'] ?? 0);
+            $wtFormula = strtolower((string) ($row['wt_formula'] ?? $row['weight_formula'] ?? 'flat'));
+            $amtFormula = strtolower((string) ($row['amt_formula'] ?? $row['other_amt_formula'] ?? 'flat'));
+            $selected = filter_var($row['selected'] ?? true, FILTER_VALIDATE_BOOL);
+
+            $weight = isset($row['weight'])
+                ? (float) $row['weight']
+                : 0.0;
+
+            // Weight formula handling (editable in popup row)
+            if (!isset($row['weight'])) {
+                if ($wtFormula === 'per_quantity' || $wtFormula === 'per qty') {
+                    $weight = $itemWeight * $qty;
+                } elseif ($wtFormula === 'per_weight' || $wtFormula === 'per wt') {
+                    $weight = $wtPercent > 0 ? ($itemWeight * $wtPercent / 100) : $itemWeight;
+                } elseif ($wtFormula === 'wt_amt' || $wtFormula === 'wt/amt') {
+                    $weight = $wtPercent > 0 ? ($itemWeight * $wtPercent / 100) : $itemWeight;
+                } elseif ($wtFormula === 'flat') {
+                    $weight = (float) ($row['default_weight'] ?? 0);
+                } else {
+                    $weight = $wtPercent > 0 ? ($itemWeight * $wtPercent / 100) : $itemWeight;
+                }
+            }
+
+            $lineTotal = $amount;
+            if ($amtFormula === 'per_quantity' || $amtFormula === 'per qty') {
+                $lineTotal = $amount * $qty;
+            } elseif ($amtFormula === 'per_weight' || $amtFormula === 'per wt') {
+                $lineTotal = $amount * $weight;
+            } elseif ($amtFormula === 'wt_amt' || $amtFormula === 'wt/amt') {
+                $lineTotal = $weight > 0 ? $amount * $weight : $amount;
+            } elseif ($amtFormula === 'flat') {
+                $lineTotal = $amount;
+            }
+
+            return [
+                'id' => $row['id'] ?? null,
+                'name' => $row['name'] ?? null,
+                'amount' => $amount,
+                'qty' => $qty,
+                'selected' => $selected,
+                'wt_formula' => $wtFormula,
+                'wt_percent' => $wtPercent,
+                'weight' => $weight,
+                'amt_formula' => $amtFormula,
+                'line_total' => round($lineTotal, 2),
+            ];
+        })->values();
+
+        $selectedTotal = (float) $rows
+            ->where('selected', true)
+            ->sum('line_total');
+
+        return response()->json([
+            'success' => true,
+            'data' => $rows,
+            'charge_total' => round((float) $rows->sum('line_total'), 2),
+            'selected_charge_total' => round($selectedTotal, 2),
+        ]);
+    }
 }

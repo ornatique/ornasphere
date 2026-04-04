@@ -440,6 +440,11 @@ Route::middleware(['auth', 'company.2fa'])
         Route::get('approval/{id}/view', [ApprovalController::class, 'view'])
             ->name('approval.view');
 
+        Route::get('approval/{id}/pdf', [ApprovalController::class, 'pdf'])
+            ->name('approval.pdf');
+        Route::get('approvals/pdf/{id}', [ApprovalController::class, 'pdf'])
+            ->name('approval.pdf.v2');
+
         Route::get('approval/{id}/items', [ApprovalController::class, 'itemsData'])
             ->name('approval.items');
 

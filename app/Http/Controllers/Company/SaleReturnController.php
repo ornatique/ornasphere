@@ -260,7 +260,7 @@ class SaleReturnController extends Controller
         $pdf = Pdf::loadView(
             'company.returns.return_pdf',
             compact('return')
-        );
+        )->setPaper('a4', 'portrait');
 
         return $pdf->stream(
             'Return-' . $return->return_voucher_no . '.pdf'

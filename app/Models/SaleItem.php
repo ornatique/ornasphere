@@ -32,6 +32,6 @@ class SaleItem extends Model
 
     public function itemset()
     {
-        return $this->belongsTo(Itemset::class);
+        return $this->belongsTo(ItemSet::class);
     }
 }

@@ -28,6 +28,16 @@
                     <input type="date" id="to_date" class="form-control">
                 </div>
 
+                <div class="col-md-3">
+                    <label>Item</label>
+                    <select id="item_id" class="form-select">
+                        <option value="">All Items</option>
+                        @foreach($items as $item)
+                            <option value="{{ $item->id }}">{{ $item->item_name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+
                 <div class="col-md-3 d-flex align-items-end">
                     <button class="btn btn-primary w-100" id="filterBtn">
                         Apply Filter
@@ -44,10 +54,14 @@
                 <thead>
                     <tr>
                         <th>#</th>
+                        <th>Date</th>
                         <th>Item</th>
-                        <th>Gross Wt</th>
-                        <th>Net Wt</th>
                         <th>Label Code</th>
+                        <th>Gross Wt</th>
+                        <th>Other Wt</th>
+                        <th>Net Wt</th>
+                        <th>Qty Pcs</th>
+                        <th>Print Date Time</th>
                         <th>Action</th>
                     </tr>
                 </thead>
@@ -127,10 +141,16 @@
                 d.to_date = $('#to_date').val();
             }
         },
-        columns: [{
+                columns: [
+            {
                 data: 'DT_RowIndex',
-                name: 'id', // ✅ IMPORTANT
+                name: 'id',
                 orderable: false,
+                searchable: false
+            },
+            {
+                data: 'date',
+                name: 'date',
                 searchable: false
             },
             {
@@ -139,8 +159,18 @@
                 searchable: true
             },
             {
+                data: 'qr_code',
+                name: 'qr_code',
+                searchable: true
+            },
+            {
                 data: 'gross_weight',
                 name: 'gross_weight',
+                searchable: true
+            },
+            {
+                data: 'other_weight',
+                name: 'other_weight',
                 searchable: true
             },
             {
@@ -149,9 +179,14 @@
                 searchable: true
             },
             {
-                data: 'qr_code',
-                name: 'qr_code',
-                searchable: true
+                data: 'qty_pcs',
+                name: 'qty_pcs',
+                searchable: false
+            },
+            {
+                data: 'printed_at',
+                name: 'printed_at',
+                searchable: false
             },
             {
                 data: 'action',
@@ -227,3 +262,4 @@
     });
 </script>
 @endpush
+

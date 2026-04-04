@@ -11,6 +11,7 @@ use App\Models\ItemSet;
 use App\Models\SaleReturn;
 use App\Models\SaleReturnItem;
 use App\Models\User;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Yajra\DataTables\Facades\DataTables;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -28,9 +29,21 @@ class ApprovalController extends Controller
 
         if ($request->ajax()) {
             $query = ApprovalHeader::with('customer')
-                ->withCount('items')
-                ->withSum('items as total_net_weight', 'net_weight')
-                ->withSum('items as total_item_amount', 'total_amount')
+                ->withCount([
+                    'items as active_items_count' => function ($q) {
+                        $q->where('status', '!=', 'returned');
+                    }
+                ])
+                ->withSum([
+                    'items as active_net_weight' => function ($q) {
+                        $q->where('status', '!=', 'returned');
+                    }
+                ], 'net_weight')
+                ->withSum([
+                    'items as active_item_amount' => function ($q) {
+                        $q->where('status', '!=', 'returned');
+                    }
+                ], 'total_amount')
                 ->where('company_id', $company->id)
                 ->orderByDesc('approval_date')
                 ->orderByDesc('id');
@@ -52,13 +65,15 @@ class ApprovalController extends Controller
                 ->addIndexColumn()
                 ->addColumn('customer_name', fn($row) => $row->customer->name ?? '-')
                 ->addColumn('approval_date', fn($row) => \Carbon\Carbon::parse($row->approval_date)->format('d-m-Y'))
-                ->addColumn('total_items', fn($row) => (int) ($row->items_count ?? 0))
-                ->addColumn('total_net_weight', fn($row) => number_format((float) ($row->total_net_weight ?? 0), 3))
-                ->addColumn('total_amount', fn($row) => number_format((float) ($row->total_item_amount ?? 0), 2))
+                ->addColumn('total_items', fn($row) => (int) ($row->active_items_count ?? 0))
+                ->addColumn('total_net_weight', fn($row) => number_format((float) ($row->active_net_weight ?? 0), 3))
+                ->addColumn('total_amount', fn($row) => number_format((float) ($row->active_item_amount ?? 0), 2))
                 ->addColumn('status', fn($row) => $row->status_badge)
                 ->addColumn('action', function ($row) use ($slug) {
                     $url = route('company.approval.view', [$slug, $row->id]);
-                    return '<a href="' . $url . '" class="btn btn-sm btn-info">View</a>';
+                    $pdfUrl = route('company.approval.pdf', [$slug, $row->id]);
+                    return '<a href="' . $url . '" class="btn btn-sm btn-info me-1">View</a>
+                            <a href="' . $pdfUrl . '" class="btn btn-sm btn-primary" target="_blank">PDF</a>';
                 })
                 ->rawColumns(['status', 'action'])
                 ->make(true);
@@ -210,6 +225,20 @@ class ApprovalController extends Controller
             ->findOrFail($id);
 
         return view('company.approval.view', compact('company', 'approval'));
+    }
+
+    public function pdf($slug, $id)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        $approval = ApprovalHeader::with('customer', 'items.itemSet.item', 'items.legacyItemSet.item')
+            ->where('company_id', $company->id)
+            ->findOrFail($id);
+
+        $pdf = Pdf::loadView('company.approval.approval_pdf', compact('company', 'approval'))
+            ->setPaper('a4', 'portrait');
+
+        return $pdf->stream('Approval-' . $approval->approval_no . '.pdf');
     }
 
     public function itemsData(Request $request, $slug, $id)

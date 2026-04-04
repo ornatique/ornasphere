@@ -13,6 +13,7 @@ use Endroid\QrCode\QrCode;
 use Endroid\QrCode\Writer\PngWriter;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Endroid\QrCode\Builder\Builder;
+use Yajra\DataTables\Facades\DataTables;
 
 
 
@@ -28,12 +29,19 @@ class ItemSetController extends Controller
 
             $data = ItemSet::with('item')
                 ->where('company_id', $company->id)
+                ->where('is_final', 1)
+                ->whereNotNull('qr_code')
                 ->latest();
 
             // ✅ DATE FILTER
             if ($request->from_date && $request->to_date) {
                 $data->whereDate('created_at', '>=', $request->from_date)
                     ->whereDate('created_at', '<=', $request->to_date);
+            }
+
+            // ✅ ITEM FILTER
+            if ($request->filled('item_id')) {
+                $data->where('item_id', (int) $request->item_id);
             }
 
             return datatables()->of($data)
@@ -44,8 +52,15 @@ class ItemSetController extends Controller
                 })
 
                 ->addColumn('gross_weight', fn($row) => $row->gross_weight)
+                ->addColumn('other_weight', fn($row) => $row->other)
                 ->addColumn('net_weight', fn($row) => $row->net_weight)
                 ->addColumn('qr_code', fn($row) => $row->qr_code)
+                ->addColumn('qty_pcs', fn($row) => 1)
+                ->addColumn('printed_at', function ($row) {
+                    return $row->created_at
+                        ? $row->created_at->format('d-m-Y h:i A')
+                        : '-';
+                })
 
                 ->addColumn('date', function ($row) {
                     return $row->created_at
@@ -67,8 +82,14 @@ class ItemSetController extends Controller
 
                    
                     $deleteUrl = route('company.itemsets.delete', [$company->slug, $row->id]);
+                    $printUrl = route('company.item_sets.printPdf', $company->slug) . '?ids=' . $row->id;
 
                     return '
+                     <a class="btn btn-sm btn-success"
+                            href="' . $printUrl . '"
+                            target="_blank">
+                            Print
+                        </a>
                      <button class="btn btn-sm btn-primary editBtn"
                             data-url="' . $editUrl . '">
                             Edit
@@ -84,7 +105,11 @@ class ItemSetController extends Controller
                 ->make(true);
         }
 
-        return view('company.item_sets.list', compact('company'));
+        $items = Item::where('company_id', $company->id)
+            ->orderBy('item_name')
+            ->get();
+
+        return view('company.item_sets.list', compact('company', 'items'));
     }
 
     public function index($slug)
@@ -268,20 +293,68 @@ class ItemSetController extends Controller
         }
     }
 
-    public function qrList($slug)
+    public function qrList(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
-        $itemSets = ItemSet::with('item')
+        $query = ItemSet::with('item')
             ->where('company_id', $company->id)
             ->where('is_final', 1)
             ->whereNotNull('qr_code')
-            ->latest()
-            ->get();
+            ->latest();
+
+        if ($request->filled('item_id')) {
+            $query->where('item_id', (int) $request->item_id);
+        }
+
+        if ($request->filled('from_date')) {
+            $query->whereDate('created_at', '>=', $request->from_date);
+        }
+
+        if ($request->filled('to_date')) {
+            $query->whereDate('created_at', '<=', $request->to_date);
+        }
+
+        if ($request->ajax()) {
+            return DataTables::of($query)
+                ->addColumn('select', function ($row) {
+                    return '<input type="checkbox" class="qrCheckbox" value="' . $row->id . '">';
+                })
+                ->addColumn('item_name', function ($row) {
+                    return optional($row->item)->item_name ?? '-';
+                })
+                ->addColumn('label_code', function ($row) {
+                    return $row->qr_code ?? '-';
+                })
+                ->addColumn('gross_weight', function ($row) {
+                    return number_format((float) $row->gross_weight, 3);
+                })
+                ->addColumn('other_weight', function ($row) {
+                    return number_format((float) $row->other, 3);
+                })
+                ->addColumn('net_weight', function ($row) {
+                    return number_format((float) $row->net_weight, 3);
+                })
+                ->addColumn('sale_other', function ($row) {
+                    return number_format((float) $row->sale_other, 2);
+                })
+                ->addColumn('date_time', function ($row) {
+                    return optional($row->created_at)->format('d-m-Y h:i A');
+                })
+                ->filterColumn('item_name', function ($q, $keyword) {
+                    $q->whereHas('item', function ($itemQ) use ($keyword) {
+                        $itemQ->where('item_name', 'like', "%{$keyword}%");
+                    });
+                })
+                ->rawColumns(['select'])
+                ->make(true);
+        }
+
+        $items = Item::where('company_id', $company->id)->orderBy('item_name')->get();
 
         return view(
             'company.item_sets.qr_list',
-            compact('company', 'itemSets')
+            compact('company', 'items')
         );
     }
 
@@ -308,11 +381,16 @@ class ItemSetController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
-        $ids = explode(',', $request->ids);
+        $ids = array_values(array_filter(explode(',', (string) $request->ids)));
+
+        if (empty($ids)) {
+            return back()->with('error', 'Please select at least one label.');
+        }
 
         $itemSets = ItemSet::with('item')
             ->where('company_id', $company->id)
             ->whereIn('id', $ids)
+            ->where('is_final', 1)
             ->get();
 
         $writer = new PngWriter();
@@ -331,9 +409,9 @@ class ItemSetController extends Controller
         $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView(
             'company.item_sets.print_pdf',
             compact('itemSets')
-        );
+        )->setPaper('a4', 'portrait');
 
-        return $pdf->stream('qr-labels.pdf');
+        return $pdf->stream('label-print-preview.pdf');
     }
 
     public function edit($slug, $id)

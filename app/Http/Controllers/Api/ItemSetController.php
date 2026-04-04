@@ -31,60 +31,54 @@ class ItemSetController extends Controller
     }
 
     // ================= AUTO SAVE CELL =================
-//     public function saveCell(Request $request)
-// {
-//     $companyId = $request->user()->company_id;
+    public function saveCell(Request $request)
+    {
+        $companyId = $request->user()->company_id;
 
-//     $request->validate([
-//         'item_id' => 'required|exists:items,id',
-//     ]);
+        $request->validate([
+            'item_id' => 'required|exists:items,id',
+        ]);
 
-//     if ($request->id) {
+        $payload = [
+            'gross_weight' => $request->gross_weight,
+            'other' => $request->other,
+            'net_weight' => $request->net_weight,
+            'sale_labour_rate' => $request->sale_labour_rate ?? $request->labour_rate,
+            'sale_labour_amount' => $request->sale_labour_amount ?? $request->labour_amount,
+            'sale_other' => $request->sale_other,
+            'size' => $request->size,
+            'HUID' => $request->HUID ?? $request->huid,
+        ];
 
-//         $set = ItemSet::where('company_id', $companyId)
-//             ->where('id', $request->id)
-//             ->where('is_final', 0)
-//             ->first();
+        if ($request->id) {
+            $set = ItemSet::where('company_id', $companyId)
+                ->where('item_id', $request->item_id)
+                ->where('id', $request->id)
+                ->where('is_final', 0)
+                ->first();
 
-//         if (!$set) {
-//             return response()->json([
-//                 'success' => false,
-//                 'message' => 'Row not found'
-//             ], 404);
-//         }
+            if (!$set) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Row not found'
+                ], 404);
+            }
 
-//         $set->update([
-//             'gross_weight' => $request->gross_weight,
-//             'other' => $request->other,
-//             'net_weight' => $request->net_weight,
-//             'labour_rate' => $request->labour_rate,
-//             'labour_amount' => $request->labour_amount,
-//             'size' => $request->size,
-//             'HUID' => $request->HUID,
-//         ]);
+            $set->update($payload);
+        } else {
+            $set = ItemSet::create(array_merge($payload, [
+                'company_id' => $companyId,
+                'item_id' => $request->item_id,
+                'is_final' => 0,
+            ]));
+        }
 
-//     } else {
-
-//         $set = ItemSet::create([
-//             'company_id' => $companyId,
-//             'item_id' => $request->item_id,
-//             'gross_weight' => $request->gross_weight,
-//             'other' => $request->other,
-//             'net_weight' => $request->net_weight,
-//             'labour_rate' => $request->labour_rate,
-//             'labour_amount' => $request->labour_amount,
-//             'size' => $request->size,
-//             'HUID' => $request->HUID,
-//             'is_final' => 0
-//         ]);
-//     }
-
-//     return response()->json([
-//         'success' => true,
-//         'message' => 'Saved successfully',
-//         'data' => $set
-//     ]);
-// }
+        return response()->json([
+            'success' => true,
+            'message' => 'Saved successfully',
+            'data' => $set
+        ]);
+    }
 
 public function bulkSave(Request $request)
 {
@@ -95,7 +89,7 @@ public function bulkSave(Request $request)
         'rows' => 'required|array'
     ]);
 
-    $savedRows = [];
+        $savedRows = [];
 
     foreach ($request->rows as $row) {
 
@@ -108,18 +102,40 @@ public function bulkSave(Request $request)
             continue; // skip empty rows
         }
 
-        $set = ItemSet::create([
-            'company_id' => $companyId,
-            'item_id' => $request->item_id,
+        $data = [
             'gross_weight' => $row['gross_weight'] ?? null,
             'other' => $row['other'] ?? null,
             'net_weight' => $row['net_weight'] ?? null,
-            'labour_rate' => $row['labour_rate'] ?? null,
-            'labour_amount' => $row['labour_amount'] ?? null,
+            'sale_labour_rate' => $row['sale_labour_rate'] ?? ($row['labour_rate'] ?? null),
+            'sale_labour_amount' => $row['sale_labour_amount'] ?? ($row['labour_amount'] ?? null),
+            'sale_other' => $row['sale_other'] ?? null,
             'size' => $row['size'] ?? null,
-            'HUID' => $row['HUID'] ?? null,
-            'is_final' => 0
-        ]);
+            'HUID' => $row['HUID'] ?? ($row['huid'] ?? null),
+        ];
+
+        if (!empty($row['id'])) {
+            $set = ItemSet::where('company_id', $companyId)
+                ->where('item_id', $request->item_id)
+                ->where('id', $row['id'])
+                ->where('is_final', 0)
+                ->first();
+
+            if ($set) {
+                $set->update($data);
+            } else {
+                $set = ItemSet::create(array_merge($data, [
+                    'company_id' => $companyId,
+                    'item_id' => $request->item_id,
+                    'is_final' => 0,
+                ]));
+            }
+        } else {
+            $set = ItemSet::create(array_merge($data, [
+                'company_id' => $companyId,
+                'item_id' => $request->item_id,
+                'is_final' => 0,
+            ]));
+        }
 
         $savedRows[] = $set;
     }
@@ -203,16 +219,13 @@ public function bulkSave(Request $request)
         }
     }
     
-     public function listset_data(Request $request)
+    public function listset_data(Request $request)
     {
-        $query = ItemSet::with('item');
+        $companyId = $request->user()->company_id;
 
-        // company filter (IMPORTANT)
-        if ($request->company_id) {
-            $query->where('company_id', $request->company_id);
-        }
+        $query = ItemSet::with('item')
+            ->where('company_id', $companyId);
 
-        // item filter
         if ($request->item_id) {
             $query->where('item_id', $request->item_id);
         }
@@ -232,9 +245,13 @@ public function bulkSave(Request $request)
     }
 
     // ✅ SINGLE (EDIT)
-    public function show($id)
+    public function show(Request $request, $id)
     {
-        $item = ItemSet::with('item')->findOrFail($id);
+        $companyId = $request->user()->company_id;
+
+        $item = ItemSet::with('item')
+            ->where('company_id', $companyId)
+            ->findOrFail($id);
 
         return response()->json([
             'status' => true,
@@ -245,15 +262,20 @@ public function bulkSave(Request $request)
     // ✅ UPDATE
     public function update(Request $request, $id)
     {
-        
-        $item = ItemSet::findOrFail($id);
+        $companyId = $request->user()->company_id;
+
+        $item = ItemSet::where('company_id', $companyId)
+            ->findOrFail($id);
 
         $item->update([
             'gross_weight' => $request->gross_weight,
             'net_weight'   => $request->net_weight,
             'other'        => $request->other,
             'size'         => $request->size,
-            'HUID'         => $request->huid,
+            'HUID'         => $request->HUID ?? $request->huid,
+            'sale_labour_rate' => $request->sale_labour_rate ?? $request->labour_rate,
+            'sale_labour_amount' => $request->sale_labour_amount ?? $request->labour_amount,
+            'sale_other' => $request->sale_other,
         ]);
 
         return response()->json([
@@ -263,9 +285,12 @@ public function bulkSave(Request $request)
     }
 
     // ✅ DELETE
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
-        $item = ItemSet::findOrFail($id);
+        $companyId = $request->user()->company_id;
+
+        $item = ItemSet::where('company_id', $companyId)
+            ->findOrFail($id);
         $item->delete();
 
         return response()->json([
