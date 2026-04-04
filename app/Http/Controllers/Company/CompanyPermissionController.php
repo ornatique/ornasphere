@@ -15,8 +15,10 @@ class CompanyPermissionController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
 
         if ($request->ajax()) {
-            $permissions = Permission::where('company_id', $company->id)
-                ->withCount('roles'); // IMPORTANT
+            $permissions = Permission::where(function ($q) use ($company) {
+                $q->where('company_id', $company->id)
+                    ->orWhereNull('company_id');
+            })->withCount('roles');
 
             return DataTables::of($permissions)
                 ->addIndexColumn()
@@ -26,6 +28,9 @@ class CompanyPermissionController extends Controller
                 })
 
                 ->addColumn('action', function ($permission) use ($company) {
+                    if (is_null($permission->company_id)) {
+                        return '<span class="badge bg-info">System</span>';
+                    }
 
                     $encryptedId = encrypt($permission->id);
 
@@ -77,8 +82,19 @@ class CompanyPermissionController extends Controller
             'name' => 'required|string'
         ]);
 
+        $name = trim((string) $request->name);
+        $existing = Permission::where('name', $name)
+            ->where('guard_name', 'web')
+            ->first();
+
+        if ($existing) {
+            return redirect()
+                ->route('company.permissions.index', $company->slug)
+                ->with('success', 'Permission already exists, using existing permission.');
+        }
+
         Permission::create([
-            'name' => $request->name,
+            'name' => $name,
             'guard_name' => 'web',
             'company_id' => $company->id,
         ]);
@@ -94,9 +110,12 @@ class CompanyPermissionController extends Controller
 
         $permissionId = decrypt($encryptedId);
 
-        $permission = Permission::where('id', $permissionId)
-            ->where('company_id', $company->id)
-            ->firstOrFail();
+        $permission = Permission::where('id', $permissionId)->firstOrFail();
+        if (is_null($permission->company_id) || (int) $permission->company_id !== (int) $company->id) {
+            return redirect()
+                ->route('company.permissions.index', $company->slug)
+                ->withErrors('System/shared permission cannot be edited from company panel.');
+        }
 
         return view('company.permissions.edit', compact('company', 'permission'));
     }
@@ -108,15 +127,28 @@ class CompanyPermissionController extends Controller
 
         $permissionId = decrypt($encryptedId);
 
-        $permission = Permission::where('id', $permissionId)
-            ->where('company_id', $company->id)
-            ->firstOrFail();
+        $permission = Permission::where('id', $permissionId)->firstOrFail();
+        if (is_null($permission->company_id) || (int) $permission->company_id !== (int) $company->id) {
+            return redirect()
+                ->route('company.permissions.index', $company->slug)
+                ->withErrors('System/shared permission cannot be edited from company panel.');
+        }
 
         $request->validate([
             'name' => 'required|string'
         ]);
 
-        $permission->update(['name' => $request->name]);
+        $newName = trim((string) $request->name);
+        $exists = Permission::where('name', $newName)
+            ->where('guard_name', 'web')
+            ->where('id', '!=', $permission->id)
+            ->exists();
+
+        if ($exists) {
+            return back()->withErrors('Permission name already exists.')->withInput();
+        }
+
+        $permission->update(['name' => $newName]);
 
         return redirect()
             ->route('company.permissions.index', $company->slug)
@@ -130,9 +162,10 @@ class CompanyPermissionController extends Controller
 
         $permissionId = decrypt($encryptedId);
 
-        $permission = Permission::where('id', $permissionId)
-            ->where('company_id', $company->id)
-            ->firstOrFail();
+        $permission = Permission::where('id', $permissionId)->firstOrFail();
+        if (is_null($permission->company_id) || (int) $permission->company_id !== (int) $company->id) {
+            return back()->withErrors('System/shared permission cannot be deleted from company panel.');
+        }
 
         if ($permission->roles()->count() > 0) {
             return back()->withErrors('Permission is assigned to roles and cannot be deleted.');

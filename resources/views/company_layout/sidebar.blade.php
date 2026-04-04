@@ -29,6 +29,7 @@
         $userManagementActive =
         request()->routeIs('company.roles.*') ||
         request()->routeIs('company.permissions.*') ||
+        request()->routeIs('company.customers.*') ||
         request()->routeIs('company.users.*');
         @endphp
 
@@ -49,6 +50,13 @@
                         <a class="nav-link {{ request()->routeIs('company.users.*') ? 'active' : '' }}"
                             href="{{ route('company.users.index', auth()->user()->company->slug) }}">
                             Users
+                        </a>
+                    </li>
+
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.customers.*') ? 'active' : '' }}"
+                            href="{{ route('company.customers.index', auth()->user()->company->slug) }}">
+                            Customers
                         </a>
                     </li>
 

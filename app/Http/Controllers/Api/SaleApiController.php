@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\ItemSet;
-use App\Models\User;
+use App\Models\Customer;
 use App\Models\SaleCart;
 use App\Models\ApprovalItem;
 use App\Models\ApprovalHeader;
@@ -54,8 +54,7 @@ class SaleApiController extends Controller
     {
         $companyId = $request->user()->company_id;
 
-        $customers = User::where('company_id', $companyId)
-            ->whereRaw('LOWER(role) = ?', ['customer'])
+        $customers = Customer::where('company_id', $companyId)
             ->where('is_active', 1)
             ->orderBy('name')
             ->get();
@@ -230,7 +229,7 @@ class SaleApiController extends Controller
             $user = auth()->user();
 
             $request->validate([
-                'customer_id' => 'required|exists:users,id',
+                'customer_id' => 'required|exists:customers,id',
             ]);
 
             $cartItems = SaleCart::where('user_id', auth()->id())
@@ -446,7 +445,7 @@ class SaleApiController extends Controller
         $companyId = $request->user()->company_id;
 
         $request->validate([
-            'customer_id' => 'required|exists:users,id',
+            'customer_id' => 'required|exists:customers,id',
             'items' => 'required|array|min:1',
             'items.*.itemset_id' => 'required|integer',
         ]);

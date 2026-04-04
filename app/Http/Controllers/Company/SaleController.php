@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\ItemSet;
-use App\Models\User;
+use App\Models\Customer;
 use App\Models\Company;
 use App\Models\ApprovalHeader;
 use App\Models\ApprovalItem;
@@ -112,8 +112,8 @@ class SaleController extends Controller
         // Get company using slug
         $company = Company::where('slug', $slug)->firstOrFail();
 
-        $customers = User::where('company_id', $company->id)
-            ->whereRaw('LOWER(role) = ?', ['customer'])
+        $customers = Customer::where('company_id', $company->id)
+            ->where('is_active', 1)
             ->get();
 
         $itemsets = ItemSet::with('item')

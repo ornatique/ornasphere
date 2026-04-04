@@ -10,7 +10,7 @@ use App\Models\ApprovalItem;
 use App\Models\ItemSet;
 use App\Models\SaleReturn;
 use App\Models\SaleReturnItem;
-use App\Models\User;
+use App\Models\Customer;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Yajra\DataTables\Facades\DataTables;
 use Illuminate\Support\Facades\DB;
@@ -22,8 +22,7 @@ class ApprovalController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
-        $customers = User::where('company_id', $company->id)
-            ->whereRaw('LOWER(role) = ?', ['customer'])
+        $customers = Customer::where('company_id', $company->id)
             ->where('is_active', 1)
             ->get();
 
@@ -86,8 +85,8 @@ class ApprovalController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
-        $customers = User::where('company_id', $company->id)
-            ->whereRaw('LOWER(role) = ?', ['customer'])
+        $customers = Customer::where('company_id', $company->id)
+            ->where('is_active', 1)
             ->get();
 
         return view('company.approval.create', compact('company', 'customers'));

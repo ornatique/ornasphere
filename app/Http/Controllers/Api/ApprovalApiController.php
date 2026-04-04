@@ -10,7 +10,7 @@ use App\Models\Item;
 use App\Models\ItemSet;
 use App\Models\SaleReturn;
 use App\Models\SaleReturnItem;
-use App\Models\User;
+use App\Models\Customer;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -22,8 +22,7 @@ class ApprovalApiController extends Controller
     {
         $companyId = $request->user()->company_id;
 
-        $customers = User::where('company_id', $companyId)
-            ->whereRaw('LOWER(role) = ?', ['customer'])
+        $customers = Customer::where('company_id', $companyId)
             ->where('is_active', 1)
             ->orderBy('name')
             ->get();
@@ -182,7 +181,7 @@ class ApprovalApiController extends Controller
         $companyId = $request->user()->company_id;
 
         $request->validate([
-            'customer_id' => 'required|integer|exists:users,id',
+            'customer_id' => 'required|integer|exists:customers,id',
             'items' => 'required|array|min:1',
         ]);
 
@@ -363,7 +362,7 @@ class ApprovalApiController extends Controller
     {
         $companyId = $request->user()->company_id;
         $request->validate([
-            'customer_id' => 'required|integer|exists:users,id',
+            'customer_id' => 'required|integer|exists:customers,id',
         ]);
 
         $items = ApprovalItem::with('itemSet.item', 'legacyItemSet.item')

@@ -40,7 +40,10 @@
                 <div class="row">
 
                     @foreach($permissions as $module => $perms)
-                    <div class="col-md-3 mb-4">
+                    @php
+                        $moduleLabel = ucwords(str_replace(['-', '_', '.'], ' ', $module));
+                    @endphp
+                    <div class="col-md-4 mb-4">
                         <div class="card border-primary">
 
                             {{-- Group Header --}}
@@ -50,7 +53,7 @@
                                            class="group-select"
                                            data-group="{{ $module }}">
                                     <strong class="text-uppercase">
-                                        {{ $module }}
+                                        {{ $moduleLabel }}
                                     </strong>
                                 </label>
                             </div>
@@ -60,8 +63,8 @@
                                 @foreach($perms as $permission)
 
                                 @php
-                                    $parts = explode('-', $permission->name);
-                                    $action = $parts[1] ?? '';
+                                    preg_match('/(view|create|edit|delete|manage)$/i', $permission->name, $match);
+                                    $action = ucfirst(strtolower($match[1] ?? $permission->name));
                                 @endphp
 
                                 <div class="form-check">
@@ -73,7 +76,7 @@
                                            {{ in_array($permission->name, $rolePermissions) ? 'checked' : '' }} >
 
                                     <label class="form-check-label">
-                                        {{ ucfirst($action) }}
+                                        {{ $action }}
                                     </label>
                                 </div>
 

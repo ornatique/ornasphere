@@ -41,7 +41,10 @@
                 <div class="row">
 
                     @foreach($permissions as $module => $perms)
-                    <div class="col-md-3 col-sm-6 mb-4">
+                    @php
+                        $moduleLabel = ucwords(str_replace(['-', '_', '.'], ' ', $module));
+                    @endphp
+                    <div class="col-md-4 col-sm-6 mb-4">
 
                         <div class="card border-primary shadow-sm">
 
@@ -52,7 +55,7 @@
                                         class="group-select "
                                         data-group="{{ $module }}">
                                     <strong class="text-uppercase ms-1">
-                                        {{ strtoupper($module) }}
+                                        {{ $moduleLabel }}
                                     </strong>
                                 </label>
                             </div>
@@ -63,8 +66,8 @@
                                 @foreach($perms as $permission)
 
                                 @php
-                                $parts = explode('-', $permission->name);
-                                $action = $parts[1] ?? $permission->name;
+                                    preg_match('/(view|create|edit|delete|manage)$/i', $permission->name, $match);
+                                    $action = ucfirst(strtolower($match[1] ?? $permission->name));
                                 @endphp
 
                                 <div class="form-check mb-2">
@@ -77,7 +80,7 @@
 
                                     <label class="form-check-label"
                                         for="{{ $permission->name }}">
-                                        {{ ucfirst($action) }}
+                                        {{ $action }}
                                     </label>
                                 </div>
 
@@ -131,9 +134,22 @@ document.addEventListener('DOMContentLoaded', function () {
             document
                 .querySelectorAll(`.permission-checkbox[data-group="${groupName}"]`)
                 .forEach(cb => cb.checked = this.checked);
+            syncAll();
         });
     });
 
+    permissions.forEach(cb => cb.addEventListener('change', syncAll));
+
+    function syncAll() {
+        selectAll.checked = [...permissions].every(cb => cb.checked);
+        groupSelects.forEach(group => {
+            const groupName = group.dataset.group;
+            const groupPerms = document.querySelectorAll(`.permission-checkbox[data-group="${groupName}"]`);
+            group.checked = groupPerms.length > 0 && [...groupPerms].every(cb => cb.checked);
+        });
+    }
+
+    syncAll();
 });
 </script>
 

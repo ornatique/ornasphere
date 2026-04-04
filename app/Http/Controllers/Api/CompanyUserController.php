@@ -18,6 +18,7 @@ class CompanyUserController extends Controller
         $user = $request->user(); // logged in user
     
         $companyId = $user->company_id;
+        $company = Company::find($companyId);
     
         $users = User::where('company_id', $companyId)
             ->latest()
@@ -25,15 +26,41 @@ class CompanyUserController extends Controller
     
         return response()->json([
             'success' => true,
-            'data' => $users
+            'data' => $users,
+            'seat' => [
+                'max_users' => (int) optional($company)->max_users,
+                'current_users' => (int) $users->count(),
+            ],
         ]);
     }
 
     // ✅ Create User For Company
-    public function store(Request $request)
-    {
+public function store(Request $request)
+{
     $authUser = $request->user(); // logged in user
     $companyId = $authUser->company_id;
+    $company = Company::find($companyId);
+    $selectedRole = strtolower((string) $request->role);
+
+    if ($selectedRole === 'customer') {
+        return response()->json([
+            'success' => false,
+            'message' => 'Customer role is not allowed in User API. Use customer APIs instead.'
+        ], 422);
+    }
+
+    $currentUserCount = User::where('company_id', $companyId)->count();
+    $maxUsers = (int) optional($company)->max_users;
+    if ($maxUsers > 0 && $currentUserCount >= $maxUsers) {
+        return response()->json([
+            'success' => false,
+            'message' => 'User limit reached for your plan. Please buy more user seats.',
+            'seat' => [
+                'max_users' => $maxUsers,
+                'current_users' => (int) $currentUserCount,
+            ],
+        ], 422);
+    }
 
     // 🔹 Employee Limit Check
     if ($request->role == 'Employee') {
@@ -71,7 +98,8 @@ class CompanyUserController extends Controller
         'company_id' => $companyId,
         'name' => $validated['name'],
         'email' => $validated['email'],
-        'password' => Hash::make('User@123'),
+        // Requested behavior: default password = same email id.
+        'password' => Hash::make($validated['email']),
         'role' => $validated['role'],
         'profile_image' => $imagePath,
 
@@ -103,6 +131,7 @@ class CompanyUserController extends Controller
     return response()->json([
         'success' => true,
         'message' => 'User created successfully',
+        'default_password' => $validated['email'],
         'data' => $user
     ], 201);
 }
@@ -128,16 +157,23 @@ public function update(Request $request, $id)
         }
 
         // ✅ Validation
-        $validated = $request->validate([
-            'name'  => 'required|string|max:255',
-            'email' => [
-                'required',
-                'email',
+    $validated = $request->validate([
+        'name'  => 'required|string|max:255',
+        'email' => [
+            'required',
+            'email',
                 Rule::unique('users')->ignore($user->id),
             ],
             'role'  => 'required|string',
             //'profile_image' => 'nullable|image|max:2048',
         ]);
+
+        if (strtolower((string) $validated['role']) === 'customer') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Customer role is not allowed in User API. Use customer APIs instead.'
+            ], 422);
+        }
 
         // 🖼 Update Image
         if ($request->hasFile('profile_image')) {

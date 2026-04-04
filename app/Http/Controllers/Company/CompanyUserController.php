@@ -71,7 +71,9 @@ class CompanyUserController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
-        $roles = Role::where('company_id', $company->id)->get();
+        $roles = Role::where('company_id', $company->id)
+            ->whereRaw('LOWER(name) != ?', ['customer'])
+            ->get();
 
         return view('company.users.create', compact('company', 'roles'));
     }
@@ -80,6 +82,20 @@ class CompanyUserController extends Controller
     public function store(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+
+        $selectedRole = strtolower((string) $request->role);
+        if ($selectedRole === 'customer') {
+            return back()
+                ->withErrors(['role' => 'Customer role is not allowed in User creation. Please create customers from Customer module.'])
+                ->withInput();
+        }
+
+        $currentUserCount = User::where('company_id', $company->id)->count();
+        if ($currentUserCount >= (int) $company->max_users) {
+            return back()->withErrors([
+                'error' => 'User limit reached for your plan. Please buy more user seats.'
+            ])->withInput();
+        }
 
         // Employee Limit Check
         if ($request->role == 'Employee') {
@@ -109,7 +125,8 @@ class CompanyUserController extends Controller
             'company_id' => $company->id,
             'name' => $request->name,
             'email' => $request->email,
-            'password' => Hash::make('User@123'),
+            // Requested behavior: default password = same email id.
+            'password' => Hash::make($request->email),
             'role' => $request->role,
             'profile_image' => $imagePath,
 
@@ -139,7 +156,7 @@ class CompanyUserController extends Controller
 
         return redirect()
             ->route('company.users.index', $company->slug)
-            ->with('success', 'User created successfully');
+            ->with('success', 'User created successfully. Default password is same as email.');
     }
 
     public function edit($slug, $encryptedId)
@@ -152,7 +169,9 @@ class CompanyUserController extends Controller
             ->where('company_id', $company->id)
             ->firstOrFail();
 
-        $roles = Role::where('company_id', $company->id)->get();
+        $roles = Role::where('company_id', $company->id)
+            ->whereRaw('LOWER(name) != ?', ['customer'])
+            ->get();
 
         return view('company.users.edit', compact('company', 'user', 'roles'));
     }
@@ -172,6 +191,12 @@ class CompanyUserController extends Controller
             'role' => 'required',
             'profile_image' => 'nullable|image|max:2048',
         ]);
+
+        if (strtolower((string) $request->role) === 'customer') {
+            return back()
+                ->withErrors(['role' => 'Customer role is not allowed in User module.'])
+                ->withInput();
+        }
 
         $newRole = $request->role;
         $currentRole = $user->getRoleNames()->first();
@@ -286,12 +311,16 @@ class CompanyUserController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
+        $totalUsers = User::where('company_id', $company->id)->count();
         $employeeCount = User::where('company_id', $company->id)
             ->role('Employee') // Spatie way
             ->count();
 
         return response()->json([
-            'limit_reached' => $employeeCount >= 2
+            'employee_limit_reached' => $employeeCount >= 2,
+            'user_limit_reached' => $totalUsers >= (int) $company->max_users,
+            'max_users' => (int) $company->max_users,
+            'current_users' => (int) $totalUsers
         ]);
     }
 }

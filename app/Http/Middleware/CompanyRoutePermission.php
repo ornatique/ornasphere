@@ -1,0 +1,130 @@
+<?php
+
+namespace App\Http\Middleware;
+
+use App\Models\Permission;
+use Closure;
+use Illuminate\Http\Request;
+use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\Response;
+
+class CompanyRoutePermission
+{
+    public function handle(Request $request, Closure $next): Response
+    {
+        $user = $request->user();
+
+        if (!$user || !$user->company_id) {
+            return $next($request);
+        }
+
+        // Company admin keeps full access by default.
+        if ($user->hasRole('company_admin')) {
+            return $next($request);
+        }
+
+        $routeName = (string) optional($request->route())->getName();
+        if ($routeName === '' || !Str::startsWith($routeName, 'company.')) {
+            return $next($request);
+        }
+
+        $module = $this->moduleFromRouteName($routeName);
+        if (!$module) {
+            return $next($request);
+        }
+
+        // If module permissions are not configured yet, allow route.
+        $modulePermissionExists = Permission::where('company_id', $user->company_id)
+            ->where(function ($q) use ($module) {
+                $q->where('name', 'like', $module . '-%')
+                    ->orWhere('name', 'like', $module . '.%')
+                    ->orWhere('name', 'like', $module . '_%')
+                    ->orWhere('name', 'like', $module . ' %');
+            })
+            ->exists();
+
+        if (!$modulePermissionExists) {
+            return $next($request);
+        }
+
+        $action = $this->actionFromRouteName($routeName, $request);
+
+        $candidates = [
+            "{$module}-{$action}",
+            "{$module}.{$action}",
+            "{$module}_{$action}",
+            "{$module} {$action}",
+            "{$module}-manage",
+            "{$module}.manage",
+            "{$module}_manage",
+            "{$module} manage",
+        ];
+
+        if ($user->hasAnyPermission($candidates)) {
+            return $next($request);
+        }
+
+        abort(403, 'You do not have permission to access this module.');
+    }
+
+    private function moduleFromRouteName(string $routeName): ?string
+    {
+        $map = [
+            'company.users.' => 'user',
+            'company.customers.' => 'customer',
+            'company.items.' => 'item',
+            'company.label_config.' => 'label-config',
+            'company.label.print' => 'label-print',
+            'company.label.generate' => 'label-print',
+            'company.other-charge.' => 'other-charge',
+            'company.item_sets.' => 'item-set',
+            'company.itemsets.' => 'item-set',
+            'company.list_itemset' => 'item-set',
+            'company.get-item-details' => 'item-set',
+            'company.sales.' => 'sale',
+            'company.returns.' => 'return',
+            'company.roles.' => 'role',
+            'company.permissions.' => 'permission',
+            'company.approval-sales.' => 'sale',
+            'company.approval.return.' => 'approval',
+            'company.approval.' => 'approval',
+        ];
+
+        foreach ($map as $prefix => $module) {
+            if (Str::startsWith($routeName, $prefix)) {
+                return $module;
+            }
+        }
+
+        return null;
+    }
+
+    private function actionFromRouteName(string $routeName, Request $request): string
+    {
+        $lastSegment = Str::afterLast($routeName, '.');
+        $verb = strtoupper($request->method());
+
+        $viewActions = ['index', 'data', 'list', 'list_data', 'show', 'view', 'qrcode', 'qrList', 'qrImage', 'search'];
+        $createActions = ['create', 'store', 'generate', 'finalize', 'processSelected', 'sale', 'return', 'fromApproval', 'options'];
+        $editActions = ['edit', 'update', 'saveCell'];
+        $deleteActions = ['delete', 'destroy', 'toggle', 'remove'];
+
+        if (in_array($lastSegment, $createActions, true) || $verb === 'POST') {
+            return 'create';
+        }
+
+        if (in_array($lastSegment, $editActions, true) || in_array($verb, ['PUT', 'PATCH'], true)) {
+            return 'edit';
+        }
+
+        if (in_array($lastSegment, $deleteActions, true) || $verb === 'DELETE') {
+            return 'delete';
+        }
+
+        if (in_array($lastSegment, $viewActions, true) || $verb === 'GET') {
+            return 'view';
+        }
+
+        return 'view';
+    }
+}

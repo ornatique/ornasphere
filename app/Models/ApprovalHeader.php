@@ -38,7 +38,7 @@ class ApprovalHeader extends Model
     // Customer
     public function customer()
     {
-        return $this->belongsTo(User::class, 'customer_id');
+        return $this->belongsTo(Customer::class, 'customer_id');
     }
 
     // Approval Items

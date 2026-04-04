@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\OtherChargeController;
 use App\Http\Controllers\Api\SaleApiController;
 use App\Http\Controllers\Api\SaleReturnApiController;
 use App\Http\Controllers\Api\ApprovalApiController;
+use App\Http\Controllers\Api\CustomerApiController;
 
 Route::post('/company/login', [AuthController::class, 'login']);
 Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
@@ -30,6 +31,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/create_users', [CompanyUserController::class, 'store']);
    Route::put('/update_users/{id}', [CompanyUserController::class, 'update']);
     Route::delete('/delete_users/{id}', [CompanyUserController::class, 'destroy']);
+
+    Route::get('/customers', [CustomerApiController::class, 'index']);
+    Route::post('/customers', [CustomerApiController::class, 'store']);
+    Route::get('/customers/{id}', [CustomerApiController::class, 'show']);
+    Route::put('/customers/{id}', [CustomerApiController::class, 'update']);
+    Route::delete('/customers/{id}', [CustomerApiController::class, 'destroy']);
+    Route::get('/customers_list', [CustomerApiController::class, 'index']);
+    Route::post('/create_customers', [CustomerApiController::class, 'store']);
+    Route::post('/update_customers/{id}', [CustomerApiController::class, 'update']);
+    Route::delete('/delete_customers/{id}', [CustomerApiController::class, 'destroy']);
     
     
     Route::get('/items', [ItemController::class, 'index']);

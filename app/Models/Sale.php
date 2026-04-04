@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Customer;
 
 class Sale extends Model
 {
@@ -24,7 +25,7 @@ class Sale extends Model
 
     public function customer()
     {
-        return $this->belongsTo(USer::class);
+        return $this->belongsTo(Customer::class);
     }
 
     public function saleItems()

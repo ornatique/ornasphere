@@ -10,6 +10,7 @@ use App\Http\Controllers\Company\CompanySecurityController;
 use App\Http\Controllers\Company\CompanyUserController;
 use App\Http\Controllers\Company\CompanyRoleController;
 use App\Http\Controllers\Company\CompanyPermissionController;
+use App\Http\Controllers\Company\CustomerController;
 use App\Http\Controllers\Company\ItemController;
 use App\Http\Controllers\Company\LabelConfigController;
 use App\Http\Controllers\Company\LabelPrintController;
@@ -124,7 +125,7 @@ Route::prefix('company/{slug}')
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth', 'company.2fa'])
+Route::middleware(['auth', 'company.2fa', 'company.route.permission'])
     ->prefix('company/{slug}')
     ->name('company.')
     ->group(function () {
@@ -135,6 +136,19 @@ Route::middleware(['auth', 'company.2fa'])
         Route::get('/users', [CompanyUserController::class, 'index'])
             ->name('users.index')
         ;
+
+        Route::get('/customers', [CustomerController::class, 'index'])
+            ->name('customers.index');
+        Route::get('/customers/create', [CustomerController::class, 'create'])
+            ->name('customers.create');
+        Route::post('/customers', [CustomerController::class, 'store'])
+            ->name('customers.store');
+        Route::get('/customers/{encryptedId}/edit', [CustomerController::class, 'edit'])
+            ->name('customers.edit');
+        Route::put('/customers/{encryptedId}', [CustomerController::class, 'update'])
+            ->name('customers.update');
+        Route::delete('/customers/{encryptedId}', [CustomerController::class, 'destroy'])
+            ->name('customers.delete');
 
         Route::get('/users/create', [CompanyUserController::class, 'create'])
             ->name('users.create')
@@ -468,7 +482,7 @@ Route::middleware(['auth', 'company.2fa'])
         )->name('approval.returnItems');
     });
 
-Route::middleware(['auth', 'company.2fa'])
+Route::middleware(['auth', 'company.2fa', 'company.route.permission'])
     ->prefix('company/{slug}')
     ->name('company.')
     ->group(function () {

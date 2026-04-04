@@ -22,6 +22,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'company.2fa' => \App\Http\Middleware\Company2FA::class,
             'guest' => \App\Http\Middleware\RedirectIfAuthenticated::class,
             'auth' => \App\Http\Middleware\Authenticate::class,
+            'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
+            'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
+            'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
+            'company.route.permission' => \App\Http\Middleware\CompanyRoutePermission::class,
         ]);
 
     })

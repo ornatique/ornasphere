@@ -14,7 +14,7 @@ use App\Models\SaleReturnItem;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Yajra\DataTables\Facades\DataTables;
 use DB;
-use App\Models\User;
+use App\Models\Customer;
 use Illuminate\Support\Facades\Schema;
 
 class SaleReturnController extends Controller
@@ -126,8 +126,8 @@ class SaleReturnController extends Controller
     {
         $company = Company::where('slug', $slug)->firstOrFail();
 
-        $customers = User::where('company_id', $company->id)
-            ->where('role', 'customer')
+        $customers = Customer::where('company_id', $company->id)
+            ->where('is_active', 1)
             ->orderBy('name')
             ->get();
 
