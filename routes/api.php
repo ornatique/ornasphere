@@ -79,6 +79,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/sales/customerlist', [SaleApiController::class, 'customerlist']);
     Route::post('/sales/scan-qr', [SaleApiController::class, 'scanQr']);
     Route::get('/sales/approval-items', [SaleApiController::class, 'approvalItems']);
+    Route::get('/sales/add-label-from-approval', [SaleApiController::class, 'approvalItems']);
     Route::post('/sales/add-to-cart', [SaleApiController::class, 'addToCart']);
     Route::get('/sales/cart-items', [SaleApiController::class, 'cartItems']);
     Route::delete('/sales/cart/remove/{id}', [SaleApiController::class, 'removeCartItem']);

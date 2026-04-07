@@ -491,7 +491,7 @@ class SaleController extends Controller
                 return $itemSet && $itemSet->is_sold == 1;
             });
 
-        return response()->json($items->map(function ($row) {
+        return response()->json($items->values()->map(function ($row) {
             $itemSet = $row->itemSet ?? $row->legacyItemSet;
             $item = optional($itemSet)->item;
             $gross = (float) ($row->gross_weight ?? 0);
@@ -529,6 +529,6 @@ class SaleController extends Controller
                 'other_amount'       => $otherAmount,
                 'total_amount'       => $totalAmount,
             ];
-        }));
+        })->values());
     }
 }

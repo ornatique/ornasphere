@@ -199,6 +199,54 @@
                             </div>
                         </div>
 
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group row">
+                                    <label class="col-sm-3 col-form-label">New Password</label>
+                                    <div class="col-sm-9">
+                                        <input type="password"
+                                            name="password"
+                                            class="form-control @error('password') is-invalid @enderror"
+                                            placeholder="Leave blank to keep current password">
+                                        @error('password')
+                                        <div class="text-danger small">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="form-group row">
+                                    <label class="col-sm-3 col-form-label">Confirm Password</label>
+                                    <div class="col-sm-9">
+                                        <input type="password"
+                                            name="password_confirmation"
+                                            class="form-control"
+                                            placeholder="Re-enter new password">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group row">
+                                    <label class="col-sm-3 col-form-label">Created At</label>
+                                    <div class="col-sm-9">
+                                        <input type="text" class="form-control" value="{{ optional($user->created_at)->format('d-m-Y h:i A') }}" readonly>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group row">
+                                    <label class="col-sm-3 col-form-label">Updated At</label>
+                                    <div class="col-sm-9">
+                                        <input type="text" class="form-control" value="{{ optional($user->updated_at)->format('d-m-Y h:i A') }}" readonly>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                 </div>
 
                 <div class="card-footer text-end">

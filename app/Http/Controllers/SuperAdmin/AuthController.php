@@ -3,6 +3,12 @@
 namespace App\Http\Controllers\SuperAdmin;
 
 use App\Http\Controllers\Controller;
+use App\Models\ApprovalHeader;
+use App\Models\Company;
+use App\Models\Sale;
+use App\Models\SaleReturn;
+use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -64,5 +70,51 @@ class AuthController extends Controller
         $request->session()->regenerateToken();
 
         return redirect()->route('superadmin.login');
+    }
+
+    public function dashboard()
+    {
+        $totalCompanies = Company::count();
+        $activeCompanies = Company::where('status', 1)->count();
+        $inactiveCompanies = Company::where('status', 0)->count();
+        $totalUsers = User::count();
+        $activeUsers = User::where('is_active', 1)->count();
+
+        $monthStart = Carbon::now()->startOfMonth()->toDateString();
+        $monthEnd = Carbon::now()->endOfMonth()->toDateString();
+
+        $monthlySales = (float) Sale::whereBetween('sale_date', [$monthStart, $monthEnd])->sum('total_amount');
+        $monthlyReturns = (float) SaleReturn::whereBetween('return_date', [$monthStart, $monthEnd])->sum('return_total');
+        $openApprovals = ApprovalHeader::whereIn('status', ['open', 'partial'])->count();
+
+        $labels = [];
+        $companyTrend = [];
+        for ($i = 5; $i >= 0; $i--) {
+            $m = Carbon::now()->subMonths($i);
+            $labels[] = $m->format('M Y');
+            $companyTrend[] = Company::whereBetween('created_at', [
+                $m->copy()->startOfMonth()->toDateTimeString(),
+                $m->copy()->endOfMonth()->toDateTimeString(),
+            ])->count();
+        }
+
+        $recentCompanies = Company::withCount('users')
+            ->latest()
+            ->limit(8)
+            ->get();
+
+        return view('superadmin.auth.dashboard', compact(
+            'totalCompanies',
+            'activeCompanies',
+            'inactiveCompanies',
+            'totalUsers',
+            'activeUsers',
+            'monthlySales',
+            'monthlyReturns',
+            'openApprovals',
+            'labels',
+            'companyTrend',
+            'recentCompanies'
+        ));
     }
 }

@@ -339,7 +339,12 @@ class SaleApiController extends Controller
     public function approvalItems(Request $request)
     {
         $companyId = $request->user()->company_id;
-        $customerId = (int) $request->input('customer_id', 0);
+        $customerId = (int) (
+            $request->input('customer_id')
+            ?? $request->input('customer')
+            ?? $request->input('party_id')
+            ?? 0
+        );
 
         if ($customerId <= 0) {
             return response()->json([
@@ -358,6 +363,8 @@ class SaleApiController extends Controller
             ->where('status', '!=', 'sold')
             ->get()
             ->filter(function ($row) {
+                // Match web logic exactly:
+                // only rows linked to sold itemsets are eligible to convert into sale.
                 $itemSet = $row->itemSet ?? $row->legacyItemSet;
                 return $itemSet && (int) $itemSet->is_sold === 1;
             })
@@ -382,24 +389,34 @@ class SaleApiController extends Controller
                 return [
                     'approval_item_id' => $row->id,
                     'approval_id' => $row->approval_id,
-                    'itemset_id' => $row->itemset_id ?? optional($itemSet)->id,
+                    'itemset_id' => $row->itemset_id ?? $row->item_id ?? optional($itemSet)->id,
                     'item_id' => $row->item_id ?? optional($itemSet)->item_id,
+                    'qty' => 1,
                     'name' => optional($item)->item_name,
                     'code' => $row->qr_code ?? optional($itemSet)->qr_code ?? '',
                     'huid' => $row->huid ?? optional($itemSet)->HUID,
                     'gross_weight' => $gross,
+                    'gross_wt' => $gross,
                     'other_weight' => $otherWeight,
+                    'other_wt' => $otherWeight,
                     'net_weight' => $net,
+                    'net_wt' => $net,
                     'purity' => $purity,
                     'waste_percent' => $wastePercent,
+                    'waste_pct' => $wastePercent,
                     'net_purity' => $netPurity,
                     'fine_weight' => $fineWeight,
+                    'fine_wt' => $fineWeight,
                     'metal_rate' => $metalRate,
                     'metal_amount' => $metalAmount,
+                    'metal_amt' => $metalAmount,
                     'labour_rate' => $labourRate,
                     'labour_amount' => $labourAmount,
+                    'labour_amt' => $labourAmount,
                     'other_amount' => $otherAmount,
+                    'other_amt' => $otherAmount,
                     'total_amount' => $totalAmount,
+                    'total_amt' => $totalAmount,
                     'status' => $row->status,
                 ];
             });
@@ -443,9 +460,32 @@ class SaleApiController extends Controller
     public function store(Request $request)
     {
         $companyId = $request->user()->company_id;
+        $customerId = (int) (
+            $request->input('customer_id')
+            ?? $request->input('customer')
+            ?? $request->input('party_id')
+            ?? 0
+        );
 
         $request->validate([
+            'items' => 'required|array|min:1',
+            'items.*.itemset_id' => 'required|integer',
+        ]);
+
+        if ($customerId <= 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Customer is required.'
+            ], 422);
+        }
+
+        validator([
+            'customer_id' => $customerId
+        ], [
             'customer_id' => 'required|exists:customers,id',
+        ])->validate();
+
+        $request->validate([
             'items' => 'required|array|min:1',
             'items.*.itemset_id' => 'required|integer',
         ]);
@@ -455,7 +495,7 @@ class SaleApiController extends Controller
         try {
             $sale = Sale::create([
                 'company_id'  => $companyId,
-                'customer_id' => $request->customer_id,
+                'customer_id' => $customerId,
                 'voucher_no'  => 'SL' . time(),
                 'sale_date'   => now(),
                 'net_total'   => 0
@@ -469,24 +509,37 @@ class SaleApiController extends Controller
                     ->where('is_sold', 0)
                     ->findOrFail($item['itemset_id']);
 
-                $labourAmount = (float) ($item['labour_amount'] ?? $itemSet->sale_labour_amount ?? (($item['net_weight'] ?? $itemSet->net_weight ?? 0) * ($item['labour_rate'] ?? $itemSet->sale_labour_rate ?? 0)));
-                $otherAmount = (float) ($item['other_amount'] ?? $itemSet->sale_other ?? 0);
-                $lineTotal = (float) ($item['amount'] ?? $item['total_amount'] ?? ($labourAmount + $otherAmount));
+                $grossWeight = (float) ($item['gross_weight'] ?? $item['gross_wt'] ?? $itemSet->gross_weight ?? 0);
+                $otherWeight = (float) ($item['other_weight'] ?? $item['other_wt'] ?? $itemSet->other ?? 0);
+                $netWeight = (float) ($item['net_weight'] ?? $item['net_wt'] ?? $itemSet->net_weight ?? max(0, $grossWeight - $otherWeight));
+                $purity = (float) ($item['purity'] ?? optional($itemSet->item)->outward_purity ?? 0);
+                $wastePercent = (float) ($item['waste_percent'] ?? $item['waste_pct'] ?? 0);
+                $netPurity = (float) ($item['net_purity'] ?? ($purity - $wastePercent));
+                $fineWeight = (float) ($item['fine_weight'] ?? $item['fine_wt'] ?? ($netWeight * $netPurity / 100));
+                $metalRate = (float) ($item['metal_rate'] ?? 0);
+                $metalAmount = (float) ($item['metal_amount'] ?? $item['metal_amt'] ?? ($netWeight * $metalRate));
+                $labourRate = (float) ($item['labour_rate'] ?? $itemSet->sale_labour_rate ?? 0);
+                $labourAmount = (float) ($item['labour_amount'] ?? $item['labour_amt'] ?? $itemSet->sale_labour_amount ?? ($netWeight * $labourRate));
+                $otherAmount = (float) ($item['other_amount'] ?? $item['other_amt'] ?? $itemSet->sale_other ?? 0);
+                $lineTotal = (float) ($item['amount'] ?? $item['total_amount'] ?? $item['total_amt'] ?? ($metalAmount + $labourAmount + $otherAmount));
+                $qty = (int) ($item['qty'] ?? 1);
 
                 SaleItem::create([
                     'sale_id' => $sale->id,
                     'itemset_id' => $itemSet->id,
+                    'product_id' => $item['product_id'] ?? $itemSet->item_id ?? null,
                     'approval_item_id' => $item['approval_item_id'] ?? null,
-                    'gross_weight' => $item['gross_weight'] ?? $itemSet->gross_weight,
-                    'other_weight' => $item['other_weight'] ?? $itemSet->other ?? 0,
-                    'net_weight' => $item['net_weight'] ?? $itemSet->net_weight,
-                    'purity' => $item['purity'] ?? optional($itemSet->item)->outward_purity ?? 0,
-                    'waste_percent' => $item['waste_percent'] ?? 0,
-                    'net_purity' => $item['net_purity'] ?? ($item['purity'] ?? optional($itemSet->item)->outward_purity ?? 0),
-                    'fine_weight' => $item['fine_weight'] ?? 0,
-                    'metal_rate' => $item['metal_rate'] ?? 0,
-                    'metal_amount' => $item['metal_amount'] ?? 0,
-                    'labour_rate' => $item['labour_rate'] ?? $itemSet->sale_labour_rate ?? 0,
+                    'qty' => $qty,
+                    'gross_weight' => $grossWeight,
+                    'other_weight' => $otherWeight,
+                    'net_weight' => $netWeight,
+                    'purity' => $purity,
+                    'waste_percent' => $wastePercent,
+                    'net_purity' => $netPurity,
+                    'fine_weight' => $fineWeight,
+                    'metal_rate' => $metalRate,
+                    'metal_amount' => $metalAmount,
+                    'labour_rate' => $labourRate,
                     'labour_amount' => $labourAmount,
                     'other_amount' => $otherAmount,
                     'total_amount' => $lineTotal,

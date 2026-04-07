@@ -105,6 +105,34 @@
 
                         </div>
 
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group row">
+                                    <label class="col-sm-3 col-form-label">Password</label>
+                                    <div class="col-sm-9">
+                                        <input type="password"
+                                            name="password"
+                                            class="form-control @error('password') is-invalid @enderror"
+                                            required>
+                                        @error('password')
+                                        <div class="text-danger small">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group row">
+                                    <label class="col-sm-3 col-form-label">Confirm Password</label>
+                                    <div class="col-sm-9">
+                                        <input type="password"
+                                            name="password_confirmation"
+                                            class="form-control"
+                                            required>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         {{-- PERSON DETAILS --}}
                         <p class="card-description">Person Details</p>
 
@@ -230,7 +258,7 @@
                 fetch("{{ route('company.check.employee.limit', $company->slug) }}")
                     .then(response => response.json())
                     .then(data => {
-                        if (data.limit_reached) {
+                        if (data.employee_limit_reached) {
                             new bootstrap.Modal(document.getElementById('employeeLimitModal')).show();
                             this.value = '';
                         }

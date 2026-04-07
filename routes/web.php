@@ -76,9 +76,8 @@ Route::middleware([
     'superadmin.2fa',
 ])->prefix('superadmin')->name('superadmin.')->group(function () {
 
-    Route::get('/dashboard', function () {
-        return view('superadmin.auth.dashboard');
-    })->name('dashboard');
+    Route::get('/dashboard', [SuperAdminAuthController::class, 'dashboard'])
+        ->name('dashboard');
 
     Route::resource('companies', CompanyController::class);
 
@@ -358,7 +357,7 @@ Route::middleware(['auth', 'company.2fa', 'company.route.permission'])
             ->name('items.search');
 
         Route::get('/approval-items', [SaleController::class, 'approvalItems'])
-            ->name('approval.items');
+            ->name('sales.approval.items');
 
         Route::get(
             '/returns',
@@ -460,7 +459,7 @@ Route::middleware(['auth', 'company.2fa', 'company.route.permission'])
             ->name('approval.pdf.v2');
 
         Route::get('approval/{id}/items', [ApprovalController::class, 'itemsData'])
-            ->name('approval.items');
+            ->name('approval.items.data');
 
         Route::post('approval/sale', [ApprovalController::class, 'sale'])
             ->name('approval.sale');

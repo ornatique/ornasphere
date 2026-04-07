@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use App\Models\Company;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 
 class CompanyAuthController extends Controller
 {
@@ -27,50 +28,40 @@ class CompanyAuthController extends Controller
             'password' => 'required',
         ]);
 
-        if (Auth::attempt($credentials)) {
+        $user = User::where('email', $credentials['email'])
+            ->where('company_id', $company->id)
+            ->first();
 
-            $user = Auth::user();
-
-            if ((int) $user->company_id !== (int) $company->id) {
-                Auth::logout();
-
-                return back()->withErrors([
-                    'email' => 'This user does not belong to this company.',
-                ]);
-            }
-
-            if ((int) $company->status !== 1) {
-                Auth::logout();
-
-                return back()->withErrors([
-                    'email' => 'Company is inactive. Please contact super admin.',
-                ]);
-            }
-
-            if ($user->is_active != 1) {
-                Auth::logout();
-
-                return back()->withErrors([
-                    'email' => 'Please contact admin. Your account is inactive.',
-                ]);
-            }
-
-            $request->session()->regenerate();
-
-            if (!$user->two_factor_enabled) {
-                return redirect()
-                    ->route('company.2fa.setup', $user->company->slug);
-            }
-
-            session(['company_2fa_verified' => false]);
-
-            return redirect()
-                ->route('company.2fa.challenge', $user->company->slug);
+        if (!$user || !Hash::check($credentials['password'], $user->password)) {
+            return back()->withErrors([
+                'email' => 'Invalid login credentials.',
+            ]);
         }
 
-        return back()->withErrors([
-            'email' => 'Invalid login credentials.',
-        ]);
+        if ((int) $company->status !== 1) {
+            return back()->withErrors([
+                'email' => 'Company is inactive. Please contact super admin.',
+            ]);
+        }
+
+        if ((int) $user->is_active !== 1) {
+            return back()->withErrors([
+                'email' => 'Please contact admin. Your account is inactive.',
+            ]);
+        }
+
+        Auth::login($user);
+        $request->session()->regenerate();
+
+        if (!$user->two_factor_enabled) {
+            return redirect()
+                ->route('company.2fa.setup', $user->company->slug);
+        }
+
+        session(['company_2fa_verified' => false]);
+
+        return redirect()
+            ->route('company.2fa.challenge', $user->company->slug);
     }
 
     public function logout(Request $request)

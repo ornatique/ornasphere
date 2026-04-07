@@ -15,10 +15,8 @@ class CompanyPermissionController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
 
         if ($request->ajax()) {
-            $permissions = Permission::where(function ($q) use ($company) {
-                $q->where('company_id', $company->id)
-                    ->orWhereNull('company_id');
-            })->withCount('roles');
+            $permissions = Permission::where('guard_name', 'web')
+                ->withCount('roles');
 
             return DataTables::of($permissions)
                 ->addIndexColumn()
@@ -28,10 +26,6 @@ class CompanyPermissionController extends Controller
                 })
 
                 ->addColumn('action', function ($permission) use ($company) {
-                    if (is_null($permission->company_id)) {
-                        return '<span class="badge bg-info">System</span>';
-                    }
-
                     $encryptedId = encrypt($permission->id);
 
                     $editUrl = route('company.permissions.edit', [
@@ -96,7 +90,7 @@ class CompanyPermissionController extends Controller
         Permission::create([
             'name' => $name,
             'guard_name' => 'web',
-            'company_id' => $company->id,
+            'company_id' => null,
         ]);
 
         return redirect()
@@ -111,11 +105,6 @@ class CompanyPermissionController extends Controller
         $permissionId = decrypt($encryptedId);
 
         $permission = Permission::where('id', $permissionId)->firstOrFail();
-        if (is_null($permission->company_id) || (int) $permission->company_id !== (int) $company->id) {
-            return redirect()
-                ->route('company.permissions.index', $company->slug)
-                ->withErrors('System/shared permission cannot be edited from company panel.');
-        }
 
         return view('company.permissions.edit', compact('company', 'permission'));
     }
@@ -128,11 +117,6 @@ class CompanyPermissionController extends Controller
         $permissionId = decrypt($encryptedId);
 
         $permission = Permission::where('id', $permissionId)->firstOrFail();
-        if (is_null($permission->company_id) || (int) $permission->company_id !== (int) $company->id) {
-            return redirect()
-                ->route('company.permissions.index', $company->slug)
-                ->withErrors('System/shared permission cannot be edited from company panel.');
-        }
 
         $request->validate([
             'name' => 'required|string'
@@ -163,9 +147,6 @@ class CompanyPermissionController extends Controller
         $permissionId = decrypt($encryptedId);
 
         $permission = Permission::where('id', $permissionId)->firstOrFail();
-        if (is_null($permission->company_id) || (int) $permission->company_id !== (int) $company->id) {
-            return back()->withErrors('System/shared permission cannot be deleted from company panel.');
-        }
 
         if ($permission->roles()->count() > 0) {
             return back()->withErrors('Permission is assigned to roles and cannot be deleted.');

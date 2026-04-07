@@ -20,6 +20,8 @@
                         <th>Email</th>
                         <th>Role</th>
                         <th>Status</th>
+                        <th>Create Time</th>
+                        <th>Update Time</th>
                         <th>Action</th>
                     </tr>
                 </thead>
@@ -59,6 +61,16 @@
                 {
                     data: 'status',
                     name: 'status'
+                },
+                {
+                    data: 'created_time',
+                    name: 'created_time',
+                    searchable: false
+                },
+                {
+                    data: 'updated_time',
+                    name: 'updated_time',
+                    searchable: false
                 },
                 {
                     data: 'action',

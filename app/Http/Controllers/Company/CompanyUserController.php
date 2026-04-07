@@ -37,6 +37,12 @@ class CompanyUserController extends Controller
                         ? '<span class="badge bg-success">Active</span>'
                         : '<span class="badge bg-danger">Inactive</span>';
                 })
+                ->addColumn('created_time', function ($user) {
+                    return optional($user->created_at)->format('d-m-Y h:i A') ?? '-';
+                })
+                ->addColumn('updated_time', function ($user) {
+                    return optional($user->updated_at)->format('d-m-Y h:i A') ?? '-';
+                })
 
                 ->addColumn('action', function ($user) use ($company) {
 
@@ -112,6 +118,7 @@ class CompanyUserController extends Controller
             'name' => 'required|string',
             'email' => 'required|email|unique:users,email',
             'role' => 'required',
+            'password' => 'required|string|min:6|confirmed',
             // 'profile_image' => 'nullable|image|max:2048',
         ]);
 
@@ -125,8 +132,7 @@ class CompanyUserController extends Controller
             'company_id' => $company->id,
             'name' => $request->name,
             'email' => $request->email,
-            // Requested behavior: default password = same email id.
-            'password' => Hash::make($request->email),
+            'password' => Hash::make($request->password),
             'role' => $request->role,
             'profile_image' => $imagePath,
 
@@ -156,7 +162,7 @@ class CompanyUserController extends Controller
 
         return redirect()
             ->route('company.users.index', $company->slug)
-            ->with('success', 'User created successfully. Default password is same as email.');
+            ->with('success', 'User created successfully.');
     }
 
     public function edit($slug, $encryptedId)
@@ -190,6 +196,7 @@ class CompanyUserController extends Controller
             'name' => 'required|string|max:255',
             'role' => 'required',
             'profile_image' => 'nullable|image|max:2048',
+            'password' => 'nullable|string|min:6|confirmed',
         ]);
 
         if (strtolower((string) $request->role) === 'customer') {
@@ -227,7 +234,7 @@ class CompanyUserController extends Controller
         }
 
         // Update fields
-        $user->update([
+        $payload = [
             'name' => $request->name,
             'profile_image' => $user->profile_image,
             'person_code' => $request->person_code,
@@ -249,7 +256,13 @@ class CompanyUserController extends Controller
             'anniversary_date' => $request->anniversary_date,
             'reference' => $request->reference,
             'address' => $request->address,
-        ]);
+        ];
+
+        if ($request->filled('password')) {
+            $payload['password'] = Hash::make($request->password);
+        }
+
+        $user->update($payload);
 
         $user->syncRoles([$newRole]);
 

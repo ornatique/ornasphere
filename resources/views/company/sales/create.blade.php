@@ -646,38 +646,59 @@ $(function () {
 
         $('#approvalModal').modal('show');
 
-        $.get("{{ route('company.approval.items', $company->slug) }}", { customer_id: customerId }, function(data) {
+        $.get("{{ route('company.sales.approval.items', $company->slug) }}", { customer_id: customerId }, function(resp) {
+            let data = [];
+            if (Array.isArray(resp)) {
+                data = resp;
+            } else if (resp && Array.isArray(resp.data)) {
+                data = resp.data;
+            } else if (resp && typeof resp === 'object') {
+                data = Object.values(resp);
+            }
             let html = '';
             if (!data.length) {
                 html = `<tr><td colspan="4" class="text-center">No Data</td></tr>`;
             } else {
                 data.forEach((item, i) => {
-                    if (!item.itemset_id || selectedRows[item.itemset_id]) return;
+                    const itemsetId = toNum(item.itemset_id ?? item.itemsetId ?? 0);
+                    const approvalItemId = item.approval_item_id ?? item.approval_id ?? item.id ?? '';
+                    const code = item.code ?? item.qr_code ?? '';
+                    const grossWeight = toNum(item.gross_weight ?? item.gross_wt ?? item.gross ?? 0);
+                    const otherWeight = toNum(item.other_weight ?? item.other_wt ?? 0);
+                    const netWeight = toNum(item.net_weight ?? item.net_wt ?? (grossWeight - otherWeight));
+                    const wastePercent = toNum(item.waste_percent ?? item.waste_pct ?? 0);
+                    const fineWeight = toNum(item.fine_weight ?? item.fine_wt ?? 0);
+                    const metalAmount = toNum(item.metal_amount ?? item.metal_amt ?? 0);
+                    const labourAmount = toNum(item.labour_amount ?? item.labour_amt ?? 0);
+                    const otherAmount = toNum(item.other_amount ?? item.other_amt ?? 0);
+                    const totalAmount = toNum(item.total_amount ?? item.total_amt ?? 0);
+
+                    if (!itemsetId || selectedRows[itemsetId]) return;
                     html += `
                     <tr class="leftRow"
-                        data-itemset-id="${item.itemset_id}"
+                        data-itemset-id="${itemsetId}"
                         data-item-id="${item.item_id || ''}"
-                        data-approval-id="${item.approval_id || ''}"
+                        data-approval-id="${approvalItemId}"
                         data-name="${esc(item.name || '')}"
-                        data-code="${esc(item.code || '')}"
+                        data-code="${esc(code)}"
                         data-huid="${esc(item.huid || '')}"
-                        data-gross-weight="${nfix(item.gross_weight,3)}"
-                        data-other-weight="${nfix(item.other_weight,3)}"
-                        data-net-weight="${nfix(item.net_weight,3)}"
+                        data-gross-weight="${nfix(grossWeight,3)}"
+                        data-other-weight="${nfix(otherWeight,3)}"
+                        data-net-weight="${nfix(netWeight,3)}"
                         data-purity="${nfix(item.purity,3)}"
-                        data-waste-percent="${nfix(item.waste_percent,3)}"
+                        data-waste-percent="${nfix(wastePercent,3)}"
                         data-net-purity="${nfix(item.net_purity,3)}"
-                        data-fine-weight="${nfix(item.fine_weight,3)}"
+                        data-fine-weight="${nfix(fineWeight,3)}"
                         data-metal-rate="${nfix(item.metal_rate,2)}"
-                        data-metal-amount="${nfix(item.metal_amount,2)}"
+                        data-metal-amount="${nfix(metalAmount,2)}"
                         data-labour-rate="${nfix(item.labour_rate,2)}"
-                        data-labour-amount="${nfix(item.labour_amount,2)}"
-                        data-other-amount="${nfix(item.other_amount,2)}"
-                        data-total-amount="${nfix(item.total_amount,2)}">
+                        data-labour-amount="${nfix(labourAmount,2)}"
+                        data-other-amount="${nfix(otherAmount,2)}"
+                        data-total-amount="${nfix(totalAmount,2)}">
                         <td>${i + 1}</td>
-                        <td>${esc(item.code || '')}</td>
+                        <td>${esc(code)}</td>
                         <td>${esc(item.name || '')}</td>
-                        <td>${nfix(item.gross_weight,3)}</td>
+                        <td>${nfix(grossWeight,3)}</td>
                     </tr>`;
                 });
             }

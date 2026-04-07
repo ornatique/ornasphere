@@ -9,6 +9,8 @@ class SaleItem extends Model
     protected $fillable = [
         'sale_id',
         'itemset_id',
+        'product_id',
+        'qty',
         'gross_weight',
         'other_weight',
         'net_weight',

@@ -33,32 +33,35 @@ class CompanyRoutePermission
             return $next($request);
         }
 
-        // If module permissions are not configured yet, allow route.
-        $modulePermissionExists = Permission::where('company_id', $user->company_id)
-            ->where(function ($q) use ($module) {
-                $q->where('name', 'like', $module . '-%')
-                    ->orWhere('name', 'like', $module . '.%')
-                    ->orWhere('name', 'like', $module . '_%')
-                    ->orWhere('name', 'like', $module . ' %');
-            })
-            ->exists();
-
-        if (!$modulePermissionExists) {
-            return $next($request);
-        }
-
         $action = $this->actionFromRouteName($routeName, $request);
+        $moduleVariants = array_unique([
+            $module,
+            str_replace('-', '', $module),
+            str_replace('-', '_', $module),
+            str_replace('-', '.', $module),
+            str_replace('-', ' ', $module),
+        ]);
 
-        $candidates = [
-            "{$module}-{$action}",
-            "{$module}.{$action}",
-            "{$module}_{$action}",
-            "{$module} {$action}",
-            "{$module}-manage",
-            "{$module}.manage",
-            "{$module}_manage",
-            "{$module} manage",
-        ];
+        $candidates = [];
+        foreach ($moduleVariants as $m) {
+            $candidates[] = "{$m}-{$action}";
+            $candidates[] = "{$m}.{$action}";
+            $candidates[] = "{$m}_{$action}";
+            $candidates[] = "{$m} {$action}";
+            $candidates[] = "{$action}-{$m}";
+            $candidates[] = "{$action}.{$m}";
+            $candidates[] = "{$action}_{$m}";
+            $candidates[] = "{$action} {$m}";
+            $candidates[] = "{$m}-manage";
+            $candidates[] = "{$m}.manage";
+            $candidates[] = "{$m}_manage";
+            $candidates[] = "{$m} manage";
+            $candidates[] = "manage-{$m}";
+            $candidates[] = "manage.{$m}";
+            $candidates[] = "manage_{$m}";
+            $candidates[] = "manage {$m}";
+        }
+        $candidates = array_values(array_unique($candidates));
 
         if ($user->hasAnyPermission($candidates)) {
             return $next($request);
