@@ -13,6 +13,7 @@
                 <div class="card-body"> 
 
                     <form method="POST"
+                          enctype="multipart/form-data"
                           action="{{ route('superadmin.companies.store') }}">
                         @csrf
 
@@ -46,6 +47,25 @@
                                         @error('email')
                                             <div class="invalid-feedback">{{ $message }}</div>
                                         @enderror
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {{-- Company Logo --}}
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group row">
+                                    <label class="col-sm-3 col-form-label">Company Logo</label>
+                                    <div class="col-sm-9">
+                                        <input type="file"
+                                               name="company_logo"
+                                               accept="image/png,image/jpeg,image/webp"
+                                               class="form-control @error('company_logo') is-invalid @enderror">
+                                        @error('company_logo')
+                                            <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                        <small class="text-muted">Allowed: JPG, PNG, WEBP (max 2MB)</small>
                                     </div>
                                 </div>
                             </div>

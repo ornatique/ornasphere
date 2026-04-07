@@ -127,8 +127,10 @@ class CustomerApiController extends Controller
 
     private function validatePayload(Request $request, int $companyId, ?int $customerId = null): array
     {
+        $nameRule = $customerId ? 'sometimes' : 'required';
+
         return $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => [$nameRule, 'string', 'max:255'],
             'email' => [
                 'nullable',
                 'email',
@@ -157,4 +159,3 @@ class CustomerApiController extends Controller
         ]);
     }
 }
-

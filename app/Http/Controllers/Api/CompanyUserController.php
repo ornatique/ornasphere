@@ -229,6 +229,36 @@ public function update(Request $request, $id)
     }
 
     // ✅ Delete Company User
+    public function reset2fa(Request $request, $id)
+    {
+        $authUser = $request->user();
+        $companyId = $authUser->company_id;
+
+        $user = User::where('company_id', $companyId)
+            ->where('id', $id)
+            ->first();
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'User not found.'
+            ], 404);
+        }
+
+        $user->forceFill([
+            'two_factor_secret' => null,
+            'two_factor_recovery_codes' => null,
+            'two_factor_enabled' => false,
+        ])->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'User 2FA reset successfully.',
+            'user_id' => $user->id,
+        ], 200);
+    }
+
+    // ✅ Delete Company User
     public function destroy(Request $request, $id)
     {
     $authUser = $request->user();

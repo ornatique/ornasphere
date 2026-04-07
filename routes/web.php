@@ -181,6 +181,11 @@ Route::middleware(['auth', 'company.2fa', 'company.route.permission'])
         )
             ->name('users.toggle');
 
+        Route::post(
+            '/users/{encryptedId}/reset-2fa',
+            [CompanyUserController::class, 'reset2fa']
+        )->name('users.reset-2fa');
+
         Route::get(
             '/check-employee-limit',
             [CompanyUserController::class, 'checkEmployeeLimit']

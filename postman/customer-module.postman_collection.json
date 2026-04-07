@@ -1,0 +1,336 @@
+{
+    "info":  {
+                 "name":  "Ornasphere Customer Module API",
+                 "_postman_id":  "7a2a5e6a-9b5c-4d87-b1f7-ornasphere-customer",
+                 "description":  "Customer module + auth APIs for Ornasphere",
+                 "schema":  "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+             },
+    "item":  [
+                 {
+                     "name":  "Auth - Login",
+                     "request":  {
+                                     "method":  "POST",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Accept",
+                                                        "value":  "application/json"
+                                                    },
+                                                    {
+                                                        "key":  "Content-Type",
+                                                        "value":  "application/json"
+                                                    }
+                                                ],
+                                     "body":  {
+                                                  "mode":  "raw",
+                                                  "raw":  "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+                                              },
+                                     "url":  "{{baseUrl}}/api/company/login"
+                                 },
+                     "response":  [
+
+                                  ],
+                     "event":  [
+                                   {
+                                       "script":  {
+                                                      "exec":  [
+                                                                   "const res = pm.response.json();",
+                                                                   "if (res.user_id) { pm.collectionVariables.set(\"userId\", String(res.user_id)); pm.environment.set(\"userId\", String(res.user_id)); }"
+                                                               ],
+                                                      "type":  "text/javascript"
+                                                  },
+                                       "listen":  "test"
+                                   }
+                               ]
+                 },
+                 {
+                     "name":  "Auth - Verify OTP",
+                     "request":  {
+                                     "method":  "POST",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Accept",
+                                                        "value":  "application/json"
+                                                    },
+                                                    {
+                                                        "key":  "Content-Type",
+                                                        "value":  "application/json"
+                                                    }
+                                                ],
+                                     "body":  {
+                                                  "mode":  "raw",
+                                                  "raw":  "{\n  \"user_id\": {{userId}},\n  \"otp\": \"{{otp}}\"\n}"
+                                              },
+                                     "url":  "{{baseUrl}}/api/company/verify-otp"
+                                 },
+                     "response":  [
+
+                                  ],
+                     "event":  [
+                                   {
+                                       "script":  {
+                                                      "exec":  [
+                                                                   "const res = pm.response.json();",
+                                                                   "if (res.token) { pm.collectionVariables.set(\"token\", res.token); pm.environment.set(\"token\", res.token); }"
+                                                               ],
+                                                      "type":  "text/javascript"
+                                                  },
+                                       "listen":  "test"
+                                   }
+                               ]
+                 },
+                 {
+                     "name":  "Auth - Me",
+                     "request":  {
+                                     "method":  "GET",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Accept",
+                                                        "value":  "application/json"
+                                                    },
+                                                    {
+                                                        "key":  "Authorization",
+                                                        "value":  "Bearer {{token}}"
+                                                    }
+                                                ],
+                                     "url":  "{{baseUrl}}/api/company/me"
+                                 },
+                     "response":  [
+
+                                  ]
+                 },
+                 {
+                     "name":  "Customers - List",
+                     "request":  {
+                                     "method":  "GET",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Accept",
+                                                        "value":  "application/json"
+                                                    },
+                                                    {
+                                                        "key":  "Authorization",
+                                                        "value":  "Bearer {{token}}"
+                                                    }
+                                                ],
+                                     "url":  "{{baseUrl}}/api/customers"
+                                 },
+                     "response":  [
+
+                                  ]
+                 },
+                 {
+                     "name":  "Customers - Show",
+                     "request":  {
+                                     "method":  "GET",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Accept",
+                                                        "value":  "application/json"
+                                                    },
+                                                    {
+                                                        "key":  "Authorization",
+                                                        "value":  "Bearer {{token}}"
+                                                    }
+                                                ],
+                                     "url":  "{{baseUrl}}/api/customers/{{customerId}}"
+                                 },
+                     "response":  [
+
+                                  ]
+                 },
+                 {
+                     "name":  "Customers - Create",
+                     "request":  {
+                                     "method":  "POST",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Accept",
+                                                        "value":  "application/json"
+                                                    },
+                                                    {
+                                                        "key":  "Authorization",
+                                                        "value":  "Bearer {{token}}"
+                                                    },
+                                                    {
+                                                        "key":  "Content-Type",
+                                                        "value":  "application/json"
+                                                    }
+                                                ],
+                                     "body":  {
+                                                  "mode":  "raw",
+                                                  "raw":  "{\n  \"name\": \"Postman Customer\",\n  \"email\": \"postman.customer@example.com\",\n  \"mobile_no\": \"9999999999\",\n  \"address\": \"Nava Vadaj\",\n  \"city\": \"Ahmedabad\",\n  \"area\": \"Naranpura\",\n  \"landmark\": \"Near Circle\",\n  \"pincode\": \"380013\",\n  \"is_active\": true\n}"
+                                              },
+                                     "url":  "{{baseUrl}}/api/customers"
+                                 },
+                     "response":  [
+
+                                  ]
+                 },
+                 {
+                     "name":  "Customers - Update (PUT)",
+                     "request":  {
+                                     "method":  "PUT",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Accept",
+                                                        "value":  "application/json"
+                                                    },
+                                                    {
+                                                        "key":  "Authorization",
+                                                        "value":  "Bearer {{token}}"
+                                                    },
+                                                    {
+                                                        "key":  "Content-Type",
+                                                        "value":  "application/json"
+                                                    }
+                                                ],
+                                     "body":  {
+                                                  "mode":  "raw",
+                                                  "raw":  "{\n  \"mobile_no\": \"8888888888\",\n  \"city\": \"Surat\",\n  \"is_active\": false\n}"
+                                              },
+                                     "url":  "{{baseUrl}}/api/customers/{{customerId}}"
+                                 },
+                     "response":  [
+
+                                  ]
+                 },
+                 {
+                     "name":  "Customers - Delete",
+                     "request":  {
+                                     "method":  "DELETE",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Accept",
+                                                        "value":  "application/json"
+                                                    },
+                                                    {
+                                                        "key":  "Authorization",
+                                                        "value":  "Bearer {{token}}"
+                                                    }
+                                                ],
+                                     "url":  "{{baseUrl}}/api/customers/{{customerId}}"
+                                 },
+                     "response":  [
+
+                                  ]
+                 },
+                 {
+                     "name":  "Customers - Legacy List",
+                     "request":  {
+                                     "method":  "GET",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Accept",
+                                                        "value":  "application/json"
+                                                    },
+                                                    {
+                                                        "key":  "Authorization",
+                                                        "value":  "Bearer {{token}}"
+                                                    }
+                                                ],
+                                     "url":  "{{baseUrl}}/api/customers_list"
+                                 },
+                     "response":  [
+
+                                  ]
+                 },
+                 {
+                     "name":  "Customers - Legacy Create",
+                     "request":  {
+                                     "method":  "POST",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Accept",
+                                                        "value":  "application/json"
+                                                    },
+                                                    {
+                                                        "key":  "Authorization",
+                                                        "value":  "Bearer {{token}}"
+                                                    },
+                                                    {
+                                                        "key":  "Content-Type",
+                                                        "value":  "application/json"
+                                                    }
+                                                ],
+                                     "body":  {
+                                                  "mode":  "raw",
+                                                  "raw":  "{\n  \"name\": \"Legacy API Customer\",\n  \"email\": \"legacy.customer@example.com\",\n  \"mobile_no\": \"9090909090\"\n}"
+                                              },
+                                     "url":  "{{baseUrl}}/api/create_customers"
+                                 },
+                     "response":  [
+
+                                  ]
+                 },
+                 {
+                     "name":  "Customers - Legacy Update",
+                     "request":  {
+                                     "method":  "POST",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Accept",
+                                                        "value":  "application/json"
+                                                    },
+                                                    {
+                                                        "key":  "Authorization",
+                                                        "value":  "Bearer {{token}}"
+                                                    },
+                                                    {
+                                                        "key":  "Content-Type",
+                                                        "value":  "application/json"
+                                                    }
+                                                ],
+                                     "body":  {
+                                                  "mode":  "raw",
+                                                  "raw":  "{\n  \"city\": \"Vadodara\"\n}"
+                                              },
+                                     "url":  "{{baseUrl}}/api/update_customers/{{customerId}}"
+                                 },
+                     "response":  [
+
+                                  ]
+                 },
+                 {
+                     "name":  "Customers - Legacy Delete",
+                     "request":  {
+                                     "method":  "DELETE",
+                                     "header":  [
+                                                    {
+                                                        "key":  "Accept",
+                                                        "value":  "application/json"
+                                                    },
+                                                    {
+                                                        "key":  "Authorization",
+                                                        "value":  "Bearer {{token}}"
+                                                    }
+                                                ],
+                                     "url":  "{{baseUrl}}/api/delete_customers/{{customerId}}"
+                                 },
+                     "response":  [
+
+                                  ]
+                 }
+             ],
+    "variable":  [
+                     {
+                         "key":  "baseUrl",
+                         "value":  "http://localhost:8000"
+                     },
+                     {
+                         "key":  "token",
+                         "value":  ""
+                     },
+                     {
+                         "key":  "userId",
+                         "value":  "1"
+                     },
+                     {
+                         "key":  "otp",
+                         "value":  ""
+                     },
+                     {
+                         "key":  "customerId",
+                         "value":  "22"
+                     }
+                 ]
+}

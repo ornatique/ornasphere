@@ -50,12 +50,23 @@ class CompanyUserController extends Controller
 
                     $editUrl = route('company.users.edit', [$company->slug, $encryptedId]);
                     $toggleUrl = route('company.users.toggle', [$company->slug, $encryptedId]);
+                    $reset2faUrl = route('company.users.reset-2fa', [$company->slug, $encryptedId]);
 
                     $statusBtnClass = $user->is_active ? 'btn-success' : 'btn-danger';
                     $statusText = $user->is_active ? 'Active' : 'Inactive';
 
                     return '
                             <a href="' . $editUrl . '" class="btn btn-sm btn-primary">Edit</a>
+
+                            <form method="POST"
+                                action="' . $reset2faUrl . '"
+                                style="display:inline"
+                                onsubmit="return confirm(\'Reset 2FA for this user?\')">
+                                ' . csrf_field() . '
+                                <button type="submit" class="btn btn-sm btn-secondary">
+                                    Reset 2FA
+                                </button>
+                            </form>
 
                             <button type="button"
                                 class="btn btn-sm ' . $statusBtnClass . ' toggle-status-btn"
@@ -335,5 +346,25 @@ class CompanyUserController extends Controller
             'max_users' => (int) $company->max_users,
             'current_users' => (int) $totalUsers
         ]);
+    }
+
+    public function reset2fa($slug, $encryptedId)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $userId = Crypt::decryptString($encryptedId);
+
+        $user = User::where('id', $userId)
+            ->where('company_id', $company->id)
+            ->firstOrFail();
+
+        $user->forceFill([
+            'two_factor_secret' => null,
+            'two_factor_recovery_codes' => null,
+            'two_factor_enabled' => false,
+        ])->save();
+
+        return redirect()
+            ->route('company.users.index', $company->slug)
+            ->with('success', 'User 2FA reset successfully.');
     }
 }

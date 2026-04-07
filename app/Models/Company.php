@@ -10,6 +10,7 @@ class Company extends Model
         'name',
         'slug',
         'email',
+        'company_logo',
         'max_users',
         'plan',
         'address_1',

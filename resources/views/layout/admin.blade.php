@@ -5,7 +5,7 @@
   <!-- Required meta tags -->
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-  <title>CelestialUI Admin</title>
+  <title> {{ config('app.name', 'OrnaSphere') }}</title>
   <!-- base:css -->
   <link rel="stylesheet" href="{{ asset('celestial/assets/vendors/css/vendor.bundle.base.css') }}">
   <link rel="stylesheet" href="{{ asset('celestial/assets/vendors/mdi/css/materialdesignicons.min.css') }}">
@@ -22,32 +22,8 @@
 </head>
 
 <body>
-   {{-- Flash Messages --}}
-  @if(session('success'))
-  <div class="alert alert-success alert-dismissible fade show" role="alert">
-    {{ session('success') }}
-    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-  </div>
-  @endif
-
-  @if(session('error'))
-  <div class="alert alert-danger alert-dismissible fade show" role="alert">
-    {{ session('error') }}
-    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-  </div>
-  @endif
-
-  @if($errors->any())
-  <div class="alert alert-danger">
-    <ul class="mb-0">
-      @foreach($errors->all() as $error)
-      <li>{{ $error }}</li>
-      @endforeach
-    </ul>
-  </div>
-  @endif
   <div class="container-scroller">
-    <div class="row p-0 m-0 proBanner" id="proBanner">
+    <!-- <div class="row p-0 m-0 proBanner" id="proBanner">
       <div class="col-md-12 p-0 m-0">
         <div class="card-body card-body-padding px-3 d-flex align-items-center justify-content-between">
           <div class="ps-lg-3">
@@ -64,7 +40,7 @@
           </div>
         </div>
       </div>
-    </div>
+    </div> -->
     <!-- partial:partials/_navbar.html -->
     @include('layout.header')
     <!-- partial -->
@@ -135,16 +111,47 @@
   <!-- End plugin js for this page -->
   <!-- Custom js for this page-->
   <script src="{{ asset('celestial/assets/js/dashboard.js') }}"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
   <!-- End custom js for this page-->
   @stack('scripts')
+  @if(session('success') || session('error') || session('warning') || session('info') || $errors->any())
   <script>
-    setTimeout(() => {
-        document.querySelectorAll('.alert').forEach(el => el.remove());
-    }, 3000);
-</script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const Toast = Swal.mixin({
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 3000,
+            timerProgressBar: true,
+            didOpen: (toast) => {
+                toast.onmouseenter = Swal.stopTimer;
+                toast.onmouseleave = Swal.resumeTimer;
+            }
+        });
+
+        @if(session('success'))
+            Toast.fire({ icon: 'success', title: @json(session('success')) });
+        @endif
+
+        @if(session('error'))
+            Toast.fire({ icon: 'error', title: @json(session('error')) });
+        @endif
+
+        @if(session('warning'))
+            Toast.fire({ icon: 'warning', title: @json(session('warning')) });
+        @endif
+
+        @if(session('info'))
+            Toast.fire({ icon: 'info', title: @json(session('info')) });
+        @endif
+
+        @if($errors->any())
+            Toast.fire({ icon: 'error', title: @json($errors->first()) });
+        @endif
+    });
+  </script>
+  @endif
 </body>
 
 </html>

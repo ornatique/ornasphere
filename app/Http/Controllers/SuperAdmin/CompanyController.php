@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\File;
 use Yajra\DataTables\Facades\DataTables;
 use App\Mail\CompanyLoginMail;
 use Illuminate\Support\Facades\DB;
@@ -58,6 +59,14 @@ class CompanyController extends Controller
 
                     return '<span class="text-danger">Not Available</span>';
                 })
+                ->addColumn('logo', function ($row) {
+                    $defaultLogo = asset('celestial/assets/images/logo.svg');
+                    if (!empty($row->company_logo)) {
+                        $src = asset('public/' . ltrim($row->company_logo, '/'));
+                        return '<img src="' . $src . '" alt="logo" style="height:40px;width:40px;object-fit:cover;border-radius:6px;">';
+                    }
+                    return '<img src="' . $defaultLogo . '" alt="default-logo" style="height:40px;width:40px;object-fit:cover;border-radius:6px;">';
+                })
 
                 ->filterColumn('users_count', function ($query, $keyword) {
                     $query->whereHas('users', function ($q) use ($keyword) {
@@ -101,7 +110,7 @@ class CompanyController extends Controller
 
 
 
-                ->rawColumns(['password_set_url', 'action', 'status'])
+                ->rawColumns(['password_set_url', 'logo', 'action', 'status'])
                 ->make(true);
         }
 
@@ -124,6 +133,7 @@ class CompanyController extends Controller
             'name'      => 'required|unique:companies,name',
             'email'     => 'required|email|unique:users,email',
             'max_users' => 'required|integer|min:1',
+            'company_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
         ]);
 
         DB::beginTransaction();
@@ -136,10 +146,23 @@ class CompanyController extends Controller
         */
             $slug = Str::slug($request->name) . '-' . rand(100, 999);
 
+            $logoPath = null;
+            if ($request->hasFile('company_logo')) {
+                $uploadDir = public_path('uploads/company_logos');
+                if (!File::exists($uploadDir)) {
+                    File::makeDirectory($uploadDir, 0755, true);
+                }
+                $file = $request->file('company_logo');
+                $fileName = time() . '_' . Str::random(8) . '.' . $file->getClientOriginalExtension();
+                $file->move($uploadDir, $fileName);
+                $logoPath = 'uploads/company_logos/' . $fileName;
+            }
+
             $company = Company::create([
                 'name'       => $request->name,
                 'slug'       => $slug,
                 'email'      => $request->email,
+                'company_logo' => $logoPath,
                 'max_users'  => $request->max_users,
 
                 // Address fields
@@ -244,11 +267,29 @@ class CompanyController extends Controller
             'name'       => 'required|string|max:255|unique:companies,name,' . $company->id,
             'email'      => 'required|email|max:255',
             'max_users'  => 'required|integer|min:1',
+            'company_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
         ]);
+
+        $logoPath = $company->company_logo;
+        if ($request->hasFile('company_logo')) {
+            $uploadDir = public_path('uploads/company_logos');
+            if (!File::exists($uploadDir)) {
+                File::makeDirectory($uploadDir, 0755, true);
+            }
+            $file = $request->file('company_logo');
+            $fileName = time() . '_' . Str::random(8) . '.' . $file->getClientOriginalExtension();
+            $file->move($uploadDir, $fileName);
+            $logoPath = 'uploads/company_logos/' . $fileName;
+
+            if (!empty($company->company_logo) && File::exists(public_path($company->company_logo))) {
+                File::delete(public_path($company->company_logo));
+            }
+        }
 
         $company->update([
             'name'       => $request->name,
             'email'      => $request->email,
+            'company_logo' => $logoPath,
             'max_users'  => $request->max_users,
 
             'address_1'  => $request->address_1,

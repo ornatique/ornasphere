@@ -13,6 +13,7 @@
                 <div class="card-body">
 
                     <form method="POST"
+                          enctype="multipart/form-data"
                           action="{{ route('superadmin.companies.update', $company->id) }}">
                         @csrf
                         @method('PUT')
@@ -47,6 +48,33 @@
                                         @error('email')
                                             <div class="invalid-feedback">{{ $message }}</div>
                                         @enderror
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {{-- Company Logo --}}
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group row">
+                                    <label class="col-sm-3 col-form-label">Company Logo</label>
+                                    <div class="col-sm-9">
+                                        <input type="file"
+                                               name="company_logo"
+                                               accept="image/png,image/jpeg,image/webp"
+                                               class="form-control @error('company_logo') is-invalid @enderror">
+                                        @error('company_logo')
+                                            <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                        <small class="text-muted">Leave blank to keep current logo.</small>
+                                        <div class="mt-2">
+                                            @php
+                                                $previewLogo = !empty($company->company_logo)
+                                                    ? asset('public/' . ltrim($company->company_logo, '/'))
+                                                    : asset('celestial/assets/images/logo.svg');
+                                            @endphp
+                                            <img src="{{ $previewLogo }}" alt="Company Logo" style="height:52px;width:52px;object-fit:cover;border-radius:6px;">
+                                        </div>
                                     </div>
                                 </div>
                             </div>

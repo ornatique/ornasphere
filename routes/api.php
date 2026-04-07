@@ -29,7 +29,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/users', [CompanyUserController::class, 'index']);
     Route::post('/create_users', [CompanyUserController::class, 'store']);
-   Route::put('/update_users/{id}', [CompanyUserController::class, 'update']);
+    Route::put('/update_users/{id}', [CompanyUserController::class, 'update']);
+    Route::post('/users/{id}/reset-2fa', [CompanyUserController::class, 'reset2fa']);
+    Route::post('/reset2fa_users/{id}', [CompanyUserController::class, 'reset2fa']);
     Route::delete('/delete_users/{id}', [CompanyUserController::class, 'destroy']);
 
     Route::get('/customers', [CustomerApiController::class, 'index']);

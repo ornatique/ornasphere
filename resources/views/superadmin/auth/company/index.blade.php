@@ -21,6 +21,7 @@
                             <thead>
                                 <tr>
                                     <th>#</th>
+                                    <th>Logo</th>
                                     <th>Name</th>
                                     <th>Email</th>
                                     <th>Users</th>
@@ -52,6 +53,11 @@
             ajax: "{{ route('superadmin.companies.index') }}",
             columns: [{
                     data: 'DT_RowIndex',
+                    orderable: false,
+                    searchable: false
+                },
+                {
+                    data: 'logo',
                     orderable: false,
                     searchable: false
                 },
