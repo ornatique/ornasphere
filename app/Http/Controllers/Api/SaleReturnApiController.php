@@ -322,6 +322,15 @@ class SaleReturnApiController extends Controller
             $saleId = (int) $request->sale_id;
 
             $sale = Sale::where('company_id', $user->company_id)->findOrFail($saleId);
+            $cartSaleIds = $cartItems
+                ->pluck('saleItem.sale_id')
+                ->filter()
+                ->unique()
+                ->values();
+
+            if ($cartSaleIds->count() !== 1 || (int) $cartSaleIds->first() !== $saleId) {
+                throw new \Exception('Scanned items do not belong to selected sale.');
+            }
 
             $return = SaleReturn::create([
                 'company_id' => $user->company_id,

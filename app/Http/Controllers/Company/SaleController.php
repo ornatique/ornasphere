@@ -228,6 +228,19 @@ class SaleController extends Controller
         try {
 
             $company = Company::where('slug', $slug)->firstOrFail();
+            $request->validate([
+                'customer_id' => 'required|integer',
+                'items' => 'required|array|min:1',
+                'items.*' => 'required|integer',
+            ]);
+
+            $customerExists = Customer::where('company_id', $company->id)
+                ->where('id', (int) $request->customer_id)
+                ->exists();
+
+            if (!$customerExists) {
+                throw new \Exception('Invalid customer for this company.');
+            }
 
             $sale = Sale::create([
                 'company_id'  => $company->id,
@@ -244,8 +257,12 @@ class SaleController extends Controller
 
                 if (empty($itemsetId)) continue;
 
-                $item = ItemSet::find($itemsetId);
-                if (!$item) continue;
+                $item = ItemSet::where('company_id', $company->id)
+                    ->where('is_sold', 0)
+                    ->find((int) $itemsetId);
+                if (!$item) {
+                    throw new \Exception("Item not found/already sold: {$itemsetId}");
+                }
 
                 // ❗ prevent double sale
                 // if ($item->is_sold == 1) {
@@ -280,10 +297,14 @@ class SaleController extends Controller
                 // ✅ UPDATE APPROVAL ITEM
                 if (!empty($approvalItemId)) {
 
-                    ApprovalItem::where('id', $approvalItemId)
+                    ApprovalItem::whereHas('approval', function ($q) use ($company) {
+                        $q->where('company_id', $company->id);
+                    })->where('id', (int) $approvalItemId)
                         ->update(['status' => 'sold']);
 
-                    $approval = ApprovalItem::find($approvalItemId);
+                    $approval = ApprovalItem::whereHas('approval', function ($q) use ($company) {
+                        $q->where('company_id', $company->id);
+                    })->find((int) $approvalItemId);
 
                     if ($approval) {
                         $approvalIds[] = $approval->approval_id;
@@ -313,7 +334,8 @@ class SaleController extends Controller
                     $status = 'closed';
                 }
 
-                ApprovalHeader::where('id', $approvalId)
+                ApprovalHeader::where('company_id', $company->id)
+                    ->where('id', $approvalId)
                     ->update(['status' => $status]);
             }
 
@@ -403,13 +425,18 @@ class SaleController extends Controller
 
             foreach ($request->items as $id) {
 
-                $approvalItem = ApprovalItem::findOrFail($id);
+                $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($company, $request) {
+                    $q->where('company_id', $company->id)
+                        ->where('id', (int) $request->approval_id);
+                })->findOrFail((int) $id);
 
                 // ✅ Find correct item set
-                $itemSet = ItemSet::where('item_id', $approvalItem->item_id)
-                    ->where('gross_weight', $approvalItem->gross_weight)
-                    ->where('net_weight', $approvalItem->net_weight)
-                    ->first();
+                $itemSet = $approvalItem->itemSet ?: ItemSet::where('company_id', $company->id)
+                    ->find($approvalItem->itemset_id);
+
+                if (!$itemSet) {
+                    throw new \Exception("ItemSet not found for approval item {$approvalItem->id}");
+                }
 
                 // ✅ BASIC VALUES
                 $gross = $approvalItem->gross_weight;
@@ -430,7 +457,7 @@ class SaleController extends Controller
                 // ✅ SAVE SALE ITEM
                 SaleItem::create([
                     'sale_id'      => $sale->id,
-                    'itemset_id'   => $approvalItem->item_id,
+                    'itemset_id'   => $itemSet->id,
                     'product_id'   => null,
 
                     'gross_weight' => $gross,
@@ -509,7 +536,8 @@ class SaleController extends Controller
             $totalAmount = (float) ($row->total_amount ?? ($metalAmount + $labourAmount + $otherAmount));
 
             return [
-                'approval_id' => $row->id,
+                'approval_item_id' => $row->id,
+                'approval_id' => $row->approval_id,
                 'itemset_id'  => $row->itemset_id ?? $row->item_id,
                 'item_id'     => $row->item_id ?? optional($itemSet)->item_id,
                 'name'        => optional($item)->item_name,

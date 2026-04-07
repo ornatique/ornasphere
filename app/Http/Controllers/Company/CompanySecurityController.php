@@ -86,6 +86,14 @@ class CompanySecurityController extends Controller
     }
 
     /**
+     * Backward-compatible endpoint used by existing routes.
+     */
+    public function verifySetup(Request $request, $slug)
+    {
+        return $this->verify($request, $slug);
+    }
+
+    /**
      * OTP ONLY PAGE (SECOND LOGIN+)
      */
     public function challenge($slug)
@@ -94,5 +102,32 @@ class CompanySecurityController extends Controller
             'slug' => $slug,
             'user' => Auth::user(),
         ]);
+    }
+
+    public function enable(Request $request)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'Unauthenticated'], 401);
+        }
+
+        $user->update(['two_factor_enabled' => 1]);
+        return response()->json(['success' => true, 'message' => '2FA enabled']);
+    }
+
+    public function disable(Request $request)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'Unauthenticated'], 401);
+        }
+
+        $user->update([
+            'two_factor_enabled' => 0,
+            'two_factor_secret' => null,
+            'two_factor_recovery_codes' => null,
+        ]);
+
+        return response()->json(['success' => true, 'message' => '2FA disabled']);
     }
 }

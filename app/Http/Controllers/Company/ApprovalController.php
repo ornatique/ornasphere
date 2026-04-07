@@ -242,8 +242,13 @@ class ApprovalController extends Controller
 
     public function itemsData(Request $request, $slug, $id)
     {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
         $data = ApprovalItem::with('itemSet.item', 'legacyItemSet.item')
-            ->where('approval_id', $id);
+            ->where('approval_id', $id)
+            ->whereHas('approval', function ($q) use ($company) {
+                $q->where('company_id', $company->id);
+            });
 
         return DataTables::of($data)
             ->addIndexColumn()
@@ -277,14 +282,25 @@ class ApprovalController extends Controller
         DB::beginTransaction();
 
         try {
-            $ids = $request->items;
+            $company = Company::whereSlug($slug)->firstOrFail();
+            $ids = collect($request->items ?? [])
+                ->filter()
+                ->map(fn($id) => (int) $id)
+                ->unique()
+                ->values();
+
+            if ($ids->isEmpty()) {
+                throw new \Exception('No approval items selected.');
+            }
 
             foreach ($ids as $id) {
-                $item = ApprovalItem::findOrFail($id);
+                $item = ApprovalItem::whereHas('approval', function ($q) use ($company) {
+                    $q->where('company_id', $company->id);
+                })->findOrFail($id);
                 $item->update(['status' => 'sold']);
             }
 
-            $this->updateApprovalStatus($ids);
+            $this->updateApprovalStatus($ids->toArray());
 
             DB::commit();
 
@@ -357,7 +373,11 @@ class ApprovalController extends Controller
 
     private function updateApprovalStatus($itemIds)
     {
-        $approvalId = ApprovalItem::whereIn('id', $itemIds)->first()->approval_id;
+        $first = ApprovalItem::whereIn('id', $itemIds)->first();
+        if (!$first) {
+            return;
+        }
+        $approvalId = $first->approval_id;
 
         $total = ApprovalItem::where('approval_id', $approvalId)->count();
         $done = ApprovalItem::where('approval_id', $approvalId)
@@ -393,7 +413,9 @@ class ApprovalController extends Controller
                 $q->where('status', 'pending')
                     ->with('itemSet');
             },
-        ])->findOrFail($id);
+        ])
+            ->where('company_id', $company->id)
+            ->findOrFail($id);
 
         return view('company.returns.approval_return_items', compact('company', 'approval'));
     }
@@ -425,7 +447,12 @@ class ApprovalController extends Controller
             $totalAmount = 0;
 
             foreach ($request->items as $id) {
-                $approvalItem = ApprovalItem::with('itemSet')->findOrFail($id);
+                $approvalItem = ApprovalItem::with('itemSet')
+                    ->where('approval_id', (int) $request->approval_id)
+                    ->whereHas('approval', function ($q) use ($company) {
+                        $q->where('company_id', $company->id);
+                    })
+                    ->findOrFail((int) $id);
 
                 if ($approvalItem->status === 'returned') {
                     continue;

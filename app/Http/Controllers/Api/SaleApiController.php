@@ -229,8 +229,18 @@ class SaleApiController extends Controller
             $user = auth()->user();
 
             $request->validate([
-                'customer_id' => 'required|exists:customers,id',
+                'customer_id' => 'required|integer',
             ]);
+
+            $customerExists = Customer::where('company_id', $user->company_id)
+                ->where('id', (int) $request->customer_id)
+                ->exists();
+            if (!$customerExists) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid customer for this company',
+                ], 422);
+            }
 
             $cartItems = SaleCart::where('user_id', auth()->id())
                 ->where('company_id', $user->company_id)
@@ -482,8 +492,18 @@ class SaleApiController extends Controller
         validator([
             'customer_id' => $customerId
         ], [
-            'customer_id' => 'required|exists:customers,id',
+            'customer_id' => 'required|integer',
         ])->validate();
+
+        $customerExists = Customer::where('company_id', $companyId)
+            ->where('id', $customerId)
+            ->exists();
+        if (!$customerExists) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid customer for this company.'
+            ], 422);
+        }
 
         $request->validate([
             'items' => 'required|array|min:1',
@@ -546,7 +566,9 @@ class SaleApiController extends Controller
                 ]);
 
                 if (!empty($item['approval_item_id'])) {
-                    $approvalItem = ApprovalItem::find((int) $item['approval_item_id']);
+                    $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
+                        $q->where('company_id', $companyId);
+                    })->find((int) $item['approval_item_id']);
                     if ($approvalItem) {
                         $approvalItem->update(['status' => 'sold']);
                         $approvalIds[] = $approvalItem->approval_id;

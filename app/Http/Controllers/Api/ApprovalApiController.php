@@ -181,9 +181,20 @@ class ApprovalApiController extends Controller
         $companyId = $request->user()->company_id;
 
         $request->validate([
-            'customer_id' => 'required|integer|exists:customers,id',
+            'customer_id' => 'required|integer',
             'items' => 'required|array|min:1',
         ]);
+
+        $customerExists = Customer::where('company_id', $companyId)
+            ->where('id', (int) $request->customer_id)
+            ->exists();
+
+        if (!$customerExists) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid customer for this company.',
+            ], 422);
+        }
 
         DB::beginTransaction();
 
@@ -362,8 +373,18 @@ class ApprovalApiController extends Controller
     {
         $companyId = $request->user()->company_id;
         $request->validate([
-            'customer_id' => 'required|integer|exists:customers,id',
+            'customer_id' => 'required|integer',
         ]);
+
+        $customerExists = Customer::where('company_id', $companyId)
+            ->where('id', (int) $request->customer_id)
+            ->exists();
+        if (!$customerExists) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid customer for this company.'
+            ], 422);
+        }
 
         $items = ApprovalItem::with('itemSet.item', 'legacyItemSet.item')
             ->whereHas('approval', function ($q) use ($companyId, $request) {
@@ -412,14 +433,15 @@ class ApprovalApiController extends Controller
     {
         $companyId = $request->user()->company_id;
         $request->validate([
-            'approval_id' => 'required|integer|exists:approval_headers,id',
+            'approval_id' => 'required|integer',
             'items' => 'required|array|min:1',
             'items.*' => 'required|integer'
         ]);
 
         DB::beginTransaction();
         try {
-            ApprovalHeader::where('company_id', $companyId)->findOrFail($request->approval_id);
+            ApprovalHeader::where('company_id', $companyId)
+                ->findOrFail($request->approval_id);
 
             $hasItemsetIdColumn = Schema::hasColumn('sale_return_items', 'itemset_id');
             $hasProductIdColumn = Schema::hasColumn('sale_return_items', 'product_id');
@@ -440,6 +462,9 @@ class ApprovalApiController extends Controller
             foreach ($request->items as $id) {
                 $approvalItem = ApprovalItem::with('itemSet')
                     ->where('approval_id', $request->approval_id)
+                    ->whereHas('approval', function ($q) use ($companyId) {
+                        $q->where('company_id', $companyId);
+                    })
                     ->findOrFail($id);
 
                 if ($approvalItem->status === 'returned') {

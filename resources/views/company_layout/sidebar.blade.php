@@ -177,6 +177,16 @@
                     </li>
                     @endif
 
+                     @if($canLabelConfig)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.label_config.*') ? 'active' : '' }}"
+                            href="{{ route('company.label_config.index', auth()->user()->company->slug) }}">
+                            Label Config
+                        </a>
+                    </li>
+                    @endif
+
+                    
                     @if($canItemSets)
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('company.list_itemset') ? 'active' : '' }}"
@@ -186,14 +196,7 @@
                     </li>
                     @endif
 
-                    @if($canLabelConfig)
-                    <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('company.label_config.*') ? 'active' : '' }}"
-                            href="{{ route('company.label_config.index', auth()->user()->company->slug) }}">
-                            Label Config
-                        </a>
-                    </li>
-                    @endif
+                   
 
                     @if($canLabelPrint)
                     <li class="nav-item">

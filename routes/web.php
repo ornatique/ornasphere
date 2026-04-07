@@ -113,9 +113,6 @@ Route::prefix('company/{slug}')
 
         Route::post('/login', [CompanyAuthController::class, 'login'])
             ->name('login.post');
-
-        Route::post('logout', [CompanyAuthController::class, 'logout'])
-            ->name('logout');
     });
 
 /*
@@ -128,6 +125,9 @@ Route::middleware(['auth', 'company.2fa', 'company.route.permission'])
     ->prefix('company/{slug}')
     ->name('company.')
     ->group(function () {
+
+        Route::post('logout', [CompanyAuthController::class, 'logout'])
+            ->name('logout');
 
         Route::get('/dashboard', [CompanyDashboardController::class, 'index'])
             ->name('dashboard');
