@@ -116,10 +116,16 @@ class LabelConfigController extends Controller
 
         );
 
-        return response()->json([
-            'status' => true,
-            'message' => 'Label Config Saved Successfully'
-        ]);
+        if ($request->ajax() || $request->wantsJson()) {
+            return response()->json([
+                'status' => true,
+                'message' => 'Label Config Saved Successfully'
+            ]);
+        }
+
+        return redirect()
+            ->route('company.label_config.index', $company->slug)
+            ->with('success', 'Label Config Saved Successfully');
     }
 
 

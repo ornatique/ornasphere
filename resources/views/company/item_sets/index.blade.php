@@ -75,15 +75,19 @@
 
                             <th width="120">Gross Weight</th>
 
-                            <th width="120">Other Charges</th>
+                            <th width="140">Other</th>
 
                             <th width="120">Net Weight</th>
+
+                            <th width="150">Sale Labour Formula</th>
 
                             <th width="120">Labour Rate</th>
 
                             <th width="120">Labour Amount</th>
 
                             <th width="120">Sale Other</th>
+
+                            <th width="140">Supplier Person</th>
 
                             <th width="120">Size</th>
 
@@ -98,9 +102,14 @@
                     </tbody>
                     <tfoot>
                         <tr>
-                            <th colspan="6" class="text-end">Total Amount</th>
+                            <th></th>
+                            <th id="totalGrossCell">0.000</th>
+                            <th id="totalOtherCell">0.000</th>
+                            <th></th>
+                            <th></th>
+                            <th></th>
                             <th id="totalAmountCell">0.00</th>
-                            <th colspan="2"></th>
+                            <th colspan="3"></th>
                         </tr>
                     </tfoot>
 
@@ -109,7 +118,7 @@
             </div>
 
         </div>
-        <button onclick="finalize()" class="btn btn-success">
+        <button type="button" id="btnFinalizeItemSets" class="btn btn-success">
             Finalize & Generate QR
         </button>
     </div>
@@ -131,6 +140,7 @@
                                 <th>Charge</th>
                                 <th>Amount</th>
                                 <th>Qty</th>
+                                <th>Weight</th>
                                 <th>Wt Formula</th>
                                 <th>Amt Formula</th>
                                 <th>Total Amt</th>
@@ -208,15 +218,17 @@
     let offset = 0;
 
     let loading = false;
+    let hasMoreRows = true;
     let otherChargeOptions = [];
     let modalTargetRow = null;
+    let selectedLabourFormula = 'Per Net Weight';
 
     const editableColumns = [
         'gross_weight',
-        'net_weight',
         'sale_labour_rate',
         'sale_labour_amount',
         'sale_other',
+        'supplier_person',
         'size',
         'HUID'
     ];
@@ -231,6 +243,7 @@
         itemId = $(this).val();
 
         offset = 0;
+        hasMoreRows = true;
 
         $('#setsBody').html('');
 
@@ -266,8 +279,10 @@
                 //////////////////////////////////////////////////////
 
                 rows.forEach(addRow);
+                applyFormulaToAllRows();
 
                 offset += rows.length;
+                hasMoreRows = rows.length === 10;
                 ensureAtLeastOneEmptyRow();
 
                 loading = false;
@@ -291,22 +306,29 @@
 
         $('#setsBody').append(`
 
-        <tr data-id="${row.id}">
+        <tr data-id="${row.id}" data-other-weight="${row.other ?? 0}">
             <td class="sr-no"></td>
 
             <td contenteditable="true" class="cell" data-column="gross_weight">${row.gross_weight ?? ''}</td>
 
             <td>
-                <button type="button" class="btn btn-sm btn-info open-other-charge-modal">...</button>
+                <div class="d-flex align-items-center gap-1">
+                    <span class="other-weight-display">${nfix(row.other ?? 0, 3)}</span>
+                    <button type="button" class="btn btn-sm btn-info open-other-charge-modal">Wt|Amt</button>
+                </div>
             </td>
 
-            <td contenteditable="true" class="cell" data-column="net_weight">${row.net_weight ?? ''}</td>
+            <td contenteditable="false" class="cell" data-column="net_weight">${row.net_weight ?? ''}</td>
+
+            <td contenteditable="false" class="cell formula-cell" data-column="sale_labour_formula">${row.sale_labour_formula ?? selectedLabourFormula}</td>
 
             <td contenteditable="true" class="cell" data-column="sale_labour_rate">${row.sale_labour_rate ?? ''}</td>
 
             <td contenteditable="true" class="cell" data-column="sale_labour_amount">${row.sale_labour_amount ?? ''}</td>
 
             <td contenteditable="true" class="cell" data-column="sale_other">${row.sale_other ?? ''}</td>
+
+            <td contenteditable="true" class="cell" data-column="supplier_person">${row.supplier_person ?? ''}</td>
 
             <td contenteditable="true" class="cell" data-column="size">${row.size ?? ''}</td>
 
@@ -327,22 +349,29 @@
 
         $('#setsBody').append(`
 
-        <tr data-id="">
+        <tr data-id="" data-other-weight="0">
             <td class="sr-no"></td>
 
             <td contenteditable="true" class="cell" data-column="gross_weight"></td>
 
             <td>
-                <button type="button" class="btn btn-sm btn-info open-other-charge-modal">...</button>
+                <div class="d-flex align-items-center gap-1">
+                    <span class="other-weight-display">0.000</span>
+                    <button type="button" class="btn btn-sm btn-info open-other-charge-modal">Wt|Amt</button>
+                </div>
             </td>
 
-            <td contenteditable="true" class="cell" data-column="net_weight"></td>
+            <td contenteditable="false" class="cell" data-column="net_weight"></td>
+
+            <td contenteditable="false" class="cell formula-cell" data-column="sale_labour_formula">${selectedLabourFormula}</td>
 
             <td contenteditable="true" class="cell" data-column="sale_labour_rate"></td>
 
             <td contenteditable="true" class="cell" data-column="sale_labour_amount"></td>
 
             <td contenteditable="true" class="cell" data-column="sale_other"></td>
+
+            <td contenteditable="true" class="cell" data-column="supplier_person"></td>
 
             <td contenteditable="true" class="cell" data-column="size"></td>
 
@@ -395,6 +424,21 @@
         });
     }
 
+    function saveDerivedCell($row, column, value) {
+        const id = $row.attr('data-id');
+        if (!id || !itemId) return;
+
+        $.post(
+            "{{ route('company.item_sets.saveCell',$company->slug) }}", {
+                _token: "{{ csrf_token() }}",
+                id: id,
+                item_id: itemId,
+                column: column,
+                value: value
+            }
+        );
+    }
+
     $(document).on('blur', '.cell', function() {
         saveCell($(this));
     });
@@ -414,6 +458,26 @@
         const col = td.data('column');
         saveCell(td);
 
+        // Fast-entry mode requested:
+        // From first column (gross_weight), TAB should jump to next row first column.
+        if (e.key === 'Tab' && col === 'gross_weight') {
+            let nextRow = tr.next('tr');
+            if (!nextRow.length || rowHasAnyValue(nextRow)) {
+                addEmptyRow();
+                updateSrNumbers();
+                nextRow = tr.next('tr');
+            }
+
+            const nextGross = nextRow.find('.cell[data-column="gross_weight"]');
+            if (nextGross.length) {
+                setTimeout(function() {
+                    nextGross.focus();
+                    placeCaretAtEnd(nextGross[0]);
+                }, 0);
+            }
+            return;
+        }
+
         const currentIndex = editableColumns.indexOf(col);
         if (currentIndex === -1) return;
 
@@ -432,7 +496,10 @@
         }
 
         let nextRow = tr.next('tr');
-        if (!nextRow.length) {
+
+        // Always ensure next row exists immediately on last column Tab/Enter.
+        // This avoids delay when autosave is async or scroll load is pending.
+        if (!nextRow.length || rowHasAnyValue(nextRow)) {
             addEmptyRow();
             updateSrNumbers();
             nextRow = tr.next('tr');
@@ -465,13 +532,20 @@
 
     function updateTotals() {
         let totalAmount = 0;
+        let totalGross = 0;
+        let totalOther = 0;
 
         $('#setsBody tr').each(function() {
             const amountCell = $(this).find('.cell[data-column="sale_other"]');
+            const grossCell = $(this).find('.cell[data-column="gross_weight"]');
             totalAmount += toNumber(amountCell.text());
+            totalGross += toNumber(grossCell.text());
+            totalOther += toNumber($(this).attr('data-other-weight'));
         });
 
         $('#totalAmountCell').text(totalAmount.toFixed(2));
+        $('#totalGrossCell').text(totalGross.toFixed(3));
+        $('#totalOtherCell').text(totalOther.toFixed(3));
     }
 
     function placeCaretAtEnd(el) {
@@ -490,7 +564,12 @@
     function rowHasAnyValue(tr) {
         let hasValue = false;
         tr.find('.cell').each(function() {
-            if ($(this).text().trim() !== '') {
+            const col = $(this).data('column');
+            const txt = $(this).text().trim();
+            if (col === 'sale_labour_formula') {
+                return;
+            }
+            if (txt !== '') {
                 hasValue = true;
                 return false;
             }
@@ -523,6 +602,20 @@
         if (rowHasAnyValue(lastRow)) {
             addEmptyRow();
         }
+    }
+
+    function applyFormulaToAllRows() {
+        $('#setsBody tr').each(function() {
+            const $row = $(this);
+            const $formulaCell = $row.find('.cell[data-column="sale_labour_formula"]');
+            if (!$formulaCell.length) return;
+
+            const current = String($formulaCell.text() || '').trim();
+            if (current === '') {
+                $formulaCell.text(selectedLabourFormula);
+                saveDerivedCell($row, 'sale_labour_formula', selectedLabourFormula);
+            }
+        });
     }
 
 
@@ -588,6 +681,9 @@
             amount,
             wt_formula: wtFormula,
             amt_formula: amtFormula,
+            stock_effect: !!option.stock_effect,
+            wt_operation: String(option.wt_operation || 'less').toLowerCase(),
+            weight,
             total,
         };
     }
@@ -660,6 +756,7 @@
                 AMOUNT_FORMULA_OPTIONS.map(o => o.value),
                 'flat'
             );
+            const weightVal = existing ? toNumber(existing.weight, calc.weight) : calc.weight;
 
             $tbody.append(`
                 <tr class="charge-row ${activeClass}"
@@ -671,12 +768,16 @@
                     data-default-weight="${nfix(toNumber(opt.default_weight, 0), 6)}"
                     data-weight-percent="${nfix(toNumber(opt.weight_percent, 0), 6)}"
                     data-wt-formula="${esc(wtFormula)}"
+                    data-stock-effect="${opt.stock_effect ? 1 : 0}"
+                    data-wt-operation="${esc(opt.wt_operation || 'less')}"
                     data-amt-formula="${esc(amtFormula)}"
+                    data-weight="${nfix(weightVal, 6)}"
                     data-total="0">
                     <td class="charge-sr">${index + 1}</td>
                     <td>${esc(opt.name || '-')}</td>
                     <td><input type="number" step="0.01" class="form-control charge-amount-input text-end" value="${nfix(amount, 2)}"></td>
                     <td><input type="number" step="0.001" class="form-control charge-qty-input text-end" value="${nfix(qty, 3)}"></td>
+                    <td><input type="number" step="0.001" class="form-control charge-weight-input text-end" value="${nfix(weightVal, 3)}"></td>
                     <td>${buildFormulaSelect('wt', wtFormula)}</td>
                     <td>${buildFormulaSelect('amt', amtFormula)}</td>
                     <td class="text-end charge-total-cell">0.00</td>
@@ -706,14 +807,23 @@
         const itemWeight = toNumber($tr.data('item-weight'));
         const defaultWeight = toNumber($tr.data('default-weight'));
         const weightPercent = toNumber($tr.data('weight-percent'));
+        const stockEffect = String($tr.data('stock-effect')) === '1';
+        const wtOperation = String($tr.data('wt-operation') || 'less').toLowerCase();
+        const enteredWeightRaw = String($tr.find('.charge-weight-input').val() ?? '').trim();
 
-        let weight = defaultWeight;
+        let autoWeight = defaultWeight;
         if (weightPercent > 0) {
-            weight = (itemWeight * weightPercent) / 100;
+            autoWeight = (itemWeight * weightPercent) / 100;
         } else if (wtFormula === 'per_weight') {
-            weight = itemWeight;
+            autoWeight = itemWeight;
         } else if (wtFormula === 'per_quantity') {
-            weight = defaultWeight * qty;
+            autoWeight = defaultWeight * qty;
+        }
+        const hasManualWeight = enteredWeightRaw !== '' && !Number.isNaN(Number(enteredWeightRaw));
+        let weight = hasManualWeight ? toNumber(enteredWeightRaw) : autoWeight;
+        weight = Math.max(0, weight);
+        if (!hasManualWeight) {
+            $tr.find('.charge-weight-input').val(nfix(weight, 3));
         }
 
         let total = amount;
@@ -728,6 +838,9 @@
         $tr.data('amount', nfix(amount, 2));
         $tr.data('qty', nfix(qty, 3));
         $tr.data('wt-formula', wtFormula);
+        $tr.data('stock-effect', stockEffect ? 1 : 0);
+        $tr.data('wt-operation', wtOperation);
+        $tr.data('weight', nfix(weight, 6));
         $tr.data('amt-formula', amtFormula);
         $tr.data('total', nfix(total, 2));
         $tr.find('.charge-total-cell').text(nfix(total, 2));
@@ -755,11 +868,38 @@
                 qty: toNumber($tr.data('qty')),
                 amount: toNumber($tr.data('amount')),
                 formula: String($tr.data('wt-formula') || 'flat'),
+                stock_effect: String($tr.data('stock-effect')) === '1',
+                wt_operation: String($tr.data('wt-operation') || 'less'),
+                weight: toNumber($tr.data('weight')),
                 other_amt_formula: String($tr.data('amt-formula') || 'flat'),
                 total: toNumber($tr.data('total')),
             });
         });
         return lines;
+    }
+
+    function recalcRowWeightsFromCharges($row) {
+        const gross = toNumber($row.find('.cell[data-column="gross_weight"]').text());
+        const lines = parseStoredCharges($row);
+        let stockEffectWeight = 0;
+
+        lines.forEach(line => {
+            if (!line) return;
+            const weight = toNumber(line.weight);
+            if (weight <= 0) return;
+            const op = String(line.wt_operation || 'less').toLowerCase();
+            stockEffectWeight += (op === 'add') ? -weight : weight;
+        });
+
+        const computedOther = Math.max(0, stockEffectWeight);
+        const net = Math.max(0, gross - computedOther);
+
+        $row.attr('data-other-weight', computedOther);
+        $row.find('.other-weight-display').text(nfix(computedOther, 3));
+        $row.find('.cell[data-column="net_weight"]').text(nfix(net, 3));
+
+        saveDerivedCell($row, 'other', nfix(computedOther, 3));
+        saveDerivedCell($row, 'net_weight', nfix(net, 3));
     }
 
     $(document).on('click', '.open-other-charge-modal', function() {
@@ -792,7 +932,7 @@
         recalcModalCharges();
     });
 
-    $(document).on('input change', '#itemSetOtherChargeTable .charge-amount-input, #itemSetOtherChargeTable .charge-qty-input, #itemSetOtherChargeTable .charge-wt-formula, #itemSetOtherChargeTable .charge-amt-formula', function() {
+    $(document).on('input change', '#itemSetOtherChargeTable .charge-amount-input, #itemSetOtherChargeTable .charge-qty-input, #itemSetOtherChargeTable .charge-weight-input, #itemSetOtherChargeTable .charge-wt-formula, #itemSetOtherChargeTable .charge-amt-formula', function() {
         const $tr = $(this).closest('tr');
         recomputeChargeLine($tr);
         recalcModalCharges();
@@ -810,6 +950,7 @@
 
         modalTargetRow.attr('data-other-charges', JSON.stringify(lines));
         $cell.text(nfix(total, 2));
+        recalcRowWeightsFromCharges(modalTargetRow);
         saveCell($cell);
         updateTotals();
 
@@ -822,6 +963,8 @@
     //////////////////////////////////////////////////////
 
     $('#gridContainer').scroll(function() {
+        if (!hasMoreRows) return;
+        if (loading) return;
 
         let div = $(this)[0];
 
@@ -829,6 +972,11 @@
             loadMore();
         }
 
+    });
+
+    $(document).on('input blur', '.cell[data-column="gross_weight"]', function() {
+        const $row = $(this).closest('tr');
+        recalcRowWeightsFromCharges($row);
     });
 </script>
 
@@ -852,6 +1000,8 @@
                 if (res.status) {
                     $('#carat').val(res.carat);
                     $('#purity').val(res.purity);
+                    selectedLabourFormula = res.sale_labour_formula || 'Per Net Weight';
+                    applyFormulaToAllRows();
                 }
 
             });
@@ -859,31 +1009,43 @@
 
     });
 
-    function finalize() {
+    function finalizeItemSets() {
 
         if (!itemId) {
             alert("Select item first");
             return;
         }
 
-        $.post(
-            "{{ route('company.item_sets.finalize',$company->slug) }}", {
-                _token: "{{ csrf_token() }}",
-                item_id: itemId
-            },
-            function(res) {
+        $.post("{{ route('company.item_sets.finalize',$company->slug) }}", {
+            _token: "{{ csrf_token() }}",
+            item_id: itemId
+        })
+        .done(function(res) {
+            alert(res.message || 'Finalize completed');
 
-                alert(res.message);
+            if (res.status === false) {
+                return;
+            }
 
-                offset = 0;
-                $('#setsBody').html('');
-                loadMore();
-                ensureAtLeastOneEmptyRow();
-                updateTotals();
-
-            });
+            offset = 0;
+            $('#setsBody').html('');
+            loadMore();
+            ensureAtLeastOneEmptyRow();
+            updateTotals();
+        })
+        .fail(function(xhr) {
+            const msg =
+                xhr?.responseJSON?.message ||
+                'Finalize failed. Please check Label Config and try again.';
+            alert(msg);
+        });
 
     }
+
+    $('#btnFinalizeItemSets').on('click', function(e) {
+        e.preventDefault();
+        finalizeItemSets();
+    });
 </script>
 
 

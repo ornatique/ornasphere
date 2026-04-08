@@ -34,6 +34,12 @@ class ItemSetController extends Controller
     public function saveCell(Request $request)
     {
         $companyId = $request->user()->company_id;
+        $toNumber = function ($value): float {
+            if ($value === null || $value === '') {
+                return 0;
+            }
+            return (float) str_replace(',', '', (string) $value);
+        };
 
         $request->validate([
             'item_id' => 'required|exists:items,id',
@@ -73,6 +79,14 @@ class ItemSetController extends Controller
             ]));
         }
 
+        // Keep net_weight in sync if gross/other passed without net_weight.
+        if ($request->hasAny(['gross_weight', 'other']) && !$request->filled('net_weight')) {
+            $gross = $toNumber($request->gross_weight ?? $set->gross_weight);
+            $other = $toNumber($request->other ?? $set->other);
+            $set->net_weight = max(0, $gross - $other);
+            $set->save();
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Saved successfully',
@@ -91,7 +105,7 @@ public function bulkSave(Request $request)
 
         $savedRows = [];
 
-    foreach ($request->rows as $row) {
+        foreach ($request->rows as $row) {
 
         if (
             empty($row['gross_weight']) &&
@@ -138,13 +152,23 @@ public function bulkSave(Request $request)
         }
 
         $savedRows[] = $set;
-    }
+        }
 
-    return response()->json([
-        'success' => true,
-        'message' => 'Multiple rows saved successfully',
-        'data' => $savedRows
-    ]);
+        // Ensure net_weight is present for all saved rows.
+        foreach ($savedRows as $saved) {
+            $gross = (float) ($saved->gross_weight ?? 0);
+            $other = (float) ($saved->other ?? 0);
+            if ($saved->net_weight === null || $saved->net_weight === '') {
+                $saved->net_weight = max(0, $gross - $other);
+                $saved->save();
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Multiple rows saved successfully',
+            'data' => $savedRows
+        ]);
 }
 
     // ================= FINAL SAVE =================
@@ -158,7 +182,14 @@ public function bulkSave(Request $request)
 
         $config = LabelConfig::where('company_id', $companyId)
             ->where('item_id', $item->id)
-            ->firstOrFail();
+            ->first();
+
+        if (!$config) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Label Config not found for selected item. Please create Label Config first.',
+            ], 422);
+        }
 
         DB::beginTransaction();
 
@@ -182,19 +213,19 @@ public function bulkSave(Request $request)
 
                 $nextNo++;
 
-                $serialFormatted = str_pad(
-                    $nextNo,
-                    $config->numeric_length,
-                    '0',
-                    STR_PAD_LEFT
-                );
+                $qrText = $config->prefix . $nextNo;
 
-                $qrText = $config->prefix . $serialFormatted;
+                $gross = (float) ($set->gross_weight ?? 0);
+                $other = (float) ($set->other ?? 0);
+                $net = ($set->net_weight === null || $set->net_weight === '')
+                    ? max(0, $gross - $other)
+                    : (float) $set->net_weight;
 
                 $set->update([
                     'serial_no' => $nextNo,
                     'qr_code'   => $qrText,
                     'barcode'   => $qrText,
+                    'net_weight' => $net,
                     'is_final'  => 1
                 ]);
             }
@@ -237,6 +268,14 @@ public function bulkSave(Request $request)
         }
 
         $data = $query->latest()->get();
+
+        $data->transform(function ($row) {
+            $row->is_printed = (int) ($row->is_printed ?? 0);
+            $row->print_date_time = $row->printed_at
+                ? \Carbon\Carbon::parse($row->printed_at)->format('d-m-Y h:i A')
+                : null;
+            return $row;
+        });
 
         return response()->json([
             'status' => true,

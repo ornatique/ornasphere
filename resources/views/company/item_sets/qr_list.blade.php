@@ -98,7 +98,7 @@ const table = $('#labelListTable').DataTable({
         { data: 'other_weight', name: 'other' },
         { data: 'net_weight', name: 'net_weight' },
         { data: 'sale_other', name: 'sale_other' },
-        { data: 'date_time', name: 'created_at' }
+        { data: 'date_time', name: 'printed_at' }
     ],
     order: [[7, 'desc']],
     drawCallback: function(settings) {

@@ -6,6 +6,9 @@ use Illuminate\Database\Eloquent\Model;
 
 class ItemSet extends Model
 {
+    protected $casts = [
+        'printed_at' => 'datetime',
+    ];
 
     protected $fillable = [
 
@@ -30,7 +33,8 @@ class ItemSet extends Model
         'barcode',
         'serial_no',
         'is_printed',
-        'is_sold'
+        'is_sold',
+        'printed_at'
 
 
     ];

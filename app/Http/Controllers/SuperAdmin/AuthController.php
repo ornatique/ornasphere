@@ -83,7 +83,7 @@ class AuthController extends Controller
         $monthStart = Carbon::now()->startOfMonth()->toDateString();
         $monthEnd = Carbon::now()->endOfMonth()->toDateString();
 
-        $monthlySales = (float) Sale::whereBetween('sale_date', [$monthStart, $monthEnd])->sum('total_amount');
+        $monthlySales = (float) Sale::whereBetween('sale_date', [$monthStart, $monthEnd])->sum('net_total');
         $monthlyReturns = (float) SaleReturn::whereBetween('return_date', [$monthStart, $monthEnd])->sum('return_total');
         $openApprovals = ApprovalHeader::whereIn('status', ['open', 'partial'])->count();
 

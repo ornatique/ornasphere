@@ -155,7 +155,7 @@
         </div>
 
         <div class="card-footer text-end">
-            <a href="{{ route('company.label_config.index', $company->slug) }}}"
+            <a href="{{ route('company.label_config.index', $company->slug) }}"
                 class="btn btn-info">
                 Back
             </a>

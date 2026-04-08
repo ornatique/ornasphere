@@ -782,36 +782,47 @@ if ($("#ecommerceAnalyticDark").length) {
   });
 }
 
-if ($.cookie('celestial-pro-banner')!="true") {
-  document.querySelector('#proBanner').classList.add('d-flex');
-  document.querySelector('.navbar').classList.remove('fixed-top');
-}
-else {
-  document.querySelector('#proBanner').classList.add('d-none');
-  document.querySelector('.navbar').classList.add('fixed-top');
+var proBannerEl = document.querySelector('#proBanner');
+var navbarEl = document.querySelector('.navbar');
+var pageBodyWrapperEl = document.querySelector('.page-body-wrapper');
+var bannerCloseEl = document.querySelector('#bannerClose');
+
+if (proBannerEl && navbarEl) {
+  if ($.cookie('celestial-pro-banner')!="true") {
+    proBannerEl.classList.add('d-flex');
+    navbarEl.classList.remove('fixed-top');
+  }
+  else {
+    proBannerEl.classList.add('d-none');
+    navbarEl.classList.add('fixed-top');
+  }
 }
 
-if ($( ".navbar" ).hasClass( "fixed-top" )) {
-  document.querySelector('.page-body-wrapper').classList.remove('pt-0');
-  document.querySelector('.navbar').classList.remove('pt-5');
+if (navbarEl && pageBodyWrapperEl) {
+  if ($( ".navbar" ).hasClass( "fixed-top" )) {
+    pageBodyWrapperEl.classList.remove('pt-0');
+    navbarEl.classList.remove('pt-5');
+  }
+  else {
+    pageBodyWrapperEl.classList.add('pt-0');
+    navbarEl.classList.add('pt-5');
+    navbarEl.classList.add('mt-3');
+  }
 }
-else {
-  document.querySelector('.page-body-wrapper').classList.add('pt-0');
-  document.querySelector('.navbar').classList.add('pt-5');
-  document.querySelector('.navbar').classList.add('mt-3');
-  
-}
-document.querySelector('#bannerClose').addEventListener('click',function() {
-  document.querySelector('#proBanner').classList.add('d-none');
-  document.querySelector('#proBanner').classList.remove('d-flex');
-  document.querySelector('.navbar').classList.remove('pt-5');
-  document.querySelector('.navbar').classList.add('fixed-top');
-  document.querySelector('.page-body-wrapper').classList.add('pt-5');
-  document.querySelector('.navbar').classList.remove('mt-3');
-  var date = new Date();
-  date.setTime(date.getTime() + 24 * 60 * 60 * 1000); 
+
+if (bannerCloseEl && proBannerEl && navbarEl && pageBodyWrapperEl) {
+  bannerCloseEl.addEventListener('click',function() {
+    proBannerEl.classList.add('d-none');
+    proBannerEl.classList.remove('d-flex');
+    navbarEl.classList.remove('pt-5');
+    navbarEl.classList.add('fixed-top');
+    pageBodyWrapperEl.classList.add('pt-5');
+    navbarEl.classList.remove('mt-3');
+    var date = new Date();
+  date.setTime(date.getTime() + 24 * 60 * 60 * 1000);
   $.cookie('celestial-pro-banner', "true", { expires: date });
-});
+  });
+}
 
   });
 })(jQuery);

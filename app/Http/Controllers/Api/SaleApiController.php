@@ -175,6 +175,8 @@ class SaleApiController extends Controller
                     'item_name' => $set->item ? $set->item->item_name : 'N/A',
                     'serial_no' => $set->serial_no,
                     'qr_code' => $set->qr_code,
+                    'is_printed' => (int) ($set->is_printed ?? 0),
+                    'printed_at' => $set->printed_at ? \Carbon\Carbon::parse($set->printed_at)->format('d-m-Y h:i A') : null,
                     'qr_image' => 'data:image/png;base64,' . $base64,
                 ];
             });
@@ -189,16 +191,43 @@ class SaleApiController extends Controller
     {
         $user = auth()->user();
 
-        $ids = (array) $request->ids;
+        $idsParam = $request->input('ids', []);
+        if (is_string($idsParam)) {
+            $ids = array_values(array_filter(explode(',', $idsParam)));
+        } elseif (is_array($idsParam)) {
+            $ids = $idsParam;
+        } else {
+            $ids = [];
+        }
 
-        $items = ItemSet::with('item:id,item_name')
+        if (empty($ids)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please provide at least one id in ids.',
+            ], 422);
+        }
+
+        $itemSets = ItemSet::with('item:id,item_name')
             ->where('company_id', $user->company_id)
             ->whereIn('id', $ids)
+            ->where('is_final', 1)
             ->get();
 
-        $qrData = [];
+        if ($itemSets->isEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No labels found for provided ids.',
+            ], 404);
+        }
 
-        foreach ($items as $set) {
+        ItemSet::where('company_id', $user->company_id)
+            ->whereIn('id', $itemSets->pluck('id'))
+            ->update([
+                'is_printed' => 1,
+                'printed_at' => now(),
+            ]);
+
+        foreach ($itemSets as $set) {
             $builder = new Builder(
                 writer: new PngWriter(),
                 data: $set->qr_code,
@@ -207,16 +236,12 @@ class SaleApiController extends Controller
             );
 
             $result = $builder->build();
-            $base64 = base64_encode($result->getString());
-
-            $qrData[] = [
-                'item_name' => optional($set->item)->item_name,
-                'serial_no' => $set->serial_no,
-                'qr_image' => 'data:image/png;base64,' . $base64,
-            ];
+            $set->qr_base64 = 'data:image/png;base64,' . base64_encode($result->getString());
         }
 
-        $pdf = Pdf::loadView('pdf.qr_codes', compact('qrData'));
+        // Keep API PDF visually same as web print layout.
+        $pdf = Pdf::loadView('company.item_sets.print_pdf', compact('itemSets'))
+            ->setPaper([0, 0, 609.45, 340.16]);
 
         return $pdf->download('qr-codes.pdf');
     }

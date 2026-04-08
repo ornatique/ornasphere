@@ -1,108 +1,147 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8">
-    <style>
-        @page {
-            size: A4 portrait;
-            margin: 8mm;
-        }
+<meta charset="utf-8">
 
-        body {
-            margin: 0;
-            font-family: DejaVu Sans, Arial, sans-serif;
-            font-size: 10px;
-            color: #111;
-        }
+<style>
+@page {
+    size: 100mm 190mm;
+    margin: 3mm;
+}
 
-        .sheet-table {
-            width: 100%;
-            border-collapse: collapse;
-            table-layout: fixed;
-        }
+body {
+    margin: 0;
+    font-family: DejaVu Sans, Arial, sans-serif;
+    font-size: 7.5px;
+}
 
-        .sheet-table td {
-            width: 50%;
-            padding: 0 1.5mm 2.5mm 0;
-            vertical-align: top;
-        }
+/* TABLE */
+.sheet-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
 
-        .sheet-table td:nth-child(2n) {
-            padding-right: 0;
-        }
+.sheet-table td {
+    width: 50%;
+    padding: 0.8mm;
+    vertical-align: top;
+}
 
-        .label-box {
-            border: 1px solid #444;
-            height: 23mm;
-            box-sizing: border-box;
-            padding: 1.5mm 2mm;
-        }
+/* LABEL BOX (🔥 reduced height) */
+.label-box {
+    border: 1px solid #000;
+    height: 16mm; /* 🔥 reduced from 18mm */
+    padding: 0.8mm;
+    box-sizing: border-box;
+}
 
-        .label-inner {
-            width: 100%;
-        }
+/* SHIFT */
+.left-shift { margin-top: -2mm; }
+.right-shift { margin-top: 5mm; }
 
-        .left-col,
-        .right-col {
-            display: inline-block;
-            vertical-align: top;
-        }
+/* INNER */
+.left-col {
+    float: left;
+    width: 65%;
+    line-height: 1.1; /* 🔥 tighter */
+}
 
-        .left-col {
-            width: 68%;
-            line-height: 1.2;
-        }
+.right-col {
+    float: right;
+    width: 33%;
+    text-align: right;
+    line-height: 1.1;
+}
 
-        .right-col {
-            width: 30%;
-            text-align: right;
-        }
+/* TEXT */
+.code {
+    font-weight: bold;
+    font-size: 7.5px;
+    margin-top: 0.5mm; /* 🔥 reduced */
+}
 
-        .code {
-            font-size: 11px;
-            font-weight: 700;
-            white-space: nowrap;
-        }
+/* QR */
+.qr {
+    width: 8mm;
+    height: 8mm;
+    margin-top: 0; /* 🔥 removed space */
+}
 
-        .meta-row {
-            white-space: nowrap;
-        }
-
-        .qr {
-            width: 16mm;
-            height: 16mm;
-            margin-top: 0.5mm;
-        }
-    </style>
+/* CLEAR */
+.clear { clear: both; }
+</style>
 </head>
-<body>
-    <table class="sheet-table">
-        @foreach($itemSets->chunk(2) as $pair)
-            <tr>
-                @foreach($pair as $set)
-                    <td>
-                        <div class="label-box">
-                            <div class="label-inner">
-                                <div class="left-col">
-                                    <div class="meta-row">G: {{ number_format((float)$set->gross_weight, 3) }}</div>
-                                    <div class="meta-row">O: {{ number_format((float)$set->other, 3) }}</div>
-                                    <div class="meta-row">N: {{ number_format((float)$set->net_weight, 3) }}</div>
-                                    <div class="meta-row">OC: {{ number_format((float)$set->sale_other, 2) }}</div>
-                                    <div class="code">{{ $set->qr_code }}</div>
-                                </div>
-                                <div class="right-col">
-                                    <img class="qr" src="{{ $set->qr_base64 }}" alt="QR">
-                                </div>
-                            </div>
-                        </div>
-                    </td>
-                @endforeach
 
-                @if($pair->count() === 1)
-                    <td></td>
-                @endif
-            </tr>
-        @endforeach
-    </table>
+<body>
+
+@php
+$total = $itemSets->count();
+$half = ceil($total / 2);
+
+$leftItems = $itemSets->slice(0, $half)->values();
+$rightItems = $itemSets->slice($half)->values();
+
+$maxRows = max($leftItems->count(), $rightItems->count());
+@endphp
+
+<table class="sheet-table">
+
+@for($i = 0; $i < $maxRows; $i++)
+<tr>
+
+{{-- LEFT --}}
+@php $left = $leftItems->get($i); @endphp
+<td>
+    <div class="label-box left-shift">
+
+        @if($left)
+        <div class="left-col">
+            <div>G: {{ number_format($left->gross_weight ?? 0, 3) }}</div>
+            <div>L: {{ $left->other ?? '' }}</div>
+            <div>N: {{ number_format($left->net_weight ?? 0, 3) }}</div>
+            <div>OC: {{ $left->sale_other ?? '' }}</div>
+        </div>
+
+        <div class="right-col">
+            <div class="code">{{ $left->qr_code }}</div>
+            <img class="qr" src="{{ $left->qr_base64 ?? '' }}">
+        </div>
+
+        <div class="clear"></div>
+        @endif
+
+    </div>
+</td>
+
+{{-- RIGHT --}}
+@php $right = $rightItems->get($i); @endphp
+<td>
+    <div class="label-box right-shift">
+
+        @if($right)
+        <div class="left-col">
+            <div>G: {{ number_format($right->gross_weight ?? 0, 3) }}</div>
+            <div>L: {{ $right->other ?? '' }}</div>
+            <div>N: {{ number_format($right->net_weight ?? 0, 3) }}</div>
+            <div>OC: {{ $right->sale_other ?? '' }}</div>
+        </div>
+
+        <div class="right-col">
+            <div class="code">{{ $right->qr_code }}</div>
+            <img class="qr" src="{{ $right->qr_base64 ?? '' }}">
+        </div>
+
+        <div class="clear"></div>
+        @endif
+
+    </div>
+</td>
+
+</tr>
+@endfor
+
+</table>
+
 </body>
 </html>

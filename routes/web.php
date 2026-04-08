@@ -69,10 +69,9 @@ Route::prefix('superadmin')->name('superadmin.')->group(function () {
 | Super Admin Protected Routes
 |--------------------------------------------------------------------------
 */
-
+// 'superadmin.ip',
 Route::middleware([
     'auth:superadmin',
-    'superadmin.ip',
     'superadmin.2fa',
 ])->prefix('superadmin')->name('superadmin.')->group(function () {
 
@@ -294,6 +293,10 @@ Route::middleware(['auth', 'company.2fa', 'company.route.permission'])
             '/item-sets/finalize',
             [ItemSetController::class, 'finalize']
         )->name('item_sets.finalize');
+        Route::get(
+            '/item-sets/finalize',
+            [ItemSetController::class, 'finalizeGet']
+        )->name('item_sets.finalize.get');
 
         Route::get('/qr-image/{code}', function ($code) {
 

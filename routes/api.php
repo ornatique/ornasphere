@@ -61,7 +61,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/item-sets/save-cell', [ItemSetController::class, 'saveCell']);
     Route::post('/item-sets/bulk-save', [ItemSetController::class, 'bulkSave']);
     Route::post('/item-sets/finalize', [ItemSetController::class, 'finalize']);
-    Route::get('/item-sets/qr-list', [ItemSetController::class, 'qrList']);
+    Route::get('/item-sets/qr-list', [ItemSetController::class, 'listset_data']);
     
     Route::get('itemsets_list/', [ItemSetController::class, 'listset_data']);     // list + filter
     Route::get('itemsets_show/{id}', [ItemSetController::class, 'show']);  // edit data

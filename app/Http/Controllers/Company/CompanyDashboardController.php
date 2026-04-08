@@ -28,11 +28,11 @@ class CompanyDashboardController extends Controller
 
         $salesToday = (float) Sale::where('company_id', $companyId)
             ->whereDate('sale_date', $today)
-            ->sum('total_amount');
+            ->sum('net_total');
 
         $salesMonth = (float) Sale::where('company_id', $companyId)
             ->whereBetween('sale_date', [$monthStart->toDateString(), $monthEnd->toDateString()])
-            ->sum('total_amount');
+            ->sum('net_total');
 
         $returnsMonth = (float) SaleReturn::where('company_id', $companyId)
             ->whereBetween('return_date', [$monthStart->toDateString(), $monthEnd->toDateString()])
@@ -63,7 +63,7 @@ class CompanyDashboardController extends Controller
             $monthlyLabels[] = $month->format('M Y');
             $monthlySales[] = (float) Sale::where('company_id', $companyId)
                 ->whereBetween('sale_date', [$start, $end])
-                ->sum('total_amount');
+                ->sum('net_total');
             $monthlyReturns[] = (float) SaleReturn::where('company_id', $companyId)
                 ->whereBetween('return_date', [$start, $end])
                 ->sum('return_total');
@@ -80,7 +80,7 @@ class CompanyDashboardController extends Controller
                     'number' => $sale->voucher_no,
                     'customer' => optional($sale->customer)->name ?: '-',
                     'date' => $sale->sale_date,
-                    'amount' => (float) $sale->total_amount,
+                    'amount' => (float) ($sale->net_total ?? $sale->total_amount ?? 0),
                 ];
             });
 

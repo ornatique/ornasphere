@@ -19,6 +19,17 @@ use Yajra\DataTables\Facades\DataTables;
 
 class ItemSetController extends Controller
 {
+    private function labourFormulaLabel(?string $labourType): string
+    {
+        return match (strtolower((string) $labourType)) {
+            'per_netweight' => 'Per Net Weight',
+            'per_fineweight' => 'Per Fine Weight',
+            'per_grossweight' => 'Per Gross Weight',
+            'per_quantity' => 'Per Quantity',
+            'flat' => 'Flat',
+            default => 'Per Net Weight',
+        };
+    }
 
     public function list_data(Request $request, $slug)
     {
@@ -57,9 +68,9 @@ class ItemSetController extends Controller
                 ->addColumn('qr_code', fn($row) => $row->qr_code)
                 ->addColumn('qty_pcs', fn($row) => 1)
                 ->addColumn('printed_at', function ($row) {
-                    return $row->created_at
-                        ? $row->created_at->format('d-m-Y h:i A')
-                        : '-';
+                    return $row->printed_at
+                        ? $row->printed_at->format('d-m-Y h:i A')
+                        : '';
                 })
 
                 ->addColumn('date', function ($row) {
@@ -136,6 +147,15 @@ class ItemSetController extends Controller
         return ItemSet::where('company_id', $company->id)
             ->where('item_id', $request->item_id)
             ->where('is_final', 0)
+            ->where(function ($q) {
+                $q->whereNotNull('gross_weight')
+                    ->orWhereNotNull('net_weight')
+                    ->orWhereNotNull('sale_labour_rate')
+                    ->orWhereNotNull('sale_labour_amount')
+                    ->orWhereNotNull('sale_other')
+                    ->orWhereNotNull('size')
+                    ->orWhereNotNull('HUID');
+            })
             ->orderBy('id')
             ->offset($request->offset)
             ->limit(10)
@@ -150,6 +170,17 @@ class ItemSetController extends Controller
     public function saveCell(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $toNumber = function ($value): float {
+            if ($value === null || $value === '') {
+                return 0;
+            }
+            return (float) str_replace(',', '', (string) $value);
+        };
+
+        $item = Item::where('company_id', $company->id)
+            ->where('id', $request->item_id)
+            ->first();
+        $defaultLabourFormula = $this->labourFormulaLabel(optional($item)->labour_type);
 
         // prevent blank save
         if (trim($request->value) == "") {
@@ -166,21 +197,40 @@ class ItemSetController extends Controller
 
             if ($set) {
                 $set->{$request->column} = $request->value;
+
+                // Keep net_weight always in sync with gross_weight and other.
+                if (in_array($request->column, ['gross_weight', 'other'], true)) {
+                    $gross = $toNumber($request->column === 'gross_weight' ? $request->value : $set->gross_weight);
+                    $other = $toNumber($request->column === 'other' ? $request->value : $set->other);
+                    $set->net_weight = max(0, $gross - $other);
+                }
+                if (empty($set->sale_labour_formula)) {
+                    $set->sale_labour_formula = $defaultLabourFormula;
+                }
+
                 $set->save();
 
                 return response()->json(['id' => $set->id]);
             }
         }
 
-        // create new draft
-        $set = ItemSet::create([
-
+        $payload = [
             'company_id' => $company->id,
             'item_id' => $request->item_id,
             $request->column => $request->value,
+            'sale_labour_formula' => $defaultLabourFormula,
             'is_final' => 0
+        ];
 
-        ]);
+        // On first cell save also store computed net_weight if gross/other entered.
+        if (in_array($request->column, ['gross_weight', 'other'], true)) {
+            $gross = $toNumber($request->column === 'gross_weight' ? $request->value : 0);
+            $other = $toNumber($request->column === 'other' ? $request->value : 0);
+            $payload['net_weight'] = max(0, $gross - $other);
+        }
+
+        // create new draft
+        $set = ItemSet::create($payload);
 
         return response()->json([
             'id' => $set->id
@@ -209,6 +259,7 @@ class ItemSetController extends Controller
             'status' => true,
             'carat' => $item->outward_carat,
             'purity' => $item->outward_purity,
+            'sale_labour_formula' => $this->labourFormulaLabel($item->labour_type),
         ]);
     }
 
@@ -223,7 +274,14 @@ class ItemSetController extends Controller
 
         $config = LabelConfig::where('company_id', $company->id)
             ->where('item_id', $item->id)
-            ->firstOrFail();
+            ->first();
+
+        if (!$config) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Label Config not found for selected item. Please create Label Config first.',
+            ], 422);
+        }
 
         DB::beginTransaction();
 
@@ -255,19 +313,20 @@ class ItemSetController extends Controller
 
                 $nextNo++;
 
-                $serialFormatted = str_pad(
-                    $nextNo,
-                    $config->numeric_length,
-                    '0',
-                    STR_PAD_LEFT
-                );
+                $qrText = $config->prefix . $nextNo;
 
-                $qrText = $config->prefix . $serialFormatted;
+                // Fallback safety: if net_weight is empty, compute from gross-other.
+                $gross = (float) ($set->gross_weight ?? 0);
+                $other = (float) ($set->other ?? 0);
+                $net = ($set->net_weight === null || $set->net_weight === '')
+                    ? max(0, $gross - $other)
+                    : (float) $set->net_weight;
 
                 $set->update([
                     'serial_no' => $nextNo,
                     'qr_code'   => $qrText,
                     'barcode'   => $qrText,
+                    'net_weight' => $net,
                     'is_final'  => 1
                 ]);
             }
@@ -291,6 +350,17 @@ class ItemSetController extends Controller
                 'message' => $e->getMessage()
             ]);
         }
+    }
+
+    public function finalizeGet($slug)
+    {
+        $request = request();
+
+        if ($request->filled('item_id')) {
+            return $this->finalize($request, $slug);
+        }
+
+        return redirect()->route('company.item_sets.index', $slug);
     }
 
     public function qrList(Request $request, $slug)
@@ -339,7 +409,9 @@ class ItemSetController extends Controller
                     return number_format((float) $row->sale_other, 2);
                 })
                 ->addColumn('date_time', function ($row) {
-                    return optional($row->created_at)->format('d-m-Y h:i A');
+                    return $row->printed_at
+                        ? $row->printed_at->format('d-m-Y h:i A')
+                        : '';
                 })
                 ->filterColumn('item_name', function ($q, $keyword) {
                     $q->whereHas('item', function ($itemQ) use ($keyword) {
@@ -393,6 +465,18 @@ class ItemSetController extends Controller
             ->where('is_final', 1)
             ->get();
 
+        ItemSet::where('company_id', $company->id)
+            ->whereIn('id', $itemSets->pluck('id'))
+            ->update([
+                'is_printed' => 1,
+                'printed_at' => now(),
+            ]);
+
+        $itemSets->each(function ($set) {
+            $set->is_printed = 1;
+            $set->printed_at = now();
+        });
+
         $writer = new PngWriter();
 
         foreach ($itemSets as $set) {
@@ -409,7 +493,7 @@ class ItemSetController extends Controller
         $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView(
             'company.item_sets.print_pdf',
             compact('itemSets')
-        )->setPaper('a4', 'portrait');
+        )->setPaper([0, 0, 609.45, 340.16]);
 
         return $pdf->stream('label-print-preview.pdf');
     }

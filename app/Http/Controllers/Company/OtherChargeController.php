@@ -183,6 +183,8 @@ class OtherChargeController extends Controller
                 'quantity_pcs' => (float) ($row->quantity_pcs ?? 1),
                 'weight_formula' => $row->weight_formula,
                 'weight_percent' => (float) ($row->weight_percent ?? 0),
+                'wt_operation' => $row->wt_operation ?: 'less',
+                'stock_effect' => (bool) $row->stock_effect,
                 'other_amt_formula' => $row->other_amt_formula,
                 'is_default' => (bool) $row->is_default,
                 'is_selected' => (bool) $row->is_selected,
