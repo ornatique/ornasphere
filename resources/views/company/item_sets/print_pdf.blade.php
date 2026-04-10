@@ -5,7 +5,7 @@
 
 <style>
 @page {
-    size: 100mm 190mm;
+    size: 100mm 200mm;
     margin: 3mm;
 }
 
@@ -15,61 +15,66 @@ body {
     font-size: 7.5px;
 }
 
-/* TABLE */
-.sheet-table {
+/* MAIN 2 COLUMN LAYOUT */
+.wrapper {
     width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
 }
 
-.sheet-table td {
-    width: 50%;
-    padding: 0.8mm;
+/* LEFT + RIGHT COLUMN */
+.column {
+    width: 49%;
+    display: inline-block;
     vertical-align: top;
 }
 
-/* LABEL BOX (🔥 reduced height) */
-.label-box {
+/* LABEL */
+.label {
     border: 1px solid #000;
-    height: 16mm; /* 🔥 reduced from 18mm */
-    padding: 0.8mm;
+    height: 12mm;
+    padding: 1mm;
     box-sizing: border-box;
+    margin-bottom: 2mm;
 }
 
-/* SHIFT */
-.left-shift { margin-top: -2mm; }
-.right-shift { margin-top: 5mm; }
+/* 🔥 SHIFT CONTROL */
+.left-label {
+    margin-top: 0.5mm; /* LEFT fixed */
+}
 
-/* INNER */
+.right-label.first {
+    margin-top: 9mm; /* FIRST BIG GAP */
+}
+
+.right-label.other {
+    margin-top: 2.5mm; /* HALF GAP */
+}
+
+/* CONTENT */
 .left-col {
     float: left;
     width: 65%;
-    line-height: 1.1; /* 🔥 tighter */
+    line-height: 1.1;
 }
 
 .right-col {
     float: right;
     width: 33%;
     text-align: right;
-    line-height: 1.1;
 }
 
-/* TEXT */
 .code {
     font-weight: bold;
-    font-size: 7.5px;
-    margin-top: 0.5mm; /* 🔥 reduced */
+    font-size: 7px;
 }
 
-/* QR */
 .qr {
     width: 8mm;
     height: 8mm;
-    margin-top: 0; /* 🔥 removed space */
 }
 
-/* CLEAR */
-.clear { clear: both; }
+.clear {
+    clear: both;
+}
 </style>
 </head>
 
@@ -81,67 +86,64 @@ $half = ceil($total / 2);
 
 $leftItems = $itemSets->slice(0, $half)->values();
 $rightItems = $itemSets->slice($half)->values();
-
-$maxRows = max($leftItems->count(), $rightItems->count());
 @endphp
 
-<table class="sheet-table">
+<div class="wrapper">
 
-@for($i = 0; $i < $maxRows; $i++)
-<tr>
+    {{-- LEFT COLUMN --}}
+    <div class="column">
+        @foreach($leftItems as $item)
+            <div class="label left-label">
 
-{{-- LEFT --}}
-@php $left = $leftItems->get($i); @endphp
-<td>
-    <div class="label-box left-shift">
+                <div class="left-col">
+                    <div>G: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                    <div>L: {{ $item->other ?? '' }}</div>
+                    <div>N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
+                    <div>OC: {{ $item->sale_other ?? '' }}</div>
+                </div>
 
-        @if($left)
-        <div class="left-col">
-            <div>G: {{ number_format($left->gross_weight ?? 0, 3) }}</div>
-            <div>L: {{ $left->other ?? '' }}</div>
-            <div>N: {{ number_format($left->net_weight ?? 0, 3) }}</div>
-            <div>OC: {{ $left->sale_other ?? '' }}</div>
-        </div>
+                <div class="right-col">
+                    <div class="code">{{ $item->qr_code }}</div>
+                    <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
+                </div>
 
-        <div class="right-col">
-            <div class="code">{{ $left->qr_code }}</div>
-            <img class="qr" src="{{ $left->qr_base64 ?? '' }}">
-        </div>
+                <div class="clear"></div>
 
-        <div class="clear"></div>
-        @endif
-
+            </div>
+        @endforeach
     </div>
-</td>
 
-{{-- RIGHT --}}
-@php $right = $rightItems->get($i); @endphp
-<td>
-    <div class="label-box right-shift">
 
-        @if($right)
-        <div class="left-col">
-            <div>G: {{ number_format($right->gross_weight ?? 0, 3) }}</div>
-            <div>L: {{ $right->other ?? '' }}</div>
-            <div>N: {{ number_format($right->net_weight ?? 0, 3) }}</div>
-            <div>OC: {{ $right->sale_other ?? '' }}</div>
-        </div>
+    {{-- RIGHT COLUMN --}}
+    <div class="column">
+        @foreach($rightItems as $index => $item)
 
-        <div class="right-col">
-            <div class="code">{{ $right->qr_code }}</div>
-            <img class="qr" src="{{ $right->qr_base64 ?? '' }}">
-        </div>
+            @php
+                $class = ($index == 0) ? 'first' : 'other';
+            @endphp
 
-        <div class="clear"></div>
-        @endif
+            <div class="label right-label {{ $class }}">
 
+                <div class="left-col">
+                    <div>G: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                    <div>L: {{ $item->other ?? '' }}</div>
+                    <div>N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
+                    <div>OC: {{ $item->sale_other ?? '' }}</div>
+                </div>
+
+                <div class="right-col">
+                    <div class="code">{{ $item->qr_code }}</div>
+                    <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
+                </div>
+
+                <div class="clear"></div>
+
+            </div>
+
+        @endforeach
     </div>
-</td>
 
-</tr>
-@endfor
-
-</table>
+</div>
 
 </body>
 </html>

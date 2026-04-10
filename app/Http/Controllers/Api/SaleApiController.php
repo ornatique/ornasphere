@@ -12,6 +12,7 @@ use App\Models\SaleCart;
 use App\Models\ApprovalItem;
 use App\Models\ApprovalHeader;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\URL;
 use Endroid\QrCode\Builder\Builder;
 use Endroid\QrCode\Writer\PngWriter;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -37,7 +38,21 @@ class SaleApiController extends Controller
                 'sale_date' => $sale->sale_date,
                 'net_total' => $sale->net_total,
                 'customer' => $sale->customer,
-                'pdf_url' => route('company.sales.pdf', [
+                // Signed URL works in browser/app without auth header.
+                'pdf_url' => URL::temporarySignedRoute(
+                    'api.sales.pdf.public',
+                    now()->addMinutes(60),
+                    [
+                        'id' => $sale->id,
+                        'company_id' => $company->id,
+                    ]
+                ),
+                // Keep bearer-token URL for direct API calls.
+                'api_pdf_url' => route('api.sales.pdf', [
+                    'id' => $sale->id,
+                ]),
+                // Keep web URL for browser session based access.
+                'web_pdf_url' => route('company.sales.pdf', [
                     'slug' => $company->slug,
                     'sale' => $sale->id
                 ])
@@ -494,6 +509,7 @@ class SaleApiController extends Controller
 
     public function store(Request $request)
     {
+      
         $companyId = $request->user()->company_id;
         $customerId = (int) (
             $request->input('customer_id')
@@ -550,9 +566,22 @@ class SaleApiController extends Controller
             $approvalIds = [];
 
             foreach ($request->items as $item) {
-                $itemSet = ItemSet::where('company_id', $companyId)
-                    ->where('is_sold', 0)
-                    ->findOrFail($item['itemset_id']);
+                $itemSetQuery = ItemSet::where('company_id', $companyId)
+                    ->where('id', (int) $item['itemset_id']);
+
+                // For normal sale/scanner/manual rows, only unsold labels are allowed.
+                // For approval-conversion rows, label can already be marked sold (outward on approval).
+                if (empty($item['approval_item_id'])) {
+                    $itemSetQuery->where('is_sold', 0);
+                }
+
+                $itemSet = $itemSetQuery->first();
+                if (!$itemSet) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'ItemSet not found or not available for sale: ' . ($item['itemset_id'] ?? ''),
+                    ], 422);
+                }
 
                 $grossWeight = (float) ($item['gross_weight'] ?? $item['gross_wt'] ?? $itemSet->gross_weight ?? 0);
                 $otherWeight = (float) ($item['other_weight'] ?? $item['other_wt'] ?? $itemSet->other ?? 0);
@@ -642,6 +671,74 @@ class SaleApiController extends Controller
         return response()->json([
             'success' => true,
             'data' => $sale
+        ]);
+    }
+
+    public function pdf(Request $request, $id)
+    {
+        $companyId = $request->user()->company_id;
+
+        $sale = Sale::with(['customer', 'saleItems.itemset.item'])
+            ->where('company_id', $companyId)
+            ->find($id);
+
+        if (!$sale) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Sale not found'
+            ], 404);
+        }
+
+        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale'))
+            ->setPaper('a4', 'portrait');
+
+        $filename = 'sale-voucher-' . ($sale->voucher_no ?: $sale->id) . '.pdf';
+
+        return response($pdf->output(), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="' . $filename . '"',
+        ]);
+    }
+
+    public function publicPdf(Request $request, $id)
+    {
+        if (!$request->hasValidSignature()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid or expired PDF link.',
+                'code' => 'INVALID_SIGNATURE',
+            ], 403);
+        }
+
+        $companyId = (int) $request->query('company_id');
+        if ($companyId <= 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid company context.',
+                'code' => 'INVALID_COMPANY',
+            ], 422);
+        }
+
+        $sale = Sale::with(['customer', 'saleItems.itemset.item'])
+            ->where('company_id', $companyId)
+            ->find($id);
+
+        if (!$sale) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Sale not found',
+                'code' => 'NOT_FOUND',
+            ], 404);
+        }
+
+        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale'))
+            ->setPaper('a4', 'portrait');
+
+        $filename = 'sale-voucher-' . ($sale->voucher_no ?: $sale->id) . '.pdf';
+
+        return response($pdf->output(), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="' . $filename . '"',
         ]);
     }
 

@@ -80,12 +80,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/sales/get-item-by-qr', [SaleApiController::class, 'getItemByQr']);
     Route::get('/sales/customerlist', [SaleApiController::class, 'customerlist']);
     Route::post('/sales/scan-qr', [SaleApiController::class, 'scanQr']);
+    Route::get('/sales/search-itemsets', [SaleApiController::class, 'searchItemsets']);
     Route::get('/sales/approval-items', [SaleApiController::class, 'approvalItems']);
     Route::get('/sales/add-label-from-approval', [SaleApiController::class, 'approvalItems']);
     Route::post('/sales/add-to-cart', [SaleApiController::class, 'addToCart']);
     Route::get('/sales/cart-items', [SaleApiController::class, 'cartItems']);
     Route::delete('/sales/cart/remove/{id}', [SaleApiController::class, 'removeCartItem']);
     Route::post('/sales/confirm-sale', [SaleApiController::class, 'confirmSale']);
+    Route::get('/sales/{id}/pdf', [SaleApiController::class, 'pdf'])->whereNumber('id')->name('api.sales.pdf');
     Route::get('/itemsets/qr-list', [SaleApiController::class, 'qrListApi']);
     Route::post('/itemsets/qr/pdf', [SaleApiController::class, 'downloadQrPdf']);
     Route::post('/sales/store', [SaleApiController::class, 'store']);       // Create sale
@@ -105,11 +107,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/returns/cart-list', [SaleReturnApiController::class, 'returnCartList']);
     Route::delete('/returns/cart-remove/{id}', [SaleReturnApiController::class, 'removeCartItem']);
     Route::post('/returns/confirm-return', [SaleReturnApiController::class, 'confirmReturn']);
+    Route::post('/returns/search-return', [SaleReturnApiController::class, 'returnsearchItemSets']);
 
     Route::get('/approvals/customers', [ApprovalApiController::class, 'customers']);
     Route::get('/approvals/items', [ApprovalApiController::class, 'items']);
     Route::get('/approvals', [ApprovalApiController::class, 'index']);
     Route::post('/approvals/scan-qr', [ApprovalApiController::class, 'scanQr']);
+    Route::get('/approvals/cart-list', [ApprovalApiController::class, 'cartList']);
     Route::get('/approvals/itemsets/{itemId}', [ApprovalApiController::class, 'getItemSets']);
     Route::get('/approvals/search-itemsets', [ApprovalApiController::class, 'searchItemSets']);
     Route::post('/approvals/store', [ApprovalApiController::class, 'store']);
@@ -120,3 +124,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/approvals/{id}/pdf', [ApprovalApiController::class, 'pdf'])->whereNumber('id');
     Route::get('/approvals/pdf/{id}', [ApprovalApiController::class, 'pdf'])->whereNumber('id');
 });
+
+// Signed public PDF URL (for browser/app open without bearer header)
+Route::get('/public/sales/{id}/pdf', [SaleApiController::class, 'publicPdf'])
+    ->whereNumber('id')
+    ->name('api.sales.pdf.public');

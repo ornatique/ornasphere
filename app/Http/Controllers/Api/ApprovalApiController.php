@@ -8,6 +8,7 @@ use App\Models\ApprovalItem;
 use App\Models\Company;
 use App\Models\Item;
 use App\Models\ItemSet;
+use App\Models\ApprovalCart;
 use App\Models\SaleReturn;
 use App\Models\SaleReturnItem;
 use App\Models\Customer;
@@ -151,10 +152,23 @@ class ApprovalApiController extends Controller
     public function scanQr(Request $request)
     {
         $companyId = $request->user()->company_id;
+        $userId = $request->user()->id;
 
         $request->validate([
             'qr_code' => 'required|string',
+            'customer_id' => 'required|integer',
         ]);
+
+        $customerId = (int) $request->customer_id;
+        $customerExists = Customer::where('company_id', $companyId)
+            ->where('id', $customerId)
+            ->exists();
+        if (!$customerExists) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid customer for this company.',
+            ], 422);
+        }
 
         $row = ItemSet::with('item')
             ->where('company_id', $companyId)
@@ -170,19 +184,88 @@ class ApprovalApiController extends Controller
             ], 404);
         }
 
+        $exists = ApprovalCart::where('user_id', $userId)
+            ->where('company_id', $companyId)
+            ->where('customer_id', $customerId)
+            ->where('itemset_id', $row->id)
+            ->exists();
+
+        if ($exists) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product already scanned',
+            ], 409);
+        }
+
+        $cart = ApprovalCart::create([
+            'user_id' => $userId,
+            'company_id' => $companyId,
+            'customer_id' => $customerId,
+            'itemset_id' => $row->id,
+        ]);
+
         return response()->json([
             'success' => true,
+            'message' => 'Added to approval cart',
+            'cart_id' => $cart->id,
             'data' => $row,
+        ]);
+    }
+
+    public function cartList(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+        $userId = $request->user()->id;
+        $customerId = (int) ($request->input('customer_id') ?? 0);
+
+        $query = ApprovalCart::with('itemset.item')
+            ->where('user_id', $userId)
+            ->where('company_id', $companyId);
+
+        if ($customerId > 0) {
+            $query->where('customer_id', $customerId);
+        }
+
+        $rows = $query->latest()
+            ->get()
+            ->map(function ($cart) {
+                $set = $cart->itemset;
+                if (!$set) {
+                    return null;
+                }
+
+                return [
+                    'cart_id' => $cart->id,
+                    'customer_id' => $cart->customer_id,
+                    'itemset_id' => $set->id,
+                    'item_id' => $set->item_id,
+                    'serial_no' => $set->serial_no,
+                    'huid' => $set->HUID,
+                    'qr_code' => $set->qr_code,
+                    'item_name' => optional($set->item)->item_name,
+                    'gross_weight' => (float) ($set->gross_weight ?? 0),
+                    'other_weight' => (float) ($set->other ?? 0),
+                    'net_weight' => (float) ($set->net_weight ?? 0),
+                    'sale_other' => (float) ($set->sale_other ?? 0),
+                ];
+            })
+            ->filter()
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'count' => $rows->count(),
+            'data' => $rows,
         ]);
     }
 
     public function store(Request $request)
     {
         $companyId = $request->user()->company_id;
+        $userId = $request->user()->id;
 
         $request->validate([
             'customer_id' => 'required|integer',
-            'items' => 'required|array|min:1',
         ]);
 
         $customerExists = Customer::where('company_id', $companyId)
@@ -199,6 +282,23 @@ class ApprovalApiController extends Controller
         DB::beginTransaction();
 
         try {
+            $itemsPayload = $request->input('items', []);
+            if (!is_array($itemsPayload) || count($itemsPayload) === 0) {
+                $itemsPayload = ApprovalCart::where('user_id', $userId)
+                    ->where('company_id', $companyId)
+                    ->where('customer_id', (int) $request->customer_id)
+                    ->get()
+                    ->map(fn($c) => ['itemset_id' => (int) $c->itemset_id])
+                    ->all();
+            }
+
+            if (empty($itemsPayload)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No approval items selected.',
+                ], 422);
+            }
+
             $approval = ApprovalHeader::create([
                 'company_id' => $companyId,
                 'customer_id' => $request->customer_id,
@@ -207,7 +307,7 @@ class ApprovalApiController extends Controller
                 'status' => 'open',
             ]);
 
-            foreach ($request->items as $row) {
+            foreach ($itemsPayload as $row) {
                 $itemSetId = (int) ($row['itemset_id'] ?? $row['id'] ?? 0);
                 if (!$itemSetId) {
                     continue;
@@ -260,6 +360,11 @@ class ApprovalApiController extends Controller
 
                 $itemSet->update(['is_sold' => 1]);
             }
+
+            ApprovalCart::where('user_id', $userId)
+                ->where('company_id', $companyId)
+                ->where('customer_id', (int) $request->customer_id)
+                ->delete();
 
             DB::commit();
 
