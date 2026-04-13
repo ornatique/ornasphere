@@ -134,6 +134,14 @@ return Application::configure(basePath: dirname(__DIR__))
         });
 
         $exceptions->render(function (Throwable $e, Request $request) use ($isApi) {
+            // Let Laravel handle normal web 404/405 instead of logging them as unhandled exceptions.
+            if (
+                !$isApi($request) &&
+                ($e instanceof NotFoundHttpException || $e instanceof MethodNotAllowedHttpException)
+            ) {
+                return null;
+            }
+
             Log::error('Unhandled exception', [
                 'message' => $e->getMessage(),
                 'file' => $e->getFile(),

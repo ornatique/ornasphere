@@ -13,6 +13,7 @@ class CompanyPermissionController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $this->ensureWebPermissions();
 
         if ($request->ajax()) {
             $permissions = Permission::where('guard_name', 'web')
@@ -64,6 +65,7 @@ class CompanyPermissionController extends Controller
     public function create($slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $this->ensureWebPermissions();
 
         return view('company.permissions.create', compact('company'));
     }
@@ -76,7 +78,7 @@ class CompanyPermissionController extends Controller
             'name' => 'required|string'
         ]);
 
-        $name = trim((string) $request->name);
+        $name = $this->normalizePermissionName(trim((string) $request->name));
         $existing = Permission::where('name', $name)
             ->where('guard_name', 'web')
             ->first();
@@ -122,7 +124,7 @@ class CompanyPermissionController extends Controller
             'name' => 'required|string'
         ]);
 
-        $newName = trim((string) $request->name);
+        $newName = $this->normalizePermissionName(trim((string) $request->name));
         $exists = Permission::where('name', $newName)
             ->where('guard_name', 'web')
             ->where('id', '!=', $permission->id)
@@ -155,5 +157,84 @@ class CompanyPermissionController extends Controller
         $permission->delete();
 
         return back()->with('success', 'Permission deleted successfully');
+    }
+
+    private function ensureWebPermissions(): void
+    {
+        $this->normalizeLegacyPermissionNames();
+
+        $defaultModules = [
+            'dashboard',
+            'user',
+            'role',
+            'permission',
+            'customer',
+            'item',
+            'item-set',
+            'label-config',
+            'label-print',
+            'other-charge',
+            'sale',
+            'approval',
+            'return',
+        ];
+
+        $actions = ['view', 'create', 'edit', 'delete', 'manage'];
+
+        foreach ($defaultModules as $module) {
+            foreach ($actions as $action) {
+                if ($module === 'dashboard' && $action !== 'view') {
+                    continue;
+                }
+
+                Permission::firstOrCreate([
+                    'name' => "{$module}-{$action}",
+                    'guard_name' => 'web',
+                ], [
+                    'company_id' => null,
+                ]);
+            }
+        }
+    }
+
+    private function normalizeLegacyPermissionNames(): void
+    {
+        $legacyToCanonical = [
+            'item-set-set' => 'item-set-view',
+            'label-print-print' => 'label-print-view',
+            'label-config-config' => 'label-config-view',
+            'other-charge-charge' => 'other-charge-view',
+        ];
+
+        foreach ($legacyToCanonical as $legacy => $canonical) {
+            $legacyPermission = Permission::where('guard_name', 'web')->where('name', $legacy)->first();
+            if (!$legacyPermission) {
+                continue;
+            }
+
+            $canonicalPermission = Permission::where('guard_name', 'web')->where('name', $canonical)->first();
+
+            if ($canonicalPermission) {
+                \DB::table('role_has_permissions')
+                    ->where('permission_id', $legacyPermission->id)
+                    ->update(['permission_id' => $canonicalPermission->id]);
+
+                $legacyPermission->delete();
+                continue;
+            }
+
+            $legacyPermission->name = $canonical;
+            $legacyPermission->save();
+        }
+    }
+
+    private function normalizePermissionName(string $name): string
+    {
+        $name = strtolower(trim($name));
+        $name = preg_replace('/\s+/', '-', $name);
+        $name = preg_replace('/_+/', '-', $name);
+        $name = preg_replace('/-+/', '-', $name);
+
+        return $name;
     }
 }

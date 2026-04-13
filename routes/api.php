@@ -114,6 +114,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/approvals', [ApprovalApiController::class, 'index']);
     Route::post('/approvals/scan-qr', [ApprovalApiController::class, 'scanQr']);
     Route::get('/approvals/cart-list', [ApprovalApiController::class, 'cartList']);
+    Route::delete('/approvals/cart-remove/{id}', [ApprovalApiController::class, 'removeCartItem']);
     Route::get('/approvals/itemsets/{itemId}', [ApprovalApiController::class, 'getItemSets']);
     Route::get('/approvals/search-itemsets', [ApprovalApiController::class, 'searchItemSets']);
     Route::post('/approvals/store', [ApprovalApiController::class, 'store']);

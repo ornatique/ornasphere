@@ -259,6 +259,31 @@ class ApprovalApiController extends Controller
         ]);
     }
 
+    public function removeCartItem(Request $request, $id)
+    {
+        $companyId = $request->user()->company_id;
+        $userId = $request->user()->id;
+
+        $cart = ApprovalCart::where('id', (int) $id)
+            ->where('user_id', $userId)
+            ->where('company_id', $companyId)
+            ->first();
+
+        if (!$cart) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cart item not found.',
+            ], 404);
+        }
+
+        $cart->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Item removed from approval cart.',
+        ]);
+    }
+
     public function store(Request $request)
     {
         $companyId = $request->user()->company_id;
@@ -306,6 +331,8 @@ class ApprovalApiController extends Controller
                 'approval_date' => now(),
                 'status' => 'open',
             ]);
+
+            $processedItemSetIds = [];
 
             foreach ($itemsPayload as $row) {
                 $itemSetId = (int) ($row['itemset_id'] ?? $row['id'] ?? 0);
@@ -359,12 +386,20 @@ class ApprovalApiController extends Controller
                 ]);
 
                 $itemSet->update(['is_sold' => 1]);
+                $processedItemSetIds[] = (int) $itemSet->id;
             }
 
-            ApprovalCart::where('user_id', $userId)
+            $processedItemSetIds = array_values(array_unique(array_filter($processedItemSetIds)));
+
+            $cartDeleteQuery = ApprovalCart::where('user_id', $userId)
                 ->where('company_id', $companyId)
-                ->where('customer_id', (int) $request->customer_id)
-                ->delete();
+                ->where('customer_id', (int) $request->customer_id);
+
+            if (!empty($processedItemSetIds)) {
+                $cartDeleteQuery->whereIn('itemset_id', $processedItemSetIds);
+            }
+
+            $removedFromCart = $cartDeleteQuery->delete();
 
             DB::commit();
 
@@ -374,6 +409,7 @@ class ApprovalApiController extends Controller
                 'data' => [
                     'approval_id' => $approval->id,
                     'approval_no' => $approval->approval_no,
+                    'removed_from_cart' => $removedFromCart,
                 ]
             ]);
         } catch (\Exception $e) {

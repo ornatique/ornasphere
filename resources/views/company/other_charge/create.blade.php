@@ -94,6 +94,11 @@
                                     Per Quantity
                                 </option>
 
+                                <option value="per_weight"
+                                    {{ isset($data) && $data->weight_formula=='per_weight' ? 'selected':'' }}>
+                                    Per Weight
+                                </option>
+
                                 <option value="flat"
                                     {{ isset($data) && $data->weight_formula=='flat' ? 'selected':'' }}>
                                     Flat

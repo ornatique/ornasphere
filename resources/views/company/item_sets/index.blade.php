@@ -142,6 +142,7 @@
                                 <th>Qty</th>
                                 <th>Weight</th>
                                 <th>Wt Formula</th>
+                                <th>Total Weight</th>
                                 <th>Amt Formula</th>
                                 <th>Total Amt</th>
                                 <th>Select</th>
@@ -151,6 +152,9 @@
                     </table>
                 </div>
                 <div class="text-end mt-2">
+                    <strong>Weight Total:</strong> <span id="itemSetModalWeightTotal">0.000</span>
+                </div>
+                <div class="text-end mt-1">
                     <strong>Charge Total:</strong> <span id="itemSetModalChargeTotal">0.00</span>
                 </div>
             </div>
@@ -664,12 +668,17 @@
         } else if (wtFormula === 'per_weight') {
             weight = itemWeight;
         } else if (wtFormula === 'per_quantity') {
-            weight = defaultWeight * qty;
+            weight = defaultWeight;
+        }
+
+        let totalWeight = weight;
+        if (wtFormula === 'per_quantity') {
+            totalWeight = weight * qty;
         }
 
         let total = amount;
         if (amtFormula === 'per_weight') {
-            total = amount * weight;
+            total = amount * totalWeight;
         } else if (amtFormula === 'per_quantity') {
             total = amount * qty;
         } else if (amtFormula === 'carat') {
@@ -684,21 +693,22 @@
             stock_effect: !!option.stock_effect,
             wt_operation: String(option.wt_operation || 'less').toLowerCase(),
             weight,
+            total_weight: totalWeight,
             total,
         };
     }
 
     const WEIGHT_FORMULA_OPTIONS = [
-        { value: 'flat', label: 'flat' },
-        { value: 'per_weight', label: 'per_weight' },
-        { value: 'per_quantity', label: 'per_quantity' }
+        { value: 'flat', label: 'Flat' },
+        { value: 'per_weight', label: 'Per Weight' },
+        { value: 'per_quantity', label: 'Per Quantity' }
     ];
 
     const AMOUNT_FORMULA_OPTIONS = [
-        { value: 'flat', label: 'flat' },
-        { value: 'per_weight', label: 'per_weight' },
-        { value: 'per_quantity', label: 'per_quantity' },
-        { value: 'carat', label: 'carat' }
+        { value: 'flat', label: 'Flat' },
+        { value: 'per_weight', label: 'Per Weight' },
+        { value: 'per_quantity', label: 'Per Quantity' },
+        { value: 'carat', label: 'Carat' }
     ];
 
     function normalizeFormula(value, allowed, fallback = 'flat') {
@@ -756,7 +766,8 @@
                 AMOUNT_FORMULA_OPTIONS.map(o => o.value),
                 'flat'
             );
-            const weightVal = existing ? toNumber(existing.weight, calc.weight) : calc.weight;
+            const weightVal = existing ? toNumber(existing.base_weight ?? existing.weight, calc.weight) : calc.weight;
+            const totalWeightVal = existing ? toNumber(existing.total_weight ?? existing.weight, calc.total_weight) : calc.total_weight;
 
             $tbody.append(`
                 <tr class="charge-row ${activeClass}"
@@ -772,6 +783,7 @@
                     data-wt-operation="${esc(opt.wt_operation || 'less')}"
                     data-amt-formula="${esc(amtFormula)}"
                     data-weight="${nfix(weightVal, 6)}"
+                    data-total-weight="${nfix(totalWeightVal, 6)}"
                     data-total="0">
                     <td class="charge-sr">${index + 1}</td>
                     <td>${esc(opt.name || '-')}</td>
@@ -779,6 +791,7 @@
                     <td><input type="number" step="0.001" class="form-control charge-qty-input text-end" value="${nfix(qty, 3)}"></td>
                     <td><input type="number" step="0.001" class="form-control charge-weight-input text-end" value="${nfix(weightVal, 3)}"></td>
                     <td>${buildFormulaSelect('wt', wtFormula)}</td>
+                    <td class="text-end charge-total-weight-cell">0.000</td>
                     <td>${buildFormulaSelect('amt', amtFormula)}</td>
                     <td class="text-end charge-total-cell">0.00</td>
                     <td class="text-center"><input type="checkbox" class="charge-check" ${checked}></td>
@@ -810,6 +823,8 @@
         const stockEffect = String($tr.data('stock-effect')) === '1';
         const wtOperation = String($tr.data('wt-operation') || 'less').toLowerCase();
         const enteredWeightRaw = String($tr.find('.charge-weight-input').val() ?? '').trim();
+        const lastFormula = String($tr.data('last-wt-formula') || wtFormula);
+        const formulaChanged = lastFormula !== wtFormula;
 
         let autoWeight = defaultWeight;
         if (weightPercent > 0) {
@@ -817,20 +832,25 @@
         } else if (wtFormula === 'per_weight') {
             autoWeight = itemWeight;
         } else if (wtFormula === 'per_quantity') {
-            autoWeight = defaultWeight * qty;
+            autoWeight = defaultWeight;
         }
-        const hasManualWeight = enteredWeightRaw !== '' && !Number.isNaN(Number(enteredWeightRaw));
+        const hasManualWeight = !formulaChanged && enteredWeightRaw !== '' && !Number.isNaN(Number(enteredWeightRaw));
         let weight = hasManualWeight ? toNumber(enteredWeightRaw) : autoWeight;
         weight = Math.max(0, weight);
         if (!hasManualWeight) {
             $tr.find('.charge-weight-input').val(nfix(weight, 3));
         }
 
+        let totalWeight = weight;
+        if (wtFormula === 'per_quantity') {
+            totalWeight = Math.max(0, weight * qty);
+        }
+
         let total = amount;
         if (amtFormula === 'per_quantity') {
             total = amount * qty;
         } else if (amtFormula === 'per_weight') {
-            total = amount * weight;
+            total = amount * totalWeight;
         } else if (amtFormula === 'carat') {
             total = amount * itemWeight;
         }
@@ -838,21 +858,27 @@
         $tr.data('amount', nfix(amount, 2));
         $tr.data('qty', nfix(qty, 3));
         $tr.data('wt-formula', wtFormula);
+        $tr.data('last-wt-formula', wtFormula);
         $tr.data('stock-effect', stockEffect ? 1 : 0);
         $tr.data('wt-operation', wtOperation);
         $tr.data('weight', nfix(weight, 6));
+        $tr.data('total-weight', nfix(totalWeight, 6));
         $tr.data('amt-formula', amtFormula);
         $tr.data('total', nfix(total, 2));
+        $tr.find('.charge-total-weight-cell').text(nfix(totalWeight, 3));
         $tr.find('.charge-total-cell').text(nfix(total, 2));
     }
 
     function recalcModalCharges() {
         let total = 0;
+        let totalWeight = 0;
         $('#itemSetOtherChargeTable tbody tr').each(function() {
             if ($(this).find('.charge-check').is(':checked')) {
                 total += toNumber($(this).data('total'));
+                totalWeight += toNumber($(this).data('total-weight'));
             }
         });
+        $('#itemSetModalWeightTotal').text(nfix(totalWeight, 3));
         $('#itemSetModalChargeTotal').text(nfix(total, 2));
     }
 
@@ -870,7 +896,9 @@
                 formula: String($tr.data('wt-formula') || 'flat'),
                 stock_effect: String($tr.data('stock-effect')) === '1',
                 wt_operation: String($tr.data('wt-operation') || 'less'),
-                weight: toNumber($tr.data('weight')),
+                base_weight: toNumber($tr.data('weight')),
+                weight: toNumber($tr.data('total-weight')),
+                total_weight: toNumber($tr.data('total-weight')),
                 other_amt_formula: String($tr.data('amt-formula') || 'flat'),
                 total: toNumber($tr.data('total')),
             });
@@ -1026,12 +1054,7 @@
             if (res.status === false) {
                 return;
             }
-
-            offset = 0;
-            $('#setsBody').html('');
-            loadMore();
-            ensureAtLeastOneEmptyRow();
-            updateTotals();
+            window.location.href = "{{ route('company.list_itemset', $company->slug) }}";
         })
         .fail(function(xhr) {
             const msg =

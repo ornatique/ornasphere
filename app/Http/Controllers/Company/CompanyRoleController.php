@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Company;
 
 use App\Http\Controllers\Controller;
 use App\Models\Company;
+use App\Models\Permission;
 use App\Models\Role;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use Spatie\Permission\Models\Permission;
+use Illuminate\Validation\Rule;
 use Yajra\DataTables\Facades\DataTables;
 
 class CompanyRoleController extends Controller
@@ -42,6 +44,7 @@ class CompanyRoleController extends Controller
     public function create($slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $this->ensureWebPermissions();
         $permissions = $this->groupedPermissions($company->id);
 
         return view('company.roles.create', compact('company', 'permissions'));
@@ -52,11 +55,21 @@ class CompanyRoleController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
 
         $request->validate([
-            'name' => 'required|unique:roles,name',
+            'name' => [
+                'required',
+                Rule::unique('roles', 'name')
+                    ->where(fn($q) => $q
+                        ->where('company_id', $company->id)
+                        ->where('guard_name', 'web')),
+            ],
             'permissions' => 'required|array'
         ]);
 
-        $role = Role::create([
+        // NOTE:
+        // Spatie Role::create() enforces global name+guard uniqueness and throws
+        // RoleAlreadyExists before our company-scoped validation can apply.
+        // Using query()->create() preserves our per-company uniqueness rule.
+        $role = Role::query()->create([
             'name' => $request->name,
             'guard_name' => 'web',
             'company_id' => $company->id,
@@ -78,6 +91,7 @@ class CompanyRoleController extends Controller
             ->where('company_id', $company->id)
             ->firstOrFail();
 
+        $this->ensureWebPermissions();
         $permissions = $this->groupedPermissions($company->id);
         $rolePermissions = $role->permissions->pluck('name')->toArray();
 
@@ -94,7 +108,14 @@ class CompanyRoleController extends Controller
             ->firstOrFail();
 
         $request->validate([
-            'name' => 'required',
+            'name' => [
+                'required',
+                Rule::unique('roles', 'name')
+                    ->ignore($role->id)
+                    ->where(fn($q) => $q
+                        ->where('company_id', $company->id)
+                        ->where('guard_name', 'web')),
+            ],
             'permissions' => 'required|array'
         ]);
 
@@ -128,6 +149,7 @@ class CompanyRoleController extends Controller
     private function groupedPermissions(int $companyId)
     {
         $actionOrder = ['view' => 1, 'create' => 2, 'edit' => 3, 'delete' => 4, 'manage' => 5];
+        $allowedActions = array_keys($actionOrder);
 
         return Permission::query()
             ->where('guard_name', 'web')
@@ -135,13 +157,88 @@ class CompanyRoleController extends Controller
             ->groupBy(function ($permission) {
                 return $this->extractModule($permission->name);
             })
-            ->map(function ($items) use ($actionOrder) {
-                return $items->sortBy(function ($permission) use ($actionOrder) {
+            ->map(function ($items) use ($actionOrder, $allowedActions) {
+                return $items
+                    ->filter(function ($permission) use ($allowedActions) {
+                        return in_array($this->extractAction($permission->name), $allowedActions, true);
+                    })
+                    ->sortBy(function ($permission) use ($actionOrder) {
                     $action = $this->extractAction($permission->name);
                     return $actionOrder[$action] ?? 99;
-                })->values();
+                    })
+                    ->values();
             })
+            ->filter(fn($items) => $items->isNotEmpty())
             ->sortKeys();
+    }
+
+    private function ensureWebPermissions(): void
+    {
+        $this->normalizeLegacyPermissionNames();
+
+        $defaultModules = [
+            'dashboard',
+            'user',
+            'role',
+            'permission',
+            'customer',
+            'item',
+            'item-set',
+            'label-config',
+            'label-print',
+            'other-charge',
+            'sale',
+            'approval',
+            'return',
+        ];
+
+        $actions = ['view', 'create', 'edit', 'delete', 'manage'];
+
+        foreach ($defaultModules as $module) {
+            foreach ($actions as $action) {
+                if ($module === 'dashboard' && $action !== 'view') {
+                    continue;
+                }
+
+                Permission::firstOrCreate([
+                    'name' => "{$module}-{$action}",
+                    'guard_name' => 'web',
+                ], [
+                    'company_id' => null,
+                ]);
+            }
+        }
+    }
+
+    private function normalizeLegacyPermissionNames(): void
+    {
+        $legacyToCanonical = [
+            'item-set-set' => 'item-set-view',
+            'label-print-print' => 'label-print-view',
+            'label-config-config' => 'label-config-view',
+            'other-charge-charge' => 'other-charge-view',
+        ];
+
+        foreach ($legacyToCanonical as $legacy => $canonical) {
+            $legacyPermission = Permission::where('guard_name', 'web')->where('name', $legacy)->first();
+            if (!$legacyPermission) {
+                continue;
+            }
+
+            $canonicalPermission = Permission::where('guard_name', 'web')->where('name', $canonical)->first();
+
+            if ($canonicalPermission) {
+                DB::table('role_has_permissions')
+                    ->where('permission_id', $legacyPermission->id)
+                    ->update(['permission_id' => $canonicalPermission->id]);
+
+                $legacyPermission->delete();
+                continue;
+            }
+
+            $legacyPermission->name = $canonical;
+            $legacyPermission->save();
+        }
     }
 
     private function extractModule(string $permissionName): string

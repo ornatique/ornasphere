@@ -256,6 +256,68 @@ $(function () {
 
     const esc = (v) => $('<div>').text(v ?? '').html();
 
+    function normalizeSaleRowFromItem(item) {
+        const gross = toNum(item.gross_weight ?? item.gross ?? 0);
+        const otherWeight = toNum(item.other_weight ?? item.other ?? 0);
+        const net = toNum(item.net_weight ?? (gross - otherWeight));
+        const purity = toNum(item.purity ?? 0);
+        const wastePercent = toNum(item.waste_percent ?? 0);
+        const netPurity = toNum(item.net_purity ?? (purity - wastePercent));
+        const fineWeight = toNum(item.fine_weight ?? (net * netPurity / 100));
+        const metalRate = toNum(item.metal_rate ?? 0);
+        const metalAmount = toNum(item.metal_amount ?? (net * metalRate));
+        const labourRate = toNum(item.labour_rate ?? 0);
+        const labourAmount = toNum(item.labour_amount ?? (net * labourRate));
+        const otherAmount = toNum(item.other_amount ?? item.sale_other ?? 0);
+        const totalAmount = toNum(item.total_amount ?? (metalAmount + labourAmount + otherAmount));
+
+        return {
+            itemset_id: toNum(item.itemset_id ?? item.id),
+            item_id: toNum(item.item_id ?? ''),
+            approval_id: item.approval_id ?? '',
+            name: item.name ?? item.item_name ?? '',
+            code: item.code ?? item.qr_code ?? '',
+            huid: item.huid ?? item.HUID ?? '',
+            gross_weight: gross,
+            other_weight: otherWeight,
+            net_weight: net,
+            purity,
+            waste_percent: wastePercent,
+            net_purity: netPurity,
+            fine_weight: fineWeight,
+            metal_rate: metalRate,
+            metal_amount: metalAmount,
+            labour_rate: labourRate,
+            labour_amount: labourAmount,
+            other_amount: otherAmount,
+            total_amount: totalAmount,
+            other_charges: [],
+        };
+    }
+
+    function addScanToGrid(query) {
+        $.get("{{ route('company.sales.getItemset', $company->slug) }}", {
+            qr_code: query
+        }, function(resp) {
+            if (!resp || resp.success !== true || !resp.data) {
+                alert((resp && resp.message) ? resp.message : 'Item not found');
+                return;
+            }
+
+            const row = normalizeSaleRowFromItem(resp.data);
+            if (!row.itemset_id) {
+                alert('Invalid scanned item');
+                return;
+            }
+
+            appendSaleRow(row);
+            $('#item_search').val('');
+            $('#suggestionBox').hide().empty();
+        }).fail(function() {
+            alert('Scanned QR not found');
+        });
+    }
+
     function calculateChargeTotal(option, rowContext) {
         const itemWeight = toNum(rowContext.net_weight || rowContext.gross_weight);
         const qty = toNum(option.quantity_pcs, 1);
@@ -602,7 +664,18 @@ $(function () {
     $('#item_search').on('keydown', function(e) {
         if (e.key === 'Enter') {
             e.preventDefault();
-            $('#suggestionBox .itemSelect.active').click();
+            const query = $(this).val().trim();
+            const $active = $('#suggestionBox .itemSelect.active');
+
+            if ($active.length) {
+                $active.click();
+                return;
+            }
+
+            // Scanner flow: when no search suggestion is active, try direct QR lookup and auto-add.
+            if (query.length) {
+                addScanToGrid(query);
+            }
         }
     });
 

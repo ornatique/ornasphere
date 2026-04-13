@@ -509,8 +509,8 @@ class SaleApiController extends Controller
 
     public function store(Request $request)
     {
-      
-        $companyId = $request->user()->company_id;
+        $user = $request->user();
+        $companyId = $user->company_id;
         $customerId = (int) (
             $request->input('customer_id')
             ?? $request->input('customer')
@@ -564,6 +564,7 @@ class SaleApiController extends Controller
 
             $total = 0;
             $approvalIds = [];
+            $soldItemsetIds = [];
 
             foreach ($request->items as $item) {
                 $itemSetQuery = ItemSet::where('company_id', $companyId)
@@ -630,11 +631,21 @@ class SaleApiController extends Controller
                 }
 
                 $itemSet->update(['is_sold' => 1]);
+                $soldItemsetIds[] = (int) $itemSet->id;
                 $total += $lineTotal;
             }
 
             $sale->update(['net_total' => $total]);
             $this->refreshApprovalHeaderStatus($approvalIds);
+
+            // Remove sold items from this user's sale cart after successful save.
+            $soldItemsetIds = array_values(array_unique(array_filter($soldItemsetIds)));
+            if (!empty($soldItemsetIds)) {
+                SaleCart::where('company_id', $companyId)
+                    ->where('user_id', $user->id)
+                    ->whereIn('itemset_id', $soldItemsetIds)
+                    ->delete();
+            }
 
             DB::commit();
 

@@ -95,11 +95,11 @@ class ItemController extends Controller
             'metal' => 'nullable|string|max:100',
             'metal_formula' => 'nullable|string|max:100',
 
-            'outward_carat' => 'nullable|string|max:50',
-            'inward_carat' => 'nullable|string|max:50',
+            'outward_carat' => 'nullable|numeric',
+            'inward_carat' => 'nullable|numeric',
 
-            'outward_purity' => 'nullable|string|max:50',
-            'inward_purity' => 'nullable|string|max:50',
+            'outward_purity' => 'nullable|numeric',
+            'inward_purity' => 'nullable|numeric',
 
             'labour_type' => 'nullable|string|max:100',
             'labour_unit' => 'nullable|string|max:100',
@@ -198,11 +198,11 @@ class ItemController extends Controller
             'metal' => 'nullable|string|max:100',
             'metal_formula' => 'nullable|string|max:100',
 
-            'outward_carat' => 'nullable|string|max:50',
-            'inward_carat' => 'nullable|string|max:50',
+            'outward_carat' => 'nullable|numeric',
+            'inward_carat' => 'nullable|numeric',
 
-            'outward_purity' => 'nullable|string|max:50',
-            'inward_purity' => 'nullable|string|max:50',
+            'outward_purity' => 'nullable|numeric',
+            'inward_purity' => 'nullable|numeric',
 
             'labour_type' => 'nullable|string|max:100',
             'labour_unit' => 'nullable|string|max:100',

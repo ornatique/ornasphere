@@ -241,7 +241,7 @@ class OtherChargeController extends Controller
             // Weight formula handling (editable in popup row)
             if (!isset($row['weight'])) {
                 if ($wtFormula === 'per_quantity' || $wtFormula === 'per qty') {
-                    $weight = $itemWeight * $qty;
+                    $weight = (float) ($row['default_weight'] ?? 0);
                 } elseif ($wtFormula === 'per_weight' || $wtFormula === 'per wt') {
                     $weight = $wtPercent > 0 ? ($itemWeight * $wtPercent / 100) : $itemWeight;
                 } elseif ($wtFormula === 'wt_amt' || $wtFormula === 'wt/amt') {
@@ -253,13 +253,18 @@ class OtherChargeController extends Controller
                 }
             }
 
+            $totalWeight = $weight;
+            if ($wtFormula === 'per_quantity' || $wtFormula === 'per qty') {
+                $totalWeight = $weight * $qty;
+            }
+
             $lineTotal = $amount;
             if ($amtFormula === 'per_quantity' || $amtFormula === 'per qty') {
                 $lineTotal = $amount * $qty;
             } elseif ($amtFormula === 'per_weight' || $amtFormula === 'per wt') {
-                $lineTotal = $amount * $weight;
+                $lineTotal = $amount * $totalWeight;
             } elseif ($amtFormula === 'wt_amt' || $amtFormula === 'wt/amt') {
-                $lineTotal = $weight > 0 ? $amount * $weight : $amount;
+                $lineTotal = $totalWeight > 0 ? $amount * $totalWeight : $amount;
             } elseif ($amtFormula === 'flat') {
                 $lineTotal = $amount;
             }
@@ -273,6 +278,7 @@ class OtherChargeController extends Controller
                 'wt_formula' => $wtFormula,
                 'wt_percent' => $wtPercent,
                 'weight' => $weight,
+                'total_weight' => $totalWeight,
                 'amt_formula' => $amtFormula,
                 'line_total' => round($lineTotal, 2),
             ];

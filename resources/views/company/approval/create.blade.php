@@ -505,7 +505,7 @@ $(function () {
                        data-metal-rate="0"
                        data-labour-rate="${toNum(itemSet.sale_labour_rate ?? itemSet.item?.labour_rate).toFixed(2)}"
                        data-other-amount="${toNum(itemSet.sale_other).toFixed(2)}">
-                        <strong>${esc(itemSet.HUID || '')}</strong> | ${esc(itemSet.qr_code || '')}<br>
+                       ${esc(itemSet.qr_code || '')}<br>
                         <small>${esc(itemSet.item?.item_name || '')}</small>
                     </a>
                 `;

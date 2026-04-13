@@ -63,9 +63,22 @@
                                 @foreach($perms as $permission)
 
                                 @php
-                                    preg_match('/(view|create|edit|delete|manage)$/i', $permission->name, $match);
-                                    $action = ucfirst(strtolower($match[1] ?? $permission->name));
+                                    $permissionName = strtolower((string) $permission->name);
+                                    $rawAction = null;
+                                    if (preg_match('/(view|create|edit|delete|manage|set|print|config|charge)$/i', $permissionName, $match)) {
+                                        $rawAction = strtolower($match[1]);
+                                    }
+                                    $actionMap = [
+                                        'set' => 'view',
+                                        'print' => 'view',
+                                        'config' => 'view',
+                                        'charge' => 'view',
+                                    ];
+                                    $normalizedAction = $actionMap[$rawAction] ?? $rawAction;
+                                    $allowedActions = ['view', 'create', 'edit', 'delete', 'manage'];
                                 @endphp
+
+                                @if(in_array($normalizedAction, $allowedActions, true))
 
                                 <div class="form-check">
                                     <input type="checkbox"
@@ -76,9 +89,11 @@
                                            {{ in_array($permission->name, $rolePermissions) ? 'checked' : '' }} >
 
                                     <label class="form-check-label">
-                                        {{ $action }}
+                                        {{ ucfirst($normalizedAction) }}
                                     </label>
                                 </div>
+
+                                @endif
 
                                 @endforeach
                             </div>

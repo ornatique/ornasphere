@@ -76,7 +76,7 @@
                     <div class="col-md-6">
                         <div class="form-group">
                             <label>Outward Carat</label>
-                            <input type="number" name="outward_carat"
+                            <input type="number" step="any" inputmode="decimal" id="outward_carat" name="outward_carat"
                                 value="{{ old('outward_carat') }}"
                                 class="form-control">
                         </div>
@@ -85,7 +85,7 @@
                     <div class="col-md-6">
                         <div class="form-group">
                             <label>Inward Carat</label>
-                            <input type="number" name="inward_carat"
+                            <input type="number" step="any" inputmode="decimal" id="inward_carat" name="inward_carat"
                                 value="{{ old('inward_carat') }}"
                                 class="form-control">
                         </div>
@@ -99,7 +99,7 @@
                     <div class="col-md-6">
                         <div class="form-group">
                             <label>Outward Purity</label>
-                            <input type="number" name="outward_purity"
+                            <input type="number" step="any" inputmode="decimal" id="outward_purity" name="outward_purity"
                                 value="{{ old('outward_purity') }}"
                                 class="form-control">
                         </div>
@@ -108,7 +108,7 @@
                     <div class="col-md-6">
                         <div class="form-group">
                             <label>Inward Purity</label>
-                            <input type="number" name="inward_purity"
+                            <input type="number" step="any" inputmode="decimal" id="inward_purity" name="inward_purity"
                                 value="{{ old('inward_purity') }}"
                                 class="form-control">
                         </div>
@@ -285,3 +285,65 @@
     </div>
 </div>
 @endsection
+
+@push('scripts')
+<script>
+    (function() {
+        const ids = ['outward_carat', 'inward_carat', 'outward_purity', 'inward_purity'];
+        const fields = ids
+            .map(id => document.getElementById(id))
+            .filter(Boolean);
+
+        if (!fields.length) return;
+
+        function isUserEdited(field) {
+            return field.dataset.userEdited === '1';
+        }
+
+        function markUserEdited(field) {
+            field.dataset.userEdited = '1';
+        }
+
+        function syncFrom(source) {
+            const val = (source.value || '').trim();
+            if (val === '') return;
+
+            fields.forEach(function(field) {
+                if (field === source) return;
+                const current = (field.value || '').trim();
+
+                // Keep syncing fields that were not manually edited by user yet.
+                if (!isUserEdited(field) || current === '') {
+                    field.value = val;
+                }
+            });
+        }
+
+        fields.forEach(function(field) {
+            if ((field.value || '').trim() !== '') {
+                markUserEdited(field);
+            }
+
+            field.addEventListener('input', function() {
+                markUserEdited(field);
+                syncFrom(field);
+            });
+
+            field.addEventListener('change', function() {
+                markUserEdited(field);
+                syncFrom(field);
+            });
+
+            field.addEventListener('blur', function() {
+                syncFrom(field);
+            });
+        });
+
+        // Initial pass for old() values after validation redirect.
+        const firstFilled = fields.find(function(field) {
+            return (field.value || '').trim() !== '';
+        });
+        if (firstFilled) syncFrom(firstFilled);
+    })();
+</script>
+@endpush
