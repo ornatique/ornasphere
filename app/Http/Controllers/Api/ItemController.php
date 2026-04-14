@@ -51,8 +51,7 @@ class ItemController extends Controller
         $companyId = $request->user()->company_id;
 
         $validated = $request->validate([
-            'item_name' => 'required|string|max:255',
-            'item_code' => 'required|string|max:255|unique:items,item_code',
+            'item_name' => 'required|string|max:255'
         ]);
 
         $item = Item::create([

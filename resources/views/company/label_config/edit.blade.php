@@ -120,7 +120,7 @@
                         </div>
                     </div>
 
-
+                    <?php /* ?>
                     {{-- FROM DATE --}}
                     <div class="col-md-6">
                         <div class="form-group">
@@ -149,7 +149,7 @@
 
                         </div>
                     </div>
-
+                     
 
                     {{-- REUSE --}}
                     <div class="col-md-6">
@@ -187,7 +187,7 @@
 
                         </div>
                     </div>
-
+                    <?php */ ?>
 
                 </div>
 
@@ -203,7 +203,7 @@
 
             <button type="submit"
                 class="btn btn-primary">
-                Update 
+                Update
             </button>
 
         </div>

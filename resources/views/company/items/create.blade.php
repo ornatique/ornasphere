@@ -237,7 +237,7 @@
                 {{-- ================= REMARKS ================= --}}
 
                 <div class="row">
-
+                <?php  /*  ?>
                     <div class="col-md-6">
                         <div class="form-group">
                             <label>NUmeric Length</label>
@@ -246,7 +246,7 @@
                                 class="form-control">
                         </div>
                     </div>
-
+                    <?php */ ?>
                     <div class="col-md-6">
                         <div class="form-group">
                             <label>Item Group</label>
@@ -289,61 +289,29 @@
 @push('scripts')
 <script>
     (function() {
-        const ids = ['outward_carat', 'inward_carat', 'outward_purity', 'inward_purity'];
-        const fields = ids
-            .map(id => document.getElementById(id))
-            .filter(Boolean);
+        const outwardCarat = document.getElementById('outward_carat');
+        const targets = [
+            document.getElementById('inward_carat'),
+            document.getElementById('outward_purity'),
+            document.getElementById('inward_purity'),
+        ].filter(Boolean);
 
-        if (!fields.length) return;
+        if (!outwardCarat || !targets.length) return;
 
-        function isUserEdited(field) {
-            return field.dataset.userEdited === '1';
-        }
-
-        function markUserEdited(field) {
-            field.dataset.userEdited = '1';
-        }
-
-        function syncFrom(source) {
-            const val = (source.value || '').trim();
-            if (val === '') return;
-
-            fields.forEach(function(field) {
-                if (field === source) return;
-                const current = (field.value || '').trim();
-
-                // Keep syncing fields that were not manually edited by user yet.
-                if (!isUserEdited(field) || current === '') {
-                    field.value = val;
-                }
+        function syncFromOutwardCarat() {
+            const val = (outwardCarat.value || '').trim();
+            targets.forEach(function(field) {
+                field.value = val;
             });
         }
 
-        fields.forEach(function(field) {
-            if ((field.value || '').trim() !== '') {
-                markUserEdited(field);
-            }
-
-            field.addEventListener('input', function() {
-                markUserEdited(field);
-                syncFrom(field);
-            });
-
-            field.addEventListener('change', function() {
-                markUserEdited(field);
-                syncFrom(field);
-            });
-
-            field.addEventListener('blur', function() {
-                syncFrom(field);
-            });
-        });
+        // One-way sync only: Outward Carat -> all other 3 fields.
+        outwardCarat.addEventListener('input', syncFromOutwardCarat);
+        outwardCarat.addEventListener('change', syncFromOutwardCarat);
+        outwardCarat.addEventListener('blur', syncFromOutwardCarat);
 
         // Initial pass for old() values after validation redirect.
-        const firstFilled = fields.find(function(field) {
-            return (field.value || '').trim() !== '';
-        });
-        if (firstFilled) syncFrom(firstFilled);
+        syncFromOutwardCarat();
     })();
 </script>
 @endpush

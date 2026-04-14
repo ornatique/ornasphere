@@ -20,12 +20,12 @@
             <div class="row">
                 <div class="col-md-3">
                     <label>From Date</label>
-                    <input type="date" id="from_date" class="form-control">
+                    <input type="date" id="from_date" class="form-control" value="{{ now()->toDateString() }}">
                 </div>
 
                 <div class="col-md-3">
                     <label>To Date</label>
-                    <input type="date" id="to_date" class="form-control">
+                    <input type="date" id="to_date" class="form-control" value="{{ now()->toDateString() }}">
                 </div>
 
                 <div class="col-md-3">
@@ -38,9 +38,12 @@
                     </select>
                 </div>
 
-                <div class="col-md-3 d-flex align-items-end">
-                    <button class="btn btn-primary w-100" id="filterBtn">
+                <div class="col-md-3 d-flex align-items-end gap-2">
+                    <button class="btn btn-primary w-50" id="filterBtn" type="button">
                         Apply Filter
+                    </button>
+                    <button class="btn btn-secondary w-50" id="resetBtn" type="button">
+                        Reset
                     </button>
                 </div>
 
@@ -200,6 +203,14 @@
 
     // 🔍 FILTER
     $('#filterBtn').click(function() {
+        table.draw();
+    });
+
+    $('#resetBtn').click(function() {
+        const today = "{{ now()->toDateString() }}";
+        $('#from_date').val(today);
+        $('#to_date').val(today);
+        $('#item_id').val('');
         table.draw();
     });
 

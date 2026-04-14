@@ -17,7 +17,7 @@ use App\Http\Controllers\Api\CustomerApiController;
 Route::post('/company/login', [AuthController::class, 'login']);
 Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
 
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/company/logout', [AuthController::class, 'logout']);
     Route::get('/company/me', [AuthController::class, 'me']);
 });
@@ -25,7 +25,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
 
 
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
 
     Route::get('/users', [CompanyUserController::class, 'index']);
     Route::post('/create_users', [CompanyUserController::class, 'store']);
@@ -130,3 +130,4 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::get('/public/sales/{id}/pdf', [SaleApiController::class, 'publicPdf'])
     ->whereNumber('id')
     ->name('api.sales.pdf.public');
+

@@ -14,6 +14,7 @@ use Endroid\QrCode\Writer\PngWriter;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Endroid\QrCode\Builder\Builder;
 use Yajra\DataTables\Facades\DataTables;
+use Carbon\Carbon;
 
 
 
@@ -44,10 +45,22 @@ class ItemSetController extends Controller
                 ->whereNotNull('qr_code')
                 ->latest();
 
-            // ✅ DATE FILTER
-            if ($request->from_date && $request->to_date) {
-                $data->whereDate('created_at', '>=', $request->from_date)
-                    ->whereDate('created_at', '<=', $request->to_date);
+            // ✅ DATE FILTER (default: today)
+            $fromDate = $request->input('from_date');
+            $toDate = $request->input('to_date');
+
+            if (empty($fromDate) && empty($toDate)) {
+                $fromDate = Carbon::today()->toDateString();
+                $toDate = Carbon::today()->toDateString();
+            } elseif (!empty($fromDate) && empty($toDate)) {
+                $toDate = $fromDate;
+            } elseif (empty($fromDate) && !empty($toDate)) {
+                $fromDate = $toDate;
+            }
+
+            if (!empty($fromDate) && !empty($toDate)) {
+                $data->whereDate('created_at', '>=', $fromDate)
+                    ->whereDate('created_at', '<=', $toDate);
             }
 
             // ✅ ITEM FILTER
@@ -367,22 +380,33 @@ class ItemSetController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
+        $fromDate = $request->input('from_date');
+        $toDate = $request->input('to_date');
+        $today = Carbon::today()->toDateString();
+
+        if (empty($fromDate) && empty($toDate)) {
+            $fromDate = $today;
+            $toDate = $today;
+        } elseif (!empty($fromDate) && empty($toDate)) {
+            $toDate = $fromDate;
+        } elseif (empty($fromDate) && !empty($toDate)) {
+            $fromDate = $toDate;
+        }
+
         $query = ItemSet::with('item')
             ->where('company_id', $company->id)
             ->where('is_final', 1)
             ->whereNotNull('qr_code')
-            ->latest();
+            ->orderByRaw('CASE WHEN printed_at IS NULL THEN 0 ELSE 1 END ASC')
+            ->orderByDesc(DB::raw('COALESCE(printed_at, created_at)'));
 
         if ($request->filled('item_id')) {
             $query->where('item_id', (int) $request->item_id);
         }
 
-        if ($request->filled('from_date')) {
-            $query->whereDate('created_at', '>=', $request->from_date);
-        }
-
-        if ($request->filled('to_date')) {
-            $query->whereDate('created_at', '<=', $request->to_date);
+        if (!empty($fromDate) && !empty($toDate)) {
+            $query->whereDate(DB::raw('COALESCE(printed_at, created_at)'), '>=', $fromDate)
+                  ->whereDate(DB::raw('COALESCE(printed_at, created_at)'), '<=', $toDate);
         }
 
         if ($request->ajax()) {
@@ -409,9 +433,11 @@ class ItemSetController extends Controller
                     return number_format((float) $row->sale_other, 2);
                 })
                 ->addColumn('date_time', function ($row) {
-                    return $row->printed_at
-                        ? $row->printed_at->format('d-m-Y h:i A')
-                        : '';
+                    if ($row->printed_at) {
+                        return $row->printed_at->format('d-m-Y h:i A');
+                    }
+
+                    return '';
                 })
                 ->filterColumn('item_name', function ($q, $keyword) {
                     $q->whereHas('item', function ($itemQ) use ($keyword) {
@@ -426,7 +452,7 @@ class ItemSetController extends Controller
 
         return view(
             'company.item_sets.qr_list',
-            compact('company', 'items')
+            compact('company', 'items', 'fromDate', 'toDate')
         );
     }
 

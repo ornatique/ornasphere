@@ -148,12 +148,32 @@
 
         {{-- ================= ITEM MANAGEMENT ================= --}}
         @php
+        $currentRouteName = optional(request()->route())->getName();
+
+        $labelItemsRoutes = [
+            'company.list_itemset',
+            'company.item_sets.index',
+            'company.item_sets.saveCell',
+            'company.item_sets.load',
+            'company.item_sets.finalize',
+            'company.item_sets.finalize.get',
+        ];
+
+        $labelPrintingRoutes = [
+            'company.item_sets.qrList',
+            'company.item_sets.printPdf',
+            'company.item_sets.qrImage',
+        ];
+
+        $labelItemsActive = in_array($currentRouteName, $labelItemsRoutes, true);
+        $labelPrintingActive = in_array($currentRouteName, $labelPrintingRoutes, true);
+
         $itemActive =
         request()->routeIs('company.items.*') ||
         request()->routeIs('company.label_config.*') ||
-        request()->routeIs('company.item_sets.*') ||
-        request()->routeIs('company.other-charge.*') ||
-        request()->routeIs('company.item_sets.qrList.*');
+        $labelItemsActive ||
+        $labelPrintingActive ||
+        request()->routeIs('company.other-charge.*');
         @endphp
         @if($canItems || $canItemSets || $canLabelConfig || $canLabelPrint || $canOtherCharge)
         <li class="nav-item {{ $itemActive ? 'active' : '' }}">
@@ -189,7 +209,7 @@
                     
                     @if($canItemSets)
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('company.list_itemset') ? 'active' : '' }}"
+                        <a class="nav-link {{ $labelItemsActive ? 'active' : '' }}"
                             href="{{ route('company.list_itemset', auth()->user()->company->slug) }}">
                             Label Items
                         </a>
@@ -200,7 +220,7 @@
 
                     @if($canLabelPrint)
                     <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('company.item_sets.qrList') ? 'active' : '' }}"
+                        <a class="nav-link {{ $labelPrintingActive ? 'active' : '' }}"
                             href="{{ route('company.item_sets.qrList', auth()->user()->company->slug) }}">
                             Label Printing
                         </a>

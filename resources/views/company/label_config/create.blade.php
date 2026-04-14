@@ -119,7 +119,7 @@
                         </div>
                     </div>
 
-
+                <?php /* ?>
                     {{-- FROM DATE --}}
                     <div class="col-md-6">
                         <div class="form-group">
@@ -148,6 +148,7 @@
 
                         </div>
                     </div>
+                     <?php */ ?>
 
                     
                 </div>

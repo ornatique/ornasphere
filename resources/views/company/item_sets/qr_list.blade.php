@@ -13,12 +13,12 @@
             <form id="labelFilterForm" method="GET" action="{{ route('company.item_sets.qrList', $company->slug) }}" class="row g-3 align-items-end">
                 <div class="col-md-3">
                     <label>From Date</label>
-                    <input type="date" name="from_date" id="from_date" value="{{ request('from_date') }}" class="form-control">
+                    <input type="date" name="from_date" id="from_date" value="{{ $fromDate ?? request('from_date') }}" class="form-control">
                 </div>
 
                 <div class="col-md-3">
                     <label>To Date</label>
-                    <input type="date" name="to_date" id="to_date" value="{{ request('to_date') }}" class="form-control">
+                    <input type="date" name="to_date" id="to_date" value="{{ $toDate ?? request('to_date') }}" class="form-control">
                 </div>
 
                 <div class="col-md-3">

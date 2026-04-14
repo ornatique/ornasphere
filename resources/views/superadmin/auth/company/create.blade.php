@@ -99,6 +99,7 @@
                                     <div class="col-sm-9">
                                         <input type="text"
                                                name="address_1"
+                                               id="address_1"
                                                value="{{ old('address_1') }}"
                                                class="form-control @error('address_1') is-invalid @enderror">
                                         @error('address_1')
@@ -114,6 +115,7 @@
                                     <div class="col-sm-9">
                                         <input type="text"
                                                name="state"
+                                               id="state"
                                                value="{{ old('state') }}"
                                                class="form-control @error('state') is-invalid @enderror">
                                         @error('state')
@@ -144,6 +146,7 @@
                                     <div class="col-sm-9">
                                         <input type="text"
                                                name="postcode"
+                                               id="postcode"
                                                value="{{ old('postcode') }}"
                                                class="form-control @error('postcode') is-invalid @enderror">
                                         @error('postcode')
@@ -162,6 +165,7 @@
                                     <div class="col-sm-9">
                                         <input type="text"
                                                name="city"
+                                               id="city"
                                                value="{{ old('city') }}"
                                                class="form-control @error('city') is-invalid @enderror">
                                         @error('city')
@@ -176,6 +180,7 @@
                                     <label class="col-sm-3 col-form-label">Country</label>
                                     <div class="col-sm-9">
                                         <select name="country"
+                                                id="country"
                                                 class="form-select @error('country') is-invalid @enderror">
                                             <option value="">Select Country</option>
                                             <option value="America" {{ old('country')=='America'?'selected':'' }}>America</option>
@@ -210,3 +215,5 @@
     </div>
 </div>
 @endsection
+
+@include('superadmin.auth.company.partials.address_autofill')

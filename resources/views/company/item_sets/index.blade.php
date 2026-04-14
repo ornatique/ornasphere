@@ -38,7 +38,7 @@
                     </div>
 
                 </div>
-
+                  <?php /* ?>  
                 <div class="col-md-4">
                     <div class="form-group">
                         <label>Carat</label>
@@ -49,6 +49,7 @@
                             required>
                     </div>
                 </div>
+                  <?php */ ?>  
                 <div class="col-md-4">
                     <div class="form-group">
                         <label>Purity</label>
@@ -284,6 +285,7 @@
 
                 rows.forEach(addRow);
                 applyFormulaToAllRows();
+                recalcLabourAmountForAllRows(false);
 
                 offset += rows.length;
                 hasMoreRows = rows.length === 10;
@@ -453,69 +455,53 @@
     //////////////////////////////////////////////////////
 
     $(document).on('keydown', '.cell', function(e) {
-
-        if (e.key !== 'Enter' && e.key !== 'Tab') return;
+        if (e.key !== 'Enter' && e.key !== 'Tab' && e.key !== 'ArrowDown') return;
         e.preventDefault();
 
-        const td = $(this);
-        const tr = td.closest('tr');
-        const col = td.data('column');
-        saveCell(td);
-
-        // Fast-entry mode requested:
-        // From first column (gross_weight), TAB should jump to next row first column.
-        if (e.key === 'Tab' && col === 'gross_weight') {
-            let nextRow = tr.next('tr');
-            if (!nextRow.length || rowHasAnyValue(nextRow)) {
-                addEmptyRow();
-                updateSrNumbers();
-                nextRow = tr.next('tr');
-            }
-
-            const nextGross = nextRow.find('.cell[data-column="gross_weight"]');
-            if (nextGross.length) {
-                setTimeout(function() {
-                    nextGross.focus();
-                    placeCaretAtEnd(nextGross[0]);
-                }, 0);
-            }
-            return;
-        }
-
+        const $cell = $(this);
+        const $row = $cell.closest('tr');
+        const col = $cell.data('column');
         const currentIndex = editableColumns.indexOf(col);
         if (currentIndex === -1) return;
 
-        const nextIndex = currentIndex + 1;
+        saveCell($cell);
 
-        if (nextIndex < editableColumns.length) {
-            const nextCol = editableColumns[nextIndex];
-            const nextCell = tr.find(`.cell[data-column="${nextCol}"]`);
-            if (nextCell.length) {
-                setTimeout(function() {
-                    nextCell.focus();
-                    placeCaretAtEnd(nextCell[0]);
-                }, 0);
+        const focusCell = function($target) {
+            if (!$target || !$target.length) return;
+            setTimeout(function() {
+                $target.focus();
+                placeCaretAtEnd($target[0]);
+            }, 0);
+        };
+
+        const getOrCreateNextRow = function($fromRow) {
+            let $nextRow = $fromRow.next('tr');
+            if (!$nextRow.length || rowHasAnyValue($nextRow)) {
+                addEmptyRow();
+                updateSrNumbers();
+                $nextRow = $fromRow.next('tr');
             }
+            return $nextRow;
+        };
+
+        // Enter / ArrowDown => same column, next row.
+        if (e.key === 'Enter' || e.key === 'ArrowDown') {
+            const $nextRow = getOrCreateNextRow($row);
+            focusCell($nextRow.find(`.cell[data-column="${col}"]`));
             return;
         }
 
-        let nextRow = tr.next('tr');
-
-        // Always ensure next row exists immediately on last column Tab/Enter.
-        // This avoids delay when autosave is async or scroll load is pending.
-        if (!nextRow.length || rowHasAnyValue(nextRow)) {
-            addEmptyRow();
-            updateSrNumbers();
-            nextRow = tr.next('tr');
+        // Tab => next editable column in same row.
+        const nextIndex = currentIndex + 1;
+        if (nextIndex < editableColumns.length) {
+            const nextCol = editableColumns[nextIndex];
+            focusCell($row.find(`.cell[data-column="${nextCol}"]`));
+            return;
         }
 
-        const firstCell = nextRow.find(`.cell[data-column="${editableColumns[0]}"]`);
-        if (firstCell.length) {
-            setTimeout(function() {
-                firstCell.focus();
-                placeCaretAtEnd(firstCell[0]);
-            }, 0);
-        }
+        // If last column on Tab => first editable column of next row.
+        const $nextRow = getOrCreateNextRow($row);
+        focusCell($nextRow.find(`.cell[data-column="${editableColumns[0]}"]`));
     });
 
 
@@ -622,6 +608,46 @@
         });
     }
 
+    function getLabourBaseWeight($row) {
+        const formulaRaw = String($row.find('.cell[data-column="sale_labour_formula"]').text() || '');
+        const formula = formulaRaw.toLowerCase().replace(/\s+/g, '');
+
+        const gross = toNumber($row.find('.cell[data-column="gross_weight"]').text());
+        const net = toNumber($row.find('.cell[data-column="net_weight"]').text());
+        const purity = toNumber($('#purity').val());
+
+        if (formula.includes('pergrossweight')) return gross;
+        if (formula.includes('perfineweight')) {
+            const purityFactor = purity > 0 ? (purity / 100) : 1;
+            return net * purityFactor;
+        }
+        if (formula.includes('perquantity')) return 1;
+        if (formula.includes('flat')) return 1;
+
+        // Default: Per Net Weight
+        return net;
+    }
+
+    function recalcLabourAmount($row, persist = false) {
+        const rate = toNumber($row.find('.cell[data-column="sale_labour_rate"]').text());
+        const baseWeight = getLabourBaseWeight($row);
+        const amount = rate * baseWeight;
+        const formatted = nfix(amount, 2);
+
+        const $amountCell = $row.find('.cell[data-column="sale_labour_amount"]');
+        $amountCell.text(formatted);
+
+        if (persist) {
+            saveDerivedCell($row, 'sale_labour_amount', formatted);
+        }
+    }
+
+    function recalcLabourAmountForAllRows(persist = false) {
+        $('#setsBody tr').each(function() {
+            recalcLabourAmount($(this), persist);
+        });
+    }
+
 
     //////////////////////////////////////////////////////
     // LIVE TOTAL UPDATE
@@ -629,6 +655,14 @@
 
     $(document).on('input', '.cell[data-column="sale_other"]', function() {
         updateTotals();
+    });
+
+    $(document).on('input', '.cell[data-column="sale_labour_rate"]', function() {
+        recalcLabourAmount($(this).closest('tr'), false);
+    });
+
+    $(document).on('blur', '.cell[data-column="sale_labour_rate"]', function() {
+        recalcLabourAmount($(this).closest('tr'), true);
     });
 
 
@@ -928,6 +962,7 @@
 
         saveDerivedCell($row, 'other', nfix(computedOther, 3));
         saveDerivedCell($row, 'net_weight', nfix(net, 3));
+        recalcLabourAmount($row, true);
     }
 
     $(document).on('click', '.open-other-charge-modal', function() {
@@ -1030,6 +1065,7 @@
                     $('#purity').val(res.purity);
                     selectedLabourFormula = res.sale_labour_formula || 'Per Net Weight';
                     applyFormulaToAllRows();
+                    recalcLabourAmountForAllRows(true);
                 }
 
             });
@@ -1068,6 +1104,10 @@
     $('#btnFinalizeItemSets').on('click', function(e) {
         e.preventDefault();
         finalizeItemSets();
+    });
+
+    $('#purity').on('input blur', function() {
+        recalcLabourAmountForAllRows(true);
     });
 </script>
 

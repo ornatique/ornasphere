@@ -33,6 +33,19 @@ class ItemController extends Controller
 
             ->addIndexColumn() // ✅ THIS FIXES YOUR ERROR
 
+            ->editColumn('labour_type', function ($item) {
+                $map = [
+                    'per_netweight' => 'Per Netweight',
+                    'per_fineweight' => 'Per Fineweight',
+                    'per_grossweight' => 'Per Grossweight',
+                    'per_quantity' => 'Per Quantity',
+                    'flat' => 'Flat',
+                ];
+
+                $key = strtolower((string) $item->labour_type);
+                return $map[$key] ?? ucfirst(str_replace('_', ' ', $key));
+            })
+
             ->addColumn('status', function ($item) {
 
                 return $item->is_active

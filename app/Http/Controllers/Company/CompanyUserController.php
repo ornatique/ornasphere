@@ -14,6 +14,15 @@ use Illuminate\Support\Facades\Crypt;
 
 class CompanyUserController extends Controller
 {
+    private function isCompanyAdminUser(User $user): bool
+    {
+        if (strtolower((string) $user->role) === 'company_admin') {
+            return true;
+        }
+
+        return $user->hasRole('company_admin');
+    }
+
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
@@ -54,8 +63,11 @@ class CompanyUserController extends Controller
 
                     $statusBtnClass = $user->is_active ? 'btn-success' : 'btn-danger';
                     $statusText = $user->is_active ? 'Active' : 'Inactive';
+                    $isCompanyAdminUser = $this->isCompanyAdminUser($user);
+                    $html = '';
 
-                    return '
+                    if (!$isCompanyAdminUser) {
+                        $html .= '
                             <a href="' . $editUrl . '" class="btn btn-sm btn-primary">Edit</a>
 
                             <form method="POST"
@@ -67,13 +79,18 @@ class CompanyUserController extends Controller
                                     Reset 2FA
                                 </button>
                             </form>
-
-                            <button type="button"
-                                class="btn btn-sm ' . $statusBtnClass . ' toggle-status-btn"
-                                data-url="' . $toggleUrl . '">
-                                ' . $statusText . '
-                            </button>
                         ';
+                    }
+
+                    $html .= '
+                        <button type="button"
+                            class="btn btn-sm ' . $statusBtnClass . ' toggle-status-btn"
+                            data-url="' . $toggleUrl . '">
+                            ' . $statusText . '
+                        </button>
+                    ';
+
+                    return $html;
                 })
 
                 ->rawColumns(['status', 'action'])
@@ -186,6 +203,12 @@ class CompanyUserController extends Controller
             ->where('company_id', $company->id)
             ->firstOrFail();
 
+        if ($this->isCompanyAdminUser($user)) {
+            return redirect()
+                ->route('company.users.index', $company->slug)
+                ->with('error', 'Company admin user can only be edited by superadmin.');
+        }
+
         $roles = Role::where('company_id', $company->id)
             ->whereRaw('LOWER(name) != ?', ['customer'])
             ->get();
@@ -202,6 +225,12 @@ class CompanyUserController extends Controller
         $user = User::where('id', $userId)
             ->where('company_id', $company->id)
             ->firstOrFail();
+
+        if ($this->isCompanyAdminUser($user)) {
+            return redirect()
+                ->route('company.users.index', $company->slug)
+                ->with('error', 'Company admin user can only be edited by superadmin.');
+        }
 
         $request->validate([
             'name' => 'required|string|max:255',
@@ -357,6 +386,12 @@ class CompanyUserController extends Controller
             ->where('company_id', $company->id)
             ->firstOrFail();
 
+        if ($this->isCompanyAdminUser($user)) {
+            return redirect()
+                ->route('company.users.index', $company->slug)
+                ->with('error', 'Company admin 2FA can only be reset by superadmin.');
+        }
+
         $user->forceFill([
             'two_factor_secret' => null,
             'two_factor_recovery_codes' => null,
@@ -368,3 +403,7 @@ class CompanyUserController extends Controller
             ->with('success', 'User 2FA reset successfully.');
     }
 }
+
+
+
+

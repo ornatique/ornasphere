@@ -120,7 +120,7 @@ Route::prefix('company/{slug}')
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth', 'company.2fa', 'company.route.permission'])
+Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permission'])
     ->prefix('company/{slug}')
     ->name('company.')
     ->group(function () {
@@ -489,7 +489,7 @@ Route::middleware(['auth', 'company.2fa', 'company.route.permission'])
         )->name('approval.returnItems');
     });
 
-Route::middleware(['auth', 'company.2fa', 'company.route.permission'])
+Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permission'])
     ->prefix('company/{slug}')
     ->name('company.')
     ->group(function () {
@@ -546,3 +546,4 @@ Route::post('/set-password/{token}', [PasswordSetController::class, 'update'])
 
 Route::post('/company/2fa/enable', [CompanySecurityController::class, 'enable']);
 Route::post('/company/2fa/disable', [CompanySecurityController::class, 'disable']);
+

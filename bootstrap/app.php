@@ -34,6 +34,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
             'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
             'company.route.permission' => \App\Http\Middleware\CompanyRoutePermission::class,
+            'company.active' => \App\Http\Middleware\EnsureCompanyIsActive::class,
         ]);
 
     })
@@ -168,3 +169,4 @@ return Application::configure(basePath: dirname(__DIR__))
         });
     })
     ->create();
+

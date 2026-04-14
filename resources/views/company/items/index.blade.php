@@ -27,8 +27,8 @@
                                     <th>Item Code</th>
                                     <th>Metal</th>
                                     <th>Labour Type</th>
-                                    <th>Tax Type</th>
-                                    <th>Status</th>
+                                    <!-- <th>Tax Type</th> -->
+                                    <!-- <th>Status</th> -->
                                     <th width="150">Action</th>
                                 </tr>
                             </thead>
@@ -78,16 +78,16 @@
                     data: 'labour_type',
                     name: 'labour_type'
                 },
-                {
-                    data: 'tax_type',
-                    name: 'tax_type'
-                },
-                {
-                    data: 'status',
-                    name: 'status',
-                    orderable: false,
-                    searchable: false
-                },
+                // {
+                //     data: 'tax_type',
+                //     name: 'tax_type'
+                // },
+                // {
+                //     data: 'status',
+                //     name: 'status',
+                //     orderable: false,
+                //     searchable: false
+                // },
                 {
                     data: 'action',
                     name: 'action',
