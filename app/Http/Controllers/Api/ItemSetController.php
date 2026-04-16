@@ -10,6 +10,17 @@ use Illuminate\Support\Facades\DB;
 
 class ItemSetController extends Controller
 {
+    private function resolveIncomingRowId(array $row): ?int
+    {
+        $id = $row['id'] ?? ($row['temp_id'] ?? null);
+
+        if ($id === null || $id === '') {
+            return null;
+        }
+
+        return (int) $id;
+    }
+
     // ================= DEFAULT LOAD GRID =================
     public function index(Request $request)
     {
@@ -45,22 +56,25 @@ class ItemSetController extends Controller
             'item_id' => 'required|exists:items,id',
         ]);
 
+        $incomingId = $request->id ?? $request->temp_id;
+
         $payload = [
             'gross_weight' => $request->gross_weight,
-            'other' => $request->other,
+            'other' => $request->other ?? $request->other_weight,
             'net_weight' => $request->net_weight,
             'sale_labour_rate' => $request->sale_labour_rate ?? $request->labour_rate,
             'sale_labour_amount' => $request->sale_labour_amount ?? $request->labour_amount,
             'sale_other' => $request->sale_other,
             'size' => $request->size,
             'HUID' => $request->HUID ?? $request->huid,
+            'sale_labour_formula' => $request->sale_labour_formula,
+            'supplier_person' => $request->supplier_person,
         ];
 
-        if ($request->id) {
+        if (!empty($incomingId)) {
             $set = ItemSet::where('company_id', $companyId)
                 ->where('item_id', $request->item_id)
-                ->where('id', $request->id)
-                ->where('is_final', 0)
+                ->where('id', $incomingId)
                 ->first();
 
             if (!$set) {
@@ -103,39 +117,62 @@ public function bulkSave(Request $request)
         'rows' => 'required|array'
     ]);
 
-        $savedRows = [];
+    $savedRows = [];
+    $rows = (array) $request->rows;
 
-        foreach ($request->rows as $row) {
+    DB::beginTransaction();
 
-        if (
-            empty($row['gross_weight']) &&
-            empty($row['net_weight']) &&
-            empty($row['size']) &&
-            empty($row['HUID'])
-        ) {
-            continue; // skip empty rows
-        }
+    try {
+        $existingDrafts = ItemSet::where('company_id', $companyId)
+            ->where('item_id', $request->item_id)
+            ->where('is_final', 0)
+            ->orderBy('id')
+            ->get()
+            ->keyBy('id');
 
-        $data = [
-            'gross_weight' => $row['gross_weight'] ?? null,
-            'other' => $row['other'] ?? null,
-            'net_weight' => $row['net_weight'] ?? null,
-            'sale_labour_rate' => $row['sale_labour_rate'] ?? ($row['labour_rate'] ?? null),
-            'sale_labour_amount' => $row['sale_labour_amount'] ?? ($row['labour_amount'] ?? null),
-            'sale_other' => $row['sale_other'] ?? null,
-            'size' => $row['size'] ?? null,
-            'HUID' => $row['HUID'] ?? ($row['huid'] ?? null),
-        ];
+        $existingIds = $existingDrafts->keys()->all();
+        $touchedExistingIds = [];
 
-        if (!empty($row['id'])) {
-            $set = ItemSet::where('company_id', $companyId)
-                ->where('item_id', $request->item_id)
-                ->where('id', $row['id'])
-                ->where('is_final', 0)
-                ->first();
+        foreach ($rows as $row) {
+            $huid = $row['HUID'] ?? ($row['huid'] ?? null);
+
+            if (
+                empty($row['gross_weight']) &&
+                empty($row['net_weight']) &&
+                empty($row['size']) &&
+                empty($huid)
+            ) {
+                continue;
+            }
+
+            $data = [
+                'gross_weight' => $row['gross_weight'] ?? null,
+                'other' => $row['other'] ?? ($row['other_weight'] ?? null),
+                'net_weight' => $row['net_weight'] ?? null,
+                'sale_labour_formula' => $row['sale_labour_formula'] ?? null,
+                'sale_labour_rate' => $row['sale_labour_rate'] ?? ($row['labour_rate'] ?? null),
+                'sale_labour_amount' => $row['sale_labour_amount'] ?? ($row['labour_amount'] ?? null),
+                'sale_other' => $row['sale_other'] ?? null,
+                'supplier_person' => $row['supplier_person'] ?? null,
+                'size' => $row['size'] ?? null,
+                'HUID' => $huid,
+            ];
+
+            $set = null;
+            $incomingId = $this->resolveIncomingRowId($row) ?? 0;
+
+            if ($incomingId > 0) {
+                $set = ItemSet::where('company_id', $companyId)
+                    ->where('item_id', $request->item_id)
+                    ->where('id', $incomingId)
+                    ->first();
+            }
 
             if ($set) {
                 $set->update($data);
+                if ((int) $set->is_final === 0) {
+                    $touchedExistingIds[] = (int) $set->id;
+                }
             } else {
                 $set = ItemSet::create(array_merge($data, [
                     'company_id' => $companyId,
@@ -143,32 +180,47 @@ public function bulkSave(Request $request)
                     'is_final' => 0,
                 ]));
             }
-        } else {
-            $set = ItemSet::create(array_merge($data, [
-                'company_id' => $companyId,
-                'item_id' => $request->item_id,
-                'is_final' => 0,
-            ]));
-        }
 
-        $savedRows[] = $set;
-        }
-
-        // Ensure net_weight is present for all saved rows.
-        foreach ($savedRows as $saved) {
-            $gross = (float) ($saved->gross_weight ?? 0);
-            $other = (float) ($saved->other ?? 0);
-            if ($saved->net_weight === null || $saved->net_weight === '') {
-                $saved->net_weight = max(0, $gross - $other);
-                $saved->save();
+            $gross = (float) ($set->gross_weight ?? 0);
+            $other = (float) ($set->other ?? 0);
+            if ($set->net_weight === null || $set->net_weight === '') {
+                $set->net_weight = max(0, $gross - $other);
+                $set->save();
             }
+
+            $savedRows[] = array_merge(
+                $set->fresh()->toArray(),
+                [
+                    'temp_id' => $row['temp_id'] ?? null,
+                ]
+            );
         }
+
+        // Remove stale old draft rows that were not part of this save payload.
+        $staleIds = array_values(array_diff($existingIds, array_unique($touchedExistingIds)));
+        if (!empty($staleIds)) {
+            ItemSet::where('company_id', $companyId)
+                ->where('item_id', $request->item_id)
+                ->where('is_final', 0)
+                ->whereIn('id', $staleIds)
+                ->delete();
+        }
+
+        DB::commit();
 
         return response()->json([
             'success' => true,
             'message' => 'Multiple rows saved successfully',
             'data' => $savedRows
         ]);
+    } catch (\Exception $e) {
+        DB::rollBack();
+
+        return response()->json([
+            'success' => false,
+            'message' => $e->getMessage(),
+        ], 500);
+    }
 }
 
     // ================= FINAL SAVE =================
@@ -198,6 +250,13 @@ public function bulkSave(Request $request)
             $draftSets = ItemSet::where('company_id', $companyId)
                 ->where('item_id', $item->id)
                 ->where('is_final', 0)
+                ->where(function ($q) {
+                    $q->whereNotNull('gross_weight')
+                        ->orWhereNotNull('net_weight')
+                        ->orWhereNotNull('size')
+                        ->orWhereNotNull('HUID');
+                })
+                ->orderBy('id')
                 ->get();
 
             if ($draftSets->isEmpty()) {

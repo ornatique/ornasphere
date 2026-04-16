@@ -103,7 +103,7 @@ class ItemController extends Controller
         // ✅ VALIDATION
         $request->validate([
             'item_name' => 'required|string|max:255',
-            'item_code' => 'required|string|max:255|unique:items,item_code',
+            'item_code' => 'required|string|max:255',
 
             'metal' => 'nullable|string|max:100',
             'metal_formula' => 'nullable|string|max:100',

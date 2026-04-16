@@ -26,6 +26,7 @@ class Authenticate extends Middleware
         }
 
         // ❌ Never fallback to /login (Fortify)
-        abort(403);
+        return route('superadmin.login');
     }
 }
+

@@ -9,6 +9,7 @@ use Illuminate\Validation\ValidationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Session\TokenMismatchException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
 
@@ -106,6 +107,40 @@ return Application::configure(basePath: dirname(__DIR__))
             ], 401);
         });
 
+        $exceptions->render(function (TokenMismatchException $e, Request $request) use ($isApi) {
+            if ($isApi($request)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Session expired. Please login again.',
+                    'code' => 'SESSION_EXPIRED',
+                ], 419);
+            }
+
+            if ($request->is('superadmin/*')) {
+                return redirect()
+                    ->route('superadmin.login')
+                    ->with('error', 'Session expired. Please login again.');
+            }
+
+            $slug = (string) $request->route('slug');
+            if ($slug !== '') {
+                return redirect()
+                    ->route('company.login', $slug)
+                    ->with('error', 'Session expired. Please login again.');
+            }
+
+            $segments = $request->segments();
+            if (count($segments) >= 2 && $segments[0] === 'company') {
+                return redirect()
+                    ->route('company.login', $segments[1])
+                    ->with('error', 'Session expired. Please login again.');
+            }
+
+            return redirect()
+                ->route('superadmin.login')
+                ->with('error', 'Session expired. Please login again.');
+        });
+
         $exceptions->render(function (QueryException $e, Request $request) use ($isApi) {
             Log::error('Database query exception', [
                 'message' => $e->getMessage(),
@@ -169,4 +204,5 @@ return Application::configure(basePath: dirname(__DIR__))
         });
     })
     ->create();
+
 
