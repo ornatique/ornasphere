@@ -1,0 +1,26 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('sales', function (Blueprint $table) {
+            if (!Schema::hasColumn('sales', 'modified_count')) {
+                $table->unsignedInteger('modified_count')->default(0)->after('employee_id');
+            }
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('sales', function (Blueprint $table) {
+            if (Schema::hasColumn('sales', 'modified_count')) {
+                $table->dropColumn('modified_count');
+            }
+        });
+    }
+};

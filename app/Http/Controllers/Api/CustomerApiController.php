@@ -105,7 +105,6 @@ class CustomerApiController extends Controller
     public function destroy(Request $request, $id)
     {
         $companyId = $request->user()->company_id;
-
         $customer = Customer::where('company_id', $companyId)
             ->where('id', $id)
             ->first();

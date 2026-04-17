@@ -337,6 +337,10 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
             '/item-sets/print-pdf/',
             [ItemSetController::class, 'printPdf']
         )->name('item_sets.printPdf');
+        Route::post(
+            '/item-sets/print-pdf/',
+            [ItemSetController::class, 'printPdf']
+        )->name('item_sets.printPdf.post');
 
         Route::get('sales', [SaleController::class, 'index'])
             ->name('sales.index');
@@ -346,6 +350,10 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
 
         Route::post('sales/store', [SaleController::class, 'store'])
             ->name('sales.store');
+        Route::get('sales/{sale}/edit', [SaleController::class, 'edit'])
+            ->name('sales.edit');
+        Route::post('sales/{sale}/update', [SaleController::class, 'update'])
+            ->name('sales.update');
 
         Route::get('sales/get-itemset', [SaleController::class, 'getItemset'])
             ->name('sales.getItemset');
@@ -454,9 +462,13 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
 
         Route::get('approval/create', [ApprovalController::class, 'create'])
             ->name('approval.create');
+        Route::get('approval/{id}/edit', [ApprovalController::class, 'edit'])
+            ->name('approval.edit');
 
         Route::post('approval/store', [ApprovalController::class, 'store'])
             ->name('approval.store');
+        Route::post('approval/{id}/update', [ApprovalController::class, 'update'])
+            ->name('approval.update');
 
         Route::get('approval/{id}/view', [ApprovalController::class, 'view'])
             ->name('approval.view');

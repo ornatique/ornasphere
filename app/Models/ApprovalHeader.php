@@ -16,11 +16,14 @@ class ApprovalHeader extends Model
         'customer_id',
         'approval_no',
         'approval_date',
-        'status'
+        'status',
+        'employee_id',
+        'modified_count',
     ];
 
     protected $casts = [
         'approval_date' => 'date',
+        'modified_count' => 'integer',
     ];
 
     /*
@@ -45,6 +48,11 @@ class ApprovalHeader extends Model
     public function items()
     {
         return $this->hasMany(ApprovalItem::class, 'approval_id');
+    }
+
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'employee_id');
     }
     
     /*

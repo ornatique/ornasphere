@@ -24,7 +24,14 @@ class SaleApiController extends Controller
         $company = $request->user()->company;
         $companyId = $company->id;
 
-        $sales = Sale::with('customer')
+        $sales = Sale::with(['customer', 'creator'])
+            ->withSum('saleItems as total_qty', 'qty')
+            ->withSum('saleItems as total_gross_weight', 'gross_weight')
+            ->withSum('saleItems as total_net_weight', 'net_weight')
+            ->withSum('saleItems as total_fine_weight', 'fine_weight')
+            ->withSum('saleItems as total_metal_amount', 'metal_amount')
+            ->withSum('saleItems as total_labour_amount', 'labour_amount')
+            ->withSum('saleItems as total_other_amount', 'other_amount')
             ->where('company_id', $companyId)
             ->latest()
             ->get();
@@ -36,7 +43,19 @@ class SaleApiController extends Controller
                 'customer_id' => $sale->customer_id,
                 'voucher_no' => $sale->voucher_no,
                 'sale_date' => $sale->sale_date,
+                'can_edit_today' => true,
+                'can_edit' => true,
+                'qty_pcs' => (int) ($sale->total_qty ?? 0),
+                'gross_weight' => (float) ($sale->total_gross_weight ?? 0),
+                'net_weight' => (float) ($sale->total_net_weight ?? 0),
+                'fine_weight' => (float) ($sale->total_fine_weight ?? 0),
+                'metal_amount' => (float) ($sale->total_metal_amount ?? 0),
+                'labour_amount' => (float) ($sale->total_labour_amount ?? 0),
+                'other_amount' => (float) ($sale->total_other_amount ?? 0),
                 'net_total' => $sale->net_total,
+                'created_by' => optional($sale->creator)->name,
+                'modified_at' => optional($sale->updated_at)?->format('Y-m-d H:i:s'),
+                'modified_count' => (int) ($sale->modified_count ?? 0),
                 'customer' => $sale->customer,
                 // Signed URL works in browser/app without auth header.
                 'pdf_url' => URL::temporarySignedRoute(
@@ -302,7 +321,9 @@ class SaleApiController extends Controller
                 'customer_id' => $request->customer_id,
                 'voucher_no'  => 'SL' . time(),
                 'sale_date'   => now(),
-                'net_total'   => 0
+                'net_total'   => 0,
+                'employee_id' => $user->id,
+                'modified_count' => 0,
             ]);
 
             $total = 0;
@@ -566,7 +587,9 @@ class SaleApiController extends Controller
                 'customer_id' => $customerId,
                 'voucher_no'  => 'SL' . time(),
                 'sale_date'   => now(),
-                'net_total'   => 0
+                'net_total'   => 0,
+                'employee_id' => $user->id,
+                'modified_count' => 0,
             ]);
 
             $total = 0;
@@ -675,7 +698,7 @@ class SaleApiController extends Controller
     {
         $companyId = $request->user()->company_id;
 
-        $sale = Sale::with('customer', 'saleItems.itemset')
+        $sale = Sale::with('customer', 'saleItems.itemset', 'creator')
             ->where('company_id', $companyId)
             ->find($id);
 
@@ -686,10 +709,245 @@ class SaleApiController extends Controller
             ]);
         }
 
+        $sale->setAttribute(
+            'can_edit_today',
+            true
+        );
+        $sale->setAttribute('can_edit', true);
+        $sale->setAttribute('created_by', optional($sale->creator)->name);
+        $sale->setAttribute('modified_at', optional($sale->updated_at)?->format('Y-m-d H:i:s'));
+        $sale->setAttribute('modified_count', (int) ($sale->modified_count ?? 0));
+        $sale->setAttribute('qty_pcs', (int) $sale->saleItems->sum('qty'));
+        $sale->setAttribute('gross_weight', (float) $sale->saleItems->sum('gross_weight'));
+        $sale->setAttribute('net_weight', (float) $sale->saleItems->sum('net_weight'));
+        $sale->setAttribute('fine_weight', (float) $sale->saleItems->sum('fine_weight'));
+        $sale->setAttribute('metal_amount', (float) $sale->saleItems->sum('metal_amount'));
+        $sale->setAttribute('labour_amount', (float) $sale->saleItems->sum('labour_amount'));
+        $sale->setAttribute('other_amount', (float) $sale->saleItems->sum('other_amount'));
+
         return response()->json([
             'success' => true,
             'data' => $sale
         ]);
+    }
+
+    public function update(Request $request, $id)
+    {
+        $companyId = $request->user()->company_id;
+
+        DB::beginTransaction();
+       
+        try {
+            $sale = Sale::with('saleItems')
+                ->where('company_id', $companyId)
+                ->findOrFail((int) $id);
+                
+            $request->validate([
+                'customer_id' => 'required|integer',
+                'items' => 'required|array|min:1',
+            ]);
+
+            $customerExists = Customer::where('company_id', $companyId)
+                ->where('id', (int) $request->customer_id)
+                ->exists();
+            if (!$customerExists) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid customer for this company.',
+                ], 422);
+            }
+
+            $sale->update([
+                'customer_id' => (int) $request->customer_id,
+            ]);
+
+            $incomingRows = collect($request->input('items', []))
+                ->filter(fn($row) => is_array($row))
+                ->values();
+
+            $resolvedRows = $incomingRows
+                ->map(function ($row) use ($companyId) {
+                    $itemSet = $this->resolveSaleUpdateItemSet($row, $companyId);
+                    if (!$itemSet) {
+                        return null;
+                    }
+
+                    return [
+                        'row' => $row,
+                        'itemset' => $itemSet,
+                    ];
+                })
+                ->filter()
+                ->unique(fn($pair) => (int) $pair['itemset']->id)
+                ->values();
+
+            if ($resolvedRows->isEmpty()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No valid item found. Use itemset_id/id or qr_code/code or huid/HUID.',
+                ], 422);
+            }
+
+            $incomingItemsetIds = $resolvedRows
+                ->map(fn($pair) => (int) $pair['itemset']->id)
+                ->values();
+
+            $existingItems = $sale->saleItems->keyBy('itemset_id');
+            $existingItemsetIds = $existingItems->keys()->map(fn($id) => (int) $id)->values();
+
+            $approvalIds = [];
+
+            $removedItemsetIds = $existingItemsetIds->diff($incomingItemsetIds)->values();
+            foreach ($removedItemsetIds as $itemsetId) {
+                $saleItem = $existingItems->get($itemsetId);
+                if (!$saleItem) {
+                    continue;
+                }
+
+                if (!empty($saleItem->approval_item_id)) {
+                    $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
+                        $q->where('company_id', $companyId);
+                    })->find((int) $saleItem->approval_item_id);
+
+                    if ($approvalItem) {
+                        $approvalItem->update(['status' => 'pending']);
+                        $approvalIds[] = (int) $approvalItem->approval_id;
+                    }
+                }
+
+                ItemSet::where('company_id', $companyId)
+                    ->where('id', (int) $itemsetId)
+                    ->update(['is_sold' => 0]);
+
+                $saleItem->delete();
+            }
+
+            $total = 0;
+
+            foreach ($resolvedRows as $pair) {
+                $row = $pair['row'];
+                $itemSet = $pair['itemset'];
+                $itemsetId = (int) $itemSet->id;
+
+                $existingSaleItem = $existingItems->get($itemsetId);
+                $approvalItemId = $row['approval_item_id'] ?? null;
+
+                if (!$existingSaleItem && empty($approvalItemId) && (int) $itemSet->is_sold === 1) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'ItemSet not available for sale: ' . $itemsetId,
+                    ], 422);
+                }
+
+                $grossWeight = (float) ($row['gross_weight'] ?? $itemSet->gross_weight ?? 0);
+                $otherWeight = (float) ($row['other_weight'] ?? $itemSet->other ?? 0);
+                $netWeight = (float) ($row['net_weight'] ?? max(0, $grossWeight - $otherWeight));
+                $purity = (float) ($row['purity'] ?? 0);
+                $wastePercent = (float) ($row['waste_percent'] ?? 0);
+                $netPurity = (float) ($row['net_purity'] ?? ($purity - $wastePercent));
+                $fineWeight = (float) ($row['fine_weight'] ?? ($netWeight * $netPurity / 100));
+                $metalRate = (float) ($row['metal_rate'] ?? 0);
+                $metalAmount = (float) ($row['metal_amount'] ?? ($netWeight * $metalRate));
+                $labourRate = (float) ($row['labour_rate'] ?? 0);
+                $labourAmount = (float) ($row['labour_amount'] ?? ($netWeight * $labourRate));
+                $otherAmount = (float) ($row['other_amount'] ?? 0);
+                $lineTotal = (float) ($row['total_amount'] ?? ($metalAmount + $labourAmount + $otherAmount));
+
+                $payload = [
+                    'itemset_id' => $itemSet->id,
+                    'approval_item_id' => $approvalItemId,
+                    'gross_weight' => $grossWeight,
+                    'other_weight' => $otherWeight,
+                    'net_weight' => $netWeight,
+                    'purity' => $purity,
+                    'waste_percent' => $wastePercent,
+                    'net_purity' => $netPurity,
+                    'fine_weight' => $fineWeight,
+                    'metal_rate' => $metalRate,
+                    'metal_amount' => $metalAmount,
+                    'labour_rate' => $labourRate,
+                    'labour_amount' => $labourAmount,
+                    'other_amount' => $otherAmount,
+                    'total_amount' => $lineTotal,
+                ];
+
+                if ($existingSaleItem) {
+                    $oldApprovalItemId = (int) ($existingSaleItem->approval_item_id ?? 0);
+                    $newApprovalItemId = (int) ($approvalItemId ?? 0);
+                    $existingSaleItem->update($payload);
+
+                    if ($oldApprovalItemId > 0 && $oldApprovalItemId !== $newApprovalItemId) {
+                        $oldApproval = ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
+                            $q->where('company_id', $companyId);
+                        })->find($oldApprovalItemId);
+                        if ($oldApproval) {
+                            $oldApproval->update(['status' => 'pending']);
+                            $approvalIds[] = (int) $oldApproval->approval_id;
+                        }
+                    }
+                } else {
+                    SaleItem::create(array_merge($payload, [
+                        'sale_id' => $sale->id,
+                        'product_id' => $row['product_id'] ?? $itemSet->item_id ?? null,
+                        'qty' => (int) ($row['qty'] ?? 1),
+                    ]));
+                    $itemSet->update(['is_sold' => 1]);
+                }
+
+                if (!empty($approvalItemId)) {
+                    $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
+                        $q->where('company_id', $companyId);
+                    })->find((int) $approvalItemId);
+                    if ($approvalItem) {
+                        $approvalItem->update(['status' => 'sold']);
+                        $approvalIds[] = (int) $approvalItem->approval_id;
+                    }
+                }
+
+                $total += $lineTotal;
+            }
+
+            $sale->update(['net_total' => $total]);
+            $sale->increment('modified_count');
+            $this->refreshApprovalHeaderStatus($approvalIds);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Sale updated successfully',
+                'data' => $sale->fresh(['customer', 'saleItems.itemset']),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    private function resolveSaleUpdateItemSet(array $row, int $companyId): ?ItemSet
+    {
+        $query = ItemSet::where('company_id', $companyId)
+            ->where('is_final', 1);
+
+        $itemSetId = (int) ($row['itemset_id'] ?? $row['id'] ?? 0);
+        if ($itemSetId > 0) {
+            return (clone $query)->where('id', $itemSetId)->first();
+        }
+
+        $qrCode = trim((string) ($row['qr_code'] ?? $row['code'] ?? ''));
+        if ($qrCode !== '') {
+            return (clone $query)->where('qr_code', $qrCode)->first();
+        }
+
+        $huid = trim((string) ($row['huid'] ?? $row['HUID'] ?? ''));
+        if ($huid !== '') {
+            return (clone $query)->where('HUID', $huid)->first();
+        }
+
+        return null;
     }
 
     public function pdf(Request $request, $id)

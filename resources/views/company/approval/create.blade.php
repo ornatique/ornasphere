@@ -4,7 +4,7 @@
 <div class="content-wrapper">
     <div class="card">
         <div class="card-header">
-            <h4 class="card-title">Create Approval</h4>
+            <h4 class="card-title">{{ !empty($isEdit) ? 'Edit Approval' : 'Create Approval' }}</h4>
         </div>
 
         <div class="card-body">
@@ -14,7 +14,7 @@
                     <select id="customer_id" class="form-select">
                         <option value="">Select Customer</option>
                         @foreach($customers as $c)
-                        <option value="{{ $c->id }}">{{ $c->name }}</option>
+                        <option value="{{ $c->id }}" {{ (!empty($approval) && (int) $approval->customer_id === (int) $c->id) ? 'selected' : '' }}>{{ $c->name }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -55,7 +55,7 @@
                 <div><strong>Total Net Wt:</strong> <span id="totalNet">0.000</span></div>
                 <div><strong>Total Amount:</strong> <span id="totalAmount">0.00</span></div>
 
-                <button class="btn btn-success mt-3" id="saveBtn">Save Approval</button>
+                <button class="btn btn-success mt-3" id="saveBtn">{{ !empty($isEdit) ? 'Update Approval' : 'Save Approval' }}</button>
             </div>
         </div>
     </div>
@@ -186,6 +186,12 @@
 @push('scripts')
 <script>
 $(function () {
+    const isEdit = {{ !empty($isEdit) ? 'true' : 'false' }};
+    const saveUrl = isEdit
+        ? "{{ !empty($approval) ? route('company.approval.update', [$company->slug, $approval->id]) : '' }}"
+        : "{{ route('company.approval.store', $company->slug) }}";
+    const initialItems = @json(!empty($editableItems) ? $editableItems : []);
+
     const selectedItems = {};
     let modalRowId = null;
     let otherChargeOptions = [];
@@ -644,13 +650,13 @@ $(function () {
             return;
         }
 
-        $.post("{{ route('company.approval.store', $company->slug) }}", {
+        $.post(saveUrl, {
             _token: "{{ csrf_token() }}",
             customer_id,
             items,
         }, function (res) {
             if (res.success) {
-                alert(res.message || 'Approval Created Successfully');
+                alert(res.message || (isEdit ? 'Approval updated successfully' : 'Approval Created Successfully'));
                 window.location.href = "{{ route('company.approval.index', $company->slug) }}";
             } else {
                 alert(res.message || 'Failed to save approval');
@@ -659,6 +665,33 @@ $(function () {
             alert(xhr.responseJSON?.message || 'Failed to save approval');
         });
     });
+
+    if (Array.isArray(initialItems) && initialItems.length) {
+        initialItems.forEach(function (row) {
+            if (!row || !row.itemset_id) return;
+            addRow({
+                itemset_id: Number(row.itemset_id),
+                item_id: Number(row.item_id || 0),
+                item_name: row.item_name || '',
+                huid: row.huid || '',
+                qr_code: row.qr_code || '',
+                gross_weight: toNum(row.gross_weight),
+                other_weight: toNum(row.other_weight),
+                net_weight: toNum(row.net_weight),
+                purity: toNum(row.purity),
+                waste_percent: toNum(row.waste_percent),
+                net_purity: toNum(row.net_purity),
+                total_fine_weight: toNum(row.total_fine_weight),
+                metal_rate: toNum(row.metal_rate),
+                metal_amount: toNum(row.metal_amount),
+                labour_rate: toNum(row.labour_rate),
+                labour_amount: toNum(row.labour_amount),
+                other_amount: toNum(row.other_amount),
+                total_amount: toNum(row.total_amount),
+                other_charges: Array.isArray(row.other_charges) ? row.other_charges : [],
+            });
+        });
+    }
 });
 </script>
 @endpush

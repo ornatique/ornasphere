@@ -92,6 +92,7 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/itemsets/qr/pdf', [SaleApiController::class, 'downloadQrPdf']);
     Route::post('/sales/store', [SaleApiController::class, 'store']);       // Create sale
     Route::get('/sales/{id}', [SaleApiController::class, 'show'])->whereNumber('id'); // Sale details
+    Route::put('/sales/update/{id}', [SaleApiController::class, 'update'])->whereNumber('id');
     Route::get('/sales/itemset', [SaleApiController::class, 'getItemset']); // Scan QR
     
     
@@ -118,6 +119,7 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/approvals/itemsets/{itemId}', [ApprovalApiController::class, 'getItemSets']);
     Route::get('/approvals/search-itemsets', [ApprovalApiController::class, 'searchItemSets']);
     Route::post('/approvals/store', [ApprovalApiController::class, 'store']);
+    Route::put('/approvals/update/{id}', [ApprovalApiController::class, 'update'])->whereNumber('id');
     Route::get('/approvals/{id}', [ApprovalApiController::class, 'show'])->whereNumber('id');
     Route::post('/approvals/sale', [ApprovalApiController::class, 'markSold']);
     Route::get('/approvals/pending-items', [ApprovalApiController::class, 'pendingItemsByCustomer']);

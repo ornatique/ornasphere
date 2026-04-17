@@ -52,17 +52,42 @@ class ApprovalApiController extends Controller
     {
         $companyId = $request->user()->company_id;
 
-        $query = ApprovalHeader::with('customer')
+        $query = ApprovalHeader::with(['customer', 'creator'])
             ->withCount([
                 'items as active_items_count' => function ($q) {
                     $q->where('status', '!=', 'returned');
                 }
             ])
             ->withSum([
+                'items as active_gross_weight' => function ($q) {
+                    $q->where('status', '!=', 'returned');
+                }
+            ], 'gross_weight')
+            ->withSum([
                 'items as active_net_weight' => function ($q) {
                     $q->where('status', '!=', 'returned');
                 }
             ], 'net_weight')
+            ->withSum([
+                'items as active_fine_weight' => function ($q) {
+                    $q->where('status', '!=', 'returned');
+                }
+            ], 'total_fine_weight')
+            ->withSum([
+                'items as active_metal_amount' => function ($q) {
+                    $q->where('status', '!=', 'returned');
+                }
+            ], 'metal_amount')
+            ->withSum([
+                'items as active_labour_amount' => function ($q) {
+                    $q->where('status', '!=', 'returned');
+                }
+            ], 'labour_amount')
+            ->withSum([
+                'items as active_other_amount' => function ($q) {
+                    $q->where('status', '!=', 'returned');
+                }
+            ], 'other_amount')
             ->withSum([
                 'items as active_item_amount' => function ($q) {
                     $q->where('status', '!=', 'returned');
@@ -89,9 +114,18 @@ class ApprovalApiController extends Controller
                     'customer_id' => $row->customer_id,
                     'customer_name' => optional($row->customer)->name ?? '-',
                     'status' => $row->status,
+                    'qty_pcs' => (int) ($row->active_items_count ?? 0),
                     'total_items' => (int) ($row->active_items_count ?? 0),
+                    'gross_weight' => (float) ($row->active_gross_weight ?? 0),
                     'total_net_weight' => (float) ($row->active_net_weight ?? 0),
+                    'fine_weight' => (float) ($row->active_fine_weight ?? 0),
+                    'metal_amount' => (float) ($row->active_metal_amount ?? 0),
+                    'labour_amount' => (float) ($row->active_labour_amount ?? 0),
+                    'other_amount' => (float) ($row->active_other_amount ?? 0),
                     'total_amount' => (float) ($row->active_item_amount ?? 0),
+                    'created_by' => optional($row->creator)->name,
+                    'modified_at' => optional($row->updated_at)?->format('Y-m-d H:i:s'),
+                    'modified_count' => (int) ($row->modified_count ?? 0),
                 ];
             });
 
@@ -330,6 +364,8 @@ class ApprovalApiController extends Controller
                 'approval_no' => 'APP' . time(),
                 'approval_date' => now(),
                 'status' => 'open',
+                'employee_id' => $userId,
+                'modified_count' => 0,
             ]);
 
             $processedItemSetIds = [];
@@ -422,6 +458,134 @@ class ApprovalApiController extends Controller
         }
     }
 
+    public function update(Request $request, $id)
+    {
+        $companyId = $request->user()->company_id;
+            
+        $request->validate([
+            'customer_id' => 'required|integer|exists:customers,id',
+            'items' => 'required|array|min:1',
+        ]);
+        $customerExists = Customer::where('company_id', $companyId)
+            ->where('id', (int) $request->customer_id)
+            ->exists();
+        if (!$customerExists) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid customer for this company.',
+            ], 422);
+        }
+
+        DB::beginTransaction();
+
+        try {
+            $approval = ApprovalHeader::with('items')
+                ->where('company_id', $companyId)
+                ->findOrFail((int) $id);
+
+            if (!in_array((string) $approval->status, ['open', 'partial'], true)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only open/partial approvals can be edited.',
+                ], 422);
+            }
+
+            $approval->update([
+                'customer_id' => (int) $request->customer_id,
+                'modified_count' => ((int) ($approval->modified_count ?? 0)) + 1,
+            ]);
+
+            $incomingRows = collect($request->input('items', []))
+                ->filter(fn($row) => is_array($row))
+                ->values();
+
+            $resolvedRows = $incomingRows
+                ->map(function ($row) use ($companyId) {
+                    $itemSet = $this->resolveApprovalUpdateItemSet($row, $companyId);
+                    if (!$itemSet) {
+                        return null;
+                    }
+                    return [
+                        'row' => $row,
+                        'itemSet' => $itemSet,
+                    ];
+                })
+                ->filter()
+                ->unique(fn($pair) => (int) $pair['itemSet']->id)
+                ->values();
+
+            if ($resolvedRows->isEmpty()) {
+                throw new \Exception('No valid itemset found in update items. Use itemset_id/id or qr_code/huid.');
+            }
+
+            $incomingItemsetIds = $resolvedRows
+                ->map(fn($pair) => (int) $pair['itemSet']->id)
+                ->unique()
+                ->values();
+
+            $pendingItems = ApprovalItem::where('approval_id', $approval->id)
+                ->where('status', 'pending')
+                ->get();
+            $pendingByItemset = $pendingItems->keyBy('itemset_id');
+
+            $toRemove = $pendingItems->filter(function ($row) use ($incomingItemsetIds) {
+                return !$incomingItemsetIds->contains((int) $row->itemset_id);
+            });
+
+            foreach ($toRemove as $row) {
+                if (!empty($row->itemset_id)) {
+                    ItemSet::where('company_id', $companyId)
+                        ->where('id', (int) $row->itemset_id)
+                        ->update(['is_sold' => 0]);
+                }
+                $row->delete();
+            }
+
+            foreach ($resolvedRows as $pair) {
+                $row = $pair['row'];
+                $itemSet = $pair['itemSet'];
+                $itemSetId = (int) $itemSet->id;
+
+                if (!$pendingByItemset->has($itemSetId) && (int) $itemSet->is_sold === 1) {
+                    throw new \Exception("Item already used: {$itemSet->qr_code}");
+                }
+
+                $payload = $this->buildApprovalItemPayload($row, $itemSet);
+
+                if ($pendingByItemset->has($itemSetId)) {
+                    $pendingByItemset->get($itemSetId)->update($payload);
+                } else {
+                    ApprovalItem::create(array_merge($payload, [
+                        'approval_id' => $approval->id,
+                        'itemset_id' => $itemSet->id,
+                        'item_id' => $itemSet->item_id,
+                        'status' => 'pending',
+                    ]));
+                    $itemSet->update(['is_sold' => 1]);
+                }
+            }
+
+            $this->updateApprovalStatus([$approval->id]);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Approval updated successfully',
+                'data' => [
+                    'approval_id' => $approval->id,
+                    'approval_no' => $approval->approval_no,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
     public function show(Request $request, $id)
     {
         $companyId = $request->user()->company_id;
@@ -434,12 +598,23 @@ class ApprovalApiController extends Controller
             $itemSet = $row->itemSet ?? $row->legacyItemSet;
             return [
                 'id' => $row->id,
+                'itemset_id' => $row->itemset_id ?? optional($itemSet)->id,
+                'item_id' => $row->item_id ?? optional($itemSet)->item_id,
                 'item_name' => optional(optional($itemSet)->item)->item_name ?? '-',
                 'huid' => $row->huid ?? optional($itemSet)->HUID,
                 'qr_code' => $row->qr_code ?? optional($itemSet)->qr_code,
                 'gross_weight' => (float) $row->gross_weight,
                 'other_weight' => (float) $row->other_weight,
                 'net_weight' => (float) $row->net_weight,
+                'purity' => (float) $row->purity,
+                'waste_percent' => (float) $row->waste_percent,
+                'net_purity' => (float) $row->net_purity,
+                'total_fine_weight' => (float) $row->total_fine_weight,
+                'metal_rate' => (float) $row->metal_rate,
+                'metal_amount' => (float) $row->metal_amount,
+                'labour_rate' => (float) $row->labour_rate,
+                'labour_amount' => (float) $row->labour_amount,
+                'other_amount' => (float) $row->other_amount,
                 'total_amount' => (float) $row->total_amount,
                 'status' => $row->status,
             ];
@@ -695,5 +870,63 @@ class ApprovalApiController extends Controller
 
             ApprovalHeader::where('id', $approvalId)->update(['status' => $status]);
         }
+    }
+
+    private function buildApprovalItemPayload(array $row, ItemSet $itemSet): array
+    {
+        $gross = (float) ($row['gross_weight'] ?? $itemSet->gross_weight ?? 0);
+        $otherWeight = (float) ($row['other_weight'] ?? $itemSet->other ?? 0);
+        $netWeight = (float) ($row['net_weight'] ?? ($gross - $otherWeight));
+        $purity = (float) ($row['purity'] ?? optional($itemSet->item)->outward_purity ?? 0);
+        $wastePercent = (float) ($row['waste_percent'] ?? 0);
+        $netPurity = (float) ($row['net_purity'] ?? max(0, $purity - $wastePercent));
+        $totalFineWeight = (float) ($row['total_fine_weight'] ?? ($netWeight * $netPurity / 100));
+        $metalRate = (float) ($row['metal_rate'] ?? 0);
+        $metalAmount = (float) ($row['metal_amount'] ?? ($netWeight * $metalRate));
+        $labourRate = (float) ($row['labour_rate'] ?? $itemSet->sale_labour_rate ?? optional($itemSet->item)->labour_rate ?? 0);
+        $labourAmount = (float) ($row['labour_amount'] ?? ($netWeight * $labourRate));
+        $otherAmount = (float) ($row['other_amount'] ?? $itemSet->sale_other ?? 0);
+        $totalAmount = (float) ($row['total_amount'] ?? ($metalAmount + $labourAmount + $otherAmount));
+
+        return [
+            'huid' => $row['huid'] ?? $itemSet->HUID,
+            'qr_code' => $row['qr_code'] ?? $itemSet->qr_code,
+            'gross_weight' => $gross,
+            'other_weight' => $otherWeight,
+            'net_weight' => $netWeight,
+            'purity' => $purity,
+            'waste_percent' => $wastePercent,
+            'net_purity' => $netPurity,
+            'total_fine_weight' => $totalFineWeight,
+            'metal_rate' => $metalRate,
+            'metal_amount' => $metalAmount,
+            'labour_rate' => $labourRate,
+            'labour_amount' => $labourAmount,
+            'other_amount' => $otherAmount,
+            'total_amount' => $totalAmount,
+        ];
+    }
+
+    private function resolveApprovalUpdateItemSet(array $row, int $companyId): ?ItemSet
+    {
+        $query = ItemSet::with('item')
+            ->where('company_id', $companyId);
+
+        $itemSetId = (int) ($row['itemset_id'] ?? $row['id'] ?? 0);
+        if ($itemSetId > 0) {
+            return (clone $query)->where('id', $itemSetId)->first();
+        }
+
+        $qrCode = trim((string) ($row['qr_code'] ?? ''));
+        if ($qrCode !== '') {
+            return (clone $query)->where('qr_code', $qrCode)->first();
+        }
+
+        $huid = trim((string) ($row['huid'] ?? $row['HUID'] ?? ''));
+        if ($huid !== '') {
+            return (clone $query)->where('HUID', $huid)->first();
+        }
+
+        return null;
     }
 }

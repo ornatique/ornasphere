@@ -409,10 +409,20 @@ class ItemSetController extends Controller
                   ->whereDate(DB::raw('COALESCE(printed_at, created_at)'), '<=', $toDate);
         }
 
+        if ($request->ajax() && $request->boolean('only_ids')) {
+            return response()->json([
+                'ids' => $query->pluck('id')->map(fn($id) => (string) $id)->values(),
+            ]);
+        }
+
         if ($request->ajax()) {
             return DataTables::of($query)
                 ->addColumn('select', function ($row) {
-                    return '<input type="checkbox" class="qrCheckbox" value="' . $row->id . '">';
+                    $isUnprinted = (int) ($row->is_printed ?? 0) === 0;
+                    $checked = $isUnprinted ? 'checked' : '';
+                    $defaultChecked = $isUnprinted ? '1' : '0';
+
+                    return '<input type="checkbox" class="qrCheckbox" value="' . $row->id . '" ' . $checked . ' data-default-checked="' . $defaultChecked . '">';
                 })
                 ->addColumn('item_name', function ($row) {
                     return optional($row->item)->item_name ?? '-';
@@ -479,7 +489,17 @@ class ItemSetController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
-        $ids = array_values(array_filter(explode(',', (string) $request->ids)));
+        $idsParam = $request->input('ids', []);
+        if (is_array($idsParam)) {
+            $ids = array_values(array_filter($idsParam, function ($id) {
+                return $id !== null && $id !== '';
+            }));
+        } else {
+            $ids = array_values(array_filter(explode(',', (string) $idsParam)));
+        }
+
+        $ids = array_map('intval', $ids);
+        $ids = array_values(array_unique(array_filter($ids, fn($id) => $id > 0)));
 
         if (empty($ids)) {
             return back()->with('error', 'Please select at least one label.');
@@ -559,3 +579,4 @@ class ItemSetController extends Controller
         return response()->json(['success' => true]);
     }
 }
+

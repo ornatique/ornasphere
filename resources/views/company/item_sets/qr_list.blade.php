@@ -42,7 +42,10 @@
 
         <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-3">
-                <div><strong>Total Labels:</strong> <span id="totalLabels">0</span></div>
+                <div>
+                    <strong>Total Labels:</strong> <span id="totalLabels">0</span>
+                    <span class="ms-3"><strong>Selected QR:</strong> <span id="selectedLabels">0</span></span>
+                </div>
                 <button type="button" class="btn btn-success" onclick="printSelected()">Print Selected</button>
             </div>
 
@@ -78,6 +81,22 @@
 @push('scripts')
 <script>
 let selectedIds = new Set();
+function updateSelectedCount() {
+    $('#selectedLabels').text(selectedIds.size);
+}
+function getCurrentFilters() {
+    return {
+        from_date: $('#from_date').val(),
+        to_date: $('#to_date').val(),
+        item_id: $('#item_id').val(),
+    };
+}
+function fetchAllFilteredIds() {
+    return $.get("{{ route('company.item_sets.qrList', $company->slug) }}", {
+        ...getCurrentFilters(),
+        only_ids: 1
+    });
+}
 
 const table = $('#labelListTable').DataTable({
     processing: true,
@@ -85,9 +104,7 @@ const table = $('#labelListTable').DataTable({
     ajax: {
         url: "{{ route('company.item_sets.qrList', $company->slug) }}",
         data: function (d) {
-            d.from_date = $('#from_date').val();
-            d.to_date = $('#to_date').val();
-            d.item_id = $('#item_id').val();
+            Object.assign(d, getCurrentFilters());
         }
     },
     columns: [
@@ -110,32 +127,54 @@ const table = $('#labelListTable').DataTable({
 function bindSelectionState() {
     $('.qrCheckbox').each(function () {
         const id = $(this).val();
+        const defaultChecked = String($(this).data('default-checked')) === '1';
+
+        if (defaultChecked) {
+            selectedIds.add(id);
+        }
+    });
+
+    $('.qrCheckbox').each(function () {
+        const id = $(this).val();
         $(this).prop('checked', selectedIds.has(id));
     });
 
-    const total = $('.qrCheckbox').length;
-    const checked = $('.qrCheckbox:checked').length;
-    $('#selectAll').prop('checked', total > 0 && total === checked);
+    const filteredTotal = parseInt($('#totalLabels').text(), 10) || 0;
+    $('#selectAll').prop('checked', filteredTotal > 0 && selectedIds.size === filteredTotal);
+    updateSelectedCount();
 }
 
 $('#btnShow').on('click', function () {
     table.ajax.reload();
 });
 
-$('#selectAll').on('change', function () {
+$('#selectAll').on('change', async function () {
     const checked = this.checked;
-    $('.qrCheckbox').each(function () {
-        const id = $(this).val();
-        $(this).prop('checked', checked);
-        if (checked) selectedIds.add(id);
-        else selectedIds.delete(id);
-    });
+
+    if (checked) {
+        try {
+            const response = await fetchAllFilteredIds();
+            const ids = Array.isArray(response.ids) ? response.ids : [];
+            selectedIds = new Set(ids.map(String));
+            $('.qrCheckbox').prop('checked', true);
+            updateSelectedCount();
+        } catch (e) {
+            $('#selectAll').prop('checked', false);
+            alert('Unable to select all rows. Please try again.');
+        }
+        return;
+    }
+
+    selectedIds.clear();
+    $('.qrCheckbox').prop('checked', false);
+    updateSelectedCount();
 });
 
 $(document).on('change', '.qrCheckbox', function () {
     const id = $(this).val();
     if (this.checked) selectedIds.add(id);
     else selectedIds.delete(id);
+    updateSelectedCount();
 });
 
 function printSelected() {
@@ -146,8 +185,29 @@ function printSelected() {
         return;
     }
 
-    let url = "{{ route('company.item_sets.printPdf', $company->slug) }}?ids=" + ids.join(',');
-    window.open(url, '_blank');
+    const form = $('<form>', {
+        method: 'POST',
+        action: "{{ route('company.item_sets.printPdf.post', $company->slug) }}",
+        target: '_blank'
+    });
+
+    form.append($('<input>', {
+        type: 'hidden',
+        name: '_token',
+        value: "{{ csrf_token() }}"
+    }));
+
+    ids.forEach(function (id) {
+        form.append($('<input>', {
+            type: 'hidden',
+            name: 'ids[]',
+            value: id
+        }));
+    });
+
+    $('body').append(form);
+    form.trigger('submit');
+    form.remove();
 }
 </script>
 @endpush

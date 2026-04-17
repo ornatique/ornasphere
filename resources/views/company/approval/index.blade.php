@@ -19,11 +19,20 @@
         <div class="card-body border-bottom">
             <div class="row">
 
-                {{-- CUSTOMER --}}
+                <div class="col-md-3">
+                    <label>From Date</label>
+                    <input type="date" id="from_date" class="form-control">
+                </div>
+
+                <div class="col-md-3">
+                    <label>To Date</label>
+                    <input type="date" id="to_date" class="form-control">
+                </div>
+
                 <div class="col-md-3">
                     <label>Customer</label>
                     <select id="customer_id" class="form-select">
-                        <option value="">Select Customer</option>
+                        <option value="">All Customers</option>
                         @foreach($customers as $customer)
                         <option value="{{ $customer->id }}">
                             {{ $customer->name }}
@@ -32,19 +41,6 @@
                     </select>
                 </div>
 
-                {{-- FROM DATE --}}
-                <div class="col-md-3">
-                    <label>From Date</label>
-                    <input type="date" id="from_date" class="form-control">
-                </div>
-
-                {{-- TO DATE --}}
-                <div class="col-md-3">
-                    <label>To Date</label>
-                    <input type="date" id="to_date" class="form-control">
-                </div>
-
-                {{-- BUTTON --}}
                 <div class="col-md-3 gap-2 d-flex align-items-end">
                     <button class="btn btn-primary" id="filterBtn">
                         Show
@@ -53,7 +49,6 @@
                         Clear
                     </button>
                 </div>
-
 
             </div>
         </div>
@@ -68,9 +63,17 @@
                         <th>Approval No</th>
                         <th>Date</th>
                         <th>Customer</th>
-                        <th>Total Items</th>
-                        <th>Total Wt</th>
+                        <th>Qty</th>
+                        <th>Gross Wt</th>
+                        <th>Net Wt</th>
+                        <th>Fine Wt</th>
+                        <th>Metal Amt</th>
+                        <th>Labour Amt</th>
+                        <th>Other Amt</th>
                         <th>Total Amt</th>
+                        <th>Created By</th>
+                        <th>Modified At</th>
+                        <th>Modified Count</th>
                         <th>Status</th>
                         <th>Action</th>
                     </tr>
@@ -86,10 +89,15 @@
 @endsection
 @push('scripts')
 <script>
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    $('#from_date').val(today);
+    $('#to_date').val(today);
+
     let table = $('#approvalTable').DataTable({
         processing: true,
         serverSide: true,
-        searching: false, // optional
+        searching: false,
 
         ajax: {
             url: "{{ route('company.approval.index', $company->slug) }}",
@@ -115,13 +123,43 @@
                 data: 'customer_name'
             },
             {
-                data: 'total_items'
+                data: 'total_qty'
+            },
+            {
+                data: 'total_gross_weight'
             },
             {
                 data: 'total_net_weight'
             },
             {
+                data: 'total_fine_weight'
+            },
+            {
+                data: 'total_metal_amount'
+            },
+            {
+                data: 'total_labour_amount'
+            },
+            {
+                data: 'total_other_amount'
+            },
+            {
                 data: 'total_amount'
+            },
+            {
+                data: 'creator_name',
+                orderable: false,
+                searchable: false
+            },
+            {
+                data: 'modified_at',
+                orderable: false,
+                searchable: false
+            },
+            {
+                data: 'modified_count',
+                orderable: false,
+                searchable: false
             },
             {
                 data: 'status',
@@ -139,34 +177,17 @@
         ]
     });
 
-
-
-    // 🚫 disable auto load
-    table.clear().draw();
-
-    // 🔘 button click
     $('#filterBtn').click(function() {
-
-        let customer = $('#customer_id').val();
-
-        if (!customer) {
-            alert('Please select customer');
-            return;
-        }
-
         table.draw();
     });
+
     $('#clearBtn').click(function() {
-
-        // 🔄 reset fields
         $('#customer_id').val('');
-        $('#from_date').val('');
-        $('#to_date').val('');
-
-        // ❌ clear table
-        table.clear().draw();
+        $('#from_date').val(today);
+        $('#to_date').val(today);
+        table.draw();
     });
 
-    $('#customer_id').val(null).trigger('change');
+    $('#customer_id').val('').trigger('change');
 </script>
 @endpush

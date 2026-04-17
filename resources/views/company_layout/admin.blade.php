@@ -24,6 +24,28 @@
   <link rel="shortcut icon" href="{{ asset('celestial/assets/images/favicon.png') }}" />
 <link href="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/css/select2.min.css" rel="stylesheet" />
 <link href="https://cdn.jsdelivr.net/npm/@ttskch/select2-bootstrap4-theme@1.5.2/dist/select2-bootstrap4.min.css" rel="stylesheet" />
+<style>
+  .page-body-wrapper {
+    align-items: stretch;
+  }
+
+  .main-panel {
+    min-width: 0;
+  }
+
+  .content-wrapper {
+    overflow-x: auto;
+  }
+
+  @media (min-width: 992px) {
+    .sidebar {
+      position: sticky;
+      top: 70px;
+      height: calc(100vh - 70px);
+      overflow-y: auto;
+    }
+  }
+</style>
 
 </head>
 

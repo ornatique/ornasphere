@@ -3,13 +3,13 @@
 @section('content')
 <div class="content-wrapper">
 
-    <form method="POST" action="{{ route('company.sales.store', ['slug' => $company->slug]) }}">
+    <form method="POST" action="{{ !empty($isEdit) && !empty($sale) ? route('company.sales.update', ['slug' => $company->slug, 'sale' => $sale->id]) : route('company.sales.store', ['slug' => $company->slug]) }}">
         @csrf
 
         <div class="card">
 
             <div class="card-header d-flex justify-content-between">
-                <h4 class="card-title">Create Sale</h4>
+                <h4 class="card-title">{{ !empty($isEdit) ? 'Edit Sale' : 'Create Sale' }}</h4>
 
                 <button type="button" class="btn btn-warning" id="openApprovalModal">
                     Add Label from Approval
@@ -24,7 +24,7 @@
                         <select name="customer_id" class="form-select" id="customerSelect" required>
                             <option value="">Select Customer</option>
                             @foreach($customers as $customer)
-                            <option value="{{ $customer->id }}">{{ $customer->name }}</option>
+                            <option value="{{ $customer->id }}" {{ (!empty($sale) && (int) $sale->customer_id === (int) $customer->id) ? 'selected' : '' }}>{{ $customer->name }}</option>
                             @endforeach
                         </select>
                     </div>
@@ -76,7 +76,7 @@
             </div>
 
             <div class="card-footer text-end">
-                <button class="btn btn-primary">Save Sale</button>
+                <button class="btn btn-primary">{{ !empty($isEdit) ? 'Update Sale' : 'Save Sale' }}</button>
             </div>
 
         </div>
@@ -239,6 +239,7 @@
 @push('scripts')
 <script>
 $(function () {
+    const initialSaleRows = @json(!empty($editableItems) ? $editableItems : []);
     const selectedRows = {};
     let modalRowId = null;
     let otherChargeOptions = [];
@@ -925,6 +926,14 @@ $(function () {
             return false;
         }
     });
+
+    if (Array.isArray(initialSaleRows) && initialSaleRows.length) {
+        initialSaleRows.forEach(function(row) {
+            appendSaleRow(normalizeSaleRowFromItem(row));
+        });
+    }
+
+    $('#customerSelect').trigger('change');
 });
 </script>
 @endpush

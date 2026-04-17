@@ -32,8 +32,19 @@ class SaleController extends Controller
         // ✅ AJAX (DataTable)
         if ($request->ajax()) {
 
-            $query = Sale::with('customer')
+            $query = Sale::with(['customer', 'creator'])
+                ->withSum('saleItems as sum_qty', 'qty')
+                ->withSum('saleItems as sum_gross_weight', 'gross_weight')
+                ->withSum('saleItems as sum_net_weight', 'net_weight')
+                ->withSum('saleItems as sum_fine_weight', 'fine_weight')
+                ->withSum('saleItems as sum_metal_amount', 'metal_amount')
+                ->withSum('saleItems as sum_labour_amount', 'labour_amount')
+                ->withSum('saleItems as sum_other_amount', 'other_amount')
                 ->where('company_id', $company->id);
+
+            if ($request->filled('customer_id')) {
+                $query->where('customer_id', (int) $request->customer_id);
+            }
 
             // ✅ DATE FILTER (IMPORTANT)
             if (!empty($request->from_date) && !empty($request->to_date)) {
@@ -75,6 +86,18 @@ class SaleController extends Controller
                 ->editColumn('net_total', function ($sale) {
                     return number_format($sale->net_total, 2);
                 })
+                ->addColumn('total_qty', fn($sale) => (int) ($sale->sum_qty ?? 0))
+                ->addColumn('total_gross_weight', fn($sale) => number_format((float) ($sale->sum_gross_weight ?? 0), 3))
+                ->addColumn('total_net_weight', fn($sale) => number_format((float) ($sale->sum_net_weight ?? 0), 3))
+                ->addColumn('total_fine_weight', fn($sale) => number_format((float) ($sale->sum_fine_weight ?? 0), 3))
+                ->addColumn('total_metal_amount', fn($sale) => number_format((float) ($sale->sum_metal_amount ?? 0), 2))
+                ->addColumn('total_labour_amount', fn($sale) => number_format((float) ($sale->sum_labour_amount ?? 0), 2))
+                ->addColumn('total_other_amount', fn($sale) => number_format((float) ($sale->sum_other_amount ?? 0), 2))
+                ->addColumn('creator_name', fn($sale) => optional($sale->creator)->name ?? '-')
+                ->addColumn('modified_at', function ($sale) {
+                    return $sale->updated_at ? Carbon::parse($sale->updated_at)->format('d-m-Y h:i A') : '-';
+                })
+                ->addColumn('modified_count', fn($sale) => (int) ($sale->modified_count ?? 0))
 
                 // ✅ ACTION BUTTON (VIEW PDF)
                 ->addColumn('action', function ($sale) use ($company) {
@@ -84,7 +107,18 @@ class SaleController extends Controller
                         'sale' => $sale->id
                     ]);
 
-                    return '
+                    $editUrl = route('company.sales.edit', [
+                        'slug' => $company->slug,
+                        'sale' => $sale->id
+                    ]);
+                    $editBtn = '
+                    <a href="' . $editUrl . '" 
+                       class="btn btn-sm btn-warning me-1">
+                        Edit
+                    </a>
+                    ';
+
+                    return $editBtn . '
                     <a href="' . $pdfUrl . '" 
                        target="_blank"
                        class="btn btn-sm btn-info">
@@ -99,7 +133,12 @@ class SaleController extends Controller
         }
 
         // ✅ NORMAL VIEW
-        return view('company.sales.index', compact('company'));
+        $customers = Customer::where('company_id', $company->id)
+            ->where('is_active', 1)
+            ->orderBy('name')
+            ->get();
+
+        return view('company.sales.index', compact('company', 'customers'));
     }
 
 
@@ -121,11 +160,66 @@ class SaleController extends Controller
             ->where('is_sold', 0)
             ->get();
 
-        return view('company.sales.create', compact(
-            'company',
-            'customers',
-            'itemsets'
-        ));
+        return view('company.sales.create', [
+            'company' => $company,
+            'customers' => $customers,
+            'itemsets' => $itemsets,
+            'isEdit' => false,
+            'sale' => null,
+            'editableItems' => collect(),
+        ]);
+    }
+
+    public function edit($slug, $saleId)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+
+        $sale = Sale::with('saleItems.itemset.item')
+            ->where('company_id', $company->id)
+            ->findOrFail((int) $saleId);
+
+        $customers = Customer::where('company_id', $company->id)
+            ->where('is_active', 1)
+            ->get();
+
+        $itemsets = ItemSet::with('item')
+            ->where('company_id', $company->id)
+            ->where('is_sold', 0)
+            ->get();
+
+        $editableItems = $sale->saleItems->map(function ($row) {
+            return [
+                'itemset_id' => (int) ($row->itemset_id ?? 0),
+                'item_id' => (int) ($row->product_id ?? optional($row->itemset)->item_id ?? 0),
+                'approval_id' => (int) ($row->approval_item_id ?? 0),
+                'name' => optional(optional($row->itemset)->item)->item_name ?? '',
+                'code' => optional($row->itemset)->qr_code ?? '',
+                'huid' => optional($row->itemset)->HUID ?? '',
+                'gross_weight' => (float) ($row->gross_weight ?? 0),
+                'other_weight' => (float) ($row->other_weight ?? 0),
+                'net_weight' => (float) ($row->net_weight ?? 0),
+                'purity' => (float) ($row->purity ?? 0),
+                'waste_percent' => (float) ($row->waste_percent ?? 0),
+                'net_purity' => (float) ($row->net_purity ?? 0),
+                'fine_weight' => (float) ($row->fine_weight ?? 0),
+                'metal_rate' => (float) ($row->metal_rate ?? 0),
+                'metal_amount' => (float) ($row->metal_amount ?? 0),
+                'labour_rate' => (float) ($row->labour_rate ?? 0),
+                'labour_amount' => (float) ($row->labour_amount ?? 0),
+                'other_amount' => (float) ($row->other_amount ?? 0),
+                'total_amount' => (float) ($row->total_amount ?? 0),
+                'other_charges' => [],
+            ];
+        });
+
+        return view('company.sales.create', [
+            'company' => $company,
+            'customers' => $customers,
+            'itemsets' => $itemsets,
+            'isEdit' => true,
+            'sale' => $sale,
+            'editableItems' => $editableItems,
+        ]);
     }
 
 
@@ -247,7 +341,9 @@ class SaleController extends Controller
                 'customer_id' => $request->customer_id,
                 'voucher_no'  => 'SL' . time(),
                 'sale_date'   => now(),
-                'net_total'   => 0
+                'net_total'   => 0,
+                'employee_id' => optional($request->user())->id,
+                'modified_count' => 0,
             ]);
 
             $total = 0;
@@ -352,6 +448,181 @@ class SaleController extends Controller
         }
     }
 
+    public function update(Request $request, $slug, $saleId)
+    {
+        DB::beginTransaction();
+
+        try {
+            $company = Company::where('slug', $slug)->firstOrFail();
+
+            $sale = Sale::with('saleItems')
+                ->where('company_id', $company->id)
+                ->findOrFail((int) $saleId);
+
+            $request->validate([
+                'customer_id' => 'required|integer',
+                'items' => 'required|array|min:1',
+                'items.*' => 'required|integer',
+            ]);
+
+            $customerExists = Customer::where('company_id', $company->id)
+                ->where('id', (int) $request->customer_id)
+                ->exists();
+            if (!$customerExists) {
+                throw new \Exception('Invalid customer for this company.');
+            }
+
+            $sale->update([
+                'customer_id' => (int) $request->customer_id,
+            ]);
+
+            $existingItems = $sale->saleItems->keyBy('itemset_id');
+            $existingItemsetIds = $existingItems->keys()->map(fn($id) => (int) $id)->values();
+            $incomingItemsetIds = collect($request->items)
+                ->map(fn($id) => (int) $id)
+                ->filter(fn($id) => $id > 0)
+                ->values();
+
+            $approvalIds = [];
+
+            // Remove deleted rows from sale.
+            $removedItemsetIds = $existingItemsetIds->diff($incomingItemsetIds)->values();
+            foreach ($removedItemsetIds as $itemsetId) {
+                $saleItem = $existingItems->get($itemsetId);
+                if (!$saleItem) {
+                    continue;
+                }
+
+                if (!empty($saleItem->approval_item_id)) {
+                    $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($company) {
+                        $q->where('company_id', $company->id);
+                    })->find((int) $saleItem->approval_item_id);
+
+                    if ($approvalItem) {
+                        $approvalItem->update(['status' => 'pending']);
+                        $approvalIds[] = (int) $approvalItem->approval_id;
+                    }
+                }
+
+                ItemSet::where('company_id', $company->id)
+                    ->where('id', (int) $itemsetId)
+                    ->update(['is_sold' => 0]);
+
+                $saleItem->delete();
+            }
+
+            $total = 0;
+
+            foreach ($request->items as $index => $itemsetIdRaw) {
+                $itemsetId = (int) $itemsetIdRaw;
+                if ($itemsetId <= 0) {
+                    continue;
+                }
+
+                $existingSaleItem = $existingItems->get($itemsetId);
+                $approvalItemId = $request->approval_item_ids[$index] ?? null;
+
+                $itemQuery = ItemSet::where('company_id', $company->id)
+                    ->where('id', $itemsetId);
+
+                if (!$existingSaleItem && empty($approvalItemId)) {
+                    $itemQuery->where('is_sold', 0);
+                }
+
+                $item = $itemQuery->first();
+                if (!$item) {
+                    throw new \Exception("Item not available for sale: {$itemsetId}");
+                }
+
+                $payload = [
+                    'gross_weight'     => $request->gross_weight[$index] ?? $item->gross_weight ?? 0,
+                    'other_weight'     => $request->other_weight[$index] ?? $item->other ?? 0,
+                    'net_weight'       => $request->net_weight[$index] ?? 0,
+                    'purity'           => $request->purity[$index] ?? 0,
+                    'waste_percent'    => $request->waste_percent[$index] ?? 0,
+                    'net_purity'       => $request->net_purity[$index] ?? 0,
+                    'fine_weight'      => $request->fine_weight[$index] ?? 0,
+                    'metal_rate'       => $request->metal_rate[$index] ?? 0,
+                    'metal_amount'     => $request->metal_amount[$index] ?? 0,
+                    'labour_rate'      => $request->labour_rate[$index] ?? 0,
+                    'labour_amount'    => $request->labour_amount[$index] ?? 0,
+                    'other_amount'     => $request->other_amount[$index] ?? 0,
+                    'total_amount'     => $request->total_amount[$index] ?? 0,
+                    'approval_item_id' => $approvalItemId,
+                ];
+
+                if ($existingSaleItem) {
+                    $oldApprovalItemId = (int) ($existingSaleItem->approval_item_id ?? 0);
+                    $newApprovalItemId = (int) ($approvalItemId ?? 0);
+
+                    $existingSaleItem->update($payload);
+
+                    if ($oldApprovalItemId > 0 && $oldApprovalItemId !== $newApprovalItemId) {
+                        $oldApproval = ApprovalItem::whereHas('approval', function ($q) use ($company) {
+                            $q->where('company_id', $company->id);
+                        })->find($oldApprovalItemId);
+
+                        if ($oldApproval) {
+                            $oldApproval->update(['status' => 'pending']);
+                            $approvalIds[] = (int) $oldApproval->approval_id;
+                        }
+                    }
+                } else {
+                    SaleItem::create(array_merge($payload, [
+                        'sale_id' => $sale->id,
+                        'itemset_id' => $item->id,
+                    ]));
+
+                    $item->update(['is_sold' => 1]);
+                }
+
+                if (!empty($approvalItemId)) {
+                    $approval = ApprovalItem::whereHas('approval', function ($q) use ($company) {
+                        $q->where('company_id', $company->id);
+                    })->find((int) $approvalItemId);
+
+                    if ($approval) {
+                        $approval->update(['status' => 'sold']);
+                        $approvalIds[] = (int) $approval->approval_id;
+                    }
+                }
+
+                $total += (float) ($payload['total_amount'] ?? 0);
+            }
+
+            $sale->update(['net_total' => $total]);
+            $sale->increment('modified_count');
+
+            foreach (array_unique($approvalIds) as $approvalId) {
+                $totalItems = ApprovalItem::where('approval_id', $approvalId)->count();
+                $soldItems = ApprovalItem::where('approval_id', $approvalId)
+                    ->where('status', 'sold')
+                    ->count();
+
+                if ($soldItems == 0) {
+                    $status = 'open';
+                } elseif ($soldItems < $totalItems) {
+                    $status = 'partial';
+                } else {
+                    $status = 'closed';
+                }
+
+                ApprovalHeader::where('company_id', $company->id)
+                    ->where('id', $approvalId)
+                    ->update(['status' => $status]);
+            }
+
+            DB::commit();
+
+            return redirect()
+                ->route('company.sales.index', $company->slug)
+                ->with('success', 'Sale updated successfully');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
     /**
      * Show single sale
      */
@@ -421,6 +692,8 @@ class SaleController extends Controller
                 'customer_id' => $request->customer_id,
                 'sale_date' => now(),
                 'voucher_no' => 'SL' . time(),
+                'employee_id' => optional($request->user())->id,
+                'modified_count' => 0,
             ]);
 
             foreach ($request->items as $id) {

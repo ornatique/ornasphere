@@ -27,17 +27,42 @@ class ApprovalController extends Controller
             ->get();
 
         if ($request->ajax()) {
-            $query = ApprovalHeader::with('customer')
+            $query = ApprovalHeader::with(['customer', 'creator'])
                 ->withCount([
                     'items as active_items_count' => function ($q) {
                         $q->where('status', '!=', 'returned');
                     }
                 ])
                 ->withSum([
+                    'items as active_gross_weight' => function ($q) {
+                        $q->where('status', '!=', 'returned');
+                    }
+                ], 'gross_weight')
+                ->withSum([
                     'items as active_net_weight' => function ($q) {
                         $q->where('status', '!=', 'returned');
                     }
                 ], 'net_weight')
+                ->withSum([
+                    'items as active_fine_weight' => function ($q) {
+                        $q->where('status', '!=', 'returned');
+                    }
+                ], 'total_fine_weight')
+                ->withSum([
+                    'items as active_metal_amount' => function ($q) {
+                        $q->where('status', '!=', 'returned');
+                    }
+                ], 'metal_amount')
+                ->withSum([
+                    'items as active_labour_amount' => function ($q) {
+                        $q->where('status', '!=', 'returned');
+                    }
+                ], 'labour_amount')
+                ->withSum([
+                    'items as active_other_amount' => function ($q) {
+                        $q->where('status', '!=', 'returned');
+                    }
+                ], 'other_amount')
                 ->withSum([
                     'items as active_item_amount' => function ($q) {
                         $q->where('status', '!=', 'returned');
@@ -47,31 +72,54 @@ class ApprovalController extends Controller
                 ->orderByDesc('approval_date')
                 ->orderByDesc('id');
 
-            if (!$request->customer_id) {
-                return datatables()->of(collect())->make(true);
+            if ($request->filled('customer_id')) {
+                $query->where('customer_id', $request->customer_id);
             }
 
-            $query->where('customer_id', $request->customer_id);
+            $fromDate = $request->input('from_date');
+            $toDate = $request->input('to_date');
+            $today = now()->toDateString();
 
-            if ($request->from_date && $request->to_date) {
-                $query->whereBetween('approval_date', [
-                    $request->from_date,
-                    $request->to_date,
-                ]);
+            if (empty($fromDate) && empty($toDate)) {
+                $fromDate = $today;
+                $toDate = $today;
+            } elseif (!empty($fromDate) && empty($toDate)) {
+                $toDate = $fromDate;
+            } elseif (empty($fromDate) && !empty($toDate)) {
+                $fromDate = $toDate;
+            }
+
+            if (!empty($fromDate) && !empty($toDate)) {
+                $query->whereBetween('approval_date', [$fromDate, $toDate]);
             }
 
             return datatables()->of($query)
                 ->addIndexColumn()
                 ->addColumn('customer_name', fn($row) => $row->customer->name ?? '-')
                 ->addColumn('approval_date', fn($row) => \Carbon\Carbon::parse($row->approval_date)->format('d-m-Y'))
-                ->addColumn('total_items', fn($row) => (int) ($row->active_items_count ?? 0))
+                ->addColumn('total_qty', fn($row) => (int) ($row->active_items_count ?? 0))
+                ->addColumn('total_gross_weight', fn($row) => number_format((float) ($row->active_gross_weight ?? 0), 3))
                 ->addColumn('total_net_weight', fn($row) => number_format((float) ($row->active_net_weight ?? 0), 3))
+                ->addColumn('total_fine_weight', fn($row) => number_format((float) ($row->active_fine_weight ?? 0), 3))
+                ->addColumn('total_metal_amount', fn($row) => number_format((float) ($row->active_metal_amount ?? 0), 2))
+                ->addColumn('total_labour_amount', fn($row) => number_format((float) ($row->active_labour_amount ?? 0), 2))
+                ->addColumn('total_other_amount', fn($row) => number_format((float) ($row->active_other_amount ?? 0), 2))
                 ->addColumn('total_amount', fn($row) => number_format((float) ($row->active_item_amount ?? 0), 2))
+                ->addColumn('creator_name', fn($row) => optional($row->creator)->name ?? '-')
+                ->addColumn('modified_at', function ($row) {
+                    return $row->updated_at ? \Carbon\Carbon::parse($row->updated_at)->format('d-m-Y h:i A') : '-';
+                })
+                ->addColumn('modified_count', fn($row) => (int) ($row->modified_count ?? 0))
                 ->addColumn('status', fn($row) => $row->status_badge)
                 ->addColumn('action', function ($row) use ($slug) {
                     $url = route('company.approval.view', [$slug, $row->id]);
                     $pdfUrl = route('company.approval.pdf', [$slug, $row->id]);
-                    return '<a href="' . $url . '" class="btn btn-sm btn-info me-1">View</a>
+                    $editBtn = '';
+                    if (in_array((string) $row->status, ['open', 'partial'], true)) {
+                        $editUrl = route('company.approval.edit', [$slug, $row->id]);
+                        $editBtn = '<a href="' . $editUrl . '" class="btn btn-sm btn-warning me-1">Edit</a>';
+                    }
+                    return $editBtn . '<a href="' . $url . '" class="btn btn-sm btn-info me-1">View</a>
                             <a href="' . $pdfUrl . '" class="btn btn-sm btn-primary" target="_blank">PDF</a>';
                 })
                 ->rawColumns(['status', 'action'])
@@ -90,6 +138,61 @@ class ApprovalController extends Controller
             ->get();
 
         return view('company.approval.create', compact('company', 'customers'));
+    }
+
+    public function edit($slug, $id)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        $approval = ApprovalHeader::with(['items.itemSet.item', 'items.legacyItemSet.item'])
+            ->where('company_id', $company->id)
+            ->findOrFail($id);
+
+        if (!in_array((string) $approval->status, ['open', 'partial'], true)) {
+            return redirect()
+                ->route('company.approval.index', $company->slug)
+                ->with('error', 'Only open/partial approvals can be edited.');
+        }
+
+        $customers = Customer::where('company_id', $company->id)
+            ->where('is_active', 1)
+            ->get();
+
+        $editableItems = $approval->items
+            ->where('status', 'pending')
+            ->values()
+            ->map(function ($row) {
+                $itemSet = $row->itemSet ?? $row->legacyItemSet;
+                return [
+                    'itemset_id' => (int) ($row->itemset_id ?? optional($itemSet)->id),
+                    'item_id' => (int) ($row->item_id ?? optional($itemSet)->item_id),
+                    'item_name' => optional(optional($itemSet)->item)->item_name,
+                    'huid' => $row->huid ?? optional($itemSet)->HUID,
+                    'qr_code' => $row->qr_code ?? optional($itemSet)->qr_code,
+                    'gross_weight' => (float) ($row->gross_weight ?? 0),
+                    'other_weight' => (float) ($row->other_weight ?? 0),
+                    'net_weight' => (float) ($row->net_weight ?? 0),
+                    'purity' => (float) ($row->purity ?? 0),
+                    'waste_percent' => (float) ($row->waste_percent ?? 0),
+                    'net_purity' => (float) ($row->net_purity ?? 0),
+                    'total_fine_weight' => (float) ($row->total_fine_weight ?? 0),
+                    'metal_rate' => (float) ($row->metal_rate ?? 0),
+                    'metal_amount' => (float) ($row->metal_amount ?? 0),
+                    'labour_rate' => (float) ($row->labour_rate ?? 0),
+                    'labour_amount' => (float) ($row->labour_amount ?? 0),
+                    'other_amount' => (float) ($row->other_amount ?? 0),
+                    'total_amount' => (float) ($row->total_amount ?? 0),
+                    'other_charges' => [],
+                ];
+            });
+
+        return view('company.approval.create', [
+            'company' => $company,
+            'customers' => $customers,
+            'approval' => $approval,
+            'editableItems' => $editableItems,
+            'isEdit' => true,
+        ]);
     }
 
     public function getItemSets($slug, $itemId)
@@ -139,6 +242,8 @@ class ApprovalController extends Controller
                 'approval_no' => 'APP' . time(),
                 'approval_date' => now(),
                 'status' => 'open',
+                'employee_id' => optional(auth()->user())->id,
+                'modified_count' => 0,
             ]);
 
             $items = collect($request->items ?? []);
@@ -212,6 +317,113 @@ class ApprovalController extends Controller
                 'success' => false,
                 'message' => $e->getMessage(),
             ]);
+        }
+    }
+
+    public function update(Request $request, $slug, $id)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        DB::beginTransaction();
+
+        try {
+            $approval = ApprovalHeader::with('items')
+                ->where('company_id', $company->id)
+                ->findOrFail($id);
+
+            if (!in_array((string) $approval->status, ['open', 'partial'], true)) {
+                throw new \Exception('Only open/partial approvals can be edited.');
+            }
+
+            $request->validate([
+                'customer_id' => 'required|integer|exists:customers,id',
+                'items' => 'required|array|min:1',
+            ]);
+
+            $customerExists = Customer::where('company_id', $company->id)
+                ->where('id', (int) $request->customer_id)
+                ->exists();
+            if (!$customerExists) {
+                throw new \Exception('Invalid customer for this company.');
+            }
+
+            $approval->update([
+                'customer_id' => (int) $request->customer_id,
+                'modified_count' => ((int) ($approval->modified_count ?? 0)) + 1,
+            ]);
+
+            $incomingRows = collect($request->items ?? []);
+            $incomingItemsetIds = $incomingRows
+                ->map(fn($row) => (int) ($row['itemset_id'] ?? $row['id'] ?? 0))
+                ->filter(fn($id) => $id > 0)
+                ->unique()
+                ->values();
+
+            $pendingItems = ApprovalItem::where('approval_id', $approval->id)
+                ->where('status', 'pending')
+                ->get();
+
+            $pendingByItemset = $pendingItems->keyBy('itemset_id');
+
+            // Remove pending rows deleted in edit screen and free those labels.
+            $toRemove = $pendingItems->filter(function ($row) use ($incomingItemsetIds) {
+                return !$incomingItemsetIds->contains((int) $row->itemset_id);
+            });
+
+            foreach ($toRemove as $row) {
+                if (!empty($row->itemset_id)) {
+                    ItemSet::where('company_id', $company->id)
+                        ->where('id', (int) $row->itemset_id)
+                        ->update(['is_sold' => 0]);
+                }
+                $row->delete();
+            }
+
+            foreach ($incomingRows as $row) {
+                $itemSetId = (int) ($row['itemset_id'] ?? $row['id'] ?? 0);
+                if ($itemSetId <= 0) {
+                    continue;
+                }
+
+                $itemSet = ItemSet::with('item')
+                    ->where('company_id', $company->id)
+                    ->findOrFail($itemSetId);
+
+                // If this label was not already pending in this approval, it must be free.
+                if (!$pendingByItemset->has($itemSetId) && (int) $itemSet->is_sold === 1) {
+                    throw new \Exception("Item already used: {$itemSet->qr_code}");
+                }
+
+                $payload = $this->buildApprovalItemPayload($row, $itemSet);
+
+                if ($pendingByItemset->has($itemSetId)) {
+                    $pendingByItemset->get($itemSetId)->update($payload);
+                } else {
+                    ApprovalItem::create(array_merge($payload, [
+                        'approval_id' => $approval->id,
+                        'itemset_id' => $itemSet->id,
+                        'item_id' => $itemSet->item_id,
+                        'status' => 'pending',
+                    ]));
+                    $itemSet->update(['is_sold' => 1]);
+                }
+            }
+
+            $this->refreshApprovalStatusByHeader((int) $approval->id);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Approval updated successfully',
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
         }
     }
 
@@ -389,6 +601,60 @@ class ApprovalController extends Controller
         ApprovalHeader::where('id', $approvalId)->update([
             'status' => $status,
         ]);
+    }
+
+    private function refreshApprovalStatusByHeader(int $approvalId): void
+    {
+        $total = ApprovalItem::where('approval_id', $approvalId)->count();
+        $done = ApprovalItem::where('approval_id', $approvalId)
+            ->whereIn('status', ['sold', 'returned'])
+            ->count();
+
+        $status = 'open';
+        if ($total > 0 && $done === $total) {
+            $status = 'closed';
+        } elseif ($done > 0 && $done < $total) {
+            $status = 'partial';
+        }
+
+        ApprovalHeader::where('id', $approvalId)->update([
+            'status' => $status,
+        ]);
+    }
+
+    private function buildApprovalItemPayload(array $row, ItemSet $itemSet): array
+    {
+        $gross = (float) ($row['gross_weight'] ?? $itemSet->gross_weight ?? 0);
+        $otherWeight = (float) ($row['other_weight'] ?? $itemSet->other ?? 0);
+        $netWeight = (float) ($row['net_weight'] ?? ($gross - $otherWeight));
+        $purity = (float) ($row['purity'] ?? optional($itemSet->item)->outward_purity ?? 0);
+        $wastePercent = (float) ($row['waste_percent'] ?? 0);
+        $netPurity = (float) ($row['net_purity'] ?? max(0, $purity - $wastePercent));
+        $totalFineWeight = (float) ($row['total_fine_weight'] ?? ($netWeight * $netPurity / 100));
+        $metalRate = (float) ($row['metal_rate'] ?? 0);
+        $metalAmount = (float) ($row['metal_amount'] ?? ($netWeight * $metalRate));
+        $labourRate = (float) ($row['labour_rate'] ?? $itemSet->sale_labour_rate ?? optional($itemSet->item)->labour_rate ?? 0);
+        $labourAmount = (float) ($row['labour_amount'] ?? ($netWeight * $labourRate));
+        $otherAmount = (float) ($row['other_amount'] ?? $itemSet->sale_other ?? 0);
+        $totalAmount = (float) ($row['total_amount'] ?? ($metalAmount + $labourAmount + $otherAmount));
+
+        return [
+            'huid' => $row['huid'] ?? $itemSet->HUID,
+            'qr_code' => $row['qr_code'] ?? $itemSet->qr_code,
+            'gross_weight' => $gross,
+            'other_weight' => $otherWeight,
+            'net_weight' => $netWeight,
+            'purity' => $purity,
+            'waste_percent' => $wastePercent,
+            'net_purity' => $netPurity,
+            'total_fine_weight' => $totalFineWeight,
+            'metal_rate' => $metalRate,
+            'metal_amount' => $metalAmount,
+            'labour_rate' => $labourRate,
+            'labour_amount' => $labourAmount,
+            'other_amount' => $otherAmount,
+            'total_amount' => $totalAmount,
+        ];
     }
 
     public function approvalReturnList($slug)
