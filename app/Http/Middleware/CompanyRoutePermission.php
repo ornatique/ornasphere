@@ -91,6 +91,10 @@ class CompanyRoutePermission
             'company.approval-sales.' => 'sale',
             'company.approval.return.' => 'approval',
             'company.approval.' => 'approval',
+            'company.reports.sales-summary.' => 'report-sales-summary',
+            'company.reports.stock-position.' => 'report-stock-position',
+            'company.reports.approval-outstanding.' => 'report-approval-outstanding',
+            'company.reports.barcode-history.' => 'report-barcode-history',
         ];
 
         foreach ($map as $prefix => $module) {

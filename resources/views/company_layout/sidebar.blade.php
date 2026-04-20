@@ -2,6 +2,11 @@
     @php
     $authUser = auth()->user();
     $isCompanyAdmin = $authUser && $authUser->hasRole('company_admin');
+    $routeName = (string) optional(request()->route())->getName();
+    $isSalesRoute = str_starts_with($routeName, 'company.sales.')
+        || str_starts_with($routeName, 'company.returns.')
+        || str_starts_with($routeName, 'company.approval.');
+    $isReportRoute = str_starts_with($routeName, 'company.reports.');
 
     $canModule = function (string $module, string $action = 'view') use ($authUser, $isCompanyAdmin) {
         if ($isCompanyAdmin) {
@@ -57,9 +62,13 @@
     $canApproval = $canModule('approval');
     $canSales = $canModule('sale');
     $canReturns = $canModule('return');
-    @endphp
+    $canReportSalesSummary = $canModule('report-sales-summary');
+    $canReportStockPosition = $canModule('report-stock-position');
+    $canReportApprovalOutstanding = $canModule('report-approval-outstanding');
+    $canReportBarcodeHistory = $canModule('report-barcode-history');
+@endphp
 
-    <ul class="nav">
+    <ul class="nav" id="sidebar-accordion">
 
         {{-- PROFILE --}}
         <li class="nav-item">
@@ -103,7 +112,7 @@
                 <i class="typcn typcn-chevron-right menu-arrow"></i>
             </a>
 
-            <div class="collapse {{ $userManagementActive ? 'show' : '' }}" id="user-management">
+            <div class="collapse {{ $userManagementActive ? 'show' : '' }}" id="user-management" data-bs-parent="#sidebar-accordion">
                 <ul class="nav flex-column sub-menu">
                     @if($canUsers)
                     <li class="nav-item">
@@ -186,7 +195,7 @@
                 <i class="typcn typcn-chevron-right menu-arrow"></i>
             </a>
 
-            <div class="collapse {{ $itemActive ? 'show' : '' }}" id="item-management">
+            <div class="collapse {{ $itemActive ? 'show' : '' }}" id="item-management" data-bs-parent="#sidebar-accordion">
                 <ul class="nav flex-column sub-menu">
                     @if($canItems)
                     <li class="nav-item">
@@ -242,11 +251,7 @@
         @endif
 
         {{-- ================= SALES ================= --}}
-        @php
-        $salesActive = request()->routeIs('company.sales.*')
-        || request()->routeIs('company.returns.*')
-        || request()->routeIs('company.approval.*');
-        @endphp
+        @php $salesActive = $isSalesRoute; @endphp
         @if($canApproval || $canSales || $canReturns)
         <li class="nav-item {{ $salesActive ? 'active' : '' }}">
             <a class="nav-link"
@@ -292,5 +297,88 @@
         </li>
         @endif
 
+        {{-- ================= REPORTS ================= --}}
+        @php $reportActive = $isReportRoute; @endphp
+        @if($canReportSalesSummary || $canReportStockPosition || $canReportApprovalOutstanding || $canReportBarcodeHistory)
+        <li class="nav-item {{ $reportActive ? 'active' : '' }}">
+            <a class="nav-link"
+                data-bs-toggle="collapse"
+                href="#reports-menu"
+                aria-expanded="{{ $reportActive ? 'true' : 'false' }}">
+                <i class="typcn typcn-document-text menu-icon"></i>
+                <span class="menu-title">Reports</span>
+                <i class="typcn typcn-chevron-right menu-arrow"></i>
+            </a>
+
+            <div class="collapse {{ $reportActive ? 'show' : '' }}" id="reports-menu">
+                <ul class="nav flex-column sub-menu">
+                    @if($canReportSalesSummary)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.reports.sales-summary.*') ? 'active' : '' }}"
+                            href="{{ route('company.reports.sales-summary.index', auth()->user()->company->slug) }}">
+                            Sales Summary
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canReportStockPosition)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.reports.stock-position.*') ? 'active' : '' }}"
+                            href="{{ route('company.reports.stock-position.index', auth()->user()->company->slug) }}">
+                            Stock Position
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canReportApprovalOutstanding)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.reports.approval-outstanding.*') ? 'active' : '' }}"
+                            href="{{ route('company.reports.approval-outstanding.index', auth()->user()->company->slug) }}">
+                            Approval Outstanding
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canReportBarcodeHistory)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.reports.barcode-history.*') ? 'active' : '' }}"
+                            href="{{ route('company.reports.barcode-history.index', auth()->user()->company->slug) }}">
+                            Barcode History
+                        </a>
+                    </li>
+                    @endif
+                </ul>
+            </div>
+        </li>
+        @endif
+
     </ul>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const salesToggle = document.querySelector('a[href="#sales-menu"]');
+            const reportsToggle = document.querySelector('a[href="#reports-menu"]');
+            const salesMenu = document.getElementById('sales-menu');
+            const reportsMenu = document.getElementById('reports-menu');
+
+            if (!window.bootstrap || !salesMenu || !reportsMenu || !salesToggle || !reportsToggle) {
+                return;
+            }
+
+            const salesCollapse = window.bootstrap.Collapse.getOrCreateInstance(salesMenu, { toggle: false });
+            const reportsCollapse = window.bootstrap.Collapse.getOrCreateInstance(reportsMenu, { toggle: false });
+
+            salesToggle.addEventListener('click', function () {
+                if (reportsMenu.classList.contains('show')) {
+                    reportsCollapse.hide();
+                }
+            });
+
+            reportsToggle.addEventListener('click', function () {
+                if (salesMenu.classList.contains('show')) {
+                    salesCollapse.hide();
+                }
+            });
+        });
+    </script>
 </nav>

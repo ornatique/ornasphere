@@ -5,6 +5,7 @@ namespace App\Http\Controllers\SuperAdmin;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use App\Models\AuditLog;
 use App\Models\SuperAdmin;
 use PragmaRX\Google2FA\Google2FA;
 
@@ -48,6 +49,13 @@ class SuperAdmin2FAController extends Controller
 
         Auth::guard('superadmin')->login($user);
 
+        AuditLog::logEvent(
+            '2fa_verified',
+            'superadmin_2fa',
+            'Super admin 2FA verified successfully: ' . $user->email,
+            ['super_admin_id' => $user->id]
+        );
+
         return redirect()->route('superadmin.dashboard');
     }
 
@@ -61,6 +69,13 @@ class SuperAdmin2FAController extends Controller
 
         $user->two_factor_secret = $secret;
         $user->save();
+
+        AuditLog::logEvent(
+            '2fa_setup_started',
+            'superadmin_2fa',
+            'Super admin started 2FA setup: ' . $user->email,
+            ['super_admin_id' => $user->id]
+        );
 
         $qrCodeUrl = $google2fa->getQRCodeUrl(
             config('app.name'),
@@ -96,6 +111,13 @@ class SuperAdmin2FAController extends Controller
 
         $user->two_factor_confirmed_at = now();
         $user->save();
+
+        AuditLog::logEvent(
+            '2fa_enabled',
+            'superadmin_2fa',
+            'Super admin enabled 2FA: ' . $user->email,
+            ['super_admin_id' => $user->id]
+        );
 
         return redirect()->route('superadmin.dashboard');
     }

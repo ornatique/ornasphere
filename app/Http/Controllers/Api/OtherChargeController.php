@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\OtherCharge;
+use Illuminate\Support\Facades\Validator;
 
 class OtherChargeController extends Controller
 {
@@ -53,39 +54,32 @@ class OtherChargeController extends Controller
     {
         $companyId = $request->user()->company_id;
 
-        $data = OtherCharge::create([
-
-            'company_id' => $companyId,
-
-            'other_charge' => $request->other_charge,
-            'code' => $request->code,
-            'default_amount' => $request->default_amount,
-            'default_weight' => $request->default_weight,
-            'quantity_pcs' => $request->quantity_pcs,
-            'weight_formula' => $request->weight_formula,
-            'weight_percent' => $request->weight_percent,
-            'sale_weight_percent' => $request->sale_weight_percent,
-            'purchase_weight_percent' => $request->purchase_weight_percent,
-            'sequence_no' => $request->sequence_no,
-            'item_id' => $request->item_id,
-            'remarks' => $request->remarks,
-
-            'is_default' => $request->boolean('is_default'),
-            'is_selected' => $request->boolean('is_selected'),
-            'diamond' => $request->boolean('diamond'),
-            'stone' => $request->boolean('stone'),
-            'stock_effect' => $request->boolean('stock_effect'),
-
-            'other_amt_formula' => $request->other_amt_formula,
-            'other_charge_ol' => $request->other_charge_ol,
-            'purity' => $request->purity,
-            'required_purity' => $request->required_purity,
-            'merge_other_charge' => $request->merge_other_charge,
-            'wt_operation' => $request->wt_operation,
-            'carat_weight_auto_conversion' => $request->carat_weight_auto_conversion,
-            'party_account_effect' => $request->party_account_effect,
-
+        $payload = $this->buildPayload($request);
+        $validator = Validator::make($payload, [
+            'other_charge' => 'required|string|max:255',
+            'item_id' => 'nullable|integer|exists:items,id',
+            'default_amount' => 'nullable|numeric',
+            'default_weight' => 'nullable|numeric',
+            'quantity_pcs' => 'nullable|numeric',
+            'weight_percent' => 'nullable|numeric',
+            'sale_weight_percent' => 'nullable|numeric',
+            'purchase_weight_percent' => 'nullable|numeric',
+            'sequence_no' => 'nullable|integer',
+            'purity' => 'nullable|numeric',
+            'required_purity' => 'nullable|numeric',
         ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => $validator->errors()->first(),
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $data = OtherCharge::create(array_merge($payload, [
+            'company_id' => $companyId,
+        ]));
 
         return response()->json([
             'success' => true,
@@ -111,43 +105,116 @@ class OtherChargeController extends Controller
             ], 404);
         }
 
-        $data->update([
-
-            'other_charge' => $request->other_charge,
-            'code' => $request->code,
-            'default_amount' => $request->default_amount,
-            'default_weight' => $request->default_weight,
-            'quantity_pcs' => $request->quantity_pcs,
-            'weight_formula' => $request->weight_formula,
-            'weight_percent' => $request->weight_percent,
-            'sale_weight_percent' => $request->sale_weight_percent,
-            'purchase_weight_percent' => $request->purchase_weight_percent,
-            'sequence_no' => $request->sequence_no,
-            'item_id' => $request->item_id,
-            'remarks' => $request->remarks,
-
-            'is_default' => $request->boolean('is_default'),
-            'is_selected' => $request->boolean('is_selected'),
-            'diamond' => $request->boolean('diamond'),
-            'stone' => $request->boolean('stone'),
-            'stock_effect' => $request->boolean('stock_effect'),
-
-            'other_amt_formula' => $request->other_amt_formula,
-            'other_charge_ol' => $request->other_charge_ol,
-            'purity' => $request->purity,
-            'required_purity' => $request->required_purity,
-            'merge_other_charge' => $request->merge_other_charge,
-            'wt_operation' => $request->wt_operation,
-            'carat_weight_auto_conversion' => $request->carat_weight_auto_conversion,
-            'party_account_effect' => $request->party_account_effect,
-
+        $payload = $this->buildPayload($request, $data);
+        $validator = Validator::make($payload, [
+            'other_charge' => 'required|string|max:255',
+            'item_id' => 'nullable|integer|exists:items,id',
+            'default_amount' => 'nullable|numeric',
+            'default_weight' => 'nullable|numeric',
+            'quantity_pcs' => 'nullable|numeric',
+            'weight_percent' => 'nullable|numeric',
+            'sale_weight_percent' => 'nullable|numeric',
+            'purchase_weight_percent' => 'nullable|numeric',
+            'sequence_no' => 'nullable|integer',
+            'purity' => 'nullable|numeric',
+            'required_purity' => 'nullable|numeric',
         ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => $validator->errors()->first(),
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $data->update($payload);
 
         return response()->json([
             'success' => true,
             'message' => 'Other Charge updated successfully',
             'data' => $data
         ]);
+    }
+
+    private function buildPayload(Request $request, ?OtherCharge $existing = null): array
+    {
+        $otherCharge = trim((string) $this->firstInput($request, ['other_charge', 'name', 'charge_name'], $existing?->other_charge));
+
+        return [
+            'other_charge' => $otherCharge,
+            'code' => $this->nullIfBlank($this->firstInput($request, ['code', 'charge_code'], $existing?->code)),
+            'default_amount' => $this->nullableNumber($this->firstInput($request, ['default_amount', 'amount'], $existing?->default_amount)),
+            'default_weight' => $this->nullableNumber($this->firstInput($request, ['default_weight', 'weight'], $existing?->default_weight)),
+            'quantity_pcs' => $this->nullableNumber($this->firstInput($request, ['quantity_pcs', 'qty'], $existing?->quantity_pcs)),
+            'weight_formula' => $this->nullIfBlank($this->firstInput($request, ['weight_formula', 'wt_formula'], $existing?->weight_formula)),
+            'weight_percent' => $this->nullableNumber($this->firstInput($request, ['weight_percent', 'wt_percent'], $existing?->weight_percent)),
+            'sale_weight_percent' => $this->nullableNumber($this->firstInput($request, ['sale_weight_percent'], $existing?->sale_weight_percent)),
+            'purchase_weight_percent' => $this->nullableNumber($this->firstInput($request, ['purchase_weight_percent'], $existing?->purchase_weight_percent)),
+            'sequence_no' => $this->nullableInteger($this->firstInput($request, ['sequence_no'], $existing?->sequence_no)),
+            'item_id' => $this->nullableInteger($this->firstInput($request, ['item_id'], $existing?->item_id)),
+            'remarks' => $this->nullIfBlank($this->firstInput($request, ['remarks', 'remark'], $existing?->remarks)),
+
+            'is_default' => $this->boolInput($request, ['is_default'], (bool) ($existing?->is_default ?? false)),
+            'is_selected' => $this->boolInput($request, ['is_selected'], (bool) ($existing?->is_selected ?? false)),
+            'diamond' => $this->boolInput($request, ['diamond'], (bool) ($existing?->diamond ?? false)),
+            'stone' => $this->boolInput($request, ['stone'], (bool) ($existing?->stone ?? false)),
+            'stock_effect' => $this->boolInput($request, ['stock_effect'], (bool) ($existing?->stock_effect ?? false)),
+            'other_charge_ol' => $this->boolInput($request, ['other_charge_ol'], (bool) ($existing?->other_charge_ol ?? false)),
+            'carat_weight_auto_conversion' => $this->boolInput($request, ['carat_weight_auto_conversion'], (bool) ($existing?->carat_weight_auto_conversion ?? false)),
+            'party_account_effect' => $this->boolInput($request, ['party_account_effect'], (bool) ($existing?->party_account_effect ?? false)),
+
+            'other_amt_formula' => $this->nullIfBlank($this->firstInput($request, ['other_amt_formula', 'amt_formula'], $existing?->other_amt_formula)),
+            'purity' => $this->nullableNumber($this->firstInput($request, ['purity'], $existing?->purity)),
+            'required_purity' => $this->nullableNumber($this->firstInput($request, ['required_purity'], $existing?->required_purity)),
+            'merge_other_charge' => $this->nullIfBlank($this->firstInput($request, ['merge_other_charge', 'merge'], $existing?->merge_other_charge)),
+            'wt_operation' => $this->nullIfBlank($this->firstInput($request, ['wt_operation', 'weight_operation'], $existing?->wt_operation)),
+        ];
+    }
+
+    private function firstInput(Request $request, array $keys, $fallback = null)
+    {
+        foreach ($keys as $key) {
+            if ($request->exists($key)) {
+                return $request->input($key);
+            }
+        }
+        return $fallback;
+    }
+
+    private function boolInput(Request $request, array $keys, bool $fallback = false): bool
+    {
+        foreach ($keys as $key) {
+            if ($request->exists($key)) {
+                return filter_var($request->input($key), FILTER_VALIDATE_BOOLEAN);
+            }
+        }
+        return $fallback;
+    }
+
+    private function nullableNumber($value): ?float
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        return (float) $value;
+    }
+
+    private function nullableInteger($value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        return (int) $value;
+    }
+
+    private function nullIfBlank($value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+        $v = trim((string) $value);
+        return $v === '' ? null : $v;
     }
 
 

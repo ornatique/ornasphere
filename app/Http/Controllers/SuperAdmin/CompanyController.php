@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\SuperAdmin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AuditLog;
 use App\Models\Company;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -230,6 +231,16 @@ class CompanyController extends Controller
 
             DB::commit();
 
+            AuditLog::logEvent(
+                'create',
+                'company',
+                'Created company "' . $company->name . '" (ID: ' . $company->id . ') with admin user ID ' . $user->id,
+                [
+                    'company_id' => $company->id,
+                    'user_id' => $user->id,
+                ]
+            );
+
             return redirect()
                 ->route('superadmin.companies.index')
                 ->with('success', 'Company created. Login email sent successfully.');
@@ -268,6 +279,7 @@ class CompanyController extends Controller
             'email'      => 'required|email|max:255',
             'max_users'  => 'required|integer|min:1',
             'company_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'admin_password' => 'nullable|string|min:6|confirmed',
         ]);
 
         $logoPath = $company->company_logo;
@@ -300,6 +312,43 @@ class CompanyController extends Controller
             'country'    => $request->country,
         ]);
 
+        if ($request->filled('admin_password')) {
+            $adminUser = User::where('company_id', $company->id)
+                ->whereHas('roles', function ($q) {
+                    $q->where('name', 'company_admin');
+                })
+                ->first();
+
+            if (!$adminUser) {
+                $adminUser = User::where('company_id', $company->id)->orderBy('id')->first();
+            }
+
+            if ($adminUser) {
+                $adminUser->update([
+                    'password' => Hash::make((string) $request->admin_password),
+                    'password_changed' => false,
+                    'password_set_url' => null,
+                ]);
+
+                AuditLog::logEvent(
+                    'reset_password',
+                    'company',
+                    'Super admin reset password for company "' . $company->name . '" admin user ID ' . $adminUser->id,
+                    [
+                        'company_id' => $company->id,
+                        'user_id' => $adminUser->id,
+                    ]
+                );
+            }
+        }
+
+        AuditLog::logEvent(
+            'update',
+            'company',
+            'Updated company "' . $company->name . '" (ID: ' . $company->id . ')',
+            ['company_id' => $company->id]
+        );
+
         return redirect()
             ->route('superadmin.companies.index')
             ->with('success', 'Company updated successfully');
@@ -314,7 +363,16 @@ class CompanyController extends Controller
     */
     public function destroy(Company $company)
     {
+        $companyId = $company->id;
+        $companyName = $company->name;
         $company->delete(); // cascade deletes users automatically
+
+        AuditLog::logEvent(
+            'delete',
+            'company',
+            'Deleted company "' . $companyName . '" (ID: ' . $companyId . ')',
+            ['company_id' => $companyId]
+        );
 
         return redirect()
             ->route('superadmin.companies.index')
@@ -336,6 +394,13 @@ class CompanyController extends Controller
             ->update([
                 'is_active' => $newStatus
             ]);
+
+        AuditLog::logEvent(
+            'toggle_status',
+            'company',
+            'Company "' . $company->name . '" (ID: ' . $company->id . ') status changed to ' . ($newStatus ? 'active' : 'inactive'),
+            ['company_id' => $company->id]
+        );
 
         return response()->json([
             'success' => true,
@@ -360,6 +425,16 @@ class CompanyController extends Controller
         Mail::to($user->email)
             ->queue(new CompanyLoginMail($company, $user->email, $password));
 
+        AuditLog::logEvent(
+            'resend_login',
+            'company',
+            'Resent login credentials for company "' . $company->name . '" (ID: ' . $company->id . ') admin user ID ' . $user->id,
+            [
+                'company_id' => $company->id,
+                'user_id' => $user->id,
+            ]
+        );
+
         return back()->with('success', 'Login credentials resent successfully.');
     }
 
@@ -371,6 +446,13 @@ class CompanyController extends Controller
             'two_factor_enabled' => false,
             'two_factor_recovery_codes' => null,
         ]);
+
+        AuditLog::logEvent(
+            'reset_2fa',
+            'company',
+            'Reset 2FA for all users of company "' . $company->name . '" (ID: ' . $company->id . ')',
+            ['company_id' => $company->id]
+        );
 
         return redirect()
             ->back()

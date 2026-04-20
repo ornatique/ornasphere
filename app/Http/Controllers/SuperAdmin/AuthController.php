@@ -4,6 +4,7 @@ namespace App\Http\Controllers\SuperAdmin;
 
 use App\Http\Controllers\Controller;
 use App\Models\ApprovalHeader;
+use App\Models\AuditLog;
 use App\Models\Company;
 use App\Models\Sale;
 use App\Models\SaleReturn;
@@ -33,6 +34,12 @@ class AuthController extends Controller
             $request->session()->regenerate();
 
             $user = Auth::guard('superadmin')->user();
+            AuditLog::logEvent(
+                'login',
+                'superadmin_auth',
+                'Super admin logged in: ' . $user->email,
+                ['super_admin_id' => $user->id]
+            );
 
             /*
             |--------------------------------------------------------------------------
@@ -58,6 +65,12 @@ class AuthController extends Controller
             return redirect()->route('superadmin.2fa.challenge');
         }
 
+        AuditLog::logEvent(
+            'login_failed',
+            'superadmin_auth',
+            'Failed login attempt for: ' . (string) $request->email
+        );
+
         return back()->withErrors([
             'email' => 'Invalid credentials',
         ]);
@@ -65,6 +78,16 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
+        $superAdmin = Auth::guard('superadmin')->user();
+        if ($superAdmin) {
+            AuditLog::logEvent(
+                'logout',
+                'superadmin_auth',
+                'Super admin logged out: ' . $superAdmin->email,
+                ['super_admin_id' => $superAdmin->id]
+            );
+        }
+
         Auth::guard('superadmin')->logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();

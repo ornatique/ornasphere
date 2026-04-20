@@ -177,6 +177,10 @@ class CompanyPermissionController extends Controller
             'sale',
             'approval',
             'return',
+            'report-sales-summary',
+            'report-stock-position',
+            'report-approval-outstanding',
+            'report-barcode-history',
         ];
 
         $actions = ['view', 'create', 'edit', 'delete', 'manage'];

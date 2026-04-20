@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\SaleApiController;
 use App\Http\Controllers\Api\SaleReturnApiController;
 use App\Http\Controllers\Api\ApprovalApiController;
 use App\Http\Controllers\Api\CustomerApiController;
+use App\Http\Controllers\Api\ReportApiController;
 
 Route::post('/company/login', [AuthController::class, 'login']);
 Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
@@ -126,10 +127,10 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/approvals/return', [ApprovalApiController::class, 'returnItems']);
     Route::get('/approvals/{id}/pdf', [ApprovalApiController::class, 'pdf'])->whereNumber('id');
     Route::get('/approvals/pdf/{id}', [ApprovalApiController::class, 'pdf'])->whereNumber('id');
+    Route::get('/reports/barcode-history', [ReportApiController::class, 'barcodeHistory']);
 });
 
 // Signed public PDF URL (for browser/app open without bearer header)
 Route::get('/public/sales/{id}/pdf', [SaleApiController::class, 'publicPdf'])
     ->whereNumber('id')
     ->name('api.sales.pdf.public');
-

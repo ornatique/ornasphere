@@ -513,6 +513,7 @@ class ItemSetController extends Controller
 
         ItemSet::where('company_id', $company->id)
             ->whereIn('id', $itemSets->pluck('id'))
+            ->whereNull('printed_at')
             ->update([
                 'is_printed' => 1,
                 'printed_at' => now(),
@@ -520,7 +521,8 @@ class ItemSetController extends Controller
 
         $itemSets->each(function ($set) {
             $set->is_printed = 1;
-            $set->printed_at = now();
+            // Keep original first printed date on reprint.
+            $set->printed_at = $set->printed_at ?? now();
         });
 
         $writer = new PngWriter();
@@ -539,7 +541,7 @@ class ItemSetController extends Controller
         $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView(
             'company.item_sets.print_pdf',
             compact('itemSets')
-        )->setPaper([0, 0, 609.45, 340.16]);
+        )->setPaper([0, 0, 311.81, 550.11]);
 
         return $pdf->stream('label-print-preview.pdf');
     }

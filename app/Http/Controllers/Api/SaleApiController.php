@@ -263,6 +263,7 @@ class SaleApiController extends Controller
 
         ItemSet::where('company_id', $user->company_id)
             ->whereIn('id', $itemSets->pluck('id'))
+            ->whereNull('printed_at')
             ->update([
                 'is_printed' => 1,
                 'printed_at' => now(),
@@ -282,7 +283,7 @@ class SaleApiController extends Controller
 
         // Keep API PDF visually same as web print layout.
         $pdf = Pdf::loadView('company.item_sets.print_pdf', compact('itemSets'))
-            ->setPaper([0, 0, 609.45, 340.16]);
+            ->setPaper([0, 0, 311.81, 550.11]);
 
         return $pdf->download('qr-codes.pdf');
     }
@@ -698,7 +699,7 @@ class SaleApiController extends Controller
     {
         $companyId = $request->user()->company_id;
 
-        $sale = Sale::with('customer', 'saleItems.itemset', 'creator')
+        $sale = Sale::with('customer', 'saleItems.itemset.item', 'creator')
             ->where('company_id', $companyId)
             ->find($id);
 
@@ -724,6 +725,13 @@ class SaleApiController extends Controller
         $sale->setAttribute('metal_amount', (float) $sale->saleItems->sum('metal_amount'));
         $sale->setAttribute('labour_amount', (float) $sale->saleItems->sum('labour_amount'));
         $sale->setAttribute('other_amount', (float) $sale->saleItems->sum('other_amount'));
+
+        // Add item_name in each sale item for app-side direct consumption.
+        $sale->saleItems->transform(function ($row) {
+            $itemName = optional(optional($row->itemset)->item)->item_name;
+            $row->setAttribute('item_name', $itemName);
+            return $row;
+        });
 
         return response()->json([
             'success' => true,

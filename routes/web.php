@@ -20,6 +20,7 @@ use Endroid\QrCode\QrCode;
 use Endroid\QrCode\Writer\PngWriter;
 use App\Http\Controllers\Company\SaleController;
 use App\Http\Controllers\Company\SaleReturnController;
+use App\Http\Controllers\Company\ReportController;
 use App\Http\Controllers\SuperAdmin\SuperAdmin2FAController;
 use App\Http\Controllers\Company\ApprovalController;
 
@@ -499,6 +500,36 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
             '/approval-return-items',
             [ApprovalController::class, 'returnItems']
         )->name('approval.returnItems');
+
+        // ================= REPORTS =================
+        Route::prefix('reports')->name('reports.')->group(function () {
+            Route::get('/barcode-history/suggest', [ReportController::class, 'barcodeHistorySuggest'])
+                ->name('barcode-history.suggest');
+            Route::get('/sales-summary', [ReportController::class, 'salesSummary'])
+                ->name('sales-summary.index');
+            Route::get('/sales-summary/export/excel', [ReportController::class, 'salesSummaryExcel'])
+                ->name('sales-summary.export.excel');
+            Route::get('/sales-summary/export/pdf', [ReportController::class, 'salesSummaryPdf'])
+                ->name('sales-summary.export.pdf');
+            Route::get('/stock-position', [ReportController::class, 'stockPosition'])
+                ->name('stock-position.index');
+            Route::get('/stock-position/export/excel', [ReportController::class, 'stockPositionExcel'])
+                ->name('stock-position.export.excel');
+            Route::get('/stock-position/export/pdf', [ReportController::class, 'stockPositionPdf'])
+                ->name('stock-position.export.pdf');
+            Route::get('/approval-outstanding', [ReportController::class, 'approvalOutstanding'])
+                ->name('approval-outstanding.index');
+            Route::get('/approval-outstanding/export/excel', [ReportController::class, 'approvalOutstandingExcel'])
+                ->name('approval-outstanding.export.excel');
+            Route::get('/approval-outstanding/export/pdf', [ReportController::class, 'approvalOutstandingPdf'])
+                ->name('approval-outstanding.export.pdf');
+            Route::get('/barcode-history', [ReportController::class, 'barcodeHistory'])
+                ->name('barcode-history.index');
+            Route::get('/barcode-history/export/excel', [ReportController::class, 'barcodeHistoryExcel'])
+                ->name('barcode-history.export.excel');
+            Route::get('/barcode-history/export/pdf', [ReportController::class, 'barcodeHistoryPdf'])
+                ->name('barcode-history.export.pdf');
+        });
     });
 
 Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permission'])

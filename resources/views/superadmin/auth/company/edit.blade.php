@@ -98,6 +98,38 @@
                             </div>
                         </div>
 
+                        {{-- Optional Admin Password Reset --}}
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group row">
+                                    <label class="col-sm-3 col-form-label">Admin Password</label>
+                                    <div class="col-sm-9">
+                                        <input type="password"
+                                               name="admin_password"
+                                               autocomplete="new-password"
+                                               class="form-control @error('admin_password') is-invalid @enderror"
+                                               placeholder="Leave blank to keep current password">
+                                        @error('admin_password')
+                                            <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="form-group row">
+                                    <label class="col-sm-3 col-form-label">Confirm Password</label>
+                                    <div class="col-sm-9">
+                                        <input type="password"
+                                               name="admin_password_confirmation"
+                                               autocomplete="new-password"
+                                               class="form-control"
+                                               placeholder="Re-enter admin password">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <p class="card-description">Address</p>
 
                         {{-- Address 1 & State --}}
