@@ -11,6 +11,10 @@ class Company2FA
     {
         $user = auth()->user();
 
+        if (!$user) {
+            return $next($request);
+        }
+
         if ($user->two_factor_enabled && !session('company_2fa_verified')) {
             return redirect()->route('company.2fa.setup', $request->slug);
         }

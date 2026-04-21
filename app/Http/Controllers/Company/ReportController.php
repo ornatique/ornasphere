@@ -217,24 +217,9 @@ class ReportController extends Controller
                 ->addColumn('label_code', fn($row) => $row['label_code'] ?: '-')
                 ->addColumn('label_created_at_fmt', fn($row) => $row['label_created_at_fmt'] ?: '-')
                 ->addColumn('label_printed_at_fmt', fn($row) => $row['label_printed_at_fmt'] ?: '-')
-                ->addColumn('approval_history_html', function ($row) {
-                    if (empty($row['approval_history'])) {
-                        return '<span class="text-muted">-</span>';
-                    }
-                    return implode('<br>', $row['approval_history']);
-                })
-                ->addColumn('sale_history_html', function ($row) {
-                    if (empty($row['sale_history'])) {
-                        return '<span class="text-muted">-</span>';
-                    }
-                    return implode('<br>', $row['sale_history']);
-                })
-                ->addColumn('return_history_html', function ($row) {
-                    if (empty($row['return_history'])) {
-                        return '<span class="text-muted">-</span>';
-                    }
-                    return implode('<br>', $row['return_history']);
-                })
+                ->addColumn('approval_history_html', fn($row) => $this->historyToLinks($row['approval_history'] ?? [], 'approval', $slug))
+                ->addColumn('sale_history_html', fn($row) => $this->historyToLinks($row['sale_history'] ?? [], 'sale', $slug))
+                ->addColumn('return_history_html', fn($row) => $this->historyToLinks($row['return_history'] ?? [], 'return', $slug))
                 ->addColumn('current_status', fn($row) => $row['current_status'])
                 ->rawColumns(['approval_history_html', 'sale_history_html', 'return_history_html'])
                 ->make(true);
@@ -324,9 +309,9 @@ class ReportController extends Controller
                     $r['label_code'] ?? '-',
                     $r['label_created_at_fmt'] ?? '-',
                     $r['label_printed_at_fmt'] ?? '-',
-                    !empty($r['approval_history']) ? implode(' | ', $r['approval_history']) : '-',
-                    !empty($r['sale_history']) ? implode(' | ', $r['sale_history']) : '-',
-                    !empty($r['return_history']) ? implode(' | ', $r['return_history']) : '-',
+                    $this->historyToText($r['approval_history'] ?? []),
+                    $this->historyToText($r['sale_history'] ?? []),
+                    $this->historyToText($r['return_history'] ?? []),
                     $r['current_status'] ?? '-',
                 ]);
             }
@@ -462,11 +447,14 @@ class ReportController extends Controller
                 })
                 ->orderBy('ah.approval_date')
                 ->orderBy('ah.id')
-                ->get(['ah.approval_no', 'ah.approval_date', 'ai.status'])
+                ->get(['ah.id as approval_id', 'ah.approval_no', 'ah.approval_date', 'ai.status'])
                 ->map(function ($r) {
                     $date = $r->approval_date ? Carbon::parse($r->approval_date)->format('d-m-Y') : '-';
                     $status = $r->status ?: '-';
-                    return "{$r->approval_no} ({$date}) [{$status}]";
+                    return [
+                        'id' => (int) $r->approval_id,
+                        'label' => "{$r->approval_no} ({$date}) [{$status}]",
+                    ];
                 })
                 ->values()
                 ->all();
@@ -477,10 +465,13 @@ class ReportController extends Controller
                 ->where('si.itemset_id', $set->id)
                 ->orderBy('s.sale_date')
                 ->orderBy('s.id')
-                ->get(['s.voucher_no', 's.sale_date'])
+                ->get(['s.id as sale_id', 's.voucher_no', 's.sale_date'])
                 ->map(function ($r) {
                     $date = $r->sale_date ? Carbon::parse($r->sale_date)->format('d-m-Y') : '-';
-                    return "{$r->voucher_no} ({$date})";
+                    return [
+                        'id' => (int) $r->sale_id,
+                        'label' => "{$r->voucher_no} ({$date})",
+                    ];
                 })
                 ->values()
                 ->all();
@@ -499,10 +490,13 @@ class ReportController extends Controller
                 })
                 ->orderBy('sr.return_date')
                 ->orderBy('sr.id')
-                ->get(['sr.return_voucher_no', 'sr.return_date'])
+                ->get(['sr.id as return_id', 'sr.return_voucher_no', 'sr.return_date'])
                 ->map(function ($r) {
                     $date = $r->return_date ? Carbon::parse($r->return_date)->format('d-m-Y') : '-';
-                    return "{$r->return_voucher_no} ({$date})";
+                    return [
+                        'id' => (int) $r->return_id,
+                        'label' => "{$r->return_voucher_no} ({$date})",
+                    ];
                 })
                 ->values()
                 ->all();
@@ -528,5 +522,52 @@ class ReportController extends Controller
                 'current_status' => $currentStatus,
             ];
         })->values();
+    }
+
+    private function historyToLinks(array $history, string $type, string $slug): string
+    {
+        if (empty($history)) {
+            return '<span class="text-muted">-</span>';
+        }
+
+        $lines = collect($history)->map(function ($row) use ($type, $slug) {
+            $id = (int) ($row['id'] ?? 0);
+            $label = (string) ($row['label'] ?? '-');
+            $escapedLabel = e($label);
+
+            if ($id <= 0) {
+                return $escapedLabel;
+            }
+
+            $url = match ($type) {
+                'approval' => route('company.approval.view', [$slug, $id]),
+                'sale' => route('company.sales.pdf', [$slug, $id]),
+                'return' => route('company.returns.pdf', [$slug, $id]),
+                default => '',
+            };
+
+            if ($url === '') {
+                return $escapedLabel;
+            }
+
+            return '<a href="' . e($url) . '" target="_blank">' . $escapedLabel . '</a>';
+        })->all();
+
+        return implode('<br>', $lines);
+    }
+
+    private function historyToText(array $history): string
+    {
+        if (empty($history)) {
+            return '-';
+        }
+
+        $lines = collect($history)
+            ->map(fn($row) => (string) ($row['label'] ?? '-'))
+            ->filter(fn($label) => $label !== '')
+            ->values()
+            ->all();
+
+        return empty($lines) ? '-' : implode(' | ', $lines);
     }
 }

@@ -35,9 +35,9 @@
                     <td>{{ $r['label_code'] ?? '-' }}</td>
                     <td>{{ $r['label_created_at_fmt'] ?? '-' }}</td>
                     <td>{{ $r['label_printed_at_fmt'] ?? '-' }}</td>
-                    <td>{{ !empty($r['approval_history']) ? implode(' | ', $r['approval_history']) : '-' }}</td>
-                    <td>{{ !empty($r['sale_history']) ? implode(' | ', $r['sale_history']) : '-' }}</td>
-                    <td>{{ !empty($r['return_history']) ? implode(' | ', $r['return_history']) : '-' }}</td>
+                    <td>{{ !empty($r['approval_history']) ? implode(' | ', collect($r['approval_history'])->pluck('label')->all()) : '-' }}</td>
+                    <td>{{ !empty($r['sale_history']) ? implode(' | ', collect($r['sale_history'])->pluck('label')->all()) : '-' }}</td>
+                    <td>{{ !empty($r['return_history']) ? implode(' | ', collect($r['return_history'])->pluck('label')->all()) : '-' }}</td>
                     <td>{{ $r['current_status'] ?? '-' }}</td>
                 </tr>
             @empty
@@ -49,4 +49,3 @@
     </table>
 </body>
 </html>
-

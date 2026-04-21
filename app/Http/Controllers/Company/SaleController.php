@@ -246,7 +246,7 @@ class SaleController extends Controller
             $net = (float) ($item->net_weight ?? ($gross - $otherWeight));
             $purity = (float) (optional($item->item)->outward_purity ?? 0);
             $wastePercent = 0;
-            $netPurity = $purity - $wastePercent;
+            $netPurity = $purity + $wastePercent;
             $fineWeight = $net * $netPurity / 100;
             $metalRate = 0;
             $metalAmount = $net * $metalRate;
@@ -799,7 +799,7 @@ class SaleController extends Controller
             $net = (float) ($row->net_weight ?? ($gross - $otherWeight));
             $purity = (float) ($row->purity ?? optional($item)->outward_purity ?? 0);
             $wastePercent = (float) ($row->waste_percent ?? 0);
-            $netPurity = (float) ($row->net_purity ?? ($purity - $wastePercent));
+            $netPurity = (float) ($row->net_purity ?? ($purity + $wastePercent));
             $fineWeight = (float) ($row->total_fine_weight ?? ($net * $netPurity / 100));
             $metalRate = (float) ($row->metal_rate ?? 0);
             $metalAmount = (float) ($row->metal_amount ?? ($net * $metalRate));

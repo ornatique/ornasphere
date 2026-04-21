@@ -20,15 +20,29 @@ use Carbon\Carbon;
 
 class ItemSetController extends Controller
 {
+    private function normalizeLabourFormulaValue(?string $formula): string
+    {
+        $raw = strtolower(str_replace(' ', '', trim((string) $formula)));
+
+        return match ($raw) {
+            'pernetweight', 'per_netweight' => 'Per Netweight',
+            'perfineweight', 'per_fineweight' => 'Per Fineweight',
+            'pergrossweight', 'per_grossweight' => 'Per Grossweight',
+            'perquantity', 'per_quantity' => 'Per Quantity',
+            'flat' => 'Flat',
+            default => 'Per Netweight',
+        };
+    }
+
     private function labourFormulaLabel(?string $labourType): string
     {
         return match (strtolower((string) $labourType)) {
-            'per_netweight' => 'Per Net Weight',
-            'per_fineweight' => 'Per Fine Weight',
-            'per_grossweight' => 'Per Gross Weight',
+            'per_netweight' => 'Per Netweight',
+            'per_fineweight' => 'Per Fineweight',
+            'per_grossweight' => 'Per Grossweight',
             'per_quantity' => 'Per Quantity',
             'flat' => 'Flat',
-            default => 'Per Net Weight',
+            default => 'Per Netweight',
         };
     }
 
@@ -194,6 +208,7 @@ class ItemSetController extends Controller
             ->where('id', $request->item_id)
             ->first();
         $defaultLabourFormula = $this->labourFormulaLabel(optional($item)->labour_type);
+        $requestedLabourFormula = $this->normalizeLabourFormulaValue($request->input('sale_labour_formula'));
 
         // prevent blank save
         if (trim($request->value) == "") {
@@ -209,7 +224,11 @@ class ItemSetController extends Controller
                 ->first();
 
             if ($set) {
-                $set->{$request->column} = $request->value;
+                if ($request->column === 'sale_labour_formula') {
+                    $set->{$request->column} = $this->normalizeLabourFormulaValue($request->value);
+                } else {
+                    $set->{$request->column} = $request->value;
+                }
 
                 // Keep net_weight always in sync with gross_weight and other.
                 if (in_array($request->column, ['gross_weight', 'other'], true)) {
@@ -218,7 +237,7 @@ class ItemSetController extends Controller
                     $set->net_weight = max(0, $gross - $other);
                 }
                 if (empty($set->sale_labour_formula)) {
-                    $set->sale_labour_formula = $defaultLabourFormula;
+                    $set->sale_labour_formula = $requestedLabourFormula ?: $defaultLabourFormula;
                 }
 
                 $set->save();
@@ -231,9 +250,13 @@ class ItemSetController extends Controller
             'company_id' => $company->id,
             'item_id' => $request->item_id,
             $request->column => $request->value,
-            'sale_labour_formula' => $defaultLabourFormula,
+            'sale_labour_formula' => $requestedLabourFormula ?: $defaultLabourFormula,
             'is_final' => 0
         ];
+
+        if ($request->column === 'sale_labour_formula') {
+            $payload[$request->column] = $this->normalizeLabourFormulaValue($request->value);
+        }
 
         // On first cell save also store computed net_weight if gross/other entered.
         if (in_array($request->column, ['gross_weight', 'other'], true)) {

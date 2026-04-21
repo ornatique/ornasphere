@@ -186,9 +186,34 @@ class OtherChargeController extends Controller
     {
         foreach ($keys as $key) {
             if ($request->exists($key)) {
-                return filter_var($request->input($key), FILTER_VALIDATE_BOOLEAN);
+                return $this->toBoolean($request->input($key), $fallback);
             }
         }
+        return $fallback;
+    }
+
+    private function toBoolean($value, bool $fallback = false): bool
+    {
+        if ($value === null || $value === '') {
+            return $fallback;
+        }
+
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_numeric($value)) {
+            return ((int) $value) === 1;
+        }
+
+        $v = strtolower(trim((string) $value));
+        if (in_array($v, ['1', 'true', 'yes', 'on', 'y'], true)) {
+            return true;
+        }
+        if (in_array($v, ['0', 'false', 'no', 'off', 'n'], true)) {
+            return false;
+        }
+
         return $fallback;
     }
 

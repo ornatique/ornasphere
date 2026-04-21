@@ -50,8 +50,10 @@
                                 <th>Net Purity</th>
                                 <th>Fine Wt</th>
                                 <th>Metal Rate</th>
+                                <th>Apply</th>
                                 <th>Metal Amt</th>
                                 <th>Labour Rate</th>
+                                <th>Apply</th>
                                 <th>Labour Amt</th>
                                 <th>Other Amt</th>
                                 <th>Total Amt</th>
@@ -63,9 +65,19 @@
 
                         <tfoot>
                             <tr>
-                                <th colspan="3" class="text-end">Totals</th>
+                                <th class="text-end">Totals</th>
+                                <th><span id="totalGrossWt">0.000</span></th>
+                                <th><span id="totalOtherWt">0.000</span></th>
                                 <th><span id="totalNetWt">0.000</span></th>
-                                <th colspan="9"></th>
+                                <th colspan="3"></th>
+                                <th><span id="totalFineWt">0.000</span></th>
+                                <th></th>
+                                <th></th>
+                                <th><span id="totalMetalAmt">0.00</span></th>
+                                <th></th>
+                                <th></th>
+                                <th><span id="totalLabourAmt">0.00</span></th>
+                                <th><span id="totalOtherAmt">0.00</span></th>
                                 <th>Rs <span id="grandTotal">0.00</span></th>
                                 <th></th>
                             </tr>
@@ -186,7 +198,7 @@
     }
 
     #saleTable {
-        min-width: 2100px;
+        min-width: 2250px;
     }
 
     #saleTable th,
@@ -248,6 +260,12 @@ $(function () {
         const n = parseFloat(v);
         return Number.isFinite(n) ? n : d;
     };
+    const toBool = (v, d = true) => {
+        if (v === undefined || v === null || v === '') return d;
+        if (typeof v === 'boolean') return v;
+        const s = String(v).trim().toLowerCase();
+        return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+    };
 
     const nfix = (value, decimals) => {
         const n = toNum(value);
@@ -263,14 +281,18 @@ $(function () {
         const net = toNum(item.net_weight ?? (gross - otherWeight));
         const purity = toNum(item.purity ?? 0);
         const wastePercent = toNum(item.waste_percent ?? 0);
-        const netPurity = toNum(item.net_purity ?? (purity - wastePercent));
+        const netPurity = toNum(item.net_purity ?? (purity + wastePercent));
         const fineWeight = toNum(item.fine_weight ?? (net * netPurity / 100));
         const metalRate = toNum(item.metal_rate ?? 0);
         const metalAmount = toNum(item.metal_amount ?? (net * metalRate));
         const labourRate = toNum(item.labour_rate ?? 0);
         const labourAmount = toNum(item.labour_amount ?? (net * labourRate));
+        const applyMetal = toBool(item.apply_metal, true);
+        const applyLabour = toBool(item.apply_labour, true);
         const otherAmount = toNum(item.other_amount ?? item.sale_other ?? 0);
-        const totalAmount = toNum(item.total_amount ?? (metalAmount + labourAmount + otherAmount));
+        const effectiveMetalAmount = applyMetal ? metalAmount : 0;
+        const effectiveLabourAmount = applyLabour ? labourAmount : 0;
+        const totalAmount = toNum(item.total_amount ?? (effectiveMetalAmount + effectiveLabourAmount + otherAmount));
 
         return {
             itemset_id: toNum(item.itemset_id ?? item.id),
@@ -287,9 +309,11 @@ $(function () {
             net_purity: netPurity,
             fine_weight: fineWeight,
             metal_rate: metalRate,
-            metal_amount: metalAmount,
+            apply_metal: applyMetal,
+            metal_amount: effectiveMetalAmount,
             labour_rate: labourRate,
-            labour_amount: labourAmount,
+            apply_labour: applyLabour,
+            labour_amount: effectiveLabourAmount,
             other_amount: otherAmount,
             total_amount: totalAmount,
             other_charges: [],
@@ -524,14 +548,16 @@ $(function () {
         row.purity = toNum($(`.purity[data-id="${itemsetId}"]`).val());
         row.waste_percent = toNum($(`.waste-percent[data-id="${itemsetId}"]`).val());
         row.metal_rate = toNum($(`.metal-rate[data-id="${itemsetId}"]`).val());
+        row.apply_metal = $(`.apply-metal[data-id="${itemsetId}"]`).is(':checked');
         row.labour_rate = toNum($(`.labour-rate[data-id="${itemsetId}"]`).val());
+        row.apply_labour = $(`.apply-labour[data-id="${itemsetId}"]`).is(':checked');
         row.other_amount = toNum($(`.other-amount[data-id="${itemsetId}"]`).val());
 
         row.net_weight = row.gross_weight - row.other_weight;
-        row.net_purity = row.purity - row.waste_percent;
+        row.net_purity = row.purity + row.waste_percent;
         row.fine_weight = (row.net_weight * row.net_purity) / 100;
-        row.metal_amount = row.net_weight * row.metal_rate;
-        row.labour_amount = row.net_weight * row.labour_rate;
+        row.metal_amount = row.apply_metal ? (row.net_weight * row.metal_rate) : 0;
+        row.labour_amount = row.apply_labour ? (row.net_weight * row.labour_rate) : 0;
         row.total_amount = row.metal_amount + row.labour_amount + row.other_amount;
 
         $(`#net_${itemsetId}`).val(nfix(row.net_weight, 3));
@@ -546,6 +572,8 @@ $(function () {
         $(`input[name="fine_weight[]"][data-id="${itemsetId}"]`).val(nfix(row.fine_weight, 3));
         $(`input[name="metal_amount[]"][data-id="${itemsetId}"]`).val(nfix(row.metal_amount, 2));
         $(`input[name="labour_amount[]"][data-id="${itemsetId}"]`).val(nfix(row.labour_amount, 2));
+        $(`input[name="apply_metal[]"][data-id="${itemsetId}"]`).val(row.apply_metal ? 1 : 0);
+        $(`input[name="apply_labour[]"][data-id="${itemsetId}"]`).val(row.apply_labour ? 1 : 0);
         $(`input[name="total_amount[]"][data-id="${itemsetId}"]`).val(nfix(row.total_amount, 2));
 
         recalcTotals();
@@ -553,15 +581,33 @@ $(function () {
 
     function recalcTotals() {
         let totalAmount = 0;
+        let totalGross = 0;
+        let totalOther = 0;
         let totalNet = 0;
+        let totalFine = 0;
+        let totalMetal = 0;
+        let totalLabour = 0;
+        let totalOtherAmount = 0;
 
         Object.values(selectedRows).forEach(row => {
             totalAmount += toNum(row.total_amount);
+            totalGross += toNum(row.gross_weight);
+            totalOther += toNum(row.other_weight);
             totalNet += toNum(row.net_weight);
+            totalFine += toNum(row.fine_weight);
+            totalMetal += toNum(row.metal_amount);
+            totalLabour += toNum(row.labour_amount);
+            totalOtherAmount += toNum(row.other_amount);
         });
 
         $('#grandTotal').text(nfix(totalAmount, 2));
+        $('#totalGrossWt').text(nfix(totalGross, 3));
+        $('#totalOtherWt').text(nfix(totalOther, 3));
         $('#totalNetWt').text(nfix(totalNet, 3));
+        $('#totalFineWt').text(nfix(totalFine, 3));
+        $('#totalMetalAmt').text(nfix(totalMetal, 2));
+        $('#totalLabourAmt').text(nfix(totalLabour, 2));
+        $('#totalOtherAmt').text(nfix(totalOtherAmount, 2));
     }
 
     function appendSaleRow(row) {
@@ -588,6 +634,8 @@ $(function () {
                 <input type="hidden" name="fine_weight[]" data-id="${itemsetId}" value="${nfix(row.fine_weight,3)}">
                 <input type="hidden" name="metal_amount[]" data-id="${itemsetId}" value="${nfix(row.metal_amount,2)}">
                 <input type="hidden" name="labour_amount[]" data-id="${itemsetId}" value="${nfix(row.labour_amount,2)}">
+                <input type="hidden" name="apply_metal[]" data-id="${itemsetId}" value="${row.apply_metal ? 1 : 0}">
+                <input type="hidden" name="apply_labour[]" data-id="${itemsetId}" value="${row.apply_labour ? 1 : 0}">
                 <input type="hidden" name="total_amount[]" data-id="${itemsetId}" value="${nfix(row.total_amount,2)}">
                 <input type="hidden" name="other_charge_details[]" class="other-charge-details" data-id="${itemsetId}" value="">
             </td>
@@ -600,8 +648,10 @@ $(function () {
             <td><input type="number" step="0.001" class="form-control" id="net_purity_${itemsetId}" readonly value="${nfix(row.net_purity,3)}"></td>
             <td><input type="number" step="0.001" class="form-control" id="fine_${itemsetId}" readonly value="${nfix(row.fine_weight,3)}"></td>
             <td><input type="number" step="0.01" class="form-control metal-rate" name="metal_rate[]" data-id="${itemsetId}" value="${nfix(row.metal_rate,2)}"></td>
+            <td class="text-center"><input type="checkbox" class="form-check-input apply-metal" data-id="${itemsetId}" ${row.apply_metal ? 'checked' : ''}></td>
             <td><input type="number" step="0.01" class="form-control" id="metal_amt_${itemsetId}" readonly value="${nfix(row.metal_amount,2)}"></td>
             <td><input type="number" step="0.01" class="form-control labour-rate" name="labour_rate[]" data-id="${itemsetId}" value="${nfix(row.labour_rate,2)}"></td>
+            <td class="text-center"><input type="checkbox" class="form-check-input apply-labour" data-id="${itemsetId}" ${row.apply_labour ? 'checked' : ''}></td>
             <td><input type="number" step="0.01" class="form-control" id="labour_amt_${itemsetId}" readonly value="${nfix(row.labour_amount,2)}"></td>
             <td>
                 <div class="input-group other-amount-wrap">
@@ -648,8 +698,10 @@ $(function () {
                     data-net-purity="${nfix(item.net_purity,3)}"
                     data-fine-weight="${nfix(item.fine_weight,3)}"
                     data-metal-rate="${nfix(item.metal_rate,2)}"
+                    data-apply-metal="1"
                     data-metal-amount="${nfix(item.metal_amount,2)}"
                     data-labour-rate="${nfix(item.labour_rate,2)}"
+                    data-apply-labour="1"
                     data-labour-amount="${nfix(item.labour_amount,2)}"
                     data-other-amount="${nfix(item.other_amount,2)}"
                     data-total-amount="${nfix(item.total_amount,2)}">
@@ -698,8 +750,10 @@ $(function () {
             net_purity: toNum($(this).data('net-purity')),
             fine_weight: toNum($(this).data('fine-weight')),
             metal_rate: toNum($(this).data('metal-rate')),
+            apply_metal: toBool($(this).data('apply-metal'), true),
             metal_amount: toNum($(this).data('metal-amount')),
             labour_rate: toNum($(this).data('labour-rate')),
+            apply_labour: toBool($(this).data('apply-labour'), true),
             labour_amount: toNum($(this).data('labour-amount')),
             other_amount: toNum($(this).data('other-amount')),
             total_amount: toNum($(this).data('total-amount')),
@@ -764,8 +818,10 @@ $(function () {
                         data-net-purity="${nfix(item.net_purity,3)}"
                         data-fine-weight="${nfix(fineWeight,3)}"
                         data-metal-rate="${nfix(item.metal_rate,2)}"
+                        data-apply-metal="1"
                         data-metal-amount="${nfix(metalAmount,2)}"
                         data-labour-rate="${nfix(item.labour_rate,2)}"
+                        data-apply-labour="1"
                         data-labour-amount="${nfix(labourAmount,2)}"
                         data-other-amount="${nfix(otherAmount,2)}"
                         data-total-amount="${nfix(totalAmount,2)}">
@@ -819,8 +875,10 @@ $(function () {
                 net_purity: toNum($(this).data('net-purity')),
                 fine_weight: toNum($(this).data('fine-weight')),
                 metal_rate: toNum($(this).data('metal-rate')),
+                apply_metal: toBool($(this).data('apply-metal'), true),
                 metal_amount: toNum($(this).data('metal-amount')),
                 labour_rate: toNum($(this).data('labour-rate')),
+                apply_labour: toBool($(this).data('apply-labour'), true),
                 labour_amount: toNum($(this).data('labour-amount')),
                 other_amount: toNum($(this).data('other-amount')),
                 total_amount: toNum($(this).data('total-amount')),
@@ -832,6 +890,10 @@ $(function () {
     });
 
     $(document).on('input', '.gross, .other-weight, .purity, .waste-percent, .metal-rate, .labour-rate, .other-amount', function() {
+        recalcRow($(this).data('id'));
+    });
+
+    $(document).on('change', '.apply-metal, .apply-labour', function() {
         recalcRow($(this).data('id'));
     });
 

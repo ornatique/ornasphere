@@ -237,6 +237,13 @@
         'size',
         'HUID'
     ];
+    const LABOUR_FORMULA_OPTIONS = [
+        'Per Netweight',
+        'Per Fineweight',
+        'Per Grossweight',
+        'Per Quantity',
+        'Flat'
+    ];
 
 
     //////////////////////////////////////////////////////
@@ -309,6 +316,7 @@
     function addRow(row) {
         if (!row || !row.id) return;
         if ($(`#setsBody tr[data-id="${row.id}"]`).length) return;
+        const rowFormula = normalizeLabourFormula(row.sale_labour_formula || selectedLabourFormula);
 
         $('#setsBody').append(`
 
@@ -326,7 +334,7 @@
 
             <td contenteditable="false" class="cell" data-column="net_weight">${row.net_weight ?? ''}</td>
 
-            <td contenteditable="false" class="cell formula-cell" data-column="sale_labour_formula">${row.sale_labour_formula ?? selectedLabourFormula}</td>
+            <td class="cell formula-cell" data-column="sale_labour_formula">${buildLabourFormulaSelect(rowFormula)}</td>
 
             <td contenteditable="true" class="cell" data-column="sale_labour_rate">${row.sale_labour_rate ?? ''}</td>
 
@@ -352,6 +360,7 @@
     //////////////////////////////////////////////////////
 
     function addEmptyRow() {
+        const defaultFormula = normalizeLabourFormula(selectedLabourFormula);
 
         $('#setsBody').append(`
 
@@ -369,7 +378,7 @@
 
             <td contenteditable="false" class="cell" data-column="net_weight"></td>
 
-            <td contenteditable="false" class="cell formula-cell" data-column="sale_labour_formula">${selectedLabourFormula}</td>
+            <td class="cell formula-cell" data-column="sale_labour_formula">${buildLabourFormulaSelect(defaultFormula)}</td>
 
             <td contenteditable="true" class="cell" data-column="sale_labour_rate"></td>
 
@@ -401,6 +410,7 @@
         const column = $cell.data('column');
         const value = String($cell.text() ?? '').trim();
         const currentId = tr.attr('data-id');
+        const selectedFormula = getRowFormula(tr);
 
         if (value === '') return;
         if (!column) return;
@@ -414,7 +424,8 @@
                 id: currentId,
                 item_id: itemId,
                 column: column,
-                value: value
+                value: value,
+                sale_labour_formula: selectedFormula
             }
         ).done(function(res) {
             const wasNew = !tr.attr('data-id');
@@ -440,7 +451,8 @@
                 id: id,
                 item_id: itemId,
                 column: column,
-                value: value
+                value: value,
+                sale_labour_formula: getRowFormula($row)
             }
         );
     }
@@ -597,20 +609,47 @@
     function applyFormulaToAllRows() {
         $('#setsBody tr').each(function() {
             const $row = $(this);
-            const $formulaCell = $row.find('.cell[data-column="sale_labour_formula"]');
-            if (!$formulaCell.length) return;
+            const $select = $row.find('.labour-formula-select');
+            if (!$select.length) return;
 
-            const current = String($formulaCell.text() || '').trim();
-            if (current === '') {
-                $formulaCell.text(selectedLabourFormula);
-                saveDerivedCell($row, 'sale_labour_formula', selectedLabourFormula);
+            const currentRaw = String($select.val() || '').trim();
+            const current = normalizeLabourFormula(currentRaw);
+            const fallback = normalizeLabourFormula(selectedLabourFormula);
+
+            if (currentRaw === '' || currentRaw !== current) {
+                $select.val(fallback);
+                saveDerivedCell($row, 'sale_labour_formula', fallback);
             }
         });
     }
 
+    function normalizeLabourFormula(value) {
+        const raw = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
+        if (raw === 'pernetweight' || raw === 'per_netweight') return 'Per Netweight';
+        if (raw === 'perfineweight' || raw === 'per_fineweight') return 'Per Fineweight';
+        if (raw === 'pergrossweight' || raw === 'per_grossweight') return 'Per Grossweight';
+        if (raw === 'perquantity' || raw === 'per_quantity') return 'Per Quantity';
+        if (raw === 'flat') return 'Flat';
+        return 'Per Netweight';
+    }
+
+    function buildLabourFormulaSelect(selectedValue) {
+        const selected = normalizeLabourFormula(selectedValue);
+        return `<select class="form-control form-control-sm labour-formula-select">${
+            LABOUR_FORMULA_OPTIONS.map(option => {
+                const isSelected = option === selected ? 'selected' : '';
+                return `<option value="${option}" ${isSelected}>${option}</option>`;
+            }).join('')
+        }</select>`;
+    }
+
+    function getRowFormula($row) {
+        const v = $row.find('.labour-formula-select').val();
+        return normalizeLabourFormula(v);
+    }
+
     function getLabourBaseWeight($row) {
-        const formulaRaw = String($row.find('.cell[data-column="sale_labour_formula"]').text() || '');
-        const formula = formulaRaw.toLowerCase().replace(/\s+/g, '');
+        const formula = getRowFormula($row).toLowerCase().replace(/\s+/g, '');
 
         const gross = toNumber($row.find('.cell[data-column="gross_weight"]').text());
         const net = toNumber($row.find('.cell[data-column="net_weight"]').text());
@@ -663,6 +702,14 @@
 
     $(document).on('blur', '.cell[data-column="sale_labour_rate"]', function() {
         recalcLabourAmount($(this).closest('tr'), true);
+    });
+
+    $(document).on('change', '.labour-formula-select', function() {
+        const $row = $(this).closest('tr');
+        const formula = getRowFormula($row);
+        $(this).val(formula);
+        saveDerivedCell($row, 'sale_labour_formula', formula);
+        recalcLabourAmount($row, true);
     });
 
 

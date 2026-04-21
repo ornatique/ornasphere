@@ -178,6 +178,32 @@ return Application::configure(basePath: dirname(__DIR__))
                 return null;
             }
 
+            if (!$isApi($request) && $e instanceof AuthenticationException) {
+                if ($request->is('superadmin/*')) {
+                    return redirect()
+                        ->route('superadmin.login')
+                        ->with('error', 'Session expired. Please login again.');
+                }
+
+                $slug = (string) $request->route('slug');
+                if ($slug !== '') {
+                    return redirect()
+                        ->route('company.login', $slug)
+                        ->with('error', 'Session expired. Please login again.');
+                }
+
+                $segments = $request->segments();
+                if (count($segments) >= 2 && $segments[0] === 'company') {
+                    return redirect()
+                        ->route('company.login', $segments[1])
+                        ->with('error', 'Session expired. Please login again.');
+                }
+
+                return redirect()
+                    ->route('superadmin.login')
+                    ->with('error', 'Session expired. Please login again.');
+            }
+
             Log::error('Unhandled exception', [
                 'message' => $e->getMessage(),
                 'file' => $e->getFile(),

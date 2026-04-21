@@ -12,6 +12,23 @@ use Illuminate\Support\Facades\Crypt;
 
 class OtherChargeController extends Controller
 {
+    private function boolLike($value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if ($value === null || $value === '') {
+            return false;
+        }
+
+        if (is_numeric($value)) {
+            return ((int) $value) === 1;
+        }
+
+        $v = strtolower(trim((string) $value));
+        return in_array($v, ['1', 'true', 'yes', 'on', 'y'], true);
+    }
 
     public function index(Request $request, $slug)
     {
@@ -115,19 +132,19 @@ class OtherChargeController extends Controller
             'item_id' => $request->item_id,
             'remarks' => $request->remarks,
 
-            'is_default' => $request->has('is_default'),
-            'is_selected' => $request->has('is_selected'),
-            'diamond' => $request->has('diamond'),
-            'stone' => $request->has('stone'),
-            'stock_effect' => $request->has('stock_effect'),
+            'is_default' => $this->boolLike($request->input('is_default')),
+            'is_selected' => $this->boolLike($request->input('is_selected')),
+            'diamond' => $this->boolLike($request->input('diamond')),
+            'stone' => $this->boolLike($request->input('stone')),
+            'stock_effect' => $this->boolLike($request->input('stock_effect')),
             'other_amt_formula' => $request->other_amt_formula,
-            'other_charge_ol' => $request->other_charge_ol,
+            'other_charge_ol' => $this->boolLike($request->other_charge_ol),
             'purity' => $request->purity,
             'required_purity' => $request->required_purity,
             'merge_other_charge' => $request->merge_other_charge,
             'wt_operation' => $request->wt_operation,
-            'carat_weight_auto_conversion' => $request->carat_weight_auto_conversion,
-            'party_account_effect' => $request->party_account_effect,
+            'carat_weight_auto_conversion' => $this->boolLike($request->carat_weight_auto_conversion),
+            'party_account_effect' => $this->boolLike($request->party_account_effect),
         ]);
 
         return redirect()

@@ -152,7 +152,7 @@ public function bulkSave(Request $request)
                 'sale_labour_formula' => $row['sale_labour_formula'] ?? null,
                 'sale_labour_rate' => $row['sale_labour_rate'] ?? ($row['labour_rate'] ?? null),
                 'sale_labour_amount' => $row['sale_labour_amount'] ?? ($row['labour_amount'] ?? null),
-                'sale_other' => $row['sale_other'] ?? null,
+                'sale_other' => $row['sale_other'] ?? $row['other_weight'] ?? null,
                 'supplier_person' => $row['supplier_person'] ?? null,
                 'size' => $row['size'] ?? null,
                 'HUID' => $huid,

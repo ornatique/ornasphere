@@ -6,6 +6,27 @@ use Illuminate\Database\Eloquent\Model;
 
 class OtherCharge extends Model
 {
+    protected $casts = [
+        'default_amount' => 'float',
+        'default_weight' => 'float',
+        'quantity_pcs' => 'integer',
+        'weight_percent' => 'float',
+        'sale_weight_percent' => 'float',
+        'purchase_weight_percent' => 'float',
+        'sequence_no' => 'integer',
+        'is_default' => 'boolean',
+        'is_selected' => 'boolean',
+        'other_charge_ol' => 'boolean',
+        'purity' => 'float',
+        'required_purity' => 'float',
+        'carat_weight_auto_conversion' => 'boolean',
+        'diamond' => 'boolean',
+        'stone' => 'boolean',
+        'stock_effect' => 'boolean',
+        'party_account_effect' => 'boolean',
+        'item_id' => 'integer',
+    ];
+
     protected $fillable = [
 
         'company_id',
