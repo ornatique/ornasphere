@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Auth;
 use App\Http\Controllers\SuperAdmin\AuthController as SuperAdminAuthController;
 use App\Http\Controllers\SuperAdmin\CompanyController;
 use App\Http\Controllers\Company\CompanyAuthController;
@@ -11,10 +12,15 @@ use App\Http\Controllers\Company\CompanyUserController;
 use App\Http\Controllers\Company\CompanyRoleController;
 use App\Http\Controllers\Company\CompanyPermissionController;
 use App\Http\Controllers\Company\CustomerController;
+use App\Http\Controllers\Company\JobWorkerController;
+use App\Http\Controllers\Company\JobworkIssueController;
 use App\Http\Controllers\Company\ItemController;
 use App\Http\Controllers\Company\LabelConfigController;
 use App\Http\Controllers\Company\LabelPrintController;
 use App\Http\Controllers\Company\OtherChargeController;
+use App\Http\Controllers\Company\ProductionCostController;
+use App\Http\Controllers\Company\LabourFormulaController;
+use App\Http\Controllers\Company\ProductionStepController;
 use App\Http\Controllers\Company\ItemSetController;
 use Endroid\QrCode\QrCode;
 use Endroid\QrCode\Writer\PngWriter;
@@ -34,6 +40,14 @@ use App\Http\Controllers\Company\ApprovalController;
 
 Route::get('/', function () {
     return view('welcome');
+});
+
+Route::get('/company/{slug}', function (string $slug) {
+    if (Auth::check()) {
+        return redirect()->route('company.dashboard', ['slug' => $slug]);
+    }
+
+    return redirect()->route('company.login', ['slug' => $slug]);
 });
 
 /*
@@ -148,6 +162,46 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
             ->name('customers.update');
         Route::delete('/customers/{encryptedId}', [CustomerController::class, 'destroy'])
             ->name('customers.delete');
+
+        Route::get('/job-workers', [JobWorkerController::class, 'index'])
+            ->name('job-workers.index');
+        Route::get('/job-workers/create', [JobWorkerController::class, 'create'])
+            ->name('job-workers.create');
+        Route::post('/job-workers', [JobWorkerController::class, 'store'])
+            ->name('job-workers.store');
+        Route::get('/job-workers/export/excel', [JobWorkerController::class, 'exportExcel'])
+            ->name('job-workers.export.excel');
+        Route::get('/job-workers/export/pdf', [JobWorkerController::class, 'exportPdf'])
+            ->name('job-workers.export.pdf');
+        Route::get('/job-workers/{encryptedId}/edit', [JobWorkerController::class, 'edit'])
+            ->name('job-workers.edit');
+        Route::put('/job-workers/{encryptedId}', [JobWorkerController::class, 'update'])
+            ->name('job-workers.update');
+        Route::delete('/job-workers/{encryptedId}', [JobWorkerController::class, 'destroy'])
+            ->name('job-workers.destroy');
+
+        Route::get('/jobwork-issue', [JobworkIssueController::class, 'index'])
+            ->name('jobwork-issue.index');
+        Route::get('/jobwork-issue/create', [JobworkIssueController::class, 'create'])
+            ->name('jobwork-issue.create');
+        Route::post('/jobwork-issue', [JobworkIssueController::class, 'store'])
+            ->name('jobwork-issue.store');
+        Route::get('/jobwork-issue/export/excel', [JobworkIssueController::class, 'exportExcel'])
+            ->name('jobwork-issue.export.excel');
+        Route::get('/jobwork-issue/export/pdf', [JobworkIssueController::class, 'exportPdf'])
+            ->name('jobwork-issue.export.pdf');
+        Route::get('/jobwork-issue/{encryptedId}/export/excel', [JobworkIssueController::class, 'exportSingleExcel'])
+            ->name('jobwork-issue.export-single.excel');
+        Route::get('/jobwork-issue/{encryptedId}/export/pdf', [JobworkIssueController::class, 'exportSinglePdf'])
+            ->name('jobwork-issue.export-single.pdf');
+        Route::get('/jobwork-issue/{encryptedId}/view', [JobworkIssueController::class, 'show'])
+            ->name('jobwork-issue.show');
+        Route::get('/jobwork-issue/{encryptedId}/edit', [JobworkIssueController::class, 'edit'])
+            ->name('jobwork-issue.edit');
+        Route::put('/jobwork-issue/{encryptedId}', [JobworkIssueController::class, 'update'])
+            ->name('jobwork-issue.update');
+        Route::delete('/jobwork-issue/{encryptedId}', [JobworkIssueController::class, 'destroy'])
+            ->name('jobwork-issue.destroy');
 
         Route::get('/users/create', [CompanyUserController::class, 'create'])
             ->name('users.create')
@@ -265,6 +319,60 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
             '/other-charge/options',
             [OtherChargeController::class, 'options']
         )->name('other-charge.options');
+
+        Route::get('production-cost', [ProductionCostController::class, 'index'])
+            ->name('production-cost.index');
+
+        Route::get('production-cost/create', [ProductionCostController::class, 'create'])
+            ->name('production-cost.create');
+
+        Route::post('production-cost/store', [ProductionCostController::class, 'store'])
+            ->name('production-cost.store');
+
+        Route::get('production-cost/edit/{id}', [ProductionCostController::class, 'edit'])
+            ->name('production-cost.edit');
+
+        Route::post('production-cost/update/{id}', [ProductionCostController::class, 'update'])
+            ->name('production-cost.update');
+
+        Route::delete('production-cost/{id}', [ProductionCostController::class, 'destroy'])
+            ->name('production-cost.destroy');
+
+        Route::get('labour-formula', [LabourFormulaController::class, 'index'])
+            ->name('labour-formula.index');
+
+        Route::get('labour-formula/create', [LabourFormulaController::class, 'create'])
+            ->name('labour-formula.create');
+
+        Route::post('labour-formula/store', [LabourFormulaController::class, 'store'])
+            ->name('labour-formula.store');
+
+        Route::get('labour-formula/edit/{id}', [LabourFormulaController::class, 'edit'])
+            ->name('labour-formula.edit');
+
+        Route::post('labour-formula/update/{id}', [LabourFormulaController::class, 'update'])
+            ->name('labour-formula.update');
+
+        Route::delete('labour-formula/{id}', [LabourFormulaController::class, 'destroy'])
+            ->name('labour-formula.destroy');
+
+        Route::get('production-step', [ProductionStepController::class, 'index'])
+            ->name('production-step.index');
+
+        Route::get('production-step/create', [ProductionStepController::class, 'create'])
+            ->name('production-step.create');
+
+        Route::post('production-step/store', [ProductionStepController::class, 'store'])
+            ->name('production-step.store');
+
+        Route::get('production-step/edit/{id}', [ProductionStepController::class, 'edit'])
+            ->name('production-step.edit');
+
+        Route::post('production-step/update/{id}', [ProductionStepController::class, 'update'])
+            ->name('production-step.update');
+
+        Route::delete('production-step/{id}', [ProductionStepController::class, 'destroy'])
+            ->name('production-step.destroy');
 
         Route::get('/itemsets', [ItemSetController::class, 'list_data'])
             ->name('itemsets.list_data');

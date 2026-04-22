@@ -14,6 +14,11 @@ use App\Http\Controllers\Api\SaleReturnApiController;
 use App\Http\Controllers\Api\ApprovalApiController;
 use App\Http\Controllers\Api\CustomerApiController;
 use App\Http\Controllers\Api\ReportApiController;
+use App\Http\Controllers\Api\ProductionCostApiController;
+use App\Http\Controllers\Api\LabourFormulaApiController;
+use App\Http\Controllers\Api\ProductionStepApiController;
+use App\Http\Controllers\Api\JobWorkerApiController;
+use App\Http\Controllers\Api\JobworkIssueApiController;
 
 Route::post('/company/login', [AuthController::class, 'login']);
 Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
@@ -44,6 +49,26 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/create_customers', [CustomerApiController::class, 'store']);
     Route::post('/update_customers/{id}', [CustomerApiController::class, 'update']);
     Route::delete('/delete_customers/{id}', [CustomerApiController::class, 'destroy']);
+
+    Route::get('/job-workers', [JobWorkerApiController::class, 'index']);
+    Route::post('/job-workers', [JobWorkerApiController::class, 'store']);
+    Route::get('/job-workers/{id}', [JobWorkerApiController::class, 'show']);
+    Route::put('/job-workers/{id}', [JobWorkerApiController::class, 'update']);
+    Route::delete('/job-workers/{id}', [JobWorkerApiController::class, 'destroy']);
+    Route::get('/job-workers-list', [JobWorkerApiController::class, 'index']);
+    Route::post('/create-job-workers', [JobWorkerApiController::class, 'store']);
+    Route::post('/update-job-workers/{id}', [JobWorkerApiController::class, 'update']);
+    Route::delete('/delete-job-workers/{id}', [JobWorkerApiController::class, 'destroy']);
+
+    Route::get('/jobwork-issues', [JobworkIssueApiController::class, 'index']);
+    Route::post('/jobwork-issues', [JobworkIssueApiController::class, 'store']);
+    Route::get('/jobwork-issues/{id}', [JobworkIssueApiController::class, 'show']);
+    Route::put('/jobwork-issues/{id}', [JobworkIssueApiController::class, 'update']);
+    Route::delete('/jobwork-issues/{id}', [JobworkIssueApiController::class, 'destroy']);
+    Route::get('/jobwork-issues-list', [JobworkIssueApiController::class, 'index']);
+    Route::post('/create-jobwork-issues', [JobworkIssueApiController::class, 'store']);
+    Route::post('/update-jobwork-issues/{id}', [JobworkIssueApiController::class, 'update']);
+    Route::delete('/delete-jobwork-issues/{id}', [JobworkIssueApiController::class, 'destroy']);
     
     
     Route::get('/items', [ItemController::class, 'index']);
@@ -76,6 +101,39 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/other-charges/{id}', [OtherChargeController::class, 'show']);
     Route::put('/update-other-charges/{id}', [OtherChargeController::class, 'update']);
     Route::delete('/delete-other-charges/{id}', [OtherChargeController::class, 'destroy']);
+
+    Route::get('/production-costs', [ProductionCostApiController::class, 'index']);
+    Route::get('/production-costs/options', [ProductionCostApiController::class, 'options']);
+    Route::post('/production-costs', [ProductionCostApiController::class, 'store']);
+    Route::get('/production-costs/{id}', [ProductionCostApiController::class, 'show']);
+    Route::put('/production-costs/{id}', [ProductionCostApiController::class, 'update']);
+    Route::delete('/production-costs/{id}', [ProductionCostApiController::class, 'destroy']);
+
+    Route::post('/add-production-costs', [ProductionCostApiController::class, 'store']);
+    Route::put('/update-production-costs/{id}', [ProductionCostApiController::class, 'update']);
+    Route::delete('/delete-production-costs/{id}', [ProductionCostApiController::class, 'destroy']);
+
+    Route::get('/labour-formulas', [LabourFormulaApiController::class, 'index']);
+    Route::get('/labour-formulas/options', [LabourFormulaApiController::class, 'options']);
+    Route::post('/labour-formulas', [LabourFormulaApiController::class, 'store']);
+    Route::get('/labour-formulas/{id}', [LabourFormulaApiController::class, 'show']);
+    Route::put('/labour-formulas/{id}', [LabourFormulaApiController::class, 'update']);
+    Route::delete('/labour-formulas/{id}', [LabourFormulaApiController::class, 'destroy']);
+
+    Route::post('/add-labour-formulas', [LabourFormulaApiController::class, 'store']);
+    Route::put('/update-labour-formulas/{id}', [LabourFormulaApiController::class, 'update']);
+    Route::delete('/delete-labour-formulas/{id}', [LabourFormulaApiController::class, 'destroy']);
+
+    Route::get('/production-steps', [ProductionStepApiController::class, 'index']);
+    Route::get('/production-steps/options', [ProductionStepApiController::class, 'options']);
+    Route::post('/production-steps', [ProductionStepApiController::class, 'store']);
+    Route::get('/production-steps/{id}', [ProductionStepApiController::class, 'show']);
+    Route::put('/production-steps/{id}', [ProductionStepApiController::class, 'update']);
+    Route::delete('/production-steps/{id}', [ProductionStepApiController::class, 'destroy']);
+
+    Route::post('/add-production-steps', [ProductionStepApiController::class, 'store']);
+    Route::put('/update-production-steps/{id}', [ProductionStepApiController::class, 'update']);
+    Route::delete('/delete-production-steps/{id}', [ProductionStepApiController::class, 'destroy']);
     
     Route::get('/sale-list', [SaleApiController::class, 'index']);             // List sales
     Route::post('/sales/get-item-by-qr', [SaleApiController::class, 'getItemByQr']);

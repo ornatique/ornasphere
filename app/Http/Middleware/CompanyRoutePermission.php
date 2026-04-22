@@ -52,14 +52,6 @@ class CompanyRoutePermission
             $candidates[] = "{$action}.{$m}";
             $candidates[] = "{$action}_{$m}";
             $candidates[] = "{$action} {$m}";
-            $candidates[] = "{$m}-manage";
-            $candidates[] = "{$m}.manage";
-            $candidates[] = "{$m}_manage";
-            $candidates[] = "{$m} manage";
-            $candidates[] = "manage-{$m}";
-            $candidates[] = "manage.{$m}";
-            $candidates[] = "manage_{$m}";
-            $candidates[] = "manage {$m}";
         }
         $candidates = array_values(array_unique($candidates));
 
@@ -75,11 +67,16 @@ class CompanyRoutePermission
         $map = [
             'company.users.' => 'user',
             'company.customers.' => 'customer',
+            'company.job-workers.' => 'job-worker',
+            'company.jobwork-issue.' => 'jobwork-issue',
             'company.items.' => 'item',
             'company.label_config.' => 'label-config',
             'company.label.print' => 'label-print',
             'company.label.generate' => 'label-print',
             'company.other-charge.' => 'other-charge',
+            'company.production-cost.' => 'production-cost',
+            'company.labour-formula.' => 'labour-formula',
+            'company.production-step.' => 'production-step',
             'company.item_sets.' => 'item-set',
             'company.itemsets.' => 'item-set',
             'company.list_itemset' => 'item-set',

@@ -12,6 +12,7 @@ use Illuminate\Auth\AuthenticationException;
 use Illuminate\Session\TokenMismatchException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withProviders([
@@ -170,6 +171,18 @@ return Application::configure(basePath: dirname(__DIR__))
         });
 
         $exceptions->render(function (Throwable $e, Request $request) use ($isApi) {
+            if ($e instanceof HttpExceptionInterface && $e->getStatusCode() === 403) {
+                if ($isApi($request)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => $e->getMessage() ?: 'You do not have permission to access this resource.',
+                        'code' => 'FORBIDDEN',
+                    ], 403);
+                }
+
+                return response()->view('errors.403', [], 403);
+            }
+
             // Let Laravel handle normal web 404/405 instead of logging them as unhandled exceptions.
             if (
                 !$isApi($request) &&

@@ -85,4 +85,10 @@ class User extends Authenticatable
     {
         return $this->belongsTo(Company::class);
     }
+
+    public function productionSteps()
+    {
+        return $this->belongsToMany(ProductionStep::class, 'production_step_user')
+            ->withTimestamps();
+    }
 }

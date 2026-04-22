@@ -4,52 +4,46 @@
     $isCompanyAdmin = $authUser && $authUser->hasRole('company_admin');
     $routeName = (string) optional(request()->route())->getName();
     $isSalesRoute = str_starts_with($routeName, 'company.sales.')
-        || str_starts_with($routeName, 'company.returns.')
-        || str_starts_with($routeName, 'company.approval.');
+    || str_starts_with($routeName, 'company.returns.')
+    || str_starts_with($routeName, 'company.approval.');
     $isReportRoute = str_starts_with($routeName, 'company.reports.');
 
     $canModule = function (string $module, string $action = 'view') use ($authUser, $isCompanyAdmin) {
-        if ($isCompanyAdmin) {
-            return true;
-        }
+    if ($isCompanyAdmin) {
+    return true;
+    }
 
-        if (!$authUser) {
-            return false;
-        }
+    if (!$authUser) {
+    return false;
+    }
 
-        $moduleVariants = array_unique([
-            $module,
-            str_replace('-', '', $module),
-            str_replace('-', '_', $module),
-            str_replace('-', '.', $module),
-            str_replace('-', ' ', $module),
-        ]);
+    $moduleVariants = array_unique([
+    $module,
+    str_replace('-', '', $module),
+    str_replace('-', '_', $module),
+    str_replace('-', '.', $module),
+    str_replace('-', ' ', $module),
+    ]);
 
-        $candidates = [];
-        foreach ($moduleVariants as $m) {
-            $candidates[] = "{$m}-{$action}";
-            $candidates[] = "{$m}.{$action}";
-            $candidates[] = "{$m}_{$action}";
-            $candidates[] = "{$m} {$action}";
-            $candidates[] = "{$action}-{$m}";
-            $candidates[] = "{$action}.{$m}";
-            $candidates[] = "{$action}_{$m}";
-            $candidates[] = "{$action} {$m}";
-            $candidates[] = "{$m}-manage";
-            $candidates[] = "{$m}.manage";
-            $candidates[] = "{$m}_manage";
-            $candidates[] = "{$m} manage";
-            $candidates[] = "manage-{$m}";
-            $candidates[] = "manage.{$m}";
-            $candidates[] = "manage_{$m}";
-            $candidates[] = "manage {$m}";
-        }
+    $candidates = [];
+    foreach ($moduleVariants as $m) {
+    $candidates[] = "{$m}-{$action}";
+    $candidates[] = "{$m}.{$action}";
+    $candidates[] = "{$m}_{$action}";
+    $candidates[] = "{$m} {$action}";
+    $candidates[] = "{$action}-{$m}";
+    $candidates[] = "{$action}.{$m}";
+    $candidates[] = "{$action}_{$m}";
+    $candidates[] = "{$action} {$m}";
+    }
 
-        return $authUser->hasAnyPermission(array_values(array_unique($candidates)));
+    return $authUser->hasAnyPermission(array_values(array_unique($candidates)));
     };
 
     $canUsers = $canModule('user');
     $canCustomers = $canModule('customer');
+    $canJobWorker = $canModule('job-worker');
+    $canJobworkIssueEntry = $canModule('jobwork-issue');
     $canRoles = $canModule('role');
     $canPermissions = $canModule('permission');
 
@@ -58,6 +52,9 @@
     $canLabelConfig = $canModule('label-config');
     $canLabelPrint = $canModule('label-print');
     $canOtherCharge = $canModule('other-charge');
+    $canProductionCost = $canModule('production-cost');
+    $canLabourFormula = $canModule('labour-formula');
+    $canProductionStep = $canModule('production-step');
 
     $canApproval = $canModule('approval');
     $canSales = $canModule('sale');
@@ -66,7 +63,7 @@
     $canReportStockPosition = $canModule('report-stock-position');
     $canReportApprovalOutstanding = $canModule('report-approval-outstanding');
     $canReportBarcodeHistory = $canModule('report-barcode-history');
-@endphp
+    @endphp
 
     <ul class="nav" id="sidebar-accordion">
 
@@ -160,18 +157,18 @@
         $currentRouteName = optional(request()->route())->getName();
 
         $labelItemsRoutes = [
-            'company.list_itemset',
-            'company.item_sets.index',
-            'company.item_sets.saveCell',
-            'company.item_sets.load',
-            'company.item_sets.finalize',
-            'company.item_sets.finalize.get',
+        'company.list_itemset',
+        'company.item_sets.index',
+        'company.item_sets.saveCell',
+        'company.item_sets.load',
+        'company.item_sets.finalize',
+        'company.item_sets.finalize.get',
         ];
 
         $labelPrintingRoutes = [
-            'company.item_sets.qrList',
-            'company.item_sets.printPdf',
-            'company.item_sets.qrImage',
+        'company.item_sets.qrList',
+        'company.item_sets.printPdf',
+        'company.item_sets.qrImage',
         ];
 
         $labelItemsActive = in_array($currentRouteName, $labelItemsRoutes, true);
@@ -206,7 +203,7 @@
                     </li>
                     @endif
 
-                     @if($canLabelConfig)
+                    @if($canLabelConfig)
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('company.label_config.*') ? 'active' : '' }}"
                             href="{{ route('company.label_config.index', auth()->user()->company->slug) }}">
@@ -215,7 +212,7 @@
                     </li>
                     @endif
 
-                    
+
                     @if($canItemSets)
                     <li class="nav-item">
                         <a class="nav-link {{ $labelItemsActive ? 'active' : '' }}"
@@ -225,7 +222,7 @@
                     </li>
                     @endif
 
-                   
+
 
                     @if($canLabelPrint)
                     <li class="nav-item">
@@ -245,6 +242,78 @@
                     </li>
                     @endif
 
+                </ul>
+            </div>
+        </li>
+        @endif
+
+        {{-- ================= JOBWORK ISSUE ================= --}}
+        @php
+        $jobworkIssueActive =
+        request()->routeIs('company.jobwork-issue.*') ||
+        request()->routeIs('company.job-workers.*') ||
+        request()->routeIs('company.production-cost.*') ||
+        request()->routeIs('company.labour-formula.*') ||
+        request()->routeIs('company.production-step.*');
+        @endphp
+        @if($canJobworkIssueEntry || $canJobWorker || $canProductionCost || $canLabourFormula || $canProductionStep)
+        <li class="nav-item {{ $jobworkIssueActive ? 'active' : '' }}">
+            <a class="nav-link"
+                data-bs-toggle="collapse"
+                href="#jobwork-issue-menu"
+                aria-expanded="{{ $jobworkIssueActive ? 'true' : 'false' }}">
+                <i class="typcn typcn-briefcase menu-icon"></i>
+                <span class="menu-title">Jobwork Issue</span>
+                <i class="typcn typcn-chevron-right menu-arrow"></i>
+            </a>
+
+            <div class="collapse {{ $jobworkIssueActive ? 'show' : '' }}" id="jobwork-issue-menu" data-bs-parent="#sidebar-accordion">
+                <ul class="nav flex-column sub-menu">
+
+                    @if($canLabourFormula)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.labour-formula.*') ? 'active' : '' }}"
+                            href="{{ route('company.labour-formula.index', auth()->user()->company->slug) }}">
+                            Labour Formula
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canProductionCost)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.production-cost.*') ? 'active' : '' }}"
+                            href="{{ route('company.production-cost.index', auth()->user()->company->slug) }}">
+                            Production Cost
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canProductionStep)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.production-step.*') ? 'active' : '' }}"
+                            href="{{ route('company.production-step.index', auth()->user()->company->slug) }}">
+                            Production Step
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canJobWorker)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.job-workers.*') ? 'active' : '' }}"
+                            href="{{ route('company.job-workers.index', auth()->user()->company->slug) }}">
+                            Job Worker
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canJobworkIssueEntry)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.jobwork-issue.*') ? 'active' : '' }}"
+                            href="{{ route('company.jobwork-issue.index', auth()->user()->company->slug) }}">
+                            Jobwork Issue
+                        </a>
+                    </li>
+                    @endif
                 </ul>
             </div>
         </li>
@@ -355,7 +424,7 @@
     </ul>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function () {
+        document.addEventListener('DOMContentLoaded', function() {
             const salesToggle = document.querySelector('a[href="#sales-menu"]');
             const reportsToggle = document.querySelector('a[href="#reports-menu"]');
             const salesMenu = document.getElementById('sales-menu');
@@ -365,16 +434,20 @@
                 return;
             }
 
-            const salesCollapse = window.bootstrap.Collapse.getOrCreateInstance(salesMenu, { toggle: false });
-            const reportsCollapse = window.bootstrap.Collapse.getOrCreateInstance(reportsMenu, { toggle: false });
+            const salesCollapse = window.bootstrap.Collapse.getOrCreateInstance(salesMenu, {
+                toggle: false
+            });
+            const reportsCollapse = window.bootstrap.Collapse.getOrCreateInstance(reportsMenu, {
+                toggle: false
+            });
 
-            salesToggle.addEventListener('click', function () {
+            salesToggle.addEventListener('click', function() {
                 if (reportsMenu.classList.contains('show')) {
                     reportsCollapse.hide();
                 }
             });
 
-            reportsToggle.addEventListener('click', function () {
+            reportsToggle.addEventListener('click', function() {
                 if (salesMenu.classList.contains('show')) {
                     salesCollapse.hide();
                 }
