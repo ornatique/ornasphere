@@ -15,6 +15,7 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Endroid\QrCode\Builder\Builder;
 use Yajra\DataTables\Facades\DataTables;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Crypt;
 
 
 
@@ -116,10 +117,9 @@ class ItemSetController extends Controller
                 })
 
                 ->addColumn('action', function ($row) use ($company) {
-                    $editUrl = route('company.itemsets.edit', [$company->slug, $row->id]);
-
-                   
-                    $deleteUrl = route('company.itemsets.delete', [$company->slug, $row->id]);
+                    $encryptedId = Crypt::encryptString((string) $row->id);
+                    $editUrl = route('company.itemsets.edit', [$company->slug, $encryptedId]);
+                    $deleteUrl = route('company.itemsets.delete', [$company->slug, $encryptedId]);
                     $printUrl = route('company.item_sets.printPdf', $company->slug) . '?ids=' . $row->id;
 
                     return '
@@ -569,15 +569,17 @@ class ItemSetController extends Controller
         return $pdf->stream('label-print-preview.pdf');
     }
 
-    public function edit($slug, $id)
+    public function edit($slug, $encryptedId)
     {
+        $id = (int) Crypt::decryptString($encryptedId);
         $item = ItemSet::findOrFail($id);
 
         return response()->json($item);
     }
 
-    public function update(Request $request, $slug, $id)
+    public function update(Request $request, $slug, $encryptedId)
     {
+        $id = (int) Crypt::decryptString($encryptedId);
         $item = ItemSet::findOrFail($id);
 
         $item->update([
@@ -591,9 +593,10 @@ class ItemSetController extends Controller
         return response()->json(['success' => true]);
     }
 
-    public function destroy($slug, $id)
+    public function destroy($slug, $encryptedId)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $id = (int) Crypt::decryptString($encryptedId);
 
         $item = ItemSet::where('company_id', $company->id)
             ->where('id', $id)

@@ -9,7 +9,7 @@
     <div class="card-header d-flex justify-content-between">
         <h4 class="card-title">Approval Details</h4>
         <div class="d-flex gap-2">
-            <a href="{{ route('company.approval.pdf', [$company->slug, $approval->id]) }}"
+            <a href="{{ route('company.approval.pdf', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $approval->id)]) }}"
                class="btn btn-primary"
                target="_blank">
                 View PDF

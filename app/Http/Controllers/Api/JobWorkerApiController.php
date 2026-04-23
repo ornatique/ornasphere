@@ -3,29 +3,20 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Company;
 use App\Models\JobWorker;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class JobWorkerApiController extends Controller
 {
     public function index(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = (int) $request->user()->company_id;
 
-        $rows = JobWorker::where('company_id', $companyId)
-            ->when($request->filled('search'), function ($q) use ($request) {
-                $search = trim((string) $request->search);
-                $q->where(function ($q2) use ($search) {
-                    $q2->where('name', 'like', "%{$search}%")
-                        ->orWhere('mobile_no', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%")
-                        ->orWhere('city', 'like', "%{$search}%");
-                });
-            })
-            ->when($request->filled('is_active'), function ($q) use ($request) {
-                $q->where('is_active', (int) $request->is_active);
-            })
+        $rows = $this->queryRows($request, $companyId)
             ->latest()
             ->get();
 
@@ -54,6 +45,46 @@ class JobWorkerApiController extends Controller
             'success' => true,
             'data' => $row,
         ]);
+    }
+
+    public function exportExcel(Request $request): StreamedResponse
+    {
+        $companyId = (int) $request->user()->company_id;
+        $rows = $this->queryRows($request, $companyId)
+            ->orderBy('name')
+            ->get();
+
+        return response()->streamDownload(function () use ($rows) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, ['Name', 'Email', 'Mobile', 'City', 'Area', 'Landmark', 'Status']);
+            foreach ($rows as $r) {
+                fputcsv($out, [
+                    $r->name,
+                    $r->email,
+                    $r->mobile_no,
+                    $r->city,
+                    $r->area,
+                    $r->landmark,
+                    (int) $r->is_active === 1 ? 'Active' : 'Inactive',
+                ]);
+            }
+            fclose($out);
+        }, 'job_workers_report.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
+    public function exportPdf(Request $request)
+    {
+        $companyId = (int) $request->user()->company_id;
+        $company = Company::select('id', 'name')->findOrFail($companyId);
+        $rows = $this->queryRows($request, $companyId)
+            ->orderBy('name')
+            ->get();
+
+        return Pdf::loadView('company.job_workers.pdf.index', compact('company', 'rows'))
+            ->setPaper('a4', 'portrait')
+            ->download('job_workers_report.pdf');
     }
 
     public function store(Request $request)
@@ -156,5 +187,21 @@ class JobWorkerApiController extends Controller
             'remarks' => 'nullable|string',
         ]);
     }
-}
 
+    private function queryRows(Request $request, int $companyId)
+    {
+        return JobWorker::where('company_id', $companyId)
+            ->when($request->filled('search'), function ($q) use ($request) {
+                $search = trim((string) $request->search);
+                $q->where(function ($q2) use ($search) {
+                    $q2->where('name', 'like', "%{$search}%")
+                        ->orWhere('mobile_no', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('city', 'like', "%{$search}%");
+                });
+            })
+            ->when($request->filled('is_active'), function ($q) use ($request) {
+                $q->where('is_active', (int) $request->is_active);
+            });
+    }
+}

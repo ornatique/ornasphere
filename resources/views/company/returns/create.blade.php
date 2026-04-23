@@ -12,7 +12,7 @@
                 Date: {{ $sale->sale_date }}
             </p>
 
-            <form method="POST" action="{{ route('company.sales.return.store', [$company->slug, $sale->id]) }}">
+            <form method="POST" action="{{ route('company.sales.return.store', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $sale->id)]) }}">
                 @csrf
 
                 @php

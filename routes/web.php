@@ -156,6 +156,10 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
             ->name('customers.create');
         Route::post('/customers', [CustomerController::class, 'store'])
             ->name('customers.store');
+        Route::get('/customers/export/excel', [CustomerController::class, 'exportExcel'])
+            ->name('customers.export.excel');
+        Route::get('/customers/export/pdf', [CustomerController::class, 'exportPdf'])
+            ->name('customers.export.pdf');
         Route::get('/customers/{encryptedId}/edit', [CustomerController::class, 'edit'])
             ->name('customers.edit');
         Route::put('/customers/{encryptedId}', [CustomerController::class, 'update'])
@@ -380,13 +384,13 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
         Route::get('/list_itemset', [ItemSetController::class, 'list_data'])
             ->name('list_itemset');
 
-        Route::get('/itemsets/{id}/edit', [ItemSetController::class, 'edit'])
+        Route::get('/itemsets/{encryptedId}/edit', [ItemSetController::class, 'edit'])
             ->name('itemsets.edit');
 
-        Route::post('/itemsets/{id}/update', [ItemSetController::class, 'update'])
+        Route::post('/itemsets/{encryptedId}/update', [ItemSetController::class, 'update'])
             ->name('itemsets.update');
 
-        Route::delete('/itemsets/{id}', [ItemSetController::class, 'destroy'])
+        Route::delete('/itemsets/{encryptedId}', [ItemSetController::class, 'destroy'])
             ->name('itemsets.delete');
 
         Route::get('/item-sets', [ItemSetController::class, 'index'])
@@ -459,9 +463,9 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
 
         Route::post('sales/store', [SaleController::class, 'store'])
             ->name('sales.store');
-        Route::get('sales/{sale}/edit', [SaleController::class, 'edit'])
+        Route::get('sales/{encryptedId}/edit', [SaleController::class, 'edit'])
             ->name('sales.edit');
-        Route::post('sales/{sale}/update', [SaleController::class, 'update'])
+        Route::post('sales/{encryptedId}/update', [SaleController::class, 'update'])
             ->name('sales.update');
 
         Route::get('sales/get-itemset', [SaleController::class, 'getItemset'])
@@ -472,10 +476,10 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
             [SaleReturnController::class, 'searchSales']
         )->name('sales.search');
 
-        Route::get('sales/{sale}', [SaleController::class, 'show'])
+        Route::get('sales/{encryptedId}', [SaleController::class, 'show'])
             ->name('sales.show');
 
-        Route::get('/sales/{sale}/pdf', [SaleController::class, 'viewPdf'])
+        Route::get('/sales/{encryptedId}/pdf', [SaleController::class, 'viewPdf'])
             ->name('sales.pdf');
 
         Route::get('/item-search', [SaleController::class, 'search'])
@@ -495,9 +499,9 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
         )->name('returns.selectSale');
 
         Route::get(
-            '/returns/create/{sale}',
+            '/returns/create/{encryptedSaleId}',
             [SaleReturnController::class, 'create']
-        )->whereNumber('sale')->name('returns.create');
+        )->name('returns.create');
 
         Route::post(
             '/returns/process-selected',
@@ -505,12 +509,12 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
         )->name('returns.processSelected');
 
         Route::post(
-            '/returns/{sale}',
+            '/returns/{encryptedSaleId}',
             [SaleReturnController::class, 'store']
-        )->whereNumber('sale')->name('returns.store');
+        )->name('returns.store');
 
         Route::get(
-            '/returns/{return}/pdf',
+            '/returns/{encryptedReturnId}/pdf',
             [SaleReturnController::class, 'pdf']
         )->name('returns.pdf');
 
@@ -520,9 +524,9 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
         )->name('returns.selectSaleData');
 
         Route::post(
-            '/returns/{sale}',
+            '/returns/{encryptedSaleId}',
             [SaleReturnController::class, 'store']
-        )->whereNumber('sale')->name('sales.return.store');
+        )->name('sales.return.store');
 
         // ================= YAJRA DATATABLE =================
         Route::get('/items-data', [ItemController::class, 'data'])
@@ -571,23 +575,23 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
 
         Route::get('approval/create', [ApprovalController::class, 'create'])
             ->name('approval.create');
-        Route::get('approval/{id}/edit', [ApprovalController::class, 'edit'])
+        Route::get('approval/{encryptedId}/edit', [ApprovalController::class, 'edit'])
             ->name('approval.edit');
 
         Route::post('approval/store', [ApprovalController::class, 'store'])
             ->name('approval.store');
-        Route::post('approval/{id}/update', [ApprovalController::class, 'update'])
+        Route::post('approval/{encryptedId}/update', [ApprovalController::class, 'update'])
             ->name('approval.update');
 
-        Route::get('approval/{id}/view', [ApprovalController::class, 'view'])
+        Route::get('approval/{encryptedId}/view', [ApprovalController::class, 'view'])
             ->name('approval.view');
 
-        Route::get('approval/{id}/pdf', [ApprovalController::class, 'pdf'])
+        Route::get('approval/{encryptedId}/pdf', [ApprovalController::class, 'pdf'])
             ->name('approval.pdf');
-        Route::get('approvals/pdf/{id}', [ApprovalController::class, 'pdf'])
+        Route::get('approvals/pdf/{encryptedId}', [ApprovalController::class, 'pdf'])
             ->name('approval.pdf.v2');
 
-        Route::get('approval/{id}/items', [ApprovalController::class, 'itemsData'])
+        Route::get('approval/{encryptedId}/items', [ApprovalController::class, 'itemsData'])
             ->name('approval.items.data');
 
         Route::post('approval/sale', [ApprovalController::class, 'sale'])
@@ -649,7 +653,7 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
         Route::get('approval-sales/from-approval', [SaleController::class, 'approvalList'])
             ->name('approval-sales.fromApproval');
 
-        Route::get('approval-sales/approval/{id}', [SaleController::class, 'approvalItems'])
+        Route::get('approval-sales/approval/{encryptedId}', [SaleController::class, 'approvalItems'])
             ->name('approval-sales.approval.items');
 
         Route::post('approval-sales/store-from-approval', [SaleController::class, 'storeFromApproval'])
@@ -658,7 +662,7 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
         Route::get('approval-return', [ApprovalController::class, 'approvalReturnList'])
             ->name('approval.return.list');
 
-        Route::get('approval-return/{id}', [ApprovalController::class, 'approvalReturnItems'])
+        Route::get('approval-return/{encryptedId}', [ApprovalController::class, 'approvalReturnItems'])
             ->name('approval.return.items');
 
         Route::post('approval-return/store', [ApprovalController::class, 'approvalReturnStore'])

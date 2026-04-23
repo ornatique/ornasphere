@@ -15,6 +15,7 @@ use Yajra\DataTables\Facades\DataTables;
 use Barryvdh\DomPDF\Facade\Pdf;
 use DB;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Crypt;
 
 class SaleController extends Controller
 {
@@ -101,15 +102,16 @@ class SaleController extends Controller
 
                 // ✅ ACTION BUTTON (VIEW PDF)
                 ->addColumn('action', function ($sale) use ($company) {
+                    $encryptedId = Crypt::encryptString((string) $sale->id);
 
                     $pdfUrl = route('company.sales.pdf', [
                         'slug' => $company->slug,
-                        'sale' => $sale->id
+                        'encryptedId' => $encryptedId
                     ]);
 
                     $editUrl = route('company.sales.edit', [
                         'slug' => $company->slug,
-                        'sale' => $sale->id
+                        'encryptedId' => $encryptedId
                     ]);
                     $editBtn = '
                     <a href="' . $editUrl . '" 
@@ -170,9 +172,10 @@ class SaleController extends Controller
         ]);
     }
 
-    public function edit($slug, $saleId)
+    public function edit($slug, $encryptedId)
     {
         $company = Company::where('slug', $slug)->firstOrFail();
+        $saleId = (int) Crypt::decryptString($encryptedId);
 
         $sale = Sale::with('saleItems.itemset.item')
             ->where('company_id', $company->id)
@@ -448,12 +451,13 @@ class SaleController extends Controller
         }
     }
 
-    public function update(Request $request, $slug, $saleId)
+    public function update(Request $request, $slug, $encryptedId)
     {
         DB::beginTransaction();
 
         try {
             $company = Company::where('slug', $slug)->firstOrFail();
+            $saleId = (int) Crypt::decryptString($encryptedId);
 
             $sale = Sale::with('saleItems')
                 ->where('company_id', $company->id)
@@ -626,8 +630,10 @@ class SaleController extends Controller
     /**
      * Show single sale
      */
-    public function show(Company $company, $saleId)
+    public function show($slug, $encryptedId)
     {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $saleId = (int) Crypt::decryptString($encryptedId);
         $sale = Sale::with('customer', 'saleItems.itemset')
             ->where('company_id', $company->id)
             ->findOrFail($saleId);
@@ -638,9 +644,10 @@ class SaleController extends Controller
         ));
     }
 
-    public function viewPdf($slug, $saleId)
+    public function viewPdf($slug, $encryptedId)
     {
         $company = Company::where('slug', $slug)->firstOrFail();
+        $saleId = (int) Crypt::decryptString($encryptedId);
 
         $sale = Sale::with([
             'customer',

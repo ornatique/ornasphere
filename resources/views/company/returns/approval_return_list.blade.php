@@ -27,7 +27,7 @@
                     <td>{{ $a->customer->name ?? '-' }}</td>
                     <td>{{ $a->approval_date }}</td>
                     <td>
-                        <a href="{{ route('company.approval.return.items', [$company->slug, $a->id]) }}"
+                        <a href="{{ route('company.approval.return.items', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $a->id)]) }}"
                            class="btn btn-primary">
                            Select
                         </a>

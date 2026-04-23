@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ApprovalHeader;
 use App\Models\Customer;
+use App\Models\Sale;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -116,11 +118,18 @@ class CustomerApiController extends Controller
             ], 404);
         }
 
-        $customer->delete();
+        if ((int) $customer->is_active === 0) {
+            $message = 'Customer is already inactive.';
+        } else {
+            $customer->update(['is_active' => 0]);
+            $message = $this->isCustomerUsed((int) $companyId, (int) $customer->id)
+                ? 'Customer is used in transactions, so deleted not allowed. Customer set to inactive.'
+                : 'Customer set to inactive successfully.';
+        }
 
         return response()->json([
             'success' => true,
-            'message' => 'Customer deleted successfully.',
+            'message' => $message,
         ]);
     }
 
@@ -156,5 +165,11 @@ class CustomerApiController extends Controller
             'reference' => 'nullable|string|max:191',
             'remarks' => 'nullable|string',
         ]);
+    }
+
+    private function isCustomerUsed(int $companyId, int $customerId): bool
+    {
+        return Sale::where('company_id', $companyId)->where('customer_id', $customerId)->exists()
+            || ApprovalHeader::where('company_id', $companyId)->where('customer_id', $customerId)->exists();
     }
 }

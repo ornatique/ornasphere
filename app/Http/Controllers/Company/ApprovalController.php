@@ -15,6 +15,7 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Yajra\DataTables\Facades\DataTables;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Crypt;
 
 class ApprovalController extends Controller
 {
@@ -112,11 +113,12 @@ class ApprovalController extends Controller
                 ->addColumn('modified_count', fn($row) => (int) ($row->modified_count ?? 0))
                 ->addColumn('status', fn($row) => $row->status_badge)
                 ->addColumn('action', function ($row) use ($slug) {
-                    $url = route('company.approval.view', [$slug, $row->id]);
-                    $pdfUrl = route('company.approval.pdf', [$slug, $row->id]);
+                    $encryptedId = Crypt::encryptString((string) $row->id);
+                    $url = route('company.approval.view', [$slug, $encryptedId]);
+                    $pdfUrl = route('company.approval.pdf', [$slug, $encryptedId]);
                     $editBtn = '';
                     if (in_array((string) $row->status, ['open', 'partial'], true)) {
-                        $editUrl = route('company.approval.edit', [$slug, $row->id]);
+                        $editUrl = route('company.approval.edit', [$slug, $encryptedId]);
                         $editBtn = '<a href="' . $editUrl . '" class="btn btn-sm btn-warning me-1">Edit</a>';
                     }
                     return $editBtn . '<a href="' . $url . '" class="btn btn-sm btn-info me-1">View</a>
@@ -140,9 +142,10 @@ class ApprovalController extends Controller
         return view('company.approval.create', compact('company', 'customers'));
     }
 
-    public function edit($slug, $id)
+    public function edit($slug, $encryptedId)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $id = (int) Crypt::decryptString($encryptedId);
 
         $approval = ApprovalHeader::with(['items.itemSet.item', 'items.legacyItemSet.item'])
             ->where('company_id', $company->id)
@@ -320,9 +323,10 @@ class ApprovalController extends Controller
         }
     }
 
-    public function update(Request $request, $slug, $id)
+    public function update(Request $request, $slug, $encryptedId)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $id = (int) Crypt::decryptString($encryptedId);
 
         DB::beginTransaction();
 
@@ -427,9 +431,10 @@ class ApprovalController extends Controller
         }
     }
 
-    public function view($slug, $id)
+    public function view($slug, $encryptedId)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $id = (int) Crypt::decryptString($encryptedId);
 
         $approval = ApprovalHeader::with('items.itemSet.item', 'items.legacyItemSet.item')
             ->where('company_id', $company->id)
@@ -438,9 +443,10 @@ class ApprovalController extends Controller
         return view('company.approval.view', compact('company', 'approval'));
     }
 
-    public function pdf($slug, $id)
+    public function pdf($slug, $encryptedId)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $id = (int) Crypt::decryptString($encryptedId);
 
         $approval = ApprovalHeader::with('customer', 'items.itemSet.item', 'items.legacyItemSet.item')
             ->where('company_id', $company->id)
@@ -452,9 +458,10 @@ class ApprovalController extends Controller
         return $pdf->stream('Approval-' . $approval->approval_no . '.pdf');
     }
 
-    public function itemsData(Request $request, $slug, $id)
+    public function itemsData(Request $request, $slug, $encryptedId)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $id = (int) Crypt::decryptString($encryptedId);
 
         $data = ApprovalItem::with('itemSet.item', 'legacyItemSet.item')
             ->where('approval_id', $id)
@@ -669,9 +676,10 @@ class ApprovalController extends Controller
         return view('company.returns.approval_return_list', compact('company', 'approvals'));
     }
 
-    public function approvalReturnItems($slug, $id)
+    public function approvalReturnItems($slug, $encryptedId)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $id = (int) Crypt::decryptString($encryptedId);
 
         $approval = ApprovalHeader::with([
             'customer',

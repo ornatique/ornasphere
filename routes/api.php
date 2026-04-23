@@ -52,6 +52,8 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
 
     Route::get('/job-workers', [JobWorkerApiController::class, 'index']);
     Route::post('/job-workers', [JobWorkerApiController::class, 'store']);
+    Route::get('/job-workers/export/excel', [JobWorkerApiController::class, 'exportExcel']);
+    Route::get('/job-workers/export/pdf', [JobWorkerApiController::class, 'exportPdf']);
     Route::get('/job-workers/{id}', [JobWorkerApiController::class, 'show']);
     Route::put('/job-workers/{id}', [JobWorkerApiController::class, 'update']);
     Route::delete('/job-workers/{id}', [JobWorkerApiController::class, 'destroy']);
@@ -59,6 +61,8 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/create-job-workers', [JobWorkerApiController::class, 'store']);
     Route::post('/update-job-workers/{id}', [JobWorkerApiController::class, 'update']);
     Route::delete('/delete-job-workers/{id}', [JobWorkerApiController::class, 'destroy']);
+    Route::get('/export-job-workers/excel', [JobWorkerApiController::class, 'exportExcel']);
+    Route::get('/export-job-workers/pdf', [JobWorkerApiController::class, 'exportPdf']);
 
     Route::get('/jobwork-issues', [JobworkIssueApiController::class, 'index']);
     Route::post('/jobwork-issues', [JobworkIssueApiController::class, 'store']);

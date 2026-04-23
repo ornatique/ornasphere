@@ -16,6 +16,7 @@ use Yajra\DataTables\Facades\DataTables;
 use DB;
 use App\Models\Customer;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Crypt;
 
 class SaleReturnController extends Controller
 {
@@ -94,10 +95,11 @@ class SaleReturnController extends Controller
                 })
 
                 ->addColumn('action', function ($return) use ($company) {
+                    $encryptedReturnId = Crypt::encryptString((string) $return->id);
 
                     $pdfUrl = route('company.returns.pdf', [
                         'slug' => $company->slug,
-                        'return' => $return->id
+                        'encryptedReturnId' => $encryptedReturnId
                     ]);
 
                     return '
@@ -144,11 +146,12 @@ class SaleReturnController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    public function create($slug, $sale)
+    public function create($slug, $encryptedSaleId)
     {
         $company = Company::where('slug', $slug)->firstOrFail();
+        $saleId = (int) Crypt::decryptString($encryptedSaleId);
 
-        $sale = Sale::where('id', $sale)
+        $sale = Sale::where('id', $saleId)
             ->where('company_id', $company->id)
             ->with('saleItems.itemset.item', 'customer')
             ->firstOrFail();
@@ -172,7 +175,7 @@ class SaleReturnController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    public function store(Request $request, $slug, $saleId = null)
+    public function store(Request $request, $slug, $encryptedSaleId = null)
     {
         $company = Company::where('slug', $slug)->firstOrFail();
 
@@ -180,6 +183,7 @@ class SaleReturnController extends Controller
             return $this->processSelectedGridReturns($request, $company);
         }
 
+        $saleId = $encryptedSaleId ? (int) Crypt::decryptString($encryptedSaleId) : null;
         $sale = Sale::where('company_id', $company->id)
             ->findOrFail($saleId);
 
@@ -245,9 +249,10 @@ class SaleReturnController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    public function pdf($slug, $returnId)
+    public function pdf($slug, $encryptedReturnId)
     {
         $company = Company::where('slug', $slug)->firstOrFail();
+        $returnId = (int) Crypt::decryptString($encryptedReturnId);
 
         $return = SaleReturn::with([
             'sale.customer',
@@ -319,10 +324,11 @@ class SaleReturnController extends Controller
                 })
 
                 ->addColumn('action', function ($sale) use ($company) {
+                    $encryptedSaleId = Crypt::encryptString((string) $sale->id);
 
                     $url = route('company.returns.create', [
                         'slug' => $company->slug,
-                        'sale' => $sale->id
+                        'encryptedSaleId' => $encryptedSaleId
                     ]);
 
                     return '<a href="' . $url . '" class="btn btn-sm btn-warning">

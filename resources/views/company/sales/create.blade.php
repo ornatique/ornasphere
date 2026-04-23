@@ -3,7 +3,7 @@
 @section('content')
 <div class="content-wrapper">
 
-    <form method="POST" action="{{ !empty($isEdit) && !empty($sale) ? route('company.sales.update', ['slug' => $company->slug, 'sale' => $sale->id]) : route('company.sales.store', ['slug' => $company->slug]) }}">
+    <form method="POST" action="{{ !empty($isEdit) && !empty($sale) ? route('company.sales.update', ['slug' => $company->slug, 'encryptedId' => \Illuminate\Support\Facades\Crypt::encryptString((string) $sale->id)]) : route('company.sales.store', ['slug' => $company->slug]) }}">
         @csrf
 
         <div class="card">

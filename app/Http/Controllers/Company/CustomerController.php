@@ -3,11 +3,15 @@
 namespace App\Http\Controllers\Company;
 
 use App\Http\Controllers\Controller;
+use App\Models\ApprovalHeader;
 use App\Models\Company;
 use App\Models\Customer;
+use App\Models\Sale;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Yajra\DataTables\Facades\DataTables;
 
 class CustomerController extends Controller
@@ -30,8 +34,10 @@ class CustomerController extends Controller
                 ->addColumn('action', function ($customer) use ($company) {
                     $encryptedId = Crypt::encryptString($customer->id);
                     $editUrl = route('company.customers.edit', [$company->slug, $encryptedId]);
+                    $deleteUrl = route('company.customers.delete', [$company->slug, $encryptedId]);
 
-                    return '<a href="' . $editUrl . '" class="btn btn-sm btn-primary">Edit</a>';
+                    return '<a href="' . $editUrl . '" class="btn btn-sm btn-primary">Edit</a>
+                            <button type="button" class="btn btn-sm btn-danger deleteBtn" data-url="' . e($deleteUrl) . '">Delete</button>';
                 })
                 ->rawColumns(['status', 'action'])
                 ->make(true);
@@ -94,7 +100,7 @@ class CustomerController extends Controller
             ->with('success', 'Customer updated successfully');
     }
 
-    public function destroy($slug, $encryptedId)
+    public function destroy(Request $request, $slug, $encryptedId)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
         $customerId = Crypt::decryptString($encryptedId);
@@ -103,11 +109,61 @@ class CustomerController extends Controller
             ->where('id', $customerId)
             ->firstOrFail();
 
-        $customer->delete();
+        if ((int) $customer->is_active === 0) {
+            $message = 'Customer is already inactive.';
+        } else {
+            $customer->update(['is_active' => 0]);
+            $message = $this->isCustomerUsed($company->id, (int) $customer->id)
+                ? 'Customer is used in transactions, so deleted not allowed. Customer set to inactive.'
+                : 'Customer set to inactive successfully.';
+        }
+
+        if ($request->ajax()) {
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+            ]);
+        }
 
         return redirect()
             ->route('company.customers.index', $company->slug)
-            ->with('success', 'Customer deleted successfully');
+            ->with('success', $message);
+    }
+
+    public function exportExcel($slug): StreamedResponse
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $rows = Customer::where('company_id', $company->id)->orderBy('name')->get();
+
+        return response()->streamDownload(function () use ($rows) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, ['Name', 'Email', 'Mobile', 'City', 'Area', 'Landmark', 'Created Date', 'Status']);
+            foreach ($rows as $r) {
+                fputcsv($out, [
+                    $r->name,
+                    $r->email,
+                    $r->mobile_no,
+                    $r->city,
+                    $r->area,
+                    $r->landmark,
+                    optional($r->created_at)?->format('d-m-Y h:i A'),
+                    (int) $r->is_active === 1 ? 'Active' : 'Inactive',
+                ]);
+            }
+            fclose($out);
+        }, 'customers_report.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
+    public function exportPdf($slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $rows = Customer::where('company_id', $company->id)->orderBy('name')->get();
+
+        return Pdf::loadView('company.customers.pdf.index', compact('company', 'rows'))
+            ->setPaper('a4', 'portrait')
+            ->download('customers_report.pdf');
     }
 
     private function validateCustomer(Request $request, int $companyId, ?int $customerId = null): array
@@ -140,5 +196,11 @@ class CustomerController extends Controller
             'reference' => 'nullable|string|max:191',
             'remarks' => 'nullable|string',
         ]);
+    }
+
+    private function isCustomerUsed(int $companyId, int $customerId): bool
+    {
+        return Sale::where('company_id', $companyId)->where('customer_id', $customerId)->exists()
+            || ApprovalHeader::where('company_id', $companyId)->where('customer_id', $customerId)->exists();
     }
 }

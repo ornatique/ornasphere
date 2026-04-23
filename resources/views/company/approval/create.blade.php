@@ -188,7 +188,7 @@
 $(function () {
     const isEdit = {{ !empty($isEdit) ? 'true' : 'false' }};
     const saveUrl = isEdit
-        ? "{{ !empty($approval) ? route('company.approval.update', [$company->slug, $approval->id]) : '' }}"
+        ? "{{ !empty($approval) ? route('company.approval.update', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $approval->id)]) : '' }}"
         : "{{ route('company.approval.store', $company->slug) }}";
     const initialItems = @json(!empty($editableItems) ? $editableItems : []);
 

@@ -110,8 +110,7 @@ class OtherChargeController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
-        // FIX HERE
-        $id = Crypt::decrypt($encryptedId);
+        $id = Crypt::decryptString($encryptedId);
 
         $otherCharge = OtherCharge::where('company_id', $company->id)
             ->where('id', $id)

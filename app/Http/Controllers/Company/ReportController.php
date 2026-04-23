@@ -12,6 +12,7 @@ use Carbon\Carbon;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -539,10 +540,11 @@ class ReportController extends Controller
                 return $escapedLabel;
             }
 
+            $encryptedId = Crypt::encryptString((string) $id);
             $url = match ($type) {
-                'approval' => route('company.approval.view', [$slug, $id]),
-                'sale' => route('company.sales.pdf', [$slug, $id]),
-                'return' => route('company.returns.pdf', [$slug, $id]),
+                'approval' => route('company.approval.view', [$slug, $encryptedId]),
+                'sale' => route('company.sales.pdf', [$slug, $encryptedId]),
+                'return' => route('company.returns.pdf', [$slug, $encryptedId]),
                 default => '',
             };
 

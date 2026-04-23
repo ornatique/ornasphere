@@ -65,11 +65,14 @@ class ProductionStepApiController extends Controller
 
     public function store(Request $request)
     {
+        $userId = (int) $request->user()->id;
         $companyId = (int) $request->user()->company_id;
         $validated = $this->validateData($request, $companyId);
 
         $data = ProductionStep::create([
             'company_id' => $companyId,
+            'created_by' => $userId,
+            'updated_by' => $userId,
             'name' => $validated['name'],
             'labour_formula_id' => $validated['labour_formula_id'] ?? null,
             'receivable_loss' => (bool) ($validated['receivable_loss'] ?? false),
@@ -91,6 +94,7 @@ class ProductionStepApiController extends Controller
 
     public function update(Request $request, $id)
     {
+        $userId = (int) $request->user()->id;
         $companyId = (int) $request->user()->company_id;
 
         $data = ProductionStep::where('company_id', $companyId)->where('id', $id)->first();
@@ -111,6 +115,7 @@ class ProductionStepApiController extends Controller
             'production_cost_id' => $validated['production_cost_id'] ?? null,
             'remarks' => $validated['remarks'] ?? null,
             'status' => (bool) ($validated['status'] ?? true),
+            'updated_by' => $userId,
         ]);
 
         $data->users()->sync($validated['assigned_user_ids'] ?? []);
