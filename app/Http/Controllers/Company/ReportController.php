@@ -543,8 +543,8 @@ class ReportController extends Controller
             $encryptedId = Crypt::encryptString((string) $id);
             $url = match ($type) {
                 'approval' => route('company.approval.view', [$slug, $encryptedId]),
-                'sale' => route('company.sales.pdf', [$slug, $encryptedId]),
-                'return' => route('company.returns.pdf', [$slug, $encryptedId]),
+                'sale' => route('company.sales.show', [$slug, $encryptedId]),
+                'return' => route('company.returns.show', [$slug, $encryptedId]),
                 default => '',
             };
 
@@ -552,7 +552,7 @@ class ReportController extends Controller
                 return $escapedLabel;
             }
 
-            return '<a href="' . e($url) . '" target="_blank">' . $escapedLabel . '</a>';
+            return '<a href="' . e($url) . '">' . $escapedLabel . '</a>';
         })->all();
 
         return implode('<br>', $lines);

@@ -94,7 +94,7 @@ class LabelConfigController extends Controller
             'success' => true,
             'message' => 'Label Config saved successfully',
             'data' => $config
-        ], 201);
+        ], 200);
     }
 
     // ================= UPDATE =================

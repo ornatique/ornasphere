@@ -59,17 +59,24 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::delete('/job-workers/{id}', [JobWorkerApiController::class, 'destroy']);
     Route::get('/job-workers-list', [JobWorkerApiController::class, 'index']);
     Route::post('/create-job-workers', [JobWorkerApiController::class, 'store']);
-    Route::post('/update-job-workers/{id}', [JobWorkerApiController::class, 'update']);
+    Route::put('/update-job-workers/{id}', [JobWorkerApiController::class, 'update']);
     Route::delete('/delete-job-workers/{id}', [JobWorkerApiController::class, 'destroy']);
     Route::get('/export-job-workers/excel', [JobWorkerApiController::class, 'exportExcel']);
     Route::get('/export-job-workers/pdf', [JobWorkerApiController::class, 'exportPdf']);
 
     Route::get('/jobwork-issues', [JobworkIssueApiController::class, 'index']);
     Route::post('/jobwork-issues', [JobworkIssueApiController::class, 'store']);
+    Route::get('/jobwork-issues/other-charges', [JobworkIssueApiController::class, 'otherCharges']);
+    Route::get('/jobwork-issues/export/excel', [JobworkIssueApiController::class, 'exportExcel']);
+    Route::get('/jobwork-issues/export/pdf', [JobworkIssueApiController::class, 'exportPdf']);
+    Route::get('/jobwork-issues/export/excel/{id}', [JobworkIssueApiController::class, 'exportSingleExcel']);
+    Route::get('/jobwork-issues/export/pdf/{id}', [JobworkIssueApiController::class, 'exportSinglePdf']);
     Route::get('/jobwork-issues/{id}', [JobworkIssueApiController::class, 'show']);
     Route::put('/jobwork-issues/{id}', [JobworkIssueApiController::class, 'update']);
     Route::delete('/jobwork-issues/{id}', [JobworkIssueApiController::class, 'destroy']);
     Route::get('/jobwork-issues-list', [JobworkIssueApiController::class, 'index']);
+    Route::get('/export-jobwork-issues/excel', [JobworkIssueApiController::class, 'exportExcel']);
+    Route::get('/export-jobwork-issues/pdf', [JobworkIssueApiController::class, 'exportPdf']);
     Route::post('/create-jobwork-issues', [JobworkIssueApiController::class, 'store']);
     Route::post('/update-jobwork-issues/{id}', [JobworkIssueApiController::class, 'update']);
     Route::delete('/delete-jobwork-issues/{id}', [JobworkIssueApiController::class, 'destroy']);
@@ -189,6 +196,9 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/approvals/return', [ApprovalApiController::class, 'returnItems']);
     Route::get('/approvals/{id}/pdf', [ApprovalApiController::class, 'pdf'])->whereNumber('id');
     Route::get('/approvals/pdf/{id}', [ApprovalApiController::class, 'pdf'])->whereNumber('id');
+    Route::get('/reports/barcode-history/suggest', [ReportApiController::class, 'barcodeHistorySuggest']);
+    Route::get('/reports/barcode-history/export/excel', [ReportApiController::class, 'barcodeHistoryExcel']);
+    Route::get('/reports/barcode-history/export/pdf', [ReportApiController::class, 'barcodeHistoryPdf']);
     Route::get('/reports/barcode-history', [ReportApiController::class, 'barcodeHistory']);
 });
 

@@ -82,7 +82,7 @@ class ItemController extends Controller
             'success' => true,
             'message' => 'Item created successfully',
             'data' => $item
-        ], 201);
+        ], 200);
     }
 
     // ================= UPDATE =================

@@ -73,7 +73,7 @@ class CustomerApiController extends Controller
             'success' => true,
             'message' => 'Customer created successfully.',
             'data' => $customer,
-        ], 201);
+        ], 200);
     }
 
     public function update(Request $request, $id)

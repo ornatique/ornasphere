@@ -89,7 +89,7 @@ class LabourFormulaApiController extends Controller
             'success' => true,
             'message' => 'Labour Formula created successfully',
             'data' => $data,
-        ], 201);
+        ], 200);
     }
 
     public function update(Request $request, $id)

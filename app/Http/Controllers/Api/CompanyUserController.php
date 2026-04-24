@@ -133,7 +133,7 @@ public function store(Request $request)
         'message' => 'User created successfully',
         'default_password' => $validated['email'],
         'data' => $user
-    ], 201);
+    ], 200);
 }
 
     // ✅ Update Company User

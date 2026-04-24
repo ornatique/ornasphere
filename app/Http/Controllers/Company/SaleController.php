@@ -634,7 +634,7 @@ class SaleController extends Controller
     {
         $company = Company::where('slug', $slug)->firstOrFail();
         $saleId = (int) Crypt::decryptString($encryptedId);
-        $sale = Sale::with('customer', 'saleItems.itemset')
+        $sale = Sale::with('customer', 'saleItems.itemset.item')
             ->where('company_id', $company->id)
             ->findOrFail($saleId);
 

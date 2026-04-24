@@ -517,6 +517,10 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
             '/returns/{encryptedReturnId}/pdf',
             [SaleReturnController::class, 'pdf']
         )->name('returns.pdf');
+        Route::get(
+            '/returns/{encryptedReturnId}/view',
+            [SaleReturnController::class, 'show']
+        )->name('returns.show');
 
         Route::get(
             '/returns/select-sale-data',
@@ -701,4 +705,3 @@ Route::post('/set-password/{token}', [PasswordSetController::class, 'update'])
 
 Route::post('/company/2fa/enable', [CompanySecurityController::class, 'enable']);
 Route::post('/company/2fa/disable', [CompanySecurityController::class, 'disable']);
-

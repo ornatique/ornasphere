@@ -89,7 +89,7 @@ class ProductionCostApiController extends Controller
             'success' => true,
             'message' => 'Production Cost created successfully',
             'data' => $data,
-        ], 201);
+        ], 200);
     }
 
     public function update(Request $request, $id)

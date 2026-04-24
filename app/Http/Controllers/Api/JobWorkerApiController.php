@@ -101,7 +101,7 @@ class JobWorkerApiController extends Controller
             'success' => true,
             'message' => 'Job Worker created successfully.',
             'data' => $row,
-        ], 201);
+        ], 200);
     }
 
     public function update(Request $request, $id)

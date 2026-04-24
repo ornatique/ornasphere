@@ -271,6 +271,24 @@ class SaleReturnController extends Controller
             'Return-' . $return->return_voucher_no . '.pdf'
         );
     }
+
+    public function show($slug, $encryptedReturnId)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $returnId = (int) Crypt::decryptString($encryptedReturnId);
+
+        $return = SaleReturn::with([
+            'sale.customer',
+            'approval.customer',
+            'approval.items.itemSet.item',
+            'items.saleItem.itemset.item',
+            'items.itemSet.item',
+        ])
+            ->where('company_id', $company->id)
+            ->findOrFail($returnId);
+
+        return view('company.returns.show', compact('company', 'return'));
+    }
     public function getSalesForReturn(Request $request, $slug)
     {
         $company = Company::where('slug', $slug)->firstOrFail();

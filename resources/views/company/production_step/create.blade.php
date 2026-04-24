@@ -89,22 +89,6 @@
                         </div>
                     </div>
 
-                    <div class="col-md-12">
-                        <div class="form-group">
-                            <label>Assign Users</label>
-                            @php
-                            $selectedUsers = old('assigned_user_ids', isset($data) ? $data->users->pluck('id')->map(fn($id) => (string) $id)->all() : []);
-                            @endphp
-                            <select name="assigned_user_ids[]" class="form-select" multiple size="6">
-                                @foreach($companyUsers as $u)
-                                <option value="{{ $u->id }}" {{ in_array((string) $u->id, array_map('strval', $selectedUsers), true) ? 'selected' : '' }}>
-                                    {{ $u->name }}
-                                </option>
-                                @endforeach
-                            </select>
-                            <small class="text-muted">Hold Ctrl/Cmd to select multiple users.</small>
-                        </div>
-                    </div>
                 </div>
         </div>
 

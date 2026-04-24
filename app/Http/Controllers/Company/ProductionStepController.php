@@ -7,7 +7,6 @@ use App\Models\Company;
 use App\Models\LabourFormula;
 use App\Models\ProductionCost;
 use App\Models\ProductionStep;
-use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Validation\Rule;
@@ -71,9 +70,8 @@ class ProductionStepController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
         $labourFormulas = LabourFormula::where('company_id', $company->id)->where('status', true)->orderBy('name')->get();
         $productionCosts = ProductionCost::where('company_id', $company->id)->where('status', true)->orderBy('name')->get();
-        $companyUsers = User::where('company_id', $company->id)->orderBy('name')->get(['id', 'name']);
 
-        return view('company.production_step.create', compact('company', 'labourFormulas', 'productionCosts', 'companyUsers'));
+        return view('company.production_step.create', compact('company', 'labourFormulas', 'productionCosts'));
     }
 
     public function store(Request $request, $slug)
@@ -95,8 +93,6 @@ class ProductionStepController extends Controller
             'status' => (bool) ($validated['status'] ?? true),
         ]);
 
-        $productionStep->users()->sync($validated['assigned_user_ids'] ?? []);
-
         return redirect()
             ->route('company.production-step.index', $company->slug)
             ->with('success', 'Production Step created successfully');
@@ -108,12 +104,10 @@ class ProductionStepController extends Controller
         $id = Crypt::decryptString($encryptedId);
 
         $data = ProductionStep::where('company_id', $company->id)->where('id', $id)->firstOrFail();
-        $data->load('users:id');
         $labourFormulas = LabourFormula::where('company_id', $company->id)->where('status', true)->orderBy('name')->get();
         $productionCosts = ProductionCost::where('company_id', $company->id)->where('status', true)->orderBy('name')->get();
-        $companyUsers = User::where('company_id', $company->id)->orderBy('name')->get(['id', 'name']);
 
-        return view('company.production_step.create', compact('company', 'data', 'labourFormulas', 'productionCosts', 'companyUsers'));
+        return view('company.production_step.create', compact('company', 'data', 'labourFormulas', 'productionCosts'));
     }
 
     public function update(Request $request, $slug, $encryptedId)
@@ -135,8 +129,6 @@ class ProductionStepController extends Controller
             'remarks' => $validated['remarks'] ?? null,
             'status' => (bool) ($validated['status'] ?? true),
         ]);
-
-        $data->users()->sync($validated['assigned_user_ids'] ?? []);
 
         return redirect()
             ->route('company.production-step.index', $company->slug)
@@ -182,11 +174,6 @@ class ProductionStepController extends Controller
             ],
             'remarks' => ['nullable', 'string'],
             'status' => ['required', 'boolean'],
-            'assigned_user_ids' => ['nullable', 'array'],
-            'assigned_user_ids.*' => [
-                'integer',
-                Rule::exists('users', 'id')->where(fn($q) => $q->where('company_id', $companyId)),
-            ],
         ]);
     }
 }

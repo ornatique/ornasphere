@@ -89,7 +89,7 @@ class ProductionStepApiController extends Controller
             'success' => true,
             'message' => 'Production Step created successfully',
             'data' => $data,
-        ], 201);
+        ], 200);
     }
 
     public function update(Request $request, $id)
