@@ -60,6 +60,10 @@
     $canSales = $canModule('sale');
     $canReturns = $canModule('return');
     $canReportSalesSummary = $canModule('report-sales-summary');
+    $canReportPurchaseReceiverSummary = $canModule('report-purchase-receiver-summary')
+        || $canModule('report-purchase-receiver')
+        || $canModule('report-return-summary')
+        || $canReturns;
     $canReportStockPosition = $canModule('report-stock-position');
     $canReportApprovalOutstanding = $canModule('report-approval-outstanding');
     $canReportBarcodeHistory = $canModule('report-barcode-history');
@@ -368,7 +372,7 @@
 
         {{-- ================= REPORTS ================= --}}
         @php $reportActive = $isReportRoute; @endphp
-        @if($canReportSalesSummary || $canReportStockPosition || $canReportApprovalOutstanding || $canReportBarcodeHistory)
+        @if($canReportSalesSummary || $canReportPurchaseReceiverSummary || $canReportStockPosition || $canReportApprovalOutstanding || $canReportBarcodeHistory)
         <li class="nav-item {{ $reportActive ? 'active' : '' }}">
             <a class="nav-link"
                 data-bs-toggle="collapse"
@@ -386,6 +390,15 @@
                         <a class="nav-link {{ request()->routeIs('company.reports.sales-summary.*') ? 'active' : '' }}"
                             href="{{ route('company.reports.sales-summary.index', auth()->user()->company->slug) }}">
                             Sales Summary
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canReportPurchaseReceiverSummary)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.reports.purchase-receiver-summary.*') ? 'active' : '' }}"
+                            href="{{ route('company.reports.purchase-receiver-summary.index', auth()->user()->company->slug) }}">
+                            Purchase / Receiver Summary
                         </a>
                     </li>
                     @endif

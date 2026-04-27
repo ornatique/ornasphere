@@ -13,6 +13,7 @@ use App\Models\ApprovalItem;
 use App\Models\ApprovalHeader;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Facades\Crypt;
 use Endroid\QrCode\Builder\Builder;
 use Endroid\QrCode\Writer\PngWriter;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -73,7 +74,7 @@ class SaleApiController extends Controller
                 // Keep web URL for browser session based access.
                 'web_pdf_url' => route('company.sales.pdf', [
                     'slug' => $company->slug,
-                    'sale' => $sale->id
+                    'encryptedId' => Crypt::encryptString((string) $sale->id),
                 ])
             ];
         });

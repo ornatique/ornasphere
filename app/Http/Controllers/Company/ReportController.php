@@ -25,6 +25,8 @@ class ReportController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
 
         if ($request->ajax()) {
+            $totals = $this->salesSummaryTotals($company, $request);
+
             return DataTables::of($this->salesSummaryBaseQuery($company, $request)->latest())
                 ->addIndexColumn()
                 ->addColumn('customer_name', fn($row) => optional($row->customer)->name ?? '-')
@@ -38,6 +40,7 @@ class ReportController extends Controller
                 ->addColumn('labour_amount', fn($row) => number_format((float) ($row->total_labour_amount ?? 0), 2))
                 ->addColumn('other_amount', fn($row) => number_format((float) ($row->total_other_amount ?? 0), 2))
                 ->editColumn('net_total', fn($row) => number_format((float) ($row->net_total ?? 0), 2))
+                ->with(['totals' => $totals])
                 ->make(true);
         }
 
@@ -83,10 +86,99 @@ class ReportController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
         $rows = $this->salesSummaryBaseQuery($company, $request)->latest()->get();
+        $totals = $this->salesSummaryTotals($company, $request);
 
-        return Pdf::loadView('company.reports.pdf.sales_summary', compact('company', 'rows'))
+        return Pdf::loadView('company.reports.pdf.sales_summary', compact('company', 'rows', 'totals'))
             ->setPaper('a4', 'landscape')
             ->download('sales_summary_report.pdf');
+    }
+
+    public function purchaseReceiverSummary(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        if ($request->ajax()) {
+            $totals = $this->purchaseReceiverSummaryTotals($company, $request);
+
+            return DataTables::of($this->purchaseReceiverSummaryBaseQuery($company, $request)->orderByDesc('sr.id'))
+                ->addIndexColumn()
+                ->editColumn('return_date', fn($row) => $row->return_date ? Carbon::parse($row->return_date)->format('d-m-Y') : '-')
+                ->editColumn('source_type', fn($row) => ucfirst((string) ($row->source_type ?: 'sale')))
+                ->addColumn('qty_pcs', fn($row) => (int) ($row->total_qty ?? 0))
+                ->addColumn('gross_weight', fn($row) => number_format((float) ($row->total_gross_weight ?? 0), 3))
+                ->addColumn('net_weight', fn($row) => number_format((float) ($row->total_net_weight ?? 0), 3))
+                ->addColumn('fine_weight', fn($row) => number_format((float) ($row->total_fine_weight ?? 0), 3))
+                ->addColumn('metal_amount', fn($row) => number_format((float) ($row->total_metal_amount ?? 0), 2))
+                ->addColumn('labour_amount', fn($row) => number_format((float) ($row->total_labour_amount ?? 0), 2))
+                ->addColumn('other_amount', fn($row) => number_format((float) ($row->total_other_amount ?? 0), 2))
+                ->editColumn('return_total', fn($row) => number_format((float) ($row->return_total ?? 0), 2))
+                ->with(['totals' => $totals])
+                ->make(true);
+        }
+
+        $customers = Customer::where('company_id', $company->id)
+            ->where('is_active', 1)
+            ->orderBy('name')
+            ->get();
+
+        return view('company.reports.purchase_receiver_summary', compact('company', 'customers'));
+    }
+
+    public function purchaseReceiverSummaryExcel(Request $request, $slug): StreamedResponse
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $rows = $this->purchaseReceiverSummaryBaseQuery($company, $request)->orderByDesc('sr.id')->get();
+        $totals = $this->purchaseReceiverSummaryTotals($company, $request);
+
+        return response()->streamDownload(function () use ($rows, $totals) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, ['Voucher No', 'Date', 'Customer', 'Source', 'Qty', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Metal Amt', 'Labour Amt', 'Other Amt', 'Total']);
+            foreach ($rows as $r) {
+                fputcsv($out, [
+                    $r->return_voucher_no,
+                    $r->return_date ? Carbon::parse($r->return_date)->format('d-m-Y') : '-',
+                    $r->customer_name ?: '-',
+                    ucfirst((string) ($r->source_type ?: 'sale')),
+                    (int) ($r->total_qty ?? 0),
+                    number_format((float) ($r->total_gross_weight ?? 0), 3, '.', ''),
+                    number_format((float) ($r->total_net_weight ?? 0), 3, '.', ''),
+                    number_format((float) ($r->total_fine_weight ?? 0), 3, '.', ''),
+                    number_format((float) ($r->total_metal_amount ?? 0), 2, '.', ''),
+                    number_format((float) ($r->total_labour_amount ?? 0), 2, '.', ''),
+                    number_format((float) ($r->total_other_amount ?? 0), 2, '.', ''),
+                    number_format((float) ($r->return_total ?? 0), 2, '.', ''),
+                ]);
+            }
+
+            fputcsv($out, [
+                'TOTAL',
+                '',
+                '',
+                '',
+                (int) ($totals['qty_pcs'] ?? 0),
+                number_format((float) ($totals['gross_weight'] ?? 0), 3, '.', ''),
+                number_format((float) ($totals['net_weight'] ?? 0), 3, '.', ''),
+                number_format((float) ($totals['fine_weight'] ?? 0), 3, '.', ''),
+                number_format((float) ($totals['metal_amount'] ?? 0), 2, '.', ''),
+                number_format((float) ($totals['labour_amount'] ?? 0), 2, '.', ''),
+                number_format((float) ($totals['other_amount'] ?? 0), 2, '.', ''),
+                number_format((float) ($totals['return_total'] ?? 0), 2, '.', ''),
+            ]);
+            fclose($out);
+        }, 'purchase_receiver_summary_report.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
+    public function purchaseReceiverSummaryPdf(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $rows = $this->purchaseReceiverSummaryBaseQuery($company, $request)->orderByDesc('sr.id')->get();
+        $totals = $this->purchaseReceiverSummaryTotals($company, $request);
+
+        return Pdf::loadView('company.reports.pdf.purchase_receiver_summary', compact('company', 'rows', 'totals'))
+            ->setPaper('a4', 'landscape')
+            ->download('purchase_receiver_summary_report.pdf');
     }
 
     public function stockPosition(Request $request, $slug)
@@ -352,6 +444,139 @@ class ReportController extends Controller
         }
 
         return $query;
+    }
+
+    private function purchaseReceiverSummaryBaseQuery(Company $company, Request $request)
+    {
+        $hasReturnItemsetId = Schema::hasColumn('sale_return_items', 'itemset_id');
+
+        $query = DB::table('sale_returns as sr')
+            ->leftJoin('sale_return_items as sri', 'sri.sale_return_id', '=', 'sr.id')
+            ->leftJoin('sale_items as si', 'si.id', '=', 'sri.sale_item_id')
+            ->leftJoin('sales as s', 's.id', '=', 'sr.sale_id')
+            ->leftJoin('customers as sc', 'sc.id', '=', 's.customer_id')
+            ->leftJoin('approval_headers as ah', function ($join) {
+                $join->on('ah.id', '=', 'sr.source_id')
+                    ->whereIn('sr.source_type', ['approval', 'mixed']);
+            })
+            ->leftJoin('customers as ac', 'ac.id', '=', 'ah.customer_id')
+            ->where('sr.company_id', $company->id)
+            ->when($request->filled('customer_id'), function ($q) use ($request) {
+                $customerId = (int) $request->customer_id;
+                $q->where(function ($inner) use ($customerId) {
+                    $inner->where('s.customer_id', $customerId)
+                        ->orWhere('ah.customer_id', $customerId);
+                });
+            })
+            ->when($request->filled('from_date') && $request->filled('to_date'), function ($q) use ($request) {
+                $q->whereBetween('sr.return_date', [$request->from_date, $request->to_date]);
+            })
+            ->when($request->filled('from_date') && !$request->filled('to_date'), function ($q) use ($request) {
+                $q->whereDate('sr.return_date', '>=', $request->from_date);
+            })
+            ->when(!$request->filled('from_date') && $request->filled('to_date'), function ($q) use ($request) {
+                $q->whereDate('sr.return_date', '<=', $request->to_date);
+            })
+            ->groupBy(
+                'sr.id',
+                'sr.return_voucher_no',
+                'sr.return_date',
+                'sr.return_total',
+                'sr.source_type',
+                'sr.created_at',
+                'sc.name',
+                'ac.name'
+            );
+
+        if ($hasReturnItemsetId) {
+            $query->leftJoin('item_sets as iset', 'iset.id', '=', 'sri.itemset_id');
+        }
+
+        $grossWeightExpr = $hasReturnItemsetId
+            ? 'COALESCE(si.gross_weight, iset.gross_weight, 0)'
+            : 'COALESCE(si.gross_weight, 0)';
+        $netWeightExpr = $hasReturnItemsetId
+            ? 'COALESCE(si.net_weight, iset.net_weight, 0)'
+            : 'COALESCE(si.net_weight, 0)';
+
+        $query->selectRaw("
+                sr.id,
+                sr.return_voucher_no,
+                sr.return_date,
+                sr.return_total,
+                sr.source_type,
+                sr.created_at,
+                COALESCE(sc.name, ac.name, '-') as customer_name,
+                COUNT(sri.id) as total_qty,
+                COALESCE(SUM({$grossWeightExpr}), 0) as total_gross_weight,
+                COALESCE(SUM({$netWeightExpr}), 0) as total_net_weight,
+                COALESCE(SUM(COALESCE(si.fine_weight, 0)), 0) as total_fine_weight,
+                COALESCE(SUM(COALESCE(si.metal_amount, 0)), 0) as total_metal_amount,
+                COALESCE(SUM(COALESCE(si.labour_amount, 0)), 0) as total_labour_amount,
+                COALESCE(SUM(COALESCE(si.other_amount, 0)), 0) as total_other_amount
+            ");
+
+        return $query;
+    }
+
+    private function salesSummaryTotals(Company $company, Request $request): array
+    {
+        $applySalesFilters = function ($query) use ($company, $request) {
+            $query->where('sales.company_id', $company->id);
+
+            if ($request->filled('customer_id')) {
+                $query->where('sales.customer_id', (int) $request->customer_id);
+            }
+            if ($request->filled('from_date') && $request->filled('to_date')) {
+                $query->whereBetween('sales.sale_date', [$request->from_date, $request->to_date]);
+            }
+        };
+
+        $weightAndAmountTotals = DB::table('sale_items')
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->where($applySalesFilters)
+            ->selectRaw('
+                COALESCE(SUM(sale_items.qty), 0) as qty_pcs,
+                COALESCE(SUM(sale_items.gross_weight), 0) as gross_weight,
+                COALESCE(SUM(sale_items.net_weight), 0) as net_weight,
+                COALESCE(SUM(sale_items.fine_weight), 0) as fine_weight,
+                COALESCE(SUM(sale_items.metal_amount), 0) as metal_amount,
+                COALESCE(SUM(sale_items.labour_amount), 0) as labour_amount,
+                COALESCE(SUM(sale_items.other_amount), 0) as other_amount
+            ')
+            ->first();
+
+        $netTotal = DB::table('sales')
+            ->where($applySalesFilters)
+            ->selectRaw('COALESCE(SUM(sales.net_total), 0) as net_total')
+            ->value('net_total');
+
+        return [
+            'qty_pcs' => (int) ($weightAndAmountTotals->qty_pcs ?? 0),
+            'gross_weight' => (float) ($weightAndAmountTotals->gross_weight ?? 0),
+            'net_weight' => (float) ($weightAndAmountTotals->net_weight ?? 0),
+            'fine_weight' => (float) ($weightAndAmountTotals->fine_weight ?? 0),
+            'metal_amount' => (float) ($weightAndAmountTotals->metal_amount ?? 0),
+            'labour_amount' => (float) ($weightAndAmountTotals->labour_amount ?? 0),
+            'other_amount' => (float) ($weightAndAmountTotals->other_amount ?? 0),
+            'net_total' => (float) ($netTotal ?? 0),
+        ];
+    }
+
+    private function purchaseReceiverSummaryTotals(Company $company, Request $request): array
+    {
+        $rows = $this->purchaseReceiverSummaryBaseQuery($company, $request)->get();
+
+        return [
+            'qty_pcs' => (int) $rows->sum(fn($r) => (int) ($r->total_qty ?? 0)),
+            'gross_weight' => (float) $rows->sum(fn($r) => (float) ($r->total_gross_weight ?? 0)),
+            'net_weight' => (float) $rows->sum(fn($r) => (float) ($r->total_net_weight ?? 0)),
+            'fine_weight' => (float) $rows->sum(fn($r) => (float) ($r->total_fine_weight ?? 0)),
+            'metal_amount' => (float) $rows->sum(fn($r) => (float) ($r->total_metal_amount ?? 0)),
+            'labour_amount' => (float) $rows->sum(fn($r) => (float) ($r->total_labour_amount ?? 0)),
+            'other_amount' => (float) $rows->sum(fn($r) => (float) ($r->total_other_amount ?? 0)),
+            'return_total' => (float) $rows->sum(fn($r) => (float) ($r->return_total ?? 0)),
+        ];
     }
 
     private function stockPositionBaseQuery(Company $company, Request $request)

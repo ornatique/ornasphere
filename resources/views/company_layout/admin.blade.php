@@ -110,7 +110,7 @@
   <!-- inject:js -->
   <script src="{{ asset('celestial/assets/js/off-canvas.js') }}"></script>
   <script src="{{ asset('celestial/assets/js/hoverable-collapse.js') }}"></script>
-  <script src="{{ asset('celestial/assets/js/template.js') }}"></script>
+  <script src="{{ asset('celestial/assets/js/template.js') }}?v={{ @filemtime(public_path('celestial/assets/js/template.js')) }}"></script>
   <script src="{{ asset('celestial/assets/js/settings.js') }}"></script>
   <script src="{{ asset('celestial/assets/js/todolist.js') }}"></script>
   <!-- endinject -->

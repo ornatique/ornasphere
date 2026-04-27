@@ -93,18 +93,19 @@
 @php
     $logo = asset('celestial/assets/images/logo.svg');
 
-    if (auth()->check() && !empty(optional(auth()->user()->company)->company_logo)) {
-        $logo = asset('public/' . ltrim(optional(auth()->user()->company)->company_logo, '/'));
+    $companyUser = auth()->user();
+    $superAdminUser = auth('superadmin')->user();
+
+    if ($companyUser && !empty(optional($companyUser->company)->company_logo)) {
+        $logo = asset('public/' . ltrim(optional($companyUser->company)->company_logo, '/'));
     }
 
     $homeUrl = url('/');
-    if (auth()->check()) {
-        if (\Illuminate\Support\Facades\Route::has('company.dashboard') && !empty(optional(auth()->user()->company)->slug)) {
-            $homeUrl = route('company.dashboard', optional(auth()->user()->company)->slug);
-        }
-        if (request()->is('superadmin/*') && \Illuminate\Support\Facades\Route::has('superadmin.dashboard')) {
-            $homeUrl = route('superadmin.dashboard');
-        }
+
+    if ($superAdminUser && \Illuminate\Support\Facades\Route::has('superadmin.dashboard')) {
+        $homeUrl = route('superadmin.dashboard');
+    } elseif ($companyUser && \Illuminate\Support\Facades\Route::has('company.dashboard') && !empty(optional($companyUser->company)->slug)) {
+        $homeUrl = route('company.dashboard', optional($companyUser->company)->slug);
     }
 @endphp
 

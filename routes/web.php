@@ -39,7 +39,39 @@ use App\Http\Controllers\Company\ApprovalController;
 */
 
 Route::get('/', function () {
+    if (Auth::guard('superadmin')->check()) {
+        return redirect()->route('superadmin.dashboard');
+    }
+
+    if (Auth::check() && !empty(optional(Auth::user()->company)->slug)) {
+        return redirect()->route('company.dashboard', ['slug' => Auth::user()->company->slug]);
+    }
+
     return view('welcome');
+});
+
+Route::get('/dashboard', function () {
+    if (Auth::guard('superadmin')->check()) {
+        return redirect()->route('superadmin.dashboard');
+    }
+
+    if (Auth::check() && !empty(optional(Auth::user()->company)->slug)) {
+        return redirect()->route('company.dashboard', ['slug' => Auth::user()->company->slug]);
+    }
+
+    return redirect()->route('superadmin.login');
+});
+
+Route::get('/company', function () {
+    if (Auth::check() && !empty(optional(Auth::user()->company)->slug)) {
+        return redirect()->route('company.dashboard', ['slug' => Auth::user()->company->slug]);
+    }
+
+    if (Auth::guard('superadmin')->check()) {
+        return redirect()->route('superadmin.dashboard');
+    }
+
+    return redirect('/');
 });
 
 Route::get('/company/{slug}', function (string $slug) {
@@ -627,6 +659,12 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
                 ->name('sales-summary.export.excel');
             Route::get('/sales-summary/export/pdf', [ReportController::class, 'salesSummaryPdf'])
                 ->name('sales-summary.export.pdf');
+            Route::get('/purchase-receiver-summary', [ReportController::class, 'purchaseReceiverSummary'])
+                ->name('purchase-receiver-summary.index');
+            Route::get('/purchase-receiver-summary/export/excel', [ReportController::class, 'purchaseReceiverSummaryExcel'])
+                ->name('purchase-receiver-summary.export.excel');
+            Route::get('/purchase-receiver-summary/export/pdf', [ReportController::class, 'purchaseReceiverSummaryPdf'])
+                ->name('purchase-receiver-summary.export.pdf');
             Route::get('/stock-position', [ReportController::class, 'stockPosition'])
                 ->name('stock-position.index');
             Route::get('/stock-position/export/excel', [ReportController::class, 'stockPositionExcel'])
