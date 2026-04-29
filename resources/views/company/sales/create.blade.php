@@ -37,6 +37,13 @@
                     </div>
                 </div>
 
+                <div class="row mb-3">
+                    <div class="col-md-12">
+                        <label>Voucher Remarks</label>
+                        <textarea name="voucher_remarks" class="form-control" rows="2" placeholder="Enter remarks for this sale">{{ old('voucher_remarks', !empty($sale) ? ($sale->remarks ?? '') : '') }}</textarea>
+                    </div>
+                </div>
+
                 <div class="table-responsive sale-grid-wrap">
                     <table class="table table-bordered" id="saleTable">
                         <thead>
@@ -57,6 +64,7 @@
                                 <th>Labour Amt</th>
                                 <th>Other Amt</th>
                                 <th>Total Amt</th>
+                                <th>Remarks</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
@@ -79,6 +87,7 @@
                                 <th><span id="totalLabourAmt">0.00</span></th>
                                 <th><span id="totalOtherAmt">0.00</span></th>
                                 <th>Rs <span id="grandTotal">0.00</span></th>
+                                <th></th>
                                 <th></th>
                             </tr>
                         </tfoot>
@@ -293,6 +302,7 @@ $(function () {
         const effectiveMetalAmount = applyMetal ? metalAmount : 0;
         const effectiveLabourAmount = applyLabour ? labourAmount : 0;
         const totalAmount = toNum(item.total_amount ?? (effectiveMetalAmount + effectiveLabourAmount + otherAmount));
+        const remarks = String(item.remarks ?? '');
 
         return {
             itemset_id: toNum(item.itemset_id ?? item.id),
@@ -316,6 +326,7 @@ $(function () {
             labour_amount: effectiveLabourAmount,
             other_amount: otherAmount,
             total_amount: totalAmount,
+            remarks,
             other_charges: [],
         };
     }
@@ -552,6 +563,7 @@ $(function () {
         row.labour_rate = toNum($(`.labour-rate[data-id="${itemsetId}"]`).val());
         row.apply_labour = $(`.apply-labour[data-id="${itemsetId}"]`).is(':checked');
         row.other_amount = toNum($(`.other-amount[data-id="${itemsetId}"]`).val());
+        row.remarks = String($(`.remarks[data-id="${itemsetId}"]`).val() ?? '').trim();
 
         row.net_weight = row.gross_weight - row.other_weight;
         row.net_purity = row.purity + row.waste_percent;
@@ -637,6 +649,7 @@ $(function () {
                 <input type="hidden" name="apply_metal[]" data-id="${itemsetId}" value="${row.apply_metal ? 1 : 0}">
                 <input type="hidden" name="apply_labour[]" data-id="${itemsetId}" value="${row.apply_labour ? 1 : 0}">
                 <input type="hidden" name="total_amount[]" data-id="${itemsetId}" value="${nfix(row.total_amount,2)}">
+                <input type="hidden" name="remarks[]" data-id="${itemsetId}" value="${esc(row.remarks || '')}">
                 <input type="hidden" name="other_charge_details[]" class="other-charge-details" data-id="${itemsetId}" value="">
             </td>
 
@@ -660,6 +673,7 @@ $(function () {
                 </div>
             </td>
             <td><input type="number" step="0.01" class="form-control" id="total_amt_${itemsetId}" readonly value="${nfix(row.total_amount,2)}"></td>
+            <td><input type="text" class="form-control remarks" data-id="${itemsetId}" value="${esc(row.remarks || '')}"></td>
             <td><button type="button" class="btn btn-danger removeRow" data-id="${itemsetId}">X</button></td>
         </tr>`;
 
@@ -704,6 +718,7 @@ $(function () {
                     data-apply-labour="1"
                     data-labour-amount="${nfix(item.labour_amount,2)}"
                     data-other-amount="${nfix(item.other_amount,2)}"
+                    data-remarks="${esc(item.remarks || '')}"
                     data-total-amount="${nfix(item.total_amount,2)}">
                     ${esc(item.code)} - ${esc(item.name)}
                 </a>`;
@@ -756,6 +771,7 @@ $(function () {
             apply_labour: toBool($(this).data('apply-labour'), true),
             labour_amount: toNum($(this).data('labour-amount')),
             other_amount: toNum($(this).data('other-amount')),
+            remarks: $(this).data('remarks') || '',
             total_amount: toNum($(this).data('total-amount')),
             other_charges: [],
         });
@@ -824,6 +840,7 @@ $(function () {
                         data-apply-labour="1"
                         data-labour-amount="${nfix(labourAmount,2)}"
                         data-other-amount="${nfix(otherAmount,2)}"
+                        data-remarks="${esc(item.remarks || '')}"
                         data-total-amount="${nfix(totalAmount,2)}">
                         <td>${i + 1}</td>
                         <td>${esc(code)}</td>
@@ -881,6 +898,7 @@ $(function () {
                 apply_labour: toBool($(this).data('apply-labour'), true),
                 labour_amount: toNum($(this).data('labour-amount')),
                 other_amount: toNum($(this).data('other-amount')),
+                remarks: $(this).data('remarks') || '',
                 total_amount: toNum($(this).data('total-amount')),
                 other_charges: [],
             });
@@ -891,6 +909,13 @@ $(function () {
 
     $(document).on('input', '.gross, .other-weight, .purity, .waste-percent, .metal-rate, .labour-rate, .other-amount', function() {
         recalcRow($(this).data('id'));
+    });
+
+    $(document).on('input', '.remarks', function() {
+        const id = Number($(this).data('id'));
+        if (!selectedRows[id]) return;
+        selectedRows[id].remarks = $(this).val();
+        $(`input[name="remarks[]"][data-id="${id}"]`).val($(this).val());
     });
 
     $(document).on('change', '.apply-metal, .apply-labour', function() {

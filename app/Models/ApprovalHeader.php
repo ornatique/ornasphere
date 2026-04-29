@@ -17,6 +17,7 @@ class ApprovalHeader extends Model
         'approval_no',
         'approval_date',
         'status',
+        'remarks',
         'employee_id',
         'modified_count',
     ];

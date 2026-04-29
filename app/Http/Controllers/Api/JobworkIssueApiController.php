@@ -139,6 +139,7 @@ class JobworkIssueApiController extends Controller
     public function store(Request $request)
     {
         $companyId = (int) $request->user()->company_id;
+        $this->sanitizeOtherChargeSelections($request, $companyId);
         $validated = $this->validatePayload($request, $companyId);
 
         $row = DB::transaction(function () use ($validated, $companyId, $request) {
@@ -186,6 +187,7 @@ class JobworkIssueApiController extends Controller
             return response()->json(['success' => false, 'message' => 'Jobwork Issue not found.'], 404);
         }
 
+        $this->sanitizeOtherChargeSelections($request, $companyId);
         $validated = $this->validatePayload($request, $companyId, (int) $issue->id);
 
         $row = DB::transaction(function () use ($issue, $validated, $request) {
@@ -312,8 +314,25 @@ class JobworkIssueApiController extends Controller
             ],
             'items.*.other_charge_id' => [
                 'nullable',
-                'integer',
-                Rule::exists('other_charges', 'id')->where(fn($q) => $q->where('company_id', $companyId)),
+                function ($attribute, $value, $fail) use ($companyId) {
+                    if ($value === null || $value === '' || $value === 'null' || $value === 'undefined') {
+                        return;
+                    }
+
+                    if (!is_numeric($value) || (int) $value <= 0) {
+                        $fail("The selected {$attribute} is invalid.");
+                        return;
+                    }
+
+                    $exists = OtherCharge::query()
+                        ->where('company_id', $companyId)
+                        ->where('id', (int) $value)
+                        ->exists();
+
+                    if (!$exists) {
+                        $fail("The selected {$attribute} is invalid.");
+                    }
+                },
             ],
             'items.*.gross_wt' => ['nullable', 'numeric'],
             'items.*.other_wt' => ['nullable', 'numeric'],
@@ -326,6 +345,59 @@ class JobworkIssueApiController extends Controller
             'items.*.remarks' => ['nullable', 'string'],
             'items.*.total_amt' => ['nullable', 'numeric'],
         ]);
+    }
+
+    private function sanitizeOtherChargeSelections(Request $request, int $companyId): void
+    {
+        $items = $request->input('items', []);
+        if (!is_array($items) || empty($items)) {
+            return;
+        }
+
+        $chargeIds = collect($items)
+            ->map(fn($row) => (int) ($row['other_charge_id'] ?? 0))
+            ->filter(fn($id) => $id > 0)
+            ->unique()
+            ->values();
+
+        if ($chargeIds->isEmpty()) {
+            return;
+        }
+
+        $charges = OtherCharge::query()
+            ->where('company_id', $companyId)
+            ->whereIn('id', $chargeIds->all())
+            ->get(['id', 'item_id'])
+            ->keyBy('id');
+
+        foreach ($items as $idx => $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $itemId = (int) ($row['item_id'] ?? 0);
+            $otherChargeId = (int) ($row['other_charge_id'] ?? 0);
+
+            if ($otherChargeId <= 0) {
+                $items[$idx]['other_charge_id'] = null;
+                continue;
+            }
+
+            $charge = $charges->get($otherChargeId);
+            if (!$charge) {
+                $items[$idx]['other_charge_id'] = null;
+                continue;
+            }
+
+            $chargeItemId = (int) ($charge->item_id ?? 0);
+            $allowedForItem = ($chargeItemId === 0 || $chargeItemId === $itemId);
+            if (!$allowedForItem) {
+                // Item changed; clear stale old charge selection instead of failing validation.
+                $items[$idx]['other_charge_id'] = null;
+            }
+        }
+
+        $request->merge(['items' => $items]);
     }
 
     private function baseQuery(Request $request, int $companyId)

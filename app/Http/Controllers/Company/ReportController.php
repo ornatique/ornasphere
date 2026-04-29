@@ -30,6 +30,7 @@ class ReportController extends Controller
             return DataTables::of($this->salesSummaryBaseQuery($company, $request)->latest())
                 ->addIndexColumn()
                 ->addColumn('customer_name', fn($row) => optional($row->customer)->name ?? '-')
+                ->addColumn('remarks', fn($row) => $row->remarks ?? '-')
                 ->addColumn('created_by', fn($row) => optional($row->creator)->name ?? '-')
                 ->editColumn('sale_date', fn($row) => optional($row->sale_date)?->format('d-m-Y') ?? '-')
                 ->addColumn('qty_pcs', fn($row) => (int) ($row->total_qty ?? 0))
@@ -59,7 +60,7 @@ class ReportController extends Controller
 
         return response()->streamDownload(function () use ($rows) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Voucher No', 'Date', 'Customer', 'Qty', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Metal Amt', 'Labour Amt', 'Other Amt', 'Total', 'Created By']);
+            fputcsv($out, ['Voucher No', 'Date', 'Customer', 'Qty', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Metal Amt', 'Labour Amt', 'Other Amt', 'Total', 'Remarks', 'Created By']);
             foreach ($rows as $r) {
                 fputcsv($out, [
                     $r->voucher_no,
@@ -73,6 +74,7 @@ class ReportController extends Controller
                     number_format((float) ($r->total_labour_amount ?? 0), 2, '.', ''),
                     number_format((float) ($r->total_other_amount ?? 0), 2, '.', ''),
                     number_format((float) ($r->net_total ?? 0), 2, '.', ''),
+                    $r->remarks ?? '-',
                     optional($r->creator)->name ?? '-',
                 ]);
             }
@@ -89,7 +91,7 @@ class ReportController extends Controller
         $totals = $this->salesSummaryTotals($company, $request);
 
         return Pdf::loadView('company.reports.pdf.sales_summary', compact('company', 'rows', 'totals'))
-            ->setPaper('a4', 'landscape')
+            ->setPaper('a4', 'portrait')
             ->download('sales_summary_report.pdf');
     }
 
@@ -104,6 +106,8 @@ class ReportController extends Controller
                 ->addIndexColumn()
                 ->editColumn('return_date', fn($row) => $row->return_date ? Carbon::parse($row->return_date)->format('d-m-Y') : '-')
                 ->editColumn('source_type', fn($row) => ucfirst((string) ($row->source_type ?: 'sale')))
+                ->addColumn('remarks', fn($row) => $row->remarks ?? '-')
+                ->addColumn('created_by', fn($row) => $row->created_by ?? '-')
                 ->addColumn('qty_pcs', fn($row) => (int) ($row->total_qty ?? 0))
                 ->addColumn('gross_weight', fn($row) => number_format((float) ($row->total_gross_weight ?? 0), 3))
                 ->addColumn('net_weight', fn($row) => number_format((float) ($row->total_net_weight ?? 0), 3))
@@ -132,7 +136,7 @@ class ReportController extends Controller
 
         return response()->streamDownload(function () use ($rows, $totals) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Voucher No', 'Date', 'Customer', 'Source', 'Qty', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Metal Amt', 'Labour Amt', 'Other Amt', 'Total']);
+            fputcsv($out, ['Voucher No', 'Date', 'Customer', 'Source', 'Qty', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Metal Amt', 'Labour Amt', 'Other Amt', 'Total', 'Remarks', 'Created By']);
             foreach ($rows as $r) {
                 fputcsv($out, [
                     $r->return_voucher_no,
@@ -147,6 +151,8 @@ class ReportController extends Controller
                     number_format((float) ($r->total_labour_amount ?? 0), 2, '.', ''),
                     number_format((float) ($r->total_other_amount ?? 0), 2, '.', ''),
                     number_format((float) ($r->return_total ?? 0), 2, '.', ''),
+                    $r->remarks ?? '-',
+                    $r->created_by ?? '-',
                 ]);
             }
 
@@ -163,6 +169,8 @@ class ReportController extends Controller
                 number_format((float) ($totals['labour_amount'] ?? 0), 2, '.', ''),
                 number_format((float) ($totals['other_amount'] ?? 0), 2, '.', ''),
                 number_format((float) ($totals['return_total'] ?? 0), 2, '.', ''),
+                '',
+                '',
             ]);
             fclose($out);
         }, 'purchase_receiver_summary_report.csv', [
@@ -177,7 +185,7 @@ class ReportController extends Controller
         $totals = $this->purchaseReceiverSummaryTotals($company, $request);
 
         return Pdf::loadView('company.reports.pdf.purchase_receiver_summary', compact('company', 'rows', 'totals'))
-            ->setPaper('a4', 'landscape')
+            ->setPaper('a4', 'portrait')
             ->download('purchase_receiver_summary_report.pdf');
     }
 
@@ -248,6 +256,8 @@ class ReportController extends Controller
                 ->addIndexColumn()
                 ->addColumn('customer_name', fn($row) => optional($row->customer)->name ?? '-')
                 ->addColumn('approval_date_fmt', fn($row) => optional($row->approval_date)?->format('d-m-Y') ?? '-')
+                ->addColumn('remarks', fn($row) => $row->remarks ?? '-')
+                ->addColumn('created_by', fn($row) => optional($row->creator)->name ?? '-')
                 ->addColumn('pending_items', fn($row) => (int) ($row->pending_items_count ?? 0))
                 ->addColumn('pending_net_weight_fmt', fn($row) => number_format((float) ($row->pending_net_weight ?? 0), 3))
                 ->addColumn('pending_total_amount_fmt', fn($row) => number_format((float) ($row->pending_total_amount ?? 0), 2))
@@ -269,7 +279,7 @@ class ReportController extends Controller
 
         return response()->streamDownload(function () use ($rows) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Approval No', 'Date', 'Customer', 'Status', 'Pending Pcs', 'Pending Net Wt', 'Pending Amount']);
+            fputcsv($out, ['Approval No', 'Date', 'Customer', 'Status', 'Pending Pcs', 'Pending Net Wt', 'Pending Amount', 'Remarks', 'Created By']);
             foreach ($rows as $r) {
                 fputcsv($out, [
                     $r->approval_no,
@@ -279,6 +289,8 @@ class ReportController extends Controller
                     (int) ($r->pending_items_count ?? 0),
                     number_format((float) ($r->pending_net_weight ?? 0), 3, '.', ''),
                     number_format((float) ($r->pending_total_amount ?? 0), 2, '.', ''),
+                    $r->remarks ?? '-',
+                    optional($r->creator)->name ?? '-',
                 ]);
             }
             fclose($out);
@@ -455,11 +467,13 @@ class ReportController extends Controller
             ->leftJoin('sale_items as si', 'si.id', '=', 'sri.sale_item_id')
             ->leftJoin('sales as s', 's.id', '=', 'sr.sale_id')
             ->leftJoin('customers as sc', 'sc.id', '=', 's.customer_id')
+            ->leftJoin('users as su', 'su.id', '=', 's.employee_id')
             ->leftJoin('approval_headers as ah', function ($join) {
                 $join->on('ah.id', '=', 'sr.source_id')
                     ->whereIn('sr.source_type', ['approval', 'mixed']);
             })
             ->leftJoin('customers as ac', 'ac.id', '=', 'ah.customer_id')
+            ->leftJoin('users as au', 'au.id', '=', 'ah.employee_id')
             ->where('sr.company_id', $company->id)
             ->when($request->filled('customer_id'), function ($q) use ($request) {
                 $customerId = (int) $request->customer_id;
@@ -482,10 +496,13 @@ class ReportController extends Controller
                 'sr.return_voucher_no',
                 'sr.return_date',
                 'sr.return_total',
+                'sr.remarks',
                 'sr.source_type',
                 'sr.created_at',
                 'sc.name',
-                'ac.name'
+                'ac.name',
+                'su.name',
+                'au.name'
             );
 
         if ($hasReturnItemsetId) {
@@ -504,9 +521,11 @@ class ReportController extends Controller
                 sr.return_voucher_no,
                 sr.return_date,
                 sr.return_total,
+                sr.remarks,
                 sr.source_type,
                 sr.created_at,
                 COALESCE(sc.name, ac.name, '-') as customer_name,
+                COALESCE(su.name, au.name, '-') as created_by,
                 COUNT(sri.id) as total_qty,
                 COALESCE(SUM({$grossWeightExpr}), 0) as total_gross_weight,
                 COALESCE(SUM({$netWeightExpr}), 0) as total_net_weight,
@@ -603,7 +622,7 @@ class ReportController extends Controller
 
     private function approvalOutstandingBaseQuery(Company $company, Request $request)
     {
-        $query = ApprovalHeader::with('customer')
+        $query = ApprovalHeader::with(['customer', 'creator'])
             ->withCount([
                 'items as pending_items_count' => function ($q) {
                     $q->where('status', 'pending');

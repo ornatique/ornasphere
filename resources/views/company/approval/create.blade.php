@@ -26,6 +26,13 @@
                 </div>
             </div>
 
+            <div class="row mb-3">
+                <div class="col-md-12">
+                    <label>Voucher Remarks</label>
+                    <textarea id="voucher_remarks" class="form-control" rows="2" placeholder="Enter remarks for this approval">{{ !empty($approval) ? ($approval->remarks ?? '') : '' }}</textarea>
+                </div>
+            </div>
+
             <div class="table-responsive approval-grid-wrap">
                 <table class="table table-bordered" id="cartTable">
                     <thead>
@@ -44,6 +51,7 @@
                             <th>Labour Amt</th>
                             <th>Other Amt</th>
                             <th>Total Amt</th>
+                            <th>Remarks</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -477,6 +485,7 @@ $(function () {
                     </div>
                 </td>
                 <td><input type="number" step="0.01" class="form-control" id="total_amt_${row.itemset_id}" readonly value="${nfix(row.total_amount,2)}"></td>
+                <td><input type="text" class="form-control remarks" data-id="${row.itemset_id}" value="${esc(row.remarks || '')}"></td>
                 <td><button class="btn btn-danger removeRow" data-id="${row.itemset_id}" type="button">X</button></td>
             </tr>
         `);
@@ -545,6 +554,7 @@ $(function () {
             labour_amount: 0,
             other_amount: toNum($(this).data('other-amount')),
             total_amount: 0,
+            remarks: '',
             other_charges: [],
         };
 
@@ -563,6 +573,12 @@ $(function () {
 
     $(document).on('input', '.gross, .other-weight, .purity, .waste-percent, .metal-rate, .labour-rate, .other-amount', function () {
         calculateRow(Number($(this).data('id')));
+    });
+
+    $(document).on('input', '.remarks', function () {
+        const id = Number($(this).data('id'));
+        if (!selectedItems[id]) return;
+        selectedItems[id].remarks = $(this).val();
     });
 
     $(document).on('click', '.open-other-charge-modal', function () {
@@ -653,6 +669,7 @@ $(function () {
         $.post(saveUrl, {
             _token: "{{ csrf_token() }}",
             customer_id,
+            voucher_remarks: $('#voucher_remarks').val(),
             items,
         }, function (res) {
             if (res.success) {
@@ -688,6 +705,7 @@ $(function () {
                 labour_amount: toNum(row.labour_amount),
                 other_amount: toNum(row.other_amount),
                 total_amount: toNum(row.total_amount),
+                remarks: row.remarks || '',
                 other_charges: Array.isArray(row.other_charges) ? row.other_charges : [],
             });
         });

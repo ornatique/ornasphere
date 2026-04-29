@@ -185,6 +185,7 @@ class ApprovalController extends Controller
                     'labour_amount' => (float) ($row->labour_amount ?? 0),
                     'other_amount' => (float) ($row->other_amount ?? 0),
                     'total_amount' => (float) ($row->total_amount ?? 0),
+                    'remarks' => (string) ($row->remarks ?? ''),
                     'other_charges' => [],
                 ];
             });
@@ -245,6 +246,7 @@ class ApprovalController extends Controller
                 'approval_no' => 'APP' . time(),
                 'approval_date' => now(),
                 'status' => 'open',
+                'remarks' => $request->input('voucher_remarks'),
                 'employee_id' => optional(auth()->user())->id,
                 'modified_count' => 0,
             ]);
@@ -302,6 +304,7 @@ class ApprovalController extends Controller
                     'other_amount' => $otherAmount,
                     'total_amount' => $totalAmount,
                     'status' => 'pending',
+                    'remarks' => $row['remarks'] ?? null,
                 ]);
 
                 $itemSet->update(['is_sold' => 1]);
@@ -353,6 +356,7 @@ class ApprovalController extends Controller
 
             $approval->update([
                 'customer_id' => (int) $request->customer_id,
+                'remarks' => $request->input('voucher_remarks'),
                 'modified_count' => ((int) ($approval->modified_count ?? 0)) + 1,
             ]);
 
@@ -586,6 +590,7 @@ class ApprovalController extends Controller
                 'labour_amount' => number_format($labourAmount, 2, '.', ''),
                 'other_amount' => number_format($otherAmount, 2, '.', ''),
                 'total_amount' => number_format($totalAmount, 2, '.', ''),
+                'remarks' => (string) ($row->remarks ?? ''),
             ];
         }));
     }
@@ -661,6 +666,7 @@ class ApprovalController extends Controller
             'labour_amount' => $labourAmount,
             'other_amount' => $otherAmount,
             'total_amount' => $totalAmount,
+            'remarks' => $row['remarks'] ?? null,
         ];
     }
 
@@ -716,6 +722,7 @@ class ApprovalController extends Controller
                 'return_voucher_no' => 'SR' . time(),
                 'return_date' => now(),
                 'return_total' => 0,
+                'remarks' => $request->input('voucher_remarks'),
             ]);
 
             $totalAmount = 0;

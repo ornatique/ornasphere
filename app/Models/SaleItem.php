@@ -24,6 +24,7 @@ class SaleItem extends Model
         'labour_amount',
         'other_amount',
         'total_amount',
+        'remarks',
         'approval_item_id',
     ];
 

@@ -39,7 +39,7 @@
                         <th>#</th>
                         <th>Voucher No</th>
                         <th>Date</th>
-                        <th>Customer</th>
+                        <th>Customer Name</th>
                         <th>Qty</th>
                         <th>Gross Wt</th>
                         <th>Net Wt</th>
@@ -48,6 +48,7 @@
                         <th>Labour Amt</th>
                         <th>Other Amt</th>
                         <th>Total</th>
+                        <th>Remarks</th>
                         <th>Created By</th>
                     </tr>
                 </thead>
@@ -62,6 +63,7 @@
                         <th id="t_labour_amount">0.00</th>
                         <th id="t_other_amount">0.00</th>
                         <th id="t_net_total">0.00</th>
+                        <th></th>
                         <th></th>
                     </tr>
                 </tfoot>
@@ -116,6 +118,7 @@ $(function () {
             { data: 'labour_amount', orderable: false, searchable: false },
             { data: 'other_amount', orderable: false, searchable: false },
             { data: 'net_total' },
+            { data: 'remarks', orderable: false, searchable: false },
             { data: 'created_by', orderable: false, searchable: false },
         ]
     });

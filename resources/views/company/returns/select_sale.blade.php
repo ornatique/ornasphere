@@ -131,6 +131,11 @@
             <form method="POST" action="{{ route('company.returns.processSelected', $company->slug) }}" id="returnSubmitForm">
                 @csrf
 
+                <div class="mb-3">
+                    <label>Voucher Remarks</label>
+                    <textarea name="voucher_remarks" class="form-control" rows="2" placeholder="Enter remarks for this return"></textarea>
+                </div>
+
                 <div class="row mb-3">
                     <div class="col-md-12 return-grid-wrap">
                         <table class="table table-bordered" id="selectedQrTable">

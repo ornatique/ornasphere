@@ -196,7 +196,8 @@ class SaleReturnController extends Controller
                 'sale_id' => $sale->id,
                 'return_voucher_no' => 'SR' . time(),
                 'return_date' => now(),
-                'return_total' => 0
+                'return_total' => 0,
+                'remarks' => $request->input('voucher_remarks'),
             ]);
 
             $total = 0;
@@ -210,7 +211,8 @@ class SaleReturnController extends Controller
                     SaleReturnItem::create([
                         'sale_return_id' => $return->id,
                         'sale_item_id' => $saleItem->id,
-                        'return_amount' => $saleItem->total_amount
+                        'return_amount' => $saleItem->total_amount,
+                        'remarks' => $request->input('remarks.' . $saleItem->id),
                     ]);
 
                     // Restore stock
@@ -466,18 +468,19 @@ class SaleReturnController extends Controller
             ->filter()
             ->values();
 
-        $payloadMap = [];
-        foreach ($rowPayloads as $payload) {
+            $payloadMap = [];
+            foreach ($rowPayloads as $payload) {
             $rowType = (string) ($payload['type'] ?? '');
             $rowId = (int) ($payload['id'] ?? 0);
             if (!$rowType || !$rowId) {
                 continue;
             }
-            $payloadMap["{$rowType}_{$rowId}"] = [
-                'other_amount' => (float) ($payload['other_amount'] ?? 0),
-                'total_amount' => (float) ($payload['total_amount'] ?? 0),
-            ];
-        }
+                $payloadMap["{$rowType}_{$rowId}"] = [
+                    'other_amount' => (float) ($payload['other_amount'] ?? 0),
+                    'total_amount' => (float) ($payload['total_amount'] ?? 0),
+                    'remarks' => (string) ($payload['remarks'] ?? ''),
+                ];
+            }
 
         if ($saleItemIds->isEmpty() && $approvalItemIds->isEmpty()) {
             return back()->with('error', 'Please select at least one item for return.');
@@ -532,6 +535,7 @@ class SaleReturnController extends Controller
                 'return_voucher_no' => 'SR' . now()->format('YmdHis') . rand(10, 99),
                 'return_date' => now(),
                 'return_total' => 0,
+                'remarks' => $request->input('voucher_remarks'),
             ]);
 
             if ($saleItems->isNotEmpty()) {
@@ -547,6 +551,7 @@ class SaleReturnController extends Controller
                         'sale_return_id' => $return->id,
                         'sale_item_id' => $saleItem->id,
                         'return_amount' => $overrideAmount,
+                        'remarks' => $payloadMap[$rowKey]['remarks'] ?? null,
                     ]);
 
                     if ($saleItem->itemset) {
@@ -588,6 +593,7 @@ class SaleReturnController extends Controller
                         'sale_return_id' => $return->id,
                         'sale_item_id' => null,
                         'return_amount' => $amount,
+                        'remarks' => $payloadMap[$rowKey]['remarks'] ?? null,
                     ];
 
                     if ($hasItemsetIdColumn) {

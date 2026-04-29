@@ -30,7 +30,8 @@ class ApprovalItem extends Model
         'labour_amount',
         'other_amount',
         'total_amount',
-        'status'
+        'status',
+        'remarks',
     ];
 
     protected $casts = [

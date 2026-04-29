@@ -11,7 +11,8 @@ class SaleReturnItem extends Model
         'sale_item_id',
         'itemset_id',
         'product_id',
-        'return_amount'
+        'return_amount',
+        'remarks',
     ];
 
     public function saleItem()

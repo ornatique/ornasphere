@@ -16,6 +16,11 @@
 
                 <input type="hidden" name="approval_id" value="{{ $approval->id }}">
 
+                <div class="mb-3">
+                    <label>Voucher Remarks</label>
+                    <textarea name="voucher_remarks" class="form-control" rows="2" placeholder="Enter remarks for this return"></textarea>
+                </div>
+
                 <table class="table table-bordered">
                     <thead>
                         <tr>

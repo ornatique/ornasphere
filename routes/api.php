@@ -78,7 +78,7 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/export-jobwork-issues/excel', [JobworkIssueApiController::class, 'exportExcel']);
     Route::get('/export-jobwork-issues/pdf', [JobworkIssueApiController::class, 'exportPdf']);
     Route::post('/create-jobwork-issues', [JobworkIssueApiController::class, 'store']);
-    Route::post('/update-jobwork-issues/{id}', [JobworkIssueApiController::class, 'update']);
+    Route::put('/update-jobwork-issues/{id}', [JobworkIssueApiController::class, 'update']);
     Route::delete('/delete-jobwork-issues/{id}', [JobworkIssueApiController::class, 'destroy']);
     
     

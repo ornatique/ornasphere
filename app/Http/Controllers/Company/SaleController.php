@@ -211,6 +211,7 @@ class SaleController extends Controller
                 'labour_amount' => (float) ($row->labour_amount ?? 0),
                 'other_amount' => (float) ($row->other_amount ?? 0),
                 'total_amount' => (float) ($row->total_amount ?? 0),
+                'remarks' => (string) ($row->remarks ?? ''),
                 'other_charges' => [],
             ];
         });
@@ -277,6 +278,7 @@ class SaleController extends Controller
                 'labour_amount' => $labourAmount,
                 'other_amount' => $otherAmount,
                 'total_amount' => $totalAmount,
+                'remarks' => (string) ($item->remarks ?? ''),
             ];
         }));
     }
@@ -345,6 +347,7 @@ class SaleController extends Controller
                 'voucher_no'  => 'SL' . time(),
                 'sale_date'   => now(),
                 'net_total'   => 0,
+                'remarks'     => $request->input('voucher_remarks'),
                 'employee_id' => optional($request->user())->id,
                 'modified_count' => 0,
             ]);
@@ -388,6 +391,7 @@ class SaleController extends Controller
                     'labour_amount'    => $request->labour_amount[$index] ?? 0,
                     'other_amount'     => $request->other_amount[$index] ?? 0,
                     'total_amount'     => $request->total_amount[$index] ?? 0,
+                    'remarks'          => $request->remarks[$index] ?? null,
                 ]);
 
                 // ✅ mark item sold
@@ -478,6 +482,7 @@ class SaleController extends Controller
 
             $sale->update([
                 'customer_id' => (int) $request->customer_id,
+                'remarks' => $request->input('voucher_remarks'),
             ]);
 
             $existingItems = $sale->saleItems->keyBy('itemset_id');
@@ -552,6 +557,7 @@ class SaleController extends Controller
                     'labour_amount'    => $request->labour_amount[$index] ?? 0,
                     'other_amount'     => $request->other_amount[$index] ?? 0,
                     'total_amount'     => $request->total_amount[$index] ?? 0,
+                    'remarks'          => $request->remarks[$index] ?? null,
                     'approval_item_id' => $approvalItemId,
                 ];
 
@@ -747,6 +753,7 @@ class SaleController extends Controller
 
                     'metal_rate'   => $metalRate,
                     'total_amount' => $amount,
+                    'remarks'      => $approvalItem->remarks,
                 ]);
 
                 // ✅ UPDATE STATUS
@@ -836,6 +843,7 @@ class SaleController extends Controller
                 'labour_amount'      => $labourAmount,
                 'other_amount'       => $otherAmount,
                 'total_amount'       => $totalAmount,
+                'remarks'            => (string) ($row->remarks ?? ''),
             ];
         })->values());
     }

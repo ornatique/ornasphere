@@ -12,6 +12,7 @@ class SaleReturn extends Model
         'return_voucher_no',
         'return_date',
         'return_total',
+        'remarks',
         'source_type' ,
         'source_id' 
     ];

@@ -15,6 +15,11 @@
             <form method="POST" action="{{ route('company.sales.return.store', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $sale->id)]) }}">
                 @csrf
 
+                <div class="mb-3">
+                    <label>Voucher Remarks</label>
+                    <textarea name="voucher_remarks" class="form-control" rows="2" placeholder="Enter remarks for this return">{{ old('voucher_remarks') }}</textarea>
+                </div>
+
                 @php
                     $filteredItems = $sale->saleItems;
                     if (!empty($selectedSaleItemId)) {
@@ -44,6 +49,7 @@
                                 <th>Labour Amt</th>
                                 <th>Other Amt</th>
                                 <th>Total Amt</th>
+                                <th>Remarks</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -74,10 +80,17 @@
                                     <td>{{ number_format((float) ($item->labour_amount ?? 0), 2) }}</td>
                                     <td>{{ number_format((float) ($item->other_amount ?? 0), 2) }}</td>
                                     <td>{{ number_format((float) $item->total_amount, 2) }}</td>
+                                    <td>
+                                        <input type="text"
+                                            name="remarks[{{ $item->id }}]"
+                                            class="form-control"
+                                            value="{{ old('remarks.' . $item->id, $item->remarks ?? '') }}"
+                                            placeholder="Remarks">
+                                    </td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="15" class="text-center">No items found</td>
+                                    <td colspan="16" class="text-center">No items found</td>
                                 </tr>
                             @endforelse
                         </tbody>
@@ -87,6 +100,7 @@
                                 <th>{{ number_format($totalNet, 3) }}</th>
                                 <th colspan="9"></th>
                                 <th>{{ number_format($totalAmount, 2) }}</th>
+                                <th></th>
                             </tr>
                         </tfoot>
                     </table>

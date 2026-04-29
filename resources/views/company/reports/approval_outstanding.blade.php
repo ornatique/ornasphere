@@ -39,11 +39,13 @@
                         <th>#</th>
                         <th>Approval No</th>
                         <th>Date</th>
-                        <th>Customer</th>
+                        <th>Customer Name</th>
                         <th>Status</th>
                         <th>Pending Pcs</th>
                         <th>Pending Net Wt</th>
                         <th>Pending Amount</th>
+                        <th>Remarks</th>
+                        <th>Created By</th>
                     </tr>
                 </thead>
             </table>
@@ -80,6 +82,8 @@ $(function () {
             { data: 'pending_items', orderable: false, searchable: false },
             { data: 'pending_net_weight_fmt', orderable: false, searchable: false },
             { data: 'pending_total_amount_fmt', orderable: false, searchable: false },
+            { data: 'remarks', orderable: false, searchable: false },
+            { data: 'created_by', orderable: false, searchable: false },
         ]
     });
 
