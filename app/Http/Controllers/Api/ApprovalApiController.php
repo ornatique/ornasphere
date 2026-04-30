@@ -111,6 +111,7 @@ class ApprovalApiController extends Controller
                     'id' => $row->id,
                     'approval_no' => $row->approval_no,
                     'approval_date' => optional($row->approval_date)->format('Y-m-d') ?? null,
+                    'remarks' => $row->remarks,
                     'customer_id' => $row->customer_id,
                     'customer_name' => optional($row->customer)->name ?? '-',
                     'status' => $row->status,
@@ -325,6 +326,7 @@ class ApprovalApiController extends Controller
 
         $request->validate([
             'customer_id' => 'required|integer',
+            'remarks' => 'nullable|string',
         ]);
 
         $customerExists = Customer::where('company_id', $companyId)
@@ -364,6 +366,7 @@ class ApprovalApiController extends Controller
                 'approval_no' => 'APP' . time(),
                 'approval_date' => now(),
                 'status' => 'open',
+                'remarks' => $request->input('remarks', $request->input('remark')),
                 'employee_id' => $userId,
                 'modified_count' => 0,
             ]);
@@ -465,6 +468,7 @@ class ApprovalApiController extends Controller
         $request->validate([
             'customer_id' => 'required|integer|exists:customers,id',
             'items' => 'required|array|min:1',
+            'remarks' => 'nullable|string',
         ]);
         $customerExists = Customer::where('company_id', $companyId)
             ->where('id', (int) $request->customer_id)
@@ -492,6 +496,7 @@ class ApprovalApiController extends Controller
 
             $approval->update([
                 'customer_id' => (int) $request->customer_id,
+                'remarks' => $request->input('remarks', $request->input('remark', $approval->remarks)),
                 'modified_count' => ((int) ($approval->modified_count ?? 0)) + 1,
             ]);
 
@@ -638,6 +643,7 @@ class ApprovalApiController extends Controller
                 'approval_no' => $approval->approval_no,
                 'approval_date' => optional($approval->approval_date)->format('Y-m-d') ?? null,
                 'status' => $approval->status,
+                'remarks' => $approval->remarks,
                 'customer' => $approval->customer,
                 'totals' => $totals,
                 'items' => $items,
@@ -751,7 +757,8 @@ class ApprovalApiController extends Controller
         $request->validate([
             'approval_id' => 'required|integer',
             'items' => 'required|array|min:1',
-            'items.*' => 'required|integer'
+            'items.*' => 'required|integer',
+            'remarks' => 'nullable|string',
         ]);
 
         DB::beginTransaction();
@@ -769,6 +776,7 @@ class ApprovalApiController extends Controller
                 'source_id' => $request->approval_id,
                 'return_voucher_no' => 'SR' . time(),
                 'return_date' => now(),
+                'remarks' => $request->input('remarks', $request->input('remark')),
                 'return_total' => 0,
             ]);
 

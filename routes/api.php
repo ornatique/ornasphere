@@ -158,6 +158,7 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::delete('/sales/cart/remove/{id}', [SaleApiController::class, 'removeCartItem']);
     Route::post('/sales/confirm-sale', [SaleApiController::class, 'confirmSale']);
     Route::get('/sales/{id}/pdf', [SaleApiController::class, 'pdf'])->whereNumber('id')->name('api.sales.pdf');
+    Route::get('/sales/pdf/{id}', [SaleApiController::class, 'pdf'])->whereNumber('id');
     Route::get('/itemsets/qr-list', [SaleApiController::class, 'qrListApi']);
     Route::post('/itemsets/qr/pdf', [SaleApiController::class, 'downloadQrPdf']);
     Route::post('/sales/store', [SaleApiController::class, 'store']);       // Create sale
@@ -169,6 +170,7 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/returns/list', [SaleReturnApiController::class, 'list_of_return']);
      Route::get('/returns/customers', [SaleReturnApiController::class, 'getSalesForReturn']);
     Route::get('/returns/sale/{saleId}', [SaleReturnApiController::class, 'saleDetails']);
+    Route::get('/returns/{id}', [SaleReturnApiController::class, 'show'])->whereNumber('id');
     Route::post('/returns/store', [SaleReturnApiController::class, 'store']);
     Route::get('/returns/pdf/{returnId}', [SaleReturnApiController::class, 'pdf']);
     Route::post('/returns/scan-product', [SaleReturnApiController::class,'scanProduct']);
@@ -197,9 +199,21 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/approvals/{id}/pdf', [ApprovalApiController::class, 'pdf'])->whereNumber('id');
     Route::get('/approvals/pdf/{id}', [ApprovalApiController::class, 'pdf'])->whereNumber('id');
     Route::get('/reports/barcode-history/suggest', [ReportApiController::class, 'barcodeHistorySuggest']);
+    Route::get('/reports/purchase-receiver-summary', [ReportApiController::class, 'purchaseReceiverSummary']);
+    Route::get('/reports/purchase-receiver-summary/export/excel', [ReportApiController::class, 'purchaseReceiverSummaryExcel']);
+    Route::get('/reports/purchase-receiver-summary/export/pdf', [ReportApiController::class, 'purchaseReceiverSummaryPdf']);
+    Route::get('/reports/stock-position', [ReportApiController::class, 'stockPosition']);
+    Route::get('/reports/stock-position/export/excel', [ReportApiController::class, 'stockPositionExcel']);
+    Route::get('/reports/stock-position/export/pdf', [ReportApiController::class, 'stockPositionPdf']);
+    Route::get('/reports/approval-outstanding', [ReportApiController::class, 'approvalOutstanding']);
+    Route::get('/reports/approval-outstanding/export/excel', [ReportApiController::class, 'approvalOutstandingExcel']);
+    Route::get('/reports/approval-outstanding/export/pdf', [ReportApiController::class, 'approvalOutstandingPdf']);
+    Route::get('/reports/sales-summary/export/excel', [ReportApiController::class, 'salesSummaryExcel']);
+    Route::get('/reports/sales-summary/export/pdf', [ReportApiController::class, 'salesSummaryPdf']);
     Route::get('/reports/barcode-history/export/excel', [ReportApiController::class, 'barcodeHistoryExcel']);
     Route::get('/reports/barcode-history/export/pdf', [ReportApiController::class, 'barcodeHistoryPdf']);
     Route::get('/reports/barcode-history', [ReportApiController::class, 'barcodeHistory']);
+    Route::get('/reports/sales-summary', [ReportApiController::class, 'salesSummary']);
 });
 
 // Signed public PDF URL (for browser/app open without bearer header)

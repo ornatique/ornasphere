@@ -47,6 +47,7 @@ class SaleReturnApiController extends Controller
                     'id' => $return->id,
                     'voucher_no' => $return->return_voucher_no,
                     'return_date' => $return->return_date,
+                    'remarks' => $return->remarks,
                     'customer_name' => $customerName,
                     'return_total' => (float) $return->return_total,
                     'source_type' => $return->source_type,
@@ -112,6 +113,26 @@ class SaleReturnApiController extends Controller
         return response()->json([
             'success' => true,
             'data' => $sale
+        ]);
+    }
+
+    public function show($id)
+    {
+        $user = auth()->user();
+
+        $return = SaleReturn::with([
+            'sale.customer',
+            'approval.customer',
+            'items.saleItem.itemset.item',
+            'items.itemSet.item',
+        ])
+            ->where('company_id', $user->company_id)
+            ->findOrFail((int) $id);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Return voucher fetched successfully.',
+            'data' => $return,
         ]);
     }
 
@@ -304,6 +325,7 @@ class SaleReturnApiController extends Controller
 
         $request->validate([
             'sale_id' => 'required|integer',
+            'remarks' => 'nullable|string',
         ]);
 
         $cartItems = ReturnCart::with('saleItem.itemset')
@@ -339,6 +361,7 @@ class SaleReturnApiController extends Controller
                 'sale_id' => $saleId,
                 'return_voucher_no' => 'SR' . time(),
                 'return_date' => now(),
+                'remarks' => $request->input('remarks', $request->input('remark')),
                 'return_total' => 0
             ]);
 
@@ -751,6 +774,7 @@ class SaleReturnApiController extends Controller
                 'source_id' => $approvalIds->count() === 1 ? $approvalIds->first() : null,
                 'return_voucher_no' => 'SR' . now()->format('YmdHis') . rand(10, 99),
                 'return_date' => now(),
+                'remarks' => $request->input('remarks', $request->input('remark')),
                 'return_total' => 0,
             ]);
 

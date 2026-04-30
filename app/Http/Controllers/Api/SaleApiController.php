@@ -44,6 +44,7 @@ class SaleApiController extends Controller
                 'customer_id' => $sale->customer_id,
                 'voucher_no' => $sale->voucher_no,
                 'sale_date' => $sale->sale_date,
+                'remarks' => $sale->remarks,
                 'can_edit_today' => true,
                 'can_edit' => true,
                 'qty_pcs' => (int) ($sale->total_qty ?? 0),
@@ -298,6 +299,7 @@ class SaleApiController extends Controller
 
             $request->validate([
                 'customer_id' => 'required|integer',
+                'remarks' => 'nullable|string',
             ]);
 
             $customerExists = Customer::where('company_id', $user->company_id)
@@ -323,6 +325,7 @@ class SaleApiController extends Controller
                 'customer_id' => $request->customer_id,
                 'voucher_no'  => 'SL' . time(),
                 'sale_date'   => now(),
+                'remarks' => $request->input('remarks', $request->input('remark')),
                 'net_total'   => 0,
                 'employee_id' => $user->id,
                 'modified_count' => 0,
@@ -551,6 +554,7 @@ class SaleApiController extends Controller
         $request->validate([
             'items' => 'required|array|min:1',
             'items.*.itemset_id' => 'required|integer',
+            'remarks' => 'nullable|string',
         ]);
 
         if ($customerId <= 0) {
@@ -589,6 +593,7 @@ class SaleApiController extends Controller
                 'customer_id' => $customerId,
                 'voucher_no'  => 'SL' . time(),
                 'sale_date'   => now(),
+                'remarks' => $request->input('remarks', $request->input('remark')),
                 'net_total'   => 0,
                 'employee_id' => $user->id,
                 'modified_count' => 0,
@@ -754,6 +759,7 @@ class SaleApiController extends Controller
             $request->validate([
                 'customer_id' => 'required|integer',
                 'items' => 'required|array|min:1',
+                'remarks' => 'nullable|string',
             ]);
 
             $customerExists = Customer::where('company_id', $companyId)
@@ -768,6 +774,7 @@ class SaleApiController extends Controller
 
             $sale->update([
                 'customer_id' => (int) $request->customer_id,
+                'remarks' => $request->input('remarks', $request->input('remark', $sale->remarks)),
             ]);
 
             $incomingRows = collect($request->input('items', []))
