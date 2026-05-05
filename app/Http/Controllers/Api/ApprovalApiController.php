@@ -15,6 +15,7 @@ use App\Models\Customer;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 class ApprovalApiController extends Controller
@@ -194,57 +195,96 @@ class ApprovalApiController extends Controller
             'customer_id' => 'required|integer',
         ]);
 
+        $qrCode = trim((string) $request->qr_code);
         $customerId = (int) $request->customer_id;
-        $customerExists = Customer::where('company_id', $companyId)
-            ->where('id', $customerId)
-            ->exists();
-        if (!$customerExists) {
+
+        try {
+            $customerExists = Customer::where('company_id', $companyId)
+                ->where('id', $customerId)
+                ->exists();
+            if (!$customerExists) {
+                Log::warning('Approval scanQr failed: invalid customer.', [
+                    'company_id' => $companyId,
+                    'user_id' => $userId,
+                    'customer_id' => $customerId,
+                    'qr_code' => $qrCode,
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid customer for this company.',
+                ], 422);
+            }
+
+            $row = ItemSet::with('item')
+                ->where('company_id', $companyId)
+                ->where('is_final', 1)
+                ->where('is_sold', 0)
+                ->where('qr_code', $qrCode)
+                ->first();
+
+            if (!$row) {
+                Log::warning('Approval scanQr failed: QR not found or already used.', [
+                    'company_id' => $companyId,
+                    'user_id' => $userId,
+                    'customer_id' => $customerId,
+                    'qr_code' => $qrCode,
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'QR not found or already used',
+                ], 404);
+            }
+
+            $exists = ApprovalCart::where('user_id', $userId)
+                ->where('company_id', $companyId)
+                ->where('customer_id', $customerId)
+                ->where('itemset_id', $row->id)
+                ->exists();
+
+            if ($exists) {
+                Log::warning('Approval scanQr failed: product already scanned.', [
+                    'company_id' => $companyId,
+                    'user_id' => $userId,
+                    'customer_id' => $customerId,
+                    'qr_code' => $qrCode,
+                    'itemset_id' => (int) $row->id,
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Product already scanned',
+                ], 409);
+            }
+
+            $cart = ApprovalCart::create([
+                'user_id' => $userId,
+                'company_id' => $companyId,
+                'customer_id' => $customerId,
+                'itemset_id' => $row->id,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Added to approval cart',
+                'cart_id' => $cart->id,
+                'data' => $row,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Approval scanQr exception.', [
+                'company_id' => $companyId,
+                'user_id' => $userId,
+                'customer_id' => $customerId,
+                'qr_code' => $qrCode,
+                'error' => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'success' => false,
-                'message' => 'Invalid customer for this company.',
-            ], 422);
+                'message' => 'Unable to scan QR right now. Please try again.',
+            ], 500);
         }
-
-        $row = ItemSet::with('item')
-            ->where('company_id', $companyId)
-            ->where('is_final', 1)
-            ->where('is_sold', 0)
-            ->where('qr_code', trim((string) $request->qr_code))
-            ->first();
-
-        if (!$row) {
-            return response()->json([
-                'success' => false,
-                'message' => 'QR not found or already used',
-            ], 404);
-        }
-
-        $exists = ApprovalCart::where('user_id', $userId)
-            ->where('company_id', $companyId)
-            ->where('customer_id', $customerId)
-            ->where('itemset_id', $row->id)
-            ->exists();
-
-        if ($exists) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Product already scanned',
-            ], 409);
-        }
-
-        $cart = ApprovalCart::create([
-            'user_id' => $userId,
-            'company_id' => $companyId,
-            'customer_id' => $customerId,
-            'itemset_id' => $row->id,
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Added to approval cart',
-            'cart_id' => $cart->id,
-            'data' => $row,
-        ]);
     }
 
     public function cartList(Request $request)

@@ -46,7 +46,21 @@
                     <strong>Total Labels:</strong> <span id="totalLabels">0</span>
                     <span class="ms-3"><strong>Selected QR:</strong> <span id="selectedLabels">0</span></span>
                 </div>
-                <button type="button" class="btn btn-success" onclick="printSelected()">Print Selected</button>
+                <div class="d-flex gap-2 align-items-center">
+                    <div>
+                        <label class="mb-0 me-1">Label Format</label>
+                        <select id="label_format" class="form-select">
+                            <option value="compact" selected>Compact (Default)</option>
+                            <option value="double_barcode">Two Barcode + Name/Gross</option>
+                            <option value="full_details">Full Details</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="mb-0 me-1">Start Position</label>
+                        <input type="number" id="start_position" class="form-control" min="1" max="22" value="1">
+                    </div>
+                    <button type="button" class="btn btn-success" onclick="printSelected()">Print Selected</button>
+                </div>
             </div>
 
             <div class="table-responsive">
@@ -195,6 +209,16 @@ function printSelected() {
         type: 'hidden',
         name: '_token',
         value: "{{ csrf_token() }}"
+    }));
+    form.append($('<input>', {
+        type: 'hidden',
+        name: 'label_format',
+        value: $('#label_format').val() || 'compact'
+    }));
+    form.append($('<input>', {
+        type: 'hidden',
+        name: 'start_position',
+        value: Math.max(1, Math.min(22, parseInt($('#start_position').val() || '1', 10)))
     }));
 
     ids.forEach(function (id) {

@@ -123,16 +123,52 @@ class SaleReturnApiController extends Controller
         $return = SaleReturn::with([
             'sale.customer',
             'approval.customer',
+            'items.saleItem.sale.customer',
             'items.saleItem.itemset.item',
             'items.itemSet.item',
         ])
             ->where('company_id', $user->company_id)
             ->findOrFail((int) $id);
 
+        $customers = collect();
+        if ($return->sale && $return->sale->customer) {
+            $customers->push($return->sale->customer);
+        }
+        if ($return->approval && $return->approval->customer) {
+            $customers->push($return->approval->customer);
+        }
+        foreach ($return->items as $row) {
+            $saleCustomer = optional(optional($row->saleItem)->sale)->customer;
+            if ($saleCustomer) {
+                $customers->push($saleCustomer);
+            }
+        }
+
+        $uniqueCustomers = $customers
+            ->filter()
+            ->unique('id')
+            ->values()
+            ->map(function ($c) {
+                return [
+                    'id' => (int) $c->id,
+                    'name' => $c->name,
+                    'mobile_no' => $c->mobile_no,
+                    'city' => $c->city,
+                    'area' => $c->area,
+                ];
+            });
+
+        $customer = $uniqueCustomers->first();
+        $customerName = $customer['name'] ?? '-';
+
         return response()->json([
             'success' => true,
             'message' => 'Return voucher fetched successfully.',
-            'data' => $return,
+            'data' => array_merge($return->toArray(), [
+                'customer_name' => $customerName,
+                'customer' => $customer,
+                'customers' => $uniqueCustomers,
+            ]),
         ]);
     }
 
@@ -914,7 +950,93 @@ class SaleReturnApiController extends Controller
                     ->orWhere('qr_code', 'LIKE', "%{$keyword}%");
             })
             ->limit(20)
-            ->get();
+            ->get()
+            ->map(function ($set) use ($companyId, $customerId) {
+                $item = $set->item;
+
+                $saleItem = SaleItem::with(['sale.customer'])
+                    ->where('itemset_id', $set->id)
+                    ->when($customerId > 0, function ($q) use ($companyId, $customerId) {
+                        $q->whereHas('sale', function ($sq) use ($companyId, $customerId) {
+                            $sq->where('company_id', $companyId)
+                                ->where('customer_id', $customerId);
+                        });
+                    })
+                    ->when($customerId <= 0, function ($q) use ($companyId) {
+                        $q->whereHas('sale', function ($sq) use ($companyId) {
+                            $sq->where('company_id', $companyId);
+                        });
+                    })
+                    ->latest('id')
+                    ->first();
+
+                $approvalItem = ApprovalItem::with(['approval.customer'])
+                    ->where('itemset_id', $set->id)
+                    ->where('status', 'pending')
+                    ->when($customerId > 0, function ($q) use ($companyId, $customerId) {
+                        $q->whereHas('approval', function ($aq) use ($companyId, $customerId) {
+                            $aq->where('company_id', $companyId)
+                                ->where('customer_id', $customerId);
+                        });
+                    })
+                    ->when($customerId <= 0, function ($q) use ($companyId) {
+                        $q->whereHas('approval', function ($aq) use ($companyId) {
+                            $aq->where('company_id', $companyId);
+                        });
+                    })
+                    ->latest('id')
+                    ->first();
+
+                $source = $approvalItem ? 'approval' : 'sale';
+                $gross = (float) ($set->gross_weight ?? 0);
+                $otherWeight = (float) ($set->other ?? 0);
+                $net = (float) ($set->net_weight ?? max(0, $gross - $otherWeight));
+                $purity = (float) (optional($item)->outward_purity ?? 0);
+                $wastePercent = 0.0;
+                $netPurity = max(0, $purity - $wastePercent);
+                $fineWeight = (float) (($net * $netPurity) / 100);
+                $metalRate = 0.0;
+                $metalAmount = 0.0;
+                $labourRate = (float) ($set->sale_labour_rate ?? 0);
+                $labourAmount = (float) ($set->sale_labour_amount ?? ($net * $labourRate));
+                $otherAmount = (float) ($set->sale_other ?? 0);
+                $totalAmount = $metalAmount + $labourAmount + $otherAmount;
+
+                $customerName = '-';
+                if ($source === 'approval') {
+                    $customerName = optional(optional($approvalItem)->approval->customer)->name ?? '-';
+                } else {
+                    $customerName = optional(optional($saleItem)->sale->customer)->name ?? '-';
+                }
+
+                return [
+                    'source' => $source,
+                    'sale_item_id' => $saleItem?->id,
+                    'approval_item_id' => $approvalItem?->id,
+                    'itemset_id' => (int) $set->id,
+                    'item_id' => (int) ($set->item_id ?? 0),
+                    'huid' => $set->HUID,
+                    'qr_code' => $set->qr_code,
+                    'label' => $set->qr_code,
+                    'item_name' => optional($item)->item_name,
+                    'customer_name' => $customerName,
+                    'gross_weight' => $gross,
+                    'other_weight' => $otherWeight,
+                    'net_weight' => $net,
+                    'purity' => $purity,
+                    'waste_percent' => $wastePercent,
+                    'net_purity' => $netPurity,
+                    'fine_weight' => $fineWeight,
+                    'metal_rate' => $metalRate,
+                    'metal_amount' => $metalAmount,
+                    'labour_rate' => $labourRate,
+                    'labour_amount' => $labourAmount,
+                    'other_amount' => $otherAmount,
+                    'total_amount' => $totalAmount,
+                    'raw_itemset' => $set,
+                ];
+            })
+            ->values();
 
         return response()->json([
             'success' => true,

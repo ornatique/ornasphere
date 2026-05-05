@@ -8,6 +8,7 @@ use App\Models\Company;
 use App\Models\Customer;
 use App\Models\ItemSet;
 use App\Models\Sale;
+use App\Models\VisitingCard;
 use Carbon\Carbon;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
@@ -20,6 +21,126 @@ use Yajra\DataTables\Facades\DataTables;
 
 class ReportController extends Controller
 {
+    public function visitingCardsCreate(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        return view('company.reports.visiting_cards_create', compact('company'));
+    }
+
+    public function visitingCards(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $fromDate = $request->input('from_date', now()->format('Y-m-d'));
+        $toDate = $request->input('to_date', now()->format('Y-m-d'));
+        $selectedDate = $request->input('selected_date');
+
+        if ($request->ajax()) {
+            $query = $this->visitingCardsBaseQuery($company->id, $fromDate, $toDate, $selectedDate);
+            $search = trim((string) data_get($request->input('search'), 'value', ''));
+            if ($search !== '') {
+                $query->where(function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                        ->orWhere('mobile_no', 'like', "%{$search}%")
+                        ->orWhere('city', 'like', "%{$search}%")
+                        ->orWhere('pincode', 'like', "%{$search}%")
+                        ->orWhere('address', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%");
+                });
+            }
+            $query->latest('id');
+
+            return DataTables::of($query)
+                ->addIndexColumn()
+                ->addColumn('sr_no', fn($row) => null)
+                ->addColumn('created_at_fmt', fn($row) => optional($row->created_at)->format('d-m-Y h:i A') ?? '-')
+                ->addColumn('name_fmt', fn($row) => $row->name ?: '-')
+                ->addColumn('mobile_fmt', fn($row) => $row->mobile_no ?: '-')
+                ->addColumn('city_fmt', fn($row) => $row->city ?: '-')
+                ->addColumn('pincode_fmt', fn($row) => $row->pincode ?: '-')
+                ->addColumn('address_fmt', fn($row) => $row->address ?: '-')
+                ->addColumn('email_fmt', fn($row) => $row->email ?: '-')
+                ->with([
+                    'selected_date' => $selectedDate,
+                ])
+                ->make(true);
+        }
+
+        $summaryRows = VisitingCard::query()
+            ->where('company_id', $company->id)
+            ->whereDate('created_at', '>=', $fromDate)
+            ->whereDate('created_at', '<=', $toDate)
+            ->orderBy('created_at')
+            ->get();
+
+        $summary = $summaryRows->groupBy(fn($row) => $row->created_at->format('Y-m-d'))
+            ->map(fn($group, $date) => [
+                'date' => $date,
+                'total_uploads' => $group->count(),
+            ])
+            ->values();
+
+        return view('company.reports.visiting_cards', compact('company', 'fromDate', 'toDate', 'summary'));
+    }
+
+    public function visitingCardsExcel(Request $request, $slug): StreamedResponse
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $rows = $this->visitingCardsBaseQuery(
+            (int) $company->id,
+            $request->input('from_date', now()->format('Y-m-d')),
+            $request->input('to_date', now()->format('Y-m-d')),
+            $request->input('selected_date')
+        )->latest('id')->get();
+
+        return response()->streamDownload(function () use ($rows) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, ['Name', 'Mobile', 'Email', 'City', 'Pincode', 'Address', 'Date']);
+            foreach ($rows as $r) {
+                fputcsv($out, [
+                    $r->name ?: '-',
+                    $r->mobile_no ?: '-',
+                    $r->email ?: '-',
+                    $r->city ?: '-',
+                    $r->pincode ?: '-',
+                    $r->address ?: '-',
+                    optional($r->created_at)->format('d-m-Y h:i A') ? "'" . optional($r->created_at)->format('d-m-Y h:i A') : '-',
+                ]);
+            }
+            fclose($out);
+        }, 'visiting_cards_report.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
+    public function visitingCardsPdf(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $rows = $this->visitingCardsBaseQuery(
+            (int) $company->id,
+            $request->input('from_date', now()->format('Y-m-d')),
+            $request->input('to_date', now()->format('Y-m-d')),
+            $request->input('selected_date')
+        )->latest('id')->get();
+
+        $fromDate = $request->input('from_date', now()->format('Y-m-d'));
+        $toDate = $request->input('to_date', now()->format('Y-m-d'));
+
+        return Pdf::loadView('company.reports.pdf.visiting_cards', compact('company', 'rows', 'fromDate', 'toDate'))
+            ->setPaper('a4', 'landscape')
+            ->download('visiting_cards_report.pdf');
+    }
+
+    private function visitingCardsBaseQuery(int $companyId, string $fromDate, string $toDate, ?string $selectedDate = null)
+    {
+        return VisitingCard::query()
+            ->where('company_id', $companyId)
+            ->whereDate('created_at', '>=', $fromDate)
+            ->whereDate('created_at', '<=', $toDate)
+            ->when($selectedDate, function ($q) use ($selectedDate) {
+                $q->whereDate('created_at', $selectedDate);
+            });
+    }
+
     public function salesSummary(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();

@@ -93,6 +93,7 @@ class CompanyRoutePermission
             'company.reports.stock-position.' => 'report-stock-position',
             'company.reports.approval-outstanding.' => 'report-approval-outstanding',
             'company.reports.barcode-history.' => 'report-barcode-history',
+            'company.reports.visiting-cards.' => 'report-visiting-cards',
         ];
 
         foreach ($map as $prefix => $module) {

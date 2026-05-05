@@ -186,6 +186,7 @@ class CompanyPermissionController extends Controller
             'report-stock-position',
             'report-approval-outstanding',
             'report-barcode-history',
+            'report-visiting-cards',
         ];
 
         $actions = ['view', 'create', 'edit', 'delete', 'manage'];

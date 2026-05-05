@@ -29,6 +29,7 @@ use App\Http\Controllers\Company\SaleReturnController;
 use App\Http\Controllers\Company\ReportController;
 use App\Http\Controllers\SuperAdmin\SuperAdmin2FAController;
 use App\Http\Controllers\Company\ApprovalController;
+use App\Http\Controllers\Api\VisitingCardApiController as VisitingCardApiWebController;
 
 
 
@@ -683,6 +684,18 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
                 ->name('barcode-history.export.excel');
             Route::get('/barcode-history/export/pdf', [ReportController::class, 'barcodeHistoryPdf'])
                 ->name('barcode-history.export.pdf');
+            Route::get('/visiting-cards', [ReportController::class, 'visitingCards'])
+                ->name('visiting-cards.index');
+            Route::get('/visiting-cards/create', [ReportController::class, 'visitingCardsCreate'])
+                ->name('visiting-cards.create');
+            Route::post('/visiting-cards/extract-bulk', [VisitingCardApiWebController::class, 'extractBulk'])
+                ->name('visiting-cards.extract-bulk');
+            Route::post('/visiting-cards/bulk-save', [VisitingCardApiWebController::class, 'bulkSave'])
+                ->name('visiting-cards.bulk-save');
+            Route::get('/visiting-cards/export/excel', [ReportController::class, 'visitingCardsExcel'])
+                ->name('visiting-cards.export.excel');
+            Route::get('/visiting-cards/export/pdf', [ReportController::class, 'visitingCardsPdf'])
+                ->name('visiting-cards.export.pdf');
         });
     });
 

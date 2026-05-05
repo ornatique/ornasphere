@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Item;
-use Illuminate\Validation\Rule;
 
 class ItemController extends Controller
 {
@@ -103,11 +102,7 @@ class ItemController extends Controller
 
         $validated = $request->validate([
             'item_name' => 'required|string|max:255',
-            'item_code' => [
-                'required',
-                'string',
-                Rule::unique('items')->ignore($item->id)
-            ],
+            'item_code' => 'required|string|max:255',
         ]);
 
         $item->update([

@@ -3,10 +3,11 @@
     $authUser = auth()->user();
     $isCompanyAdmin = $authUser && $authUser->hasRole('company_admin');
     $routeName = (string) optional(request()->route())->getName();
+    $isVisitingCardsRoute = str_starts_with($routeName, 'company.reports.visiting-cards.');
     $isSalesRoute = str_starts_with($routeName, 'company.sales.')
     || str_starts_with($routeName, 'company.returns.')
     || str_starts_with($routeName, 'company.approval.');
-    $isReportRoute = str_starts_with($routeName, 'company.reports.');
+    $isReportRoute = str_starts_with($routeName, 'company.reports.') && !$isVisitingCardsRoute;
 
     $canModule = function (string $module, string $action = 'view') use ($authUser, $isCompanyAdmin) {
     if ($isCompanyAdmin) {
@@ -67,6 +68,7 @@
     $canReportStockPosition = $canModule('report-stock-position');
     $canReportApprovalOutstanding = $canModule('report-approval-outstanding');
     $canReportBarcodeHistory = $canModule('report-barcode-history');
+    $canReportVisitingCards = $canModule('report-visiting-cards');
     @endphp
 
     <ul class="nav" id="sidebar-accordion">
@@ -429,8 +431,20 @@
                         </a>
                     </li>
                     @endif
+
                 </ul>
             </div>
+        </li>
+        @endif
+
+        {{-- ================= VISITING CARDS ================= --}}
+        @if($canReportVisitingCards)
+        <li class="nav-item {{ $isVisitingCardsRoute ? 'active' : '' }}">
+            <a class="nav-link"
+                href="{{ route('company.reports.visiting-cards.index', auth()->user()->company->slug) }}">
+                <i class="typcn typcn-contacts menu-icon"></i>
+                <span class="menu-title">Visiting Cards</span>
+            </a>
         </li>
         @endif
 

@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\LabourFormulaApiController;
 use App\Http\Controllers\Api\ProductionStepApiController;
 use App\Http\Controllers\Api\JobWorkerApiController;
 use App\Http\Controllers\Api\JobworkIssueApiController;
+use App\Http\Controllers\Api\VisitingCardApiController;
 
 Route::post('/company/login', [AuthController::class, 'login']);
 Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
@@ -214,6 +215,13 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/reports/barcode-history/export/pdf', [ReportApiController::class, 'barcodeHistoryPdf']);
     Route::get('/reports/barcode-history', [ReportApiController::class, 'barcodeHistory']);
     Route::get('/reports/sales-summary', [ReportApiController::class, 'salesSummary']);
+
+    Route::post('/visiting-cards/extract', [VisitingCardApiController::class, 'extract']);
+    Route::post('/visiting-cards/extract-bulk', [VisitingCardApiController::class, 'extractBulk']);
+    Route::post('/visiting-cards', [VisitingCardApiController::class, 'store']);
+    Route::post('/visiting-cards/bulk-save', [VisitingCardApiController::class, 'bulkSave']);
+    Route::get('/visiting-cards', [VisitingCardApiController::class, 'index']);
+    Route::get('/reports/visiting-cards/date-wise', [VisitingCardApiController::class, 'dateWiseReport']);
 });
 
 // Signed public PDF URL (for browser/app open without bearer header)
