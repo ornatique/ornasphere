@@ -25,11 +25,20 @@
         .page:last-child { page-break-after: auto; }
         .wrapper { width: 110mm; margin-left: 0; margin-top: -0.2mm; transform: translateY(-0.2mm); }
         .column { width: 49%; display: inline-block; vertical-align: top; }
-        .label { border: 1px solid #000;height: 15.5mm; padding: 0.4mm; box-sizing: border-box; margin-bottom: 0.6mm; overflow: hidden; }
-        .left-col { float: left; width: 49%; }
-        .right-col { float: right; width: 49%; text-align: left; }
-        .code { font-weight: bold; line-height: 1.1; font-size: 7.4px; }
-        .qr { width: 7.2mm; height: 7.2mm; display: block; }
+        .label { border: 1px solid #000; height: 15.5mm; padding: 0.4mm; box-sizing: border-box; margin-bottom: 0.6mm; overflow: hidden; }
+        .label-inner { display: flex; justify-content: space-between; align-items: center; height: 100%; }
+        .left-col, .right-col {
+            width: 50%;
+            text-align: center;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 0.2mm;
+        }
+        .code { font-weight: bold; line-height: 1.1; font-size: 7px; }
+        .qr { width: 7.2mm; height: 7.2mm; display: block; margin: 0 auto; }
         .right-label.first { margin-top: 7mm; }
         .clear { clear: both; }
     </style>
@@ -49,7 +58,7 @@
                 <input type="number" id="start_position" name="start_position" min="1" max="22" value="{{ $startPosition ?? 1 }}">
                 <button type="submit" class="btn btn-update">Update Preview</button>
             </form>
-            <form method="POST" action="{{ route('company.item_sets.printPdf.post', $company->slug) }}" target="_blank" style="display:inline-flex;">
+            <form method="POST" action="{{ route('company.item_sets.printDirect.post', $company->slug) }}" target="_blank" style="display:inline-flex;">
                 @csrf
                 <input type="hidden" name="label_format" value="{{ $labelFormat }}">
                 <input type="hidden" name="start_position" value="{{ $startPosition ?? 1 }}">
@@ -57,7 +66,7 @@
                 @foreach(($ids ?? []) as $id)
                     <input type="hidden" name="ids[]" value="{{ $id }}">
                 @endforeach
-                <button type="submit" class="btn btn-print">Print PDF</button>
+                <button type="submit" class="btn btn-print">Direct Print</button>
             </form>
         </div>
     </div>
@@ -79,6 +88,7 @@
                         @foreach($leftItems as $item)
                             <div class="label left-label">
                                 @if($item)
+                                    <div class="label-inner">
                                     <div class="left-col">
                                         <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
                                         @if($labelFormat === 'double_barcode')
@@ -99,6 +109,7 @@
                                             <div class="code">{{ $item->qr_code }}</div>
                                             <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
                                         @endif
+                                    </div>
                                     </div>
                                 @endif
                                 <div class="clear"></div>
@@ -110,6 +121,7 @@
                         @foreach($rightItems as $index => $item)
                             <div class="label right-label {{ $index === 0 ? 'first' : '' }}">
                                 @if($item)
+                                    <div class="label-inner">
                                     <div class="left-col">
                                         <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
                                         @if($labelFormat === 'double_barcode')
@@ -130,6 +142,7 @@
                                             <div class="code">{{ $item->qr_code }}</div>
                                             <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
                                         @endif
+                                    </div>
                                     </div>
                                 @endif
                                 <div class="clear"></div>

@@ -517,6 +517,10 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
             '/item-sets/print-pdf/',
             [ItemSetController::class, 'printPdf']
         )->name('item_sets.printPdf.post');
+        Route::post(
+            '/item-sets/print-direct/',
+            [ItemSetController::class, 'printDirect']
+        )->name('item_sets.printDirect.post');
 
         Route::get('sales', [SaleController::class, 'index'])
             ->name('sales.index');

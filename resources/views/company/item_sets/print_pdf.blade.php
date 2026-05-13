@@ -24,7 +24,7 @@ body {
     width: 110mm;
     margin-left: 50mm;
     margin-top: -0.4mm;
-    transform: translateY(-0.4mm);
+    transform: translateY(-0.9mm);
 }
 
 /* LEFT + RIGHT COLUMN */

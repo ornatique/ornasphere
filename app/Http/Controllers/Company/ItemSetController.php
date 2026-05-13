@@ -573,6 +573,11 @@ class ItemSetController extends Controller
             $pdfBuilder->setPaper([0, 0, 311.81, 550.11]);
         }
 
+        $printAction = (string) $request->input('print_action', 'stream');
+        if ($printAction === 'download') {
+            return $pdfBuilder->download('label-print.pdf');
+        }
+
         return $pdfBuilder->stream('label-print-preview.pdf');
     }
 
@@ -607,6 +612,39 @@ class ItemSetController extends Controller
         $printPages = $this->buildPrintPages($itemSets, $startPosition);
 
         return view('company.item_sets.print_preview', compact('company', 'itemSets', 'labelFormat', 'ids', 'startPosition', 'printPages'));
+    }
+
+    public function printDirect(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $labelFormat = $this->resolveLabelFormat($request->input('label_format', 'compact'));
+        $startPosition = $this->resolveStartPosition($request->input('start_position', 1));
+        $ids = $this->extractSelectedIds($request);
+
+        if (empty($ids)) {
+            return back()->with('error', 'Please select at least one label.');
+        }
+
+        $itemSets = ItemSet::with('item')
+            ->where('company_id', $company->id)
+            ->whereIn('id', $ids)
+            ->where('is_final', 1)
+            ->get();
+
+        if ($itemSets->isEmpty()) {
+            return back()->with('error', 'No printable labels found for selected records.');
+        }
+
+        $writer = new PngWriter();
+        foreach ($itemSets as $set) {
+            $qrCode = new QrCode($set->qr_code);
+            $result = $writer->write($qrCode);
+            $set->qr_base64 = 'data:image/png;base64,' . base64_encode($result->getString());
+        }
+
+        $printPages = $this->buildPrintPages($itemSets, $startPosition);
+
+        return view('company.item_sets.print_direct', compact('itemSets', 'labelFormat', 'printPages'));
     }
 
     private function resolveLabelFormat(string $labelFormat): string

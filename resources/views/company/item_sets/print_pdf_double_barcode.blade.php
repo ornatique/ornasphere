@@ -28,7 +28,7 @@
             width: 110mm;
             margin-left: 50mm;
             margin-top: -0.4mm;
-            transform: translateY(-0.8mm);
+            /* transform: translateY(-0.8mm); */
         }
 
         .column {
@@ -63,12 +63,12 @@
         .code {
             font-weight: bold;
             line-height: 1.1;
-            font-size: 7px;
+            font-size: 8px;
         }
 
         .qr {
-            width: 6.5mm;
-            height: 6.5mm;
+            width: 7.5mm;
+            height: 7.5mm;
             display: block;
         }
 

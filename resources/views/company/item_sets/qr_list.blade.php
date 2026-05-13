@@ -91,6 +91,23 @@
 </div>
 @endsection
 
+@push('styles')
+<style>
+    #labelListTable td:first-child,
+    #labelListTable th:first-child {
+        cursor: pointer;
+    }
+    #labelListTable td:first-child {
+        padding: 10px 8px;
+    }
+    #labelListTable .qrCheckbox,
+    #labelListTable #selectAll {
+        transform: scale(1.15);
+        cursor: pointer;
+    }
+</style>
+@endpush
+
 
 @push('scripts')
 <script>
@@ -190,6 +207,13 @@ $(document).on('change', '.qrCheckbox', function () {
     if (this.checked) selectedIds.add(id);
     else selectedIds.delete(id);
     updateSelectedCount();
+});
+
+$(document).on('click', '#labelListTable tbody td:first-child', function (e) {
+    if ($(e.target).is('input')) return;
+    const checkbox = $(this).find('.qrCheckbox');
+    if (!checkbox.length) return;
+    checkbox.prop('checked', !checkbox.prop('checked')).trigger('change');
 });
 
 function printSelected() {
