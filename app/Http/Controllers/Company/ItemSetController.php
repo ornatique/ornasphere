@@ -511,18 +511,9 @@ class ItemSetController extends Controller
     public function printPdf(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-
-        $idsParam = $request->input('ids', []);
-        if (is_array($idsParam)) {
-            $ids = array_values(array_filter($idsParam, function ($id) {
-                return $id !== null && $id !== '';
-            }));
-        } else {
-            $ids = array_values(array_filter(explode(',', (string) $idsParam)));
-        }
-
-        $ids = array_map('intval', $ids);
-        $ids = array_values(array_unique(array_filter($ids, fn($id) => $id > 0)));
+        $labelFormat = $this->resolveLabelFormat($request->input('label_format', 'compact'));
+        $startPosition = $this->resolveStartPosition($request->input('start_position', 1));
+        $ids = $this->extractSelectedIds($request);
 
         if (empty($ids)) {
             return back()->with('error', 'Please select at least one label.');
@@ -533,6 +524,9 @@ class ItemSetController extends Controller
             ->whereIn('id', $ids)
             ->where('is_final', 1)
             ->get();
+
+        $requestedCount = count($ids);
+        $loadedCount = $itemSets->count();
 
         ItemSet::where('company_id', $company->id)
             ->whereIn('id', $itemSets->pluck('id'))
@@ -561,12 +555,124 @@ class ItemSetController extends Controller
                 base64_encode($result->getString());
         }
 
-        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView(
-            'company.item_sets.print_pdf',
-            compact('itemSets')
-        )->setPaper([0, 0, 311.81, 550.11]);
+        $printPages = $this->buildPrintPages($itemSets, $startPosition);
 
-        return $pdf->stream('label-print-preview.pdf');
+        $view = 'company.item_sets.print_pdf';
+        if ($labelFormat === 'double_barcode') {
+            $view = 'company.item_sets.print_pdf_double_barcode';
+        }
+
+        $pdfBuilder = \Barryvdh\DomPDF\Facade\Pdf::loadView(
+            $view,
+            compact('itemSets', 'labelFormat', 'requestedCount', 'loadedCount', 'startPosition', 'printPages')
+        );
+
+        if ($labelFormat === 'double_barcode') {
+            $pdfBuilder->setPaper('a4', 'portrait');
+        } else {
+            $pdfBuilder->setPaper([0, 0, 311.81, 550.11]);
+        }
+
+        return $pdfBuilder->stream('label-print-preview.pdf');
+    }
+
+    public function printPreview(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $labelFormat = $this->resolveLabelFormat($request->input('label_format', 'compact'));
+        $startPosition = $this->resolveStartPosition($request->input('start_position', 1));
+        $ids = $this->extractSelectedIds($request);
+
+        if (empty($ids)) {
+            return back()->with('error', 'Please select at least one label.');
+        }
+
+        $itemSets = ItemSet::with('item')
+            ->where('company_id', $company->id)
+            ->whereIn('id', $ids)
+            ->where('is_final', 1)
+            ->get();
+
+        if ($itemSets->isEmpty()) {
+            return back()->with('error', 'No printable labels found for selected records.');
+        }
+
+        $writer = new PngWriter();
+        foreach ($itemSets as $set) {
+            $qrCode = new QrCode($set->qr_code);
+            $result = $writer->write($qrCode);
+            $set->qr_base64 = 'data:image/png;base64,' . base64_encode($result->getString());
+        }
+
+        $printPages = $this->buildPrintPages($itemSets, $startPosition);
+
+        return view('company.item_sets.print_preview', compact('company', 'itemSets', 'labelFormat', 'ids', 'startPosition', 'printPages'));
+    }
+
+    private function resolveLabelFormat(string $labelFormat): string
+    {
+        if (!in_array($labelFormat, ['compact', 'double_barcode', 'full_details'], true)) {
+            return 'compact';
+        }
+
+        return $labelFormat;
+    }
+
+    private function extractSelectedIds(Request $request): array
+    {
+        $idsCsv = trim((string) $request->input('ids_csv', ''));
+        $idsParam = $request->input('ids', []);
+
+        if ($idsCsv !== '') {
+            $ids = array_values(array_filter(array_map('trim', explode(',', $idsCsv))));
+        } elseif (is_array($idsParam)) {
+            $ids = array_values(array_filter($idsParam, function ($id) {
+                return $id !== null && $id !== '';
+            }));
+        } else {
+            $ids = array_values(array_filter(explode(',', (string) $idsParam)));
+        }
+
+        $ids = array_map('intval', $ids);
+
+        return array_values(array_unique(array_filter($ids, fn($id) => $id > 0)));
+    }
+
+    private function resolveStartPosition($value): int
+    {
+        $position = (int) $value;
+        if ($position < 1) {
+            return 1;
+        }
+        if ($position > 22) {
+            return 22;
+        }
+        return $position;
+    }
+
+    private function buildPrintPages($itemSets, int $startPosition)
+    {
+        $labels = $itemSets->values();
+        $total = $labels->count();
+        $cursor = 0;
+        $slotStart = max(1, min(22, $startPosition));
+        $pages = collect();
+
+        if ($total === 0) {
+            return collect([collect(array_fill(0, 22, null))]);
+        }
+
+        while ($cursor < $total) {
+            $slots = array_fill(0, 22, null);
+            for ($slot = $slotStart - 1; $slot < 22 && $cursor < $total; $slot++) {
+                $slots[$slot] = $labels->get($cursor);
+                $cursor++;
+            }
+            $pages->push(collect($slots));
+            $slotStart = 1;
+        }
+
+        return $pages;
     }
 
     public function edit($slug, $encryptedId)
@@ -607,4 +713,3 @@ class ItemSetController extends Controller
         return response()->json(['success' => true]);
     }
 }
-

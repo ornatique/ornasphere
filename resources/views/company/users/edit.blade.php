@@ -99,7 +99,7 @@
                                             class="form-control @error('profile_image') is-invalid @enderror">
 
                                         @if($user->profile_image)
-                                            <img src="{{ asset('storage/'.$user->profile_image) }}"
+                                            <img src="{{ $user->profile_image_url }}"
                                                  width="60"
                                                  class="mt-2 rounded">
                                         @endif

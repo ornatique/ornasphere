@@ -13,10 +13,10 @@
         </div>
     </div> -->
     <div class="card">
-        <div class="card-header">
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="card-header visiting-card-header">
+            <div class="visiting-card-header-row d-flex align-items-center flex-wrap gap-2 w-100">
                 <h4 class="card-title mb-0">Visiting Cards Report</h4>
-                <a href="{{ route('company.reports.visiting-cards.create', auth()->user()->company->slug) }}" class="btn btn-success text-end">
+                <a href="{{ route('company.reports.visiting-cards.create', auth()->user()->company->slug) }}" class="btn btn-success create-btn-right">
                     <i class="typcn typcn-plus"></i> Create
                 </a>
             </div>
@@ -60,6 +60,28 @@
     </div>
 </div>
 @endsection
+
+@push('styles')
+<style>
+    .visiting-card-header .card-title,
+    .visiting-card-header .btn {
+        float: none !important;
+    }
+
+    .visiting-card-header .visiting-card-header-row {
+        width: 100% !important;
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+    }
+
+    .visiting-card-header .create-btn-right {
+        margin-left: auto !important;
+        display: inline-flex;
+        align-items: center;
+    }
+</style>
+@endpush
 
 @push('scripts')
 <script>

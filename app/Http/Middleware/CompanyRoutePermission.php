@@ -115,16 +115,28 @@ class CompanyRoutePermission
         $editActions = ['edit', 'update', 'saveCell'];
         $deleteActions = ['delete', 'destroy', 'toggle', 'remove'];
 
-        if (in_array($lastSegment, $createActions, true) || $verb === 'POST') {
-            return 'create';
+        if (in_array($lastSegment, $deleteActions, true)) {
+            return 'delete';
         }
 
-        if (in_array($lastSegment, $editActions, true) || in_array($verb, ['PUT', 'PATCH'], true)) {
+        if (in_array($lastSegment, $editActions, true)) {
             return 'edit';
         }
 
-        if (in_array($lastSegment, $deleteActions, true) || $verb === 'DELETE') {
+        if (in_array($lastSegment, $createActions, true)) {
+            return 'create';
+        }
+
+        if (in_array($verb, ['PUT', 'PATCH'], true)) {
+            return 'edit';
+        }
+
+        if ($verb === 'DELETE') {
             return 'delete';
+        }
+
+        if ($verb === 'POST') {
+            return 'create';
         }
 
         if (in_array($lastSegment, $viewActions, true) || $verb === 'GET') {

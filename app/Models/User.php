@@ -91,4 +91,25 @@ class User extends Authenticatable
         return $this->belongsToMany(ProductionStep::class, 'production_step_user')
             ->withTimestamps();
     }
+
+    public function getProfileImageUrlAttribute(): ?string
+    {
+        $rawPath = trim((string) ($this->attributes['profile_image'] ?? ''));
+        if ($rawPath === '') {
+            return null;
+        }
+
+        $path = ltrim($rawPath, '/');
+
+        // Normalize legacy value like "public/uploads/..."
+        if (str_starts_with($path, 'public/')) {
+            $path = substr($path, 7);
+        }
+
+        if (str_starts_with($path, 'uploads/')) {
+            return asset('public/' . $path);
+        }
+
+        return asset('storage/' . $path);
+    }
 }

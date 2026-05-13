@@ -35,6 +35,14 @@ class Item extends Model
         'numeric_length',
         'item_group',
         'remarks',
+        'jewellery_type',
+        'ar_mode',
+        'glb_url',
+        'usdz_url',
+        'thumbnail_url',
+        'deepar_effect_id',
+        'ar_meta',
+        'is_active',
     ];
 
     public function labelConfig()

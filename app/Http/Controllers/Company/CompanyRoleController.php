@@ -44,7 +44,7 @@ class CompanyRoleController extends Controller
     public function create($slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        $this->ensureWebPermissions();
+        $this->ensureWebPermissions($company->id);
         $permissions = $this->groupedPermissions($company->id);
 
         return view('company.roles.create', compact('company', 'permissions'));
@@ -91,7 +91,7 @@ class CompanyRoleController extends Controller
             ->where('company_id', $company->id)
             ->firstOrFail();
 
-        $this->ensureWebPermissions();
+        $this->ensureWebPermissions($company->id);
         $permissions = $this->groupedPermissions($company->id);
         $rolePermissions = $role->permissions->pluck('name')->toArray();
 
@@ -153,6 +153,10 @@ class CompanyRoleController extends Controller
 
         return Permission::query()
             ->where('guard_name', 'web')
+            ->where(function ($q) use ($companyId) {
+                $q->whereNull('company_id')
+                    ->orWhere('company_id', $companyId);
+            })
             ->get()
             ->groupBy(function ($permission) {
                 return $this->extractModule($permission->name);
@@ -172,7 +176,7 @@ class CompanyRoleController extends Controller
             ->sortKeys();
     }
 
-    private function ensureWebPermissions(): void
+    private function ensureWebPermissions(int $companyId): void
     {
         $this->normalizeLegacyPermissionNames();
 
@@ -200,12 +204,15 @@ class CompanyRoleController extends Controller
                     continue;
                 }
 
-                Permission::firstOrCreate([
+                $permission = Permission::firstOrCreate([
                     'name' => "{$module}-{$action}",
                     'guard_name' => 'web',
-                ], [
-                    'company_id' => null,
                 ]);
+
+                if ($permission->company_id === null) {
+                    $permission->company_id = $companyId;
+                    $permission->save();
+                }
             }
         }
     }

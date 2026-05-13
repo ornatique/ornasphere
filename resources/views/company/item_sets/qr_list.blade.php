@@ -95,6 +95,7 @@
 @push('scripts')
 <script>
 let selectedIds = new Set();
+const printPreviewPostUrl = "{{ \Illuminate\Support\Facades\Route::has('company.item_sets.printPreview.post') ? route('company.item_sets.printPreview.post', $company->slug) : route('company.item_sets.printPdf.post', $company->slug) }}";
 function updateSelectedCount() {
     $('#selectedLabels').text(selectedIds.size);
 }
@@ -192,7 +193,12 @@ $(document).on('change', '.qrCheckbox', function () {
 });
 
 function printSelected() {
-    let ids = Array.from(selectedIds);
+    const checkedOnPage = $('.qrCheckbox:checked').map(function () {
+        return String($(this).val());
+    }).get();
+    checkedOnPage.forEach(id => selectedIds.add(id));
+
+    let ids = Array.from(selectedIds).filter(id => /^\d+$/.test(String(id)));
 
     if (!ids.length) {
         alert('Select at least one label');
@@ -201,7 +207,7 @@ function printSelected() {
 
     const form = $('<form>', {
         method: 'POST',
-        action: "{{ route('company.item_sets.printPdf.post', $company->slug) }}",
+        action: printPreviewPostUrl,
         target: '_blank'
     });
 
@@ -215,12 +221,17 @@ function printSelected() {
         name: 'label_format',
         value: $('#label_format').val() || 'compact'
     }));
+    const startPosition = Math.min(22, Math.max(1, parseInt($('#start_position').val(), 10) || 1));
     form.append($('<input>', {
         type: 'hidden',
         name: 'start_position',
-        value: Math.max(1, Math.min(22, parseInt($('#start_position').val() || '1', 10)))
+        value: startPosition
     }));
-
+    form.append($('<input>', {
+        type: 'hidden',
+        name: 'ids_csv',
+        value: ids.join(',')
+    }));
     ids.forEach(function (id) {
         form.append($('<input>', {
             type: 'hidden',
@@ -231,7 +242,9 @@ function printSelected() {
 
     $('body').append(form);
     form.trigger('submit');
-    form.remove();
+    setTimeout(function () {
+        form.remove();
+    }, 1500);
 }
 </script>
 @endpush

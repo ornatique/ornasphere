@@ -11,9 +11,89 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Yajra\DataTables\Facades\DataTables;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Str;
 
 class CompanyUserController extends Controller
 {
+    private function storeProfileImageToUploads(Request $request): ?string
+    {
+        if (!$request->hasFile('profile_image')) {
+            return null;
+        }
+
+        $file = $request->file('profile_image');
+        $dir = public_path('uploads/profile_images');
+
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+
+        $name = Str::uuid()->toString() . '.' . $file->getClientOriginalExtension();
+        $file->move($dir, $name);
+
+        return 'uploads/profile_images/' . $name;
+    }
+
+    private function deleteProfileImageIfExists(?string $path): void
+    {
+        if (!$path) {
+            return;
+        }
+
+        // New path style: uploads/profile_images/xxx.jpg (public folder)
+        $publicFile = public_path($path);
+        if (file_exists($publicFile)) {
+            @unlink($publicFile);
+            return;
+        }
+
+        // Backward compatibility: old files saved on storage/public disk
+        Storage::disk('public')->delete($path);
+    }
+
+    private function canUserModuleAction(User $authUser, string $action): bool
+    {
+        if ($this->isCompanyAdminUser($authUser)) {
+            return true;
+        }
+
+        $module = 'user';
+        $moduleVariants = array_unique([
+            $module,
+            str_replace('-', '', $module),
+            str_replace('-', '_', $module),
+            str_replace('-', '.', $module),
+            str_replace('-', ' ', $module),
+        ]);
+
+        $candidates = [];
+        foreach ($moduleVariants as $m) {
+            $candidates[] = "{$m}-{$action}";
+            $candidates[] = "{$m}.{$action}";
+            $candidates[] = "{$m}_{$action}";
+            $candidates[] = "{$m} {$action}";
+            $candidates[] = "{$action}-{$m}";
+            $candidates[] = "{$action}.{$m}";
+            $candidates[] = "{$action}_{$m}";
+            $candidates[] = "{$action} {$m}";
+        }
+
+        if ($action !== 'view') {
+            foreach ($moduleVariants as $m) {
+                $candidates[] = "{$m}-manage";
+                $candidates[] = "{$m}.manage";
+                $candidates[] = "{$m}_manage";
+                $candidates[] = "{$m} manage";
+                $candidates[] = "manage-{$m}";
+                $candidates[] = "manage.{$m}";
+                $candidates[] = "manage_{$m}";
+                $candidates[] = "manage {$m}";
+            }
+        }
+
+        return $authUser->hasAnyPermission(array_values(array_unique($candidates)));
+    }
+
     private function isCompanyAdminUser(User $user): bool
     {
         if (strtolower((string) $user->role) === 'company_admin') {
@@ -26,6 +106,10 @@ class CompanyUserController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $authUser = $request->user();
+        $canCreateUsers = $authUser ? $this->canUserModuleAction($authUser, 'create') : false;
+        $canEditUsers = $authUser ? $this->canUserModuleAction($authUser, 'edit') : false;
+        $canDeleteUsers = $authUser ? $this->canUserModuleAction($authUser, 'delete') : false;
 
         if ($request->ajax()) {
 
@@ -53,7 +137,7 @@ class CompanyUserController extends Controller
                     return optional($user->updated_at)->format('d-m-Y h:i A') ?? '-';
                 })
 
-                ->addColumn('action', function ($user) use ($company) {
+                ->addColumn('action', function ($user) use ($company, $canEditUsers, $canDeleteUsers) {
 
                     $encryptedId = Crypt::encryptString($user->id);
 
@@ -66,7 +150,7 @@ class CompanyUserController extends Controller
                     $isCompanyAdminUser = $this->isCompanyAdminUser($user);
                     $html = '';
 
-                    if (!$isCompanyAdminUser) {
+                    if (!$isCompanyAdminUser && $canEditUsers) {
                         $html .= '
                             <a href="' . $editUrl . '" class="btn btn-sm btn-primary">Edit</a>
 
@@ -82,13 +166,15 @@ class CompanyUserController extends Controller
                         ';
                     }
 
-                    $html .= '
-                        <button type="button"
-                            class="btn btn-sm ' . $statusBtnClass . ' toggle-status-btn"
-                            data-url="' . $toggleUrl . '">
-                            ' . $statusText . '
-                        </button>
-                    ';
+                    if ($canDeleteUsers) {
+                        $html .= '
+                            <button type="button"
+                                class="btn btn-sm ' . $statusBtnClass . ' toggle-status-btn"
+                                data-url="' . $toggleUrl . '">
+                                ' . $statusText . '
+                            </button>
+                        ';
+                    }
 
                     return $html;
                 })
@@ -97,7 +183,7 @@ class CompanyUserController extends Controller
                 ->make(true);
         }
 
-        return view('company.users.index', compact('company'));
+        return view('company.users.index', compact('company', 'canCreateUsers'));
     }
 
 
@@ -150,18 +236,24 @@ class CompanyUserController extends Controller
             // 'profile_image' => 'nullable|image|max:2048',
         ]);
 
-        $imagePath = null;
-        if ($request->hasFile('profile_image')) {
-            $imagePath = $request->file('profile_image')
-                ->store('profile_images', 'public');
+        $roleModel = Role::where('company_id', $company->id)
+            ->where('name', $request->role)
+            ->first();
+
+        if (!$roleModel) {
+            return back()
+                ->withErrors(['role' => 'Selected role is invalid for this company.'])
+                ->withInput();
         }
+
+        $imagePath = $this->storeProfileImageToUploads($request);
 
         $user = User::create([
             'company_id' => $company->id,
             'name' => $request->name,
             'email' => $request->email,
             'password' => Hash::make($request->password),
-            'role' => $request->role,
+            'role' => $roleModel->name,
             'profile_image' => $imagePath,
 
             'person_code' => $request->person_code,
@@ -186,7 +278,7 @@ class CompanyUserController extends Controller
             'remarks' => $request->remarks,
         ]);
 
-        $user->assignRole($request->role);
+        $user->syncRoles([$roleModel->id]);
 
         return redirect()
             ->route('company.users.index', $company->slug)
@@ -245,7 +337,17 @@ class CompanyUserController extends Controller
                 ->withInput();
         }
 
-        $newRole = $request->role;
+        $roleModel = Role::where('company_id', $company->id)
+            ->where('name', $request->role)
+            ->first();
+
+        if (!$roleModel) {
+            return back()
+                ->withErrors(['role' => 'Selected role is invalid for this company.'])
+                ->withInput();
+        }
+
+        $newRole = $roleModel->name;
         $currentRole = $user->getRoleNames()->first();
 
         // ✅ Employee Limit Check During Edit
@@ -264,18 +366,14 @@ class CompanyUserController extends Controller
 
         // Update profile image
         if ($request->hasFile('profile_image')) {
-
-            if ($user->profile_image) {
-                Storage::disk('public')->delete($user->profile_image);
-            }
-
-            $user->profile_image = $request->file('profile_image')
-                ->store('profile_images', 'public');
+            $this->deleteProfileImageIfExists($user->profile_image);
+            $user->profile_image = $this->storeProfileImageToUploads($request);
         }
 
         // Update fields
         $payload = [
             'name' => $request->name,
+            'role' => $roleModel->name,
             'profile_image' => $user->profile_image,
             'person_code' => $request->person_code,
             'city' => $request->city,
@@ -304,7 +402,7 @@ class CompanyUserController extends Controller
 
         $user->update($payload);
 
-        $user->syncRoles([$newRole]);
+        $user->syncRoles([$roleModel->id]);
 
         return redirect()
             ->route('company.users.index', $company->slug)
@@ -320,7 +418,7 @@ class CompanyUserController extends Controller
         abort_if($user->company_id !== $company->id, 403);
 
         if ($user->profile_image) {
-            Storage::disk('public')->delete($user->profile_image);
+            $this->deleteProfileImageIfExists($user->profile_image);
         }
 
         $user->delete();

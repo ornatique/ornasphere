@@ -5,11 +5,13 @@
         <div class="card-header d-flex justify-content-between align-items-center">
             <h4 class="card-title">Users List</h4>
 
-            <a href="{{ route('company.users.create', $company->slug) }}"
-                class="btn btn-primary">
-                <i class="typcn typcn-plus-outline"></i>
-                Create User
-            </a>
+            @if(!empty($canCreateUsers))
+                <a href="{{ route('company.users.create', $company->slug) }}"
+                    class="btn btn-primary">
+                    <i class="typcn typcn-plus-outline"></i>
+                    Create User
+                </a>
+            @endif
         </div>
         <div class="card-body">
             <table class="table table-bordered" id="users-table">

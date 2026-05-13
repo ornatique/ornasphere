@@ -7,9 +7,11 @@
         <div class="card-header d-flex justify-content-between">
             <h4 class="card-title">Other Charges List</h4>
 
-            <a href="{{ route('company.other-charge.create', $company->slug) }}" class="btn btn-primary">
-                + Add Other Charges
-            </a>
+            @if(!empty($canCreate))
+                <a href="{{ route('company.other-charge.create', $company->slug) }}" class="btn btn-primary">
+                    + Add Other Charges
+                </a>
+            @endif
         </div>
         <div class="card-body">
 

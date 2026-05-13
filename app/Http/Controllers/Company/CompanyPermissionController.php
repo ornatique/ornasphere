@@ -13,10 +13,14 @@ class CompanyPermissionController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        $this->ensureWebPermissions();
+        $this->ensureWebPermissions($company->id);
 
         if ($request->ajax()) {
             $permissions = Permission::where('guard_name', 'web')
+                ->where(function ($q) use ($company) {
+                    $q->whereNull('company_id')
+                        ->orWhere('company_id', $company->id);
+                })
                 ->withCount('roles');
 
             return DataTables::of($permissions)
@@ -65,7 +69,7 @@ class CompanyPermissionController extends Controller
     public function create($slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        $this->ensureWebPermissions();
+        $this->ensureWebPermissions($company->id);
 
         return view('company.permissions.create', compact('company'));
     }
@@ -81,6 +85,10 @@ class CompanyPermissionController extends Controller
         $name = $this->normalizePermissionName(trim((string) $request->name));
         $existing = Permission::where('name', $name)
             ->where('guard_name', 'web')
+            ->where(function ($q) use ($company) {
+                $q->whereNull('company_id')
+                    ->orWhere('company_id', $company->id);
+            })
             ->first();
 
         if ($existing) {
@@ -92,7 +100,7 @@ class CompanyPermissionController extends Controller
         Permission::create([
             'name' => $name,
             'guard_name' => 'web',
-            'company_id' => null,
+            'company_id' => $company->id,
         ]);
 
         return redirect()
@@ -159,7 +167,7 @@ class CompanyPermissionController extends Controller
         return back()->with('success', 'Permission deleted successfully');
     }
 
-    private function ensureWebPermissions(): void
+    private function ensureWebPermissions(int $companyId): void
     {
         $this->normalizeLegacyPermissionNames();
 
@@ -197,12 +205,15 @@ class CompanyPermissionController extends Controller
                     continue;
                 }
 
-                Permission::firstOrCreate([
+                $permission = Permission::firstOrCreate([
                     'name' => "{$module}-{$action}",
                     'guard_name' => 'web',
-                ], [
-                    'company_id' => null,
                 ]);
+
+                if ($permission->company_id === null) {
+                    $permission->company_id = $companyId;
+                    $permission->save();
+                }
             }
         }
     }

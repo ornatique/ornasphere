@@ -5,19 +5,26 @@
 
 <style>
 @page {
-    size: 100mm 200mm;
-    margin: 3mm;
+    size: A4 portrait;
+    margin-top: 0mm;
+    margin-right: 8mm;
+    margin-bottom: 4mm;
+    margin-left: 8mm;
 }
 
 body {
     margin: 0;
     font-family: DejaVu Sans, Arial, sans-serif;
-    font-size: 7.5px;
+    font-size: 6.5px;
 }
+
 
 /* MAIN 2 COLUMN LAYOUT */
 .wrapper {
-    width: 100%;
+    width: 110mm;
+    margin-left: 50mm;
+    margin-top: -0.4mm;
+    transform: translateY(-0.4mm);
 }
 
 /* LEFT + RIGHT COLUMN */
@@ -29,51 +36,62 @@ body {
 
 /* LABEL */
 .label {
-    border: 1px solid #000;
-    height: 12mm;
-    padding: 1mm;
+    border: 0px solid #000;
+    height: 15.5mm;
+    padding: 0.4mm;
     box-sizing: border-box;
-    margin-bottom: 2mm;
+    margin-bottom: 0.6mm;
+    page-break-inside: avoid;
 }
 
 /* 🔥 SHIFT CONTROL */
 .left-label {
-    margin-top: 0.5mm; /* LEFT fixed */
+    margin-top: 0;
 }
 
 .right-label.first {
-    margin-top: 9mm; /* FIRST BIG GAP */
+    margin-top: 7mm;
 }
 
 .right-label.other {
-    margin-top: 2.5mm; /* HALF GAP */
+    margin-top: 0;
 }
 
 /* CONTENT */
 .left-col {
     float: left;
-    width: 65%;
-    line-height: 1.1;
+    width: 49%;
 }
 
 .right-col {
     float: right;
-    width: 33%;
-    text-align: right;
+    width: 49%;
+    position: relative;
+    text-align: left;
 }
 
 .code {
     font-weight: bold;
+    line-height: 1.1;
     font-size: 7px;
 }
 
 .qr {
-    width: 8mm;
-    height: 8mm;
+    width: 6.5mm;
+    height: 6.5mm;
+    display: block;
 }
 
 .clear {
     clear: both;
+}
+
+.page {
+    page-break-after: always;
+}
+
+.page:last-child {
+    page-break-after: auto;
 }
 </style>
 </head>
@@ -81,31 +99,38 @@ body {
 <body>
 
 @php
-$total = $itemSets->count();
-$half = ceil($total / 2);
-
-$leftItems = $itemSets->slice(0, $half)->values();
-$rightItems = $itemSets->slice($half)->values();
+$pages = $printPages ?? $itemSets->values()->chunk(22);
 @endphp
 
+@foreach($pages as $pageItems)
+@php
+$leftItems = collect();
+$rightItems = collect();
+for ($i = 0; $i < 11; $i++) {
+    $leftItems->push($pageItems->get($i * 2));
+    $rightItems->push($pageItems->get(($i * 2) + 1));
+}
+@endphp
+<div class="page">
 <div class="wrapper">
 
     {{-- LEFT COLUMN --}}
     <div class="column">
         @foreach($leftItems as $item)
             <div class="label left-label">
+                @if($item)
+                    <div class="left-col">
+                        <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                        <div class="code">L: {{ $item->other ?? '' }}</div>
+                        <div class="code">N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
+                        <div class="code">OC: {{ $item->sale_other ?? '' }}</div>
+                    </div>
 
-                <div class="left-col">
-                    <div>G: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
-                    <div>L: {{ $item->other ?? '' }}</div>
-                    <div>N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
-                    <div>OC: {{ $item->sale_other ?? '' }}</div>
-                </div>
-
-                <div class="right-col">
-                    <div class="code">{{ $item->qr_code }}</div>
-                    <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
-                </div>
+                    <div class="right-col">
+                        <div class="code">{{ $item->qr_code }}</div>
+                        <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
+                    </div>
+                @endif
 
                 <div class="clear"></div>
 
@@ -123,18 +148,19 @@ $rightItems = $itemSets->slice($half)->values();
             @endphp
 
             <div class="label right-label {{ $class }}">
+                @if($item)
+                    <div class="left-col">
+                        <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                        <div class="code">L: {{ $item->other ?? '' }}</div>
+                        <div class="code">N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
+                        <div class="code">OC: {{ $item->sale_other ?? '' }}</div>
+                    </div>
 
-                <div class="left-col">
-                    <div>G: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
-                    <div>L: {{ $item->other ?? '' }}</div>
-                    <div>N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
-                    <div>OC: {{ $item->sale_other ?? '' }}</div>
-                </div>
-
-                <div class="right-col">
-                    <div class="code">{{ $item->qr_code }}</div>
-                    <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
-                </div>
+                    <div class="right-col">
+                        <div class="code">{{ $item->qr_code }}</div>
+                        <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
+                    </div>
+                @endif
 
                 <div class="clear"></div>
 
@@ -144,6 +170,8 @@ $rightItems = $itemSets->slice($half)->values();
     </div>
 
 </div>
+</div>
+@endforeach
 
 </body>
 </html>

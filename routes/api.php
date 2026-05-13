@@ -84,8 +84,11 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     
     
     Route::get('/items', [ItemController::class, 'index']);
+    Route::get('/ar/catalog', [ItemController::class, 'arCatalog']);
     Route::post('/create_items', [ItemController::class, 'store']);
     Route::get('/items/{id}', [ItemController::class, 'show']);
+    Route::get('/items/{id}/ar-config', [ItemController::class, 'arConfig']);
+    Route::post('/items/{id}/ar-config', [ItemController::class, 'updateArConfig']);
     Route::put('/update_items/{id}', [ItemController::class, 'update']);
     Route::delete('/delete_items/{id}', [ItemController::class, 'destroy']);
     

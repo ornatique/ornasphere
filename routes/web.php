@@ -289,12 +289,33 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
 
         Route::get('/items/create', [ItemController::class, 'create'])
             ->name('items.create');
+        
+        Route::get('/items/ar-catalog', [ItemController::class, 'arCatalog'])
+            ->name('items.ar-catalog');
+        
+        Route::get('/items/ar-create', [ItemController::class, 'arCreate'])
+            ->name('items.ar-create');
+        
+        Route::post('/items/ar-create', [ItemController::class, 'arStore'])
+            ->name('items.ar-store');
+        
+        Route::get('/items/{encryptedId}/ar-edit', [ItemController::class, 'arEdit'])
+            ->name('items.ar-edit');
+        
+        Route::put('/items/{encryptedId}/ar-edit', [ItemController::class, 'arUpdate'])
+            ->name('items.ar-update');
 
         Route::post('/items', [ItemController::class, 'store'])
             ->name('items.store');
 
         Route::get('/items/{encryptedId}/edit', [ItemController::class, 'edit'])
             ->name('items.edit');
+        
+        Route::get('/items/{encryptedId}/try-on', [ItemController::class, 'tryOn'])
+            ->name('items.try-on');
+        
+        Route::get('/items/{encryptedId}/ar-config', [ItemController::class, 'arConfig'])
+            ->name('items.ar-config');
 
         Route::put('/items/{encryptedId}', [ItemController::class, 'update'])
             ->name('items.update');
@@ -478,6 +499,15 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
             '/item-sets/qr-image/{id}',
             [ItemSetController::class, 'generateQrImage']
         )->name('item_sets.qrImage');
+
+        Route::get(
+            '/item-sets/print-preview/',
+            [ItemSetController::class, 'printPreview']
+        )->name('item_sets.printPreview');
+        Route::post(
+            '/item-sets/print-preview/',
+            [ItemSetController::class, 'printPreview']
+        )->name('item_sets.printPreview.post');
 
         Route::get(
             '/item-sets/print-pdf/',
