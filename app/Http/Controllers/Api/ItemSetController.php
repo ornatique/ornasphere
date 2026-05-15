@@ -314,7 +314,9 @@ public function bulkSave(Request $request)
         $companyId = $request->user()->company_id;
 
         $query = ItemSet::with('item')
-            ->where('company_id', $companyId);
+            ->where('company_id', $companyId)
+            ->where('is_final', 1)
+            ->whereNotNull('qr_code');
 
         if ($request->item_id) {
             $query->where('item_id', $request->item_id);
@@ -326,7 +328,12 @@ public function bulkSave(Request $request)
                   ->whereDate('created_at', '<=', $request->to_date);
         }
 
-        $data = $query->latest()->get();
+        $data = $query
+            ->orderByRaw('CASE WHEN printed_at IS NULL THEN 0 ELSE 1 END ASC')
+            ->orderByDesc(DB::raw('COALESCE(printed_at, created_at)'))
+            ->orderByDesc('serial_no')
+            ->orderByDesc('id')
+            ->get();
 
         $data->transform(function ($row) {
             $row->is_printed = (int) ($row->is_printed ?? 0);

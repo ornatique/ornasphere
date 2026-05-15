@@ -7,10 +7,10 @@
     <style>
         @page {
             size: A4 portrait;
-            margin-top: 6mm;
+            margin-top: 4mm;
             margin-right: 8mm;
             margin-bottom: -6mm;
-            margin-left: 7.5mm;
+            margin-left: 1mm;
         }
 
         body {
@@ -19,8 +19,6 @@
             font-size: 6.5px;
         }
 
-
-        /* @page negative margin is ignored by most PDF engines. */
         .page {
             page-break-after: always;
         }
@@ -28,8 +26,6 @@
         .wrapper {
             width: 110mm;
             margin-left: 50mm;
-            /* margin-top: -0.4mm; */
-            /* transform: translateY(-0.8mm); */
         }
 
         .column {
@@ -45,20 +41,26 @@
             box-sizing: border-box;
             margin-bottom: 0.6mm;
             page-break-inside: avoid;
+            overflow: hidden;
         }
 
-        .left-col {
-            float: left;
-            width: 49%;
-            /* line-height: 1.1; */
+        .label-inner {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 100%;
         }
 
+        .left-col,
         .right-col {
-            float: right;
-            width: 49%;
-            /* line-height: 1.1; */
-            position: relative;
-            /* top: 4px; */
+            width: 50%;
+            text-align: center;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 0.2mm;
         }
 
         .code {
@@ -68,9 +70,43 @@
         }
 
         .qr {
-            width: 6.5mm;
-            height: 6.5mm;
+            width: 8.5mm;
+            height: 8.5mm;
             display: block;
+            margin: 0 auto;
+        }
+
+        .label.double-details .code {
+            font-size: 7px;
+            line-height: 1.02;
+        }
+
+        .label.double-details .qr {
+            width: 8.5mm;
+            height: 8.5mm;
+            margin: 0;
+            flex: 0 0 auto;
+        }
+
+        .dd-half {
+            width: 49%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .dd-meta {
+            text-align: left;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 1.5px;
+        }
+
+        .dd-meta .code {
+            white-space: nowrap;
         }
 
         .right-label.first {
@@ -103,18 +139,41 @@
             <div class="wrapper">
                 <div class="column">
                     @foreach($leftItems as $item)
-                    <div class="label left-label">
+                    <div class="label left-label {{ $labelFormat === 'double_details' ? 'double-details' : '' }}">
                         @if($item)
                         <div class="label-inner">
+                            @if($labelFormat === 'double_details')
+                            <div class="dd-half">
+                                <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
+                                <div class="dd-meta">
+
+                                    <div class="code">{{ $item->qr_code }}</div>
+                                    <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                    <div class="code">L: {{ number_format($item->other ?? 0, 3) }}</div>
+                                    <div class="code">N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
+                                    <div class="code">OC: {{ number_format($item->sale_other ?? 0, 2) }}</div>
+                                </div>
+                            </div>
+                            <div class="dd-half">
+                                <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
+                                <div class="dd-meta">
+
+                                    <div class="code">{{ $item->qr_code }}</div>
+                                    <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                    <div class="code">L: {{ number_format($item->other ?? 0, 3) }}</div>
+                                    <div class="code">N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
+                                    <div class="code">OC: {{ number_format($item->sale_other ?? 0, 2) }}</div>
+                                </div>
+                            </div>
+                            @else
                             <div class="left-col">
-                                <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
                                 @if($labelFormat === 'double_barcode')
+                                <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
                                 <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
                                 <div class="code">{{ $item->qr_code }}</div>
                                 @else
-                                <div class="code">L: {{ $item->other ?? '' }}</div>
-                                <div class="code">N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
-                                <div class="code">OC: {{ $item->sale_other ?? '' }}</div>
+                                <div class="code">{{ $item->qr_code }}</div>
+                                <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
                                 @endif
                             </div>
                             <div class="right-col">
@@ -127,6 +186,7 @@
                                 <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
                                 @endif
                             </div>
+                            @endif
                         </div>
                         @endif
                         <div class="clear"></div>
@@ -135,18 +195,41 @@
                 </div>
                 <div class="column">
                     @foreach($rightItems as $index => $item)
-                    <div class="label right-label {{ $index === 0 ? 'first' : '' }}">
+                    <div class="label right-label {{ $index === 0 ? 'first' : '' }} {{ $labelFormat === 'double_details' ? 'double-details' : '' }}">
                         @if($item)
                         <div class="label-inner">
+                            @if($labelFormat === 'double_details')
+                            <div class="dd-half">
+                                <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
+                                <div class="dd-meta">
+
+                                    <div class="code">{{ $item->qr_code }}</div>
+                                    <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                    <div class="code">L: {{ number_format($item->other ?? 0, 3) }}</div>
+                                    <div class="code">N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
+                                    <div class="code">OC: {{ number_format($item->sale_other ?? 0, 2) }}</div>
+                                </div>
+                            </div>
+                            <div class="dd-half">
+                                <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
+                                <div class="dd-meta">
+
+                                    <div class="code">{{ $item->qr_code }}</div>
+                                    <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                    <div class="code">L: {{ number_format($item->other ?? 0, 3) }}</div>
+                                    <div class="code">N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
+                                    <div class="code">OC: {{ number_format($item->sale_other ?? 0, 2) }}</div>
+                                </div>
+                            </div>
+                            @else
                             <div class="left-col">
-                                <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
                                 @if($labelFormat === 'double_barcode')
+                                <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
                                 <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
                                 <div class="code">{{ $item->qr_code }}</div>
                                 @else
-                                <div class="code">L: {{ $item->other ?? '' }}</div>
-                                <div class="code">N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
-                                <div class="code">OC: {{ $item->sale_other ?? '' }}</div>
+                                <div class="code">{{ $item->qr_code }}</div>
+                                <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
                                 @endif
                             </div>
                             <div class="right-col">
@@ -159,6 +242,7 @@
                                 <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
                                 @endif
                             </div>
+                            @endif
                         </div>
                         @endif
                         <div class="clear"></div>

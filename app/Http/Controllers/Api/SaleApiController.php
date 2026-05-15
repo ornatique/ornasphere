@@ -193,7 +193,10 @@ class SaleApiController extends Controller
             ->where('company_id', $user->company_id)
             ->where('is_final', 1)
             ->whereNotNull('qr_code')
-            ->latest()
+            ->orderByRaw('CASE WHEN printed_at IS NULL THEN 0 ELSE 1 END ASC')
+            ->orderByDesc(DB::raw('COALESCE(printed_at, created_at)'))
+            ->orderByDesc('serial_no')
+            ->orderByDesc('id')
             ->get()
             ->map(function ($set) {
                 $builder = new Builder(
@@ -233,6 +236,8 @@ class SaleApiController extends Controller
     public function downloadQrPdf(Request $request)
     {
         $user = auth()->user();
+        $labelFormat = $this->resolveLabelFormat((string) $request->input('label_format', 'compact'));
+        $startPosition = $this->resolveStartPosition($request->input('start_position', 1));
 
         $idsParam = $request->input('ids', []);
         if (is_string($idsParam)) {
@@ -283,11 +288,75 @@ class SaleApiController extends Controller
             $set->qr_base64 = 'data:image/png;base64,' . base64_encode($result->getString());
         }
 
-        // Keep API PDF visually same as web print layout.
-        $pdf = Pdf::loadView('company.item_sets.print_pdf', compact('itemSets'))
-            ->setPaper([0, 0, 311.81, 550.11]);
+        $printPages = $this->buildPrintPages($itemSets, $startPosition);
+        $view = 'company.item_sets.print_direct';
+
+        $pdf = Pdf::loadView($view, compact('itemSets', 'labelFormat', 'startPosition', 'printPages'));
+
+        $pdf->setPaper('A4', 'portrait');
 
         return $pdf->download('qr-codes.pdf');
+    }
+
+    private function resolveLabelFormat(string $labelFormat): string
+    {
+        $normalized = strtolower(trim($labelFormat));
+
+        $map = [
+            'compact' => 'compact',
+            'default' => 'compact',
+            'compact (default)' => 'compact',
+            'double_barcode' => 'double_barcode',
+            'double barcode' => 'double_barcode',
+            'two barcode + name/gross' => 'double_barcode',
+            'two barcode + name gross' => 'double_barcode',
+            'double_details' => 'double_details',
+            '50%-50% qr + details' => 'double_details',
+            '50 50 qr + details' => 'double_details',
+        ];
+
+        if (!array_key_exists($normalized, $map)) {
+            return 'compact';
+        }
+
+        return $map[$normalized];
+    }
+
+    private function resolveStartPosition($value): int
+    {
+        $position = (int) $value;
+        if ($position < 1) {
+            return 1;
+        }
+        if ($position > 22) {
+            return 22;
+        }
+        return $position;
+    }
+
+    private function buildPrintPages($itemSets, int $startPosition)
+    {
+        $labels = $itemSets->values();
+        $total = $labels->count();
+        $cursor = 0;
+        $slotStart = max(1, min(22, $startPosition));
+        $pages = collect();
+
+        if ($total === 0) {
+            return collect([collect(array_fill(0, 22, null))]);
+        }
+
+        while ($cursor < $total) {
+            $slots = array_fill(0, 22, null);
+            for ($slot = $slotStart - 1; $slot < 22 && $cursor < $total; $slot++) {
+                $slots[$slot] = $labels->get($cursor);
+                $cursor++;
+            }
+            $pages->push(collect($slots));
+            $slotStart = 1;
+        }
+
+        return $pages;
     }
 
     public function confirmSale(Request $request)

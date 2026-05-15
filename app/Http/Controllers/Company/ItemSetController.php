@@ -421,7 +421,9 @@ class ItemSetController extends Controller
             ->where('is_final', 1)
             ->whereNotNull('qr_code')
             ->orderByRaw('CASE WHEN printed_at IS NULL THEN 0 ELSE 1 END ASC')
-            ->orderByDesc(DB::raw('COALESCE(printed_at, created_at)'));
+            ->orderByDesc(DB::raw('COALESCE(printed_at, created_at)'))
+            ->orderByDesc('serial_no')
+            ->orderByDesc('id');
 
         if ($request->filled('item_id')) {
             $query->where('item_id', (int) $request->item_id);
@@ -433,6 +435,11 @@ class ItemSetController extends Controller
         }
 
         if ($request->ajax() && $request->boolean('only_ids')) {
+            if ($request->boolean('only_unprinted')) {
+                $query->where(function ($q) {
+                    $q->where('is_printed', 0)->orWhereNull('printed_at');
+                });
+            }
             return response()->json([
                 'ids' => $query->pluck('id')->map(fn($id) => (string) $id)->values(),
             ]);
@@ -625,6 +632,21 @@ class ItemSetController extends Controller
             return back()->with('error', 'Please select at least one label.');
         }
 
+        ItemSet::where('company_id', $company->id)
+            ->whereIn('id', $ids)
+            ->where('is_final', 1)
+            ->update([
+                'is_printed' => 1,
+            ]);
+
+        ItemSet::where('company_id', $company->id)
+            ->whereIn('id', $ids)
+            ->where('is_final', 1)
+            ->whereNull('printed_at')
+            ->update([
+                'printed_at' => now(),
+            ]);
+
         $itemSets = ItemSet::with('item')
             ->where('company_id', $company->id)
             ->whereIn('id', $ids)
@@ -634,6 +656,12 @@ class ItemSetController extends Controller
         if ($itemSets->isEmpty()) {
             return back()->with('error', 'No printable labels found for selected records.');
         }
+
+        $itemSets->each(function ($set) {
+            $set->is_printed = 1;
+            // Keep original first printed date on reprint.
+            $set->printed_at = $set->printed_at ?? now();
+        });
 
         $writer = new PngWriter();
         foreach ($itemSets as $set) {
@@ -649,7 +677,7 @@ class ItemSetController extends Controller
 
     private function resolveLabelFormat(string $labelFormat): string
     {
-        if (!in_array($labelFormat, ['compact', 'double_barcode', 'full_details'], true)) {
+        if (!in_array($labelFormat, ['compact', 'double_barcode', 'double_details'], true)) {
             return 'compact';
         }
 

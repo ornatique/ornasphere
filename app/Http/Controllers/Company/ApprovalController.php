@@ -452,7 +452,14 @@ class ApprovalController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
         $id = (int) Crypt::decryptString($encryptedId);
 
-        $approval = ApprovalHeader::with('customer', 'items.itemSet.item', 'items.legacyItemSet.item')
+        $approval = ApprovalHeader::with([
+            'customer',
+            'items' => function ($q) {
+                $q->orderBy('id', 'asc');
+            },
+            'items.itemSet.item',
+            'items.legacyItemSet.item'
+        ])
             ->where('company_id', $company->id)
             ->findOrFail($id);
 

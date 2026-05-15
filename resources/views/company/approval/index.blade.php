@@ -1,6 +1,27 @@
 @extends('company_layout.admin')
 
 @section('content')
+<style>
+    #approvalTable {
+        width: 100% !important;
+        min-width: 1650px;
+    }
+
+    #approvalTable th,
+    #approvalTable td {
+        white-space: nowrap;
+        vertical-align: middle;
+    }
+
+    #approvalTable td:last-child {
+        white-space: normal;
+    }
+
+    .table-responsive {
+        overflow-x: auto;
+        overflow-y: hidden;
+    }
+</style>
 
 <div class="content-wrapper">
 
@@ -55,30 +76,31 @@
 
         {{-- TABLE --}}
         <div class="card-body">
-
-            <table class="table table-bordered" id="approvalTable">
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>Approval No</th>
-                        <th>Date</th>
-                        <th>Customer</th>
-                        <th>Qty</th>
-                        <th>Gross Wt</th>
-                        <th>Net Wt</th>
-                        <th>Fine Wt</th>
-                        <th>Metal Amt</th>
-                        <th>Labour Amt</th>
-                        <th>Other Amt</th>
-                        <th>Total Amt</th>
-                        <th>Created By</th>
-                        <th>Modified At</th>
-                        <th>Modified Count</th>
-                        <th>Status</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-            </table>
+            <div class="table-responsive">
+                <table class="table table-bordered" id="approvalTable">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Approval No</th>
+                            <th>Date</th>
+                            <th>Customer</th>
+                            <th>Qty</th>
+                            <th>Gross Wt</th>
+                            <th>Net Wt</th>
+                            <th>Fine Wt</th>
+                            <th>Metal Amt</th>
+                            <th>Labour Amt</th>
+                            <th>Other Amt</th>
+                            <th>Total Amt</th>
+                            <th>Created By</th>
+                            <th>Modified At</th>
+                            <th>Modified Count</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                </table>
+            </div>
 
         </div>
 
@@ -98,6 +120,9 @@
         processing: true,
         serverSide: true,
         searching: false,
+        scrollX: true,
+        autoWidth: false,
+        scrollCollapse: true,
 
         ajax: {
             url: "{{ route('company.approval.index', $company->slug) }}",
@@ -174,7 +199,14 @@
         ],
         order: [
             [2, 'desc']
-        ]
+        ],
+        columnDefs: [{
+            targets: '_all',
+            className: 'text-nowrap'
+        }, {
+            targets: [16],
+            className: ''
+        }]
     });
 
     $('#filterBtn').click(function() {

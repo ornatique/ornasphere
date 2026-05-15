@@ -22,6 +22,20 @@
             font-weight: 700;
             font-size: 14px;
         }
+        .company-title {
+            border-bottom: 1px solid #000;
+            padding: 6px 8px;
+            font-weight: 700;
+            font-size: 15px;
+            text-align: center;
+        }
+        .company-meta {
+            border-bottom: 1px solid #000;
+            padding: 4px 8px 6px;
+            text-align: center;
+            font-size: 10px;
+            line-height: 1.35;
+        }
 
         .meta {
             width: 100%;
@@ -72,15 +86,51 @@
 <body>
 
 @php
+    $companyAddress = trim(implode(', ', array_filter([
+        $company->address ?? null,
+        $company->city ?? null,
+        $company->state ?? null,
+        $company->country ?? null,
+        $company->pincode ?? null,
+    ])));
+    $companyPhones = trim(implode(' / ', array_filter([
+        $company->phone ?? null,
+        $company->mobile ?? null,
+        $company->contact_no ?? null,
+        $company->whatsapp_no ?? null,
+    ])));
+    $companyEmail = trim((string) ($company->email ?? ''));
+
     $name = optional($approval->customer)->name ?? '-';
     $city = optional($approval->customer)->city ?? '-';
-    $contact = optional($approval->customer)->mobile ?? optional($approval->customer)->phone ?? '-';
+    $contact = optional($approval->customer)->mobile_no
+        ?? optional($approval->customer)->contact_person1_phone
+        ?? optional($approval->customer)->contact_person2_phone
+        ?? '-';
+    $customerGst = trim((string) (optional($approval->customer)->gst_no ?? ''));
+    $customerPan = trim((string) (optional($approval->customer)->pan_no ?? ''));
 
-    $billableItems = $approval->items->where('status', '!=', 'returned');
-    $sumGross = 0; $sumLess = 0; $sumNet = 0; $sumOther = 0; $sumTotal = 0;
+    $billableItems = $approval->items
+        ->where('status', '!=', 'returned')
+        ->values();
+    $sumQty = 0; $sumGross = 0; $sumLess = 0; $sumNet = 0; $sumOther = 0; $sumTotal = 0;
 @endphp
 
 <div class="sheet">
+    <div class="company-title">{{ $company->company_name ?? ($company->name ?? 'Company') }}</div>
+    @if($companyAddress !== '' || $companyPhones !== '' || $companyEmail !== '')
+        <div class="company-meta">
+            @if($companyAddress !== '')
+                <div>{{ $companyAddress }}</div>
+            @endif
+            @if($companyPhones !== '')
+                <div><strong>Phone:</strong> {{ $companyPhones }}</div>
+            @endif
+            @if($companyEmail !== '')
+                <div><strong>Email:</strong> {{ $companyEmail }}</div>
+            @endif
+        </div>
+    @endif
     <div class="sheet-title">Approval Estimate</div>
 
     <table class="meta">
@@ -88,6 +138,12 @@
             <td style="width:56%;">
                 <div><strong>Name</strong> : {{ $name }}</div>
                 <div style="margin-top:4px;"><strong>City</strong> : {{ $city }}</div>
+                @if($customerGst !== '')
+                    <div style="margin-top:4px;"><strong>GST No</strong> : {{ $customerGst }}</div>
+                @endif
+                @if($customerPan !== '')
+                    <div style="margin-top:4px;"><strong>PAN No</strong> : {{ $customerPan }}</div>
+                @endif
             </td>
             <td style="width:44%;">
                 <div><strong>Estimate No</strong> : {{ $approval->approval_no }}</div>
@@ -131,6 +187,7 @@
                     $other = (float) ($row->other_amount ?? 0);
                     $total = (float) ($row->total_amount ?? 0);
 
+                    $sumQty += $qty;
                     $sumGross += $gross;
                     $sumLess += $less;
                     $sumNet += $net;
@@ -159,7 +216,8 @@
         </tbody>
         <tfoot>
             <tr>
-                <th colspan="4" class="text-right">Total</th>
+                <th colspan="3" class="text-right">Total</th>
+                <th class="text-center">{{ $sumQty }}</th>
                 <th class="text-right">{{ number_format($sumGross, 3) }}</th>
                 <th class="text-right">{{ number_format($sumLess, 3) }}</th>
                 <th class="text-right">{{ number_format($sumNet, 3) }}</th>

@@ -52,7 +52,7 @@
                         <select id="label_format" class="form-select">
                             <option value="compact" selected>Compact (Default)</option>
                             <option value="double_barcode">Two Barcode + Name/Gross</option>
-                            <option value="full_details">Full Details</option>
+                            <option value="double_details">50%-50% QR + Details</option>
                         </select>
                     </div>
                     <div>
@@ -76,7 +76,7 @@
                             <th>Other Wt</th>
                             <th>Net Wt</th>
                             <th>Sale Other</th>
-                            <th>Date Time</th>
+                            <th>Printed Date Time</th>
                         </tr>
                     </thead>
 
@@ -112,6 +112,7 @@
 @push('scripts')
 <script>
 let selectedIds = new Set();
+let autoSelectDefaultsPending = true;
 const printPreviewPostUrl = "{{ \Illuminate\Support\Facades\Route::has('company.item_sets.printPreview.post') ? route('company.item_sets.printPreview.post', $company->slug) : route('company.item_sets.printPdf.post', $company->slug) }}";
 function updateSelectedCount() {
     $('#selectedLabels').text(selectedIds.size);
@@ -123,10 +124,11 @@ function getCurrentFilters() {
         item_id: $('#item_id').val(),
     };
 }
-function fetchAllFilteredIds() {
+function fetchAllFilteredIds(onlyUnprinted = false) {
     return $.get("{{ route('company.item_sets.qrList', $company->slug) }}", {
         ...getCurrentFilters(),
-        only_ids: 1
+        only_ids: 1,
+        only_unprinted: onlyUnprinted ? 1 : 0
     });
 }
 
@@ -153,6 +155,16 @@ const table = $('#labelListTable').DataTable({
     drawCallback: function(settings) {
         $('#totalLabels').text(settings.json ? settings.json.recordsFiltered : 0);
         bindSelectionState();
+        if (autoSelectDefaultsPending) {
+            autoSelectDefaultsPending = false;
+            fetchAllFilteredIds(true).then(function (response) {
+                const ids = Array.isArray(response.ids) ? response.ids : [];
+                selectedIds = new Set(ids.map(String));
+                bindSelectionState();
+            }).catch(function () {
+                bindSelectionState();
+            });
+        }
     }
 });
 
@@ -177,6 +189,8 @@ function bindSelectionState() {
 }
 
 $('#btnShow').on('click', function () {
+    selectedIds.clear();
+    autoSelectDefaultsPending = true;
     table.ajax.reload();
 });
 
