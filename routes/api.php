@@ -165,6 +165,7 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/sales/pdf/{id}', [SaleApiController::class, 'pdf'])->whereNumber('id');
     Route::get('/itemsets/qr-list', [SaleApiController::class, 'qrListApi']);
     Route::post('/itemsets/qr/pdf', [SaleApiController::class, 'downloadQrPdf']);
+    Route::post('/itemsets/qr/pdf/direct', [SaleApiController::class, 'directQrPdfForApp']);
     Route::post('/sales/store', [SaleApiController::class, 'store']);       // Create sale
     Route::get('/sales/{id}', [SaleApiController::class, 'show'])->whereNumber('id'); // Sale details
     Route::put('/sales/update/{id}', [SaleApiController::class, 'update'])->whereNumber('id');

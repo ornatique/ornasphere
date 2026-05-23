@@ -248,6 +248,8 @@ class SaleApiController extends Controller
             $ids = [];
         }
 
+        $ids = array_values(array_unique(array_map('intval', array_filter($ids, fn($id) => (string) $id !== ''))));
+
         if (empty($ids)) {
             return response()->json([
                 'success' => false,
@@ -260,6 +262,8 @@ class SaleApiController extends Controller
             ->whereIn('id', $ids)
             ->where('is_final', 1)
             ->get();
+        $idOrder = array_flip($ids);
+        $itemSets = $itemSets->sortBy(fn($set) => $idOrder[$set->id] ?? PHP_INT_MAX)->values();
 
         if ($itemSets->isEmpty()) {
             return response()->json([
@@ -289,13 +293,76 @@ class SaleApiController extends Controller
         }
 
         $printPages = $this->buildPrintPages($itemSets, $startPosition);
-        $view = 'company.item_sets.print_direct';
-
-        $pdf = Pdf::loadView($view, compact('itemSets', 'labelFormat', 'startPosition', 'printPages'));
-
+        $pdf = Pdf::loadView('api.item_sets.print_direct_pdf', compact('itemSets', 'labelFormat', 'startPosition', 'printPages'));
         $pdf->setPaper('A4', 'portrait');
 
         return $pdf->download('qr-codes.pdf');
+    }
+
+    public function directQrPdfForApp(Request $request)
+    {
+        $user = auth()->user();
+        $labelFormat = $this->resolveLabelFormat((string) $request->input('label_format', 'compact'));
+        $startPosition = $this->resolveStartPosition($request->input('start_position', 1));
+
+        $idsParam = $request->input('ids', []);
+        if (is_string($idsParam)) {
+            $ids = array_values(array_filter(explode(',', $idsParam)));
+        } elseif (is_array($idsParam)) {
+            $ids = $idsParam;
+        } else {
+            $ids = [];
+        }
+
+        $ids = array_values(array_unique(array_map('intval', array_filter($ids, fn($id) => (string) $id !== ''))));
+
+        if (empty($ids)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please provide at least one id in ids.',
+            ], 422);
+        }
+
+        $itemSets = ItemSet::with('item:id,item_name')
+            ->where('company_id', $user->company_id)
+            ->whereIn('id', $ids)
+            ->where('is_final', 1)
+            ->get();
+        $idOrder = array_flip($ids);
+        $itemSets = $itemSets->sortBy(fn($set) => $idOrder[$set->id] ?? PHP_INT_MAX)->values();
+
+        if ($itemSets->isEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No labels found for provided ids.',
+            ], 404);
+        }
+
+        ItemSet::where('company_id', $user->company_id)
+            ->whereIn('id', $itemSets->pluck('id'))
+            ->whereNull('printed_at')
+            ->update([
+                'is_printed' => 1,
+                'printed_at' => now(),
+            ]);
+
+        foreach ($itemSets as $set) {
+            $builder = new Builder(
+                writer: new PngWriter(),
+                data: $set->qr_code,
+                size: 200,
+                margin: 10
+            );
+
+            $result = $builder->build();
+            $set->qr_base64 = 'data:image/png;base64,' . base64_encode($result->getString());
+        }
+
+        $printPages = $this->buildPrintPages($itemSets, $startPosition);
+        $pdf = Pdf::loadView('api.item_sets.print_direct_pdf', compact('itemSets', 'labelFormat', 'startPosition', 'printPages'));
+        $pdf->setPaper('A4', 'portrait');
+
+        return $pdf->stream('qr-codes-app.pdf');
     }
 
     private function resolveLabelFormat(string $labelFormat): string
@@ -1130,3 +1197,6 @@ class SaleApiController extends Controller
         }
     }
 }
+
+
+

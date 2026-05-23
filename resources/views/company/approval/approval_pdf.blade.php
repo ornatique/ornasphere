@@ -131,7 +131,7 @@
             @endif
         </div>
     @endif
-    <div class="sheet-title">Approval Estimate</div>
+    <div class="sheet-title">Approval Issue</div>
 
     <table class="meta">
         <tr>

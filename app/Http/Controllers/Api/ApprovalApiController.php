@@ -504,6 +504,7 @@ class ApprovalApiController extends Controller
     public function update(Request $request, $id)
     {
         $companyId = $request->user()->company_id;
+        $userId = $request->user()->id;
             
         $request->validate([
             'customer_id' => 'required|integer|exists:customers,id',
@@ -610,6 +611,24 @@ class ApprovalApiController extends Controller
                 }
             }
 
+            // Match store() behavior: remove updated/processed items from approval cart
+            $processedItemSetIds = $resolvedRows
+                ->map(fn($pair) => (int) $pair['itemSet']->id)
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+
+            $cartDeleteQuery = ApprovalCart::where('user_id', $userId)
+                ->where('company_id', $companyId)
+                ->where('customer_id', (int) $request->customer_id);
+
+            if (!empty($processedItemSetIds)) {
+                $cartDeleteQuery->whereIn('itemset_id', $processedItemSetIds);
+            }
+
+            $removedFromCart = $cartDeleteQuery->delete();
+
             $this->updateApprovalStatus([$approval->id]);
 
             DB::commit();
@@ -620,6 +639,7 @@ class ApprovalApiController extends Controller
                 'data' => [
                     'approval_id' => $approval->id,
                     'approval_no' => $approval->approval_no,
+                    'removed_from_cart' => $removedFromCart,
                 ],
             ]);
         } catch (\Exception $e) {
