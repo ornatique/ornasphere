@@ -33,6 +33,37 @@
                 </div>
             </div>
 
+            <div class="row mb-3">
+                <div class="col-md-12 approval-summary d-flex flex-wrap gap-3">
+                    <div class="summary-chip">
+                        <span class="summary-label">Total Count</span>
+                        <span class="summary-value" id="totalCount">0</span>
+                    </div>
+                    <div class="summary-chip">
+                        <span class="summary-label">Total Gross Wt</span>
+                        <span class="summary-value" id="totalGross">0.000</span>
+                    </div>
+                    <div class="summary-chip">
+                        <span class="summary-label">Total Other Wt</span>
+                        <span class="summary-value" id="totalOtherWt">0.000</span>
+                    </div>
+                    <div class="summary-chip">
+                        <span class="summary-label">Total Net Wt</span>
+                        <span class="summary-value" id="totalNet">0.000</span>
+                    </div>
+                    <div class="summary-chip">
+                        <span class="summary-label">Total Amount</span>
+                        <span class="summary-value" id="totalAmount">0.00</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-end mb-2">
+                <div style="min-width: 280px;">
+                    <input type="text" id="item_name_search" class="form-control" placeholder="Search Item Name">
+                </div>
+            </div>
+
             <div class="table-responsive approval-grid-wrap">
                 <table class="table table-bordered" id="cartTable">
                     <thead>
@@ -60,10 +91,7 @@
             </div>
 
             <div class="mt-3 text-end">
-                <div><strong>Total Net Wt:</strong> <span id="totalNet">0.000</span></div>
-                <div><strong>Total Amount:</strong> <span id="totalAmount">0.00</span></div>
-
-                <button class="btn btn-success mt-3" id="saveBtn">{{ !empty($isEdit) ? 'Update Approval' : 'Save Approval' }}</button>
+                <button class="btn btn-success" id="saveBtn">{{ !empty($isEdit) ? 'Update Approval' : 'Save Approval' }}</button>
             </div>
         </div>
     </div>
@@ -131,8 +159,72 @@
     }
 
     .approval-grid-wrap {
-        overflow-x: auto;
-        overflow-y: visible;
+        max-height: 62vh;
+        overflow: auto;
+        position: relative;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        scrollbar-width: thin;
+        scrollbar-color: transparent transparent;
+    }
+
+    .approval-grid-wrap:hover {
+        scrollbar-color: rgba(125, 145, 255, 0.7) rgba(255, 255, 255, 0.08);
+    }
+
+    .approval-grid-wrap::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+
+    .approval-grid-wrap::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .approval-grid-wrap::-webkit-scrollbar-thumb {
+        background: transparent;
+        border-radius: 10px;
+    }
+
+    .approval-grid-wrap:hover::-webkit-scrollbar-thumb {
+        background: rgba(125, 145, 255, 0.7);
+    }
+
+    .approval-grid-wrap:hover::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    .approval-summary .summary-chip {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        padding: 8px 12px;
+        min-width: 170px;
+    }
+
+    .approval-summary .summary-label {
+        display: block;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.72);
+        line-height: 1.1;
+        margin-bottom: 4px;
+    }
+
+    .approval-summary .summary-value {
+        display: block;
+        font-size: 24px;
+        font-weight: 700;
+        color: #ffffff;
+        letter-spacing: 0.2px;
+        line-height: 1.1;
+    }
+
+    #cartTable thead th {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        background: #2b2f4a;
+        box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
     }
 
     #cartTable {
@@ -149,6 +241,17 @@
         min-width: 180px;
         white-space: normal;
         line-height: 1.2;
+        position: sticky;
+        left: 0;
+        z-index: 3;
+        background: #262a44;
+        box-shadow: 1px 0 0 rgba(255, 255, 255, 0.08);
+    }
+
+    #cartTable thead th:first-child {
+        position: sticky;
+        left: 0;
+        z-index: 7;
     }
 
     #cartTable input.form-control {
@@ -247,14 +350,23 @@ $(function () {
     }
 
     function calculateTotals() {
+        let totalCount = 0;
+        let totalGross = 0;
+        let totalOtherWt = 0;
         let totalNet = 0;
         let totalAmount = 0;
 
         Object.values(selectedItems).forEach(row => {
+            totalCount += 1;
+            totalGross += toNum(row.gross_weight);
+            totalOtherWt += toNum(row.other_weight);
             totalNet += toNum(row.net_weight);
             totalAmount += toNum(row.total_amount);
         });
 
+        $('#totalCount').text(totalCount);
+        $('#totalGross').text(nfix(totalGross, 3));
+        $('#totalOtherWt').text(nfix(totalOtherWt, 3));
         $('#totalNet').text(nfix(totalNet, 3));
         $('#totalAmount').text(nfix(totalAmount, 2));
     }
@@ -455,12 +567,12 @@ $(function () {
         return lines;
     }
 
-    function addRow(row) {
+    function addRow(row, prepend = false) {
         if (selectedItems[row.itemset_id]) return;
 
         selectedItems[row.itemset_id] = row;
 
-        $('#cartTable tbody').append(`
+        const rowHtml = `
             <tr id="row_${row.itemset_id}">
                 <td>
                     <strong>${esc(row.huid)}</strong><br>
@@ -488,7 +600,13 @@ $(function () {
                 <td><input type="text" class="form-control remarks" data-id="${row.itemset_id}" value="${esc(row.remarks || '')}"></td>
                 <td><button class="btn btn-danger removeRow" data-id="${row.itemset_id}" type="button">X</button></td>
             </tr>
-        `);
+        `;
+
+        if (prepend) {
+            $('#cartTable tbody').prepend(rowHtml);
+        } else {
+            $('#cartTable tbody').append(rowHtml);
+        }
 
         calculateRow(row.itemset_id);
     }
@@ -558,7 +676,7 @@ $(function () {
             other_charges: [],
         };
 
-        addRow(row);
+        addRow(row, true);
 
         $('#label_search').val('');
         $('#search_results').hide().empty();
@@ -650,6 +768,14 @@ $(function () {
         if (!$(e.target).closest('.search-wrapper').length) {
             $('#search_results').hide();
         }
+    });
+
+    $('#item_name_search').on('input', function () {
+        const keyword = ($(this).val() || '').toLowerCase().trim();
+        $('#cartTable tbody tr').each(function () {
+            const text = $(this).find('td:first').text().toLowerCase();
+            $(this).toggle(text.includes(keyword));
+        });
     });
 
     $('#saveBtn').on('click', function () {

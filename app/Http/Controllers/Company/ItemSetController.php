@@ -91,7 +91,8 @@ class ItemSetController extends Controller
                 })
 
                 ->addColumn('gross_weight', fn($row) => $row->gross_weight)
-                ->addColumn('other_weight', fn($row) => $row->other)
+                ->addColumn('other_weight', fn($row) => number_format((float) $row->other, 3, '.', ''))
+                ->addColumn('other_charges', fn($row) => $row->sale_other)
                 ->addColumn('net_weight', fn($row) => $row->net_weight)
                 ->addColumn('qr_code', fn($row) => $row->qr_code)
                 ->addColumn('qty_pcs', fn($row) => 1)
@@ -746,7 +747,16 @@ class ItemSetController extends Controller
         $id = (int) Crypt::decryptString($encryptedId);
         $item = ItemSet::findOrFail($id);
 
-        return response()->json($item);
+        return response()->json([
+            'id' => $item->id,
+            'encrypted_id' => $encryptedId,
+            'gross_weight' => $item->gross_weight,
+            'net_weight' => $item->net_weight,
+            'other' => $item->other,
+            'size' => $item->size,
+            'sale_other' => $item->sale_other,
+            'HUID' => $item->HUID,
+        ]);
     }
 
     public function update(Request $request, $slug, $encryptedId)
@@ -754,12 +764,20 @@ class ItemSetController extends Controller
         $id = (int) Crypt::decryptString($encryptedId);
         $item = ItemSet::findOrFail($id);
 
+        $gross = (float) ($request->gross_weight ?? 0);
+        $otherWeight = (float) ($request->other ?? 0);
+        $netWeight = max(0, $gross - $otherWeight);
+        $saleOtherInput = $request->other_charges;
+        $saleOther = ($saleOtherInput === null || $saleOtherInput === '')
+            ? $item->sale_other
+            : (float) str_replace(',', '', (string) $saleOtherInput);
+
         $item->update([
-            'gross_weight' => $request->gross_weight,
-            'net_weight' => $request->net_weight,
+            'gross_weight' => $gross,
+            'net_weight' => $netWeight,
             'size' => $request->size,
-            'other' => $request->other,
-            'HUID' => $request->huid,
+            'other' => $otherWeight,
+            'sale_other' => $saleOther,
         ]);
 
         return response()->json(['success' => true]);

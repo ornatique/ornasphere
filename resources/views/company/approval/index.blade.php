@@ -84,6 +84,7 @@
                             <th>Approval No</th>
                             <th>Date</th>
                             <th>Customer</th>
+                            <th>Item Name</th>
                             <th>Qty</th>
                             <th>Gross Wt</th>
                             <th>Net Wt</th>
@@ -148,6 +149,11 @@
                 data: 'customer_name'
             },
             {
+                data: 'item_names',
+                orderable: false,
+                searchable: false
+            },
+            {
                 data: 'total_qty'
             },
             {
@@ -204,7 +210,7 @@
             targets: '_all',
             className: 'text-nowrap'
         }, {
-            targets: [16],
+            targets: [17],
             className: ''
         }]
     });

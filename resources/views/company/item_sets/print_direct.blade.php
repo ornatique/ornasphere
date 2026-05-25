@@ -151,7 +151,7 @@
                                     <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
                                     <div class="code">L: {{ number_format($item->other ?? 0, 3) }}</div>
                                     <div class="code">N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
-                                    <div class="code">OC: {{ number_format($item->sale_other ?? 0, 2) }}</div>
+                                    <div class="code">OC: {{ 0 + ($item->sale_other ?? 0) }}</div>
                                 </div>
                             </div>
                             <div class="dd-half">
@@ -162,7 +162,7 @@
                                     <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
                                     <div class="code">L: {{ number_format($item->other ?? 0, 3) }}</div>
                                     <div class="code">N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
-                                    <div class="code">OC: {{ number_format($item->sale_other ?? 0, 2) }}</div>
+                                    <div class="code">OC: {{ 0 + ($item->sale_other ?? 0) }}</div>
                                 </div>
                             </div>
                             @else
@@ -207,7 +207,7 @@
                                     <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
                                     <div class="code">L: {{ number_format($item->other ?? 0, 3) }}</div>
                                     <div class="code">N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
-                                    <div class="code">OC: {{ number_format($item->sale_other ?? 0, 2) }}</div>
+                                    <div class="code">OC: {{ 0 + ($item->sale_other ?? 0) }}</div>
                                 </div>
                             </div>
                             <div class="dd-half">
@@ -218,7 +218,7 @@
                                     <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
                                     <div class="code">L: {{ number_format($item->other ?? 0, 3) }}</div>
                                     <div class="code">N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
-                                    <div class="code">OC: {{ number_format($item->sale_other ?? 0, 2) }}</div>
+                                    <div class="code">OC: {{ 0 + ($item->sale_other ?? 0) }}</div>
                                 </div>
                             </div>
                             @else

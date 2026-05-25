@@ -32,6 +32,7 @@ class Kernel extends HttpKernel
         ],
 
         'api' => [
+            \App\Http\Middleware\NormalizeAuthorizationHeader::class,
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ],
     ];

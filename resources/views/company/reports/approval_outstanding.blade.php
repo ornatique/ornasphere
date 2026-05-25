@@ -33,6 +33,14 @@
                 </div>
             </div>
 
+            <div class="row mb-3">
+                <div class="col-md-12 d-flex flex-wrap gap-4">
+                    <div><strong>Voucher Count:</strong> <span id="summary_voucher_count">0</span></div>
+                    <div><strong>Pending Pcs:</strong> <span id="summary_pending_pcs">0</span></div>
+                    <div><strong>Pending Net Wt:</strong> <span id="summary_pending_net_wt">0.000</span></div>
+                </div>
+            </div>
+
             <table class="table table-bordered" id="approvalOutstandingTable">
                 <thead>
                     <tr>
@@ -57,10 +65,8 @@
 @push('scripts')
 <script>
 $(function () {
-    const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    $('#from_date').val(today);
-    $('#to_date').val(today);
+    $('#from_date').val('');
+    $('#to_date').val('');
 
     const table = $('#approvalOutstandingTable').DataTable({
         processing: true,
@@ -89,10 +95,18 @@ $(function () {
 
     $('#filter').on('click', function () { table.draw(); });
     $('#reset').on('click', function () {
-        $('#from_date').val(today);
-        $('#to_date').val(today);
+        $('#from_date').val('');
+        $('#to_date').val('');
         $('#customer_id').val('');
         table.draw();
+    });
+
+    table.on('xhr.dt', function (e, settings, json) {
+        const summary = json && json.summary ? json.summary : {};
+        $('#summary_voucher_count').text(summary.voucher_count ?? 0);
+        $('#summary_pending_pcs').text(summary.pending_pcs ?? 0);
+        const netWt = parseFloat(summary.pending_net_weight ?? 0);
+        $('#summary_pending_net_wt').text(netWt.toFixed(3));
     });
 
     function queryParams() {

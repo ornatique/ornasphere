@@ -28,9 +28,13 @@ class CompanyRoleController extends Controller
                     $encryptedId = Crypt::encryptString($role->id);
 
                     $editUrl = route('company.roles.edit', [$company->slug, $encryptedId]);
+                    $deleteUrl = route('company.roles.delete', [$company->slug, $encryptedId]);
                     $deleteBtn = $role->users_count > 0
                         ? '<span class="badge badge-danger">In Use</span>'
-                        : '<button data-id="' . $encryptedId . '" class="btn btn-sm btn-danger deleteRole">Delete</button>';
+                        : '<form method="POST" action="' . $deleteUrl . '" style="display:inline">
+                            ' . csrf_field() . method_field('DELETE') . '
+                            <button class="btn btn-sm btn-danger" onclick="return confirm(\'Delete this role?\')">Delete</button>
+                           </form>';
 
                     return '<a href="' . $editUrl . '" class="btn btn-sm btn-primary">Edit</a> ' . $deleteBtn;
                 })
@@ -165,6 +169,20 @@ class CompanyRoleController extends Controller
                 return $items
                     ->filter(function ($permission) use ($allowedActions) {
                         return in_array($this->extractAction($permission->name), $allowedActions, true);
+                    })
+                    // When both legacy and canonical permission names exist for one module/action,
+                    // keep only one so UI does not show duplicate checkboxes.
+                    ->sortBy(function ($permission) {
+                        $name = (string) $permission->name;
+
+                        // Prefer canonical format like "module-action" over legacy "action-module".
+                        return preg_match('/^(.+?)[\-\._ ](view|create|edit|delete|manage)$/i', $name) ? 0 : 1;
+                    })
+                    ->groupBy(function ($permission) {
+                        return $this->extractAction($permission->name);
+                    })
+                    ->map(function ($group) {
+                        return $group->first();
                     })
                     ->sortBy(function ($permission) use ($actionOrder) {
                     $action = $this->extractAction($permission->name);

@@ -183,17 +183,11 @@
         $itemActive =
         (
         request()->routeIs('company.items.*')
-        && !request()->routeIs('company.items.ar-catalog')
-        && !request()->routeIs('company.items.ar-edit')
-        && !request()->routeIs('company.items.try-on')
         ) ||
         request()->routeIs('company.label_config.*') ||
         $labelItemsActive ||
         $labelPrintingActive ||
         request()->routeIs('company.other-charge.*');
-        $arConfigActive = request()->routeIs('company.items.ar-catalog')
-            || request()->routeIs('company.items.ar-edit')
-            || request()->routeIs('company.items.try-on');
         @endphp
         @if($canItems || $canItemSets || $canLabelConfig || $canLabelPrint || $canOtherCharge)
         <li class="nav-item {{ $itemActive ? 'active' : '' }}">
@@ -453,16 +447,6 @@
                 href="{{ route('company.reports.visiting-cards.index', auth()->user()->company->slug) }}">
                 <i class="typcn typcn-contacts menu-icon"></i>
                 <span class="menu-title">Visiting Cards</span>
-            </a>
-        </li>
-        @endif
-
-        @if($canItems)
-        <li class="nav-item {{ $arConfigActive ? 'active' : '' }}">
-            <a class="nav-link"
-                href="{{ route('company.items.ar-catalog', auth()->user()->company->slug) }}">
-                <i class="typcn typcn-camera menu-icon"></i>
-                <span class="menu-title">AR Configuration</span>
             </a>
         </li>
         @endif

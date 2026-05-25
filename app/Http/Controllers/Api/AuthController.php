@@ -81,6 +81,31 @@ class AuthController extends Controller
 
     public function me(Request $request)
     {
-        return response()->json($request->user());
+        $user = $request->user()->loadMissing('roles:id,name');
+        $basePermissions = $user->getAllPermissions()->pluck('name')->values();
+        $expandedPermissions = $basePermissions->flatMap(function ($permissionName) {
+            $name = (string) $permissionName;
+
+            if (!str_ends_with($name, '-manage')) {
+                return [$name];
+            }
+
+            $module = substr($name, 0, -strlen('-manage'));
+
+            return [
+                $name,
+                $module . '-view',
+                $module . '-create',
+                $module . '-edit',
+                $module . '-delete',
+            ];
+        })->unique()->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => $user,
+            'role_names' => $user->roles->pluck('name')->values(),
+            'permissions' => $expandedPermissions,
+        ]);
     }
 }

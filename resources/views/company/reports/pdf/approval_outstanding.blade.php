@@ -41,6 +41,12 @@
                 <td>{{ optional($r->creator)->name ?? '-' }}</td>
             </tr>
             @endforeach
+            <tr>
+                <td colspan="4" style="font-weight:700;">TOTAL</td>
+                <td style="font-weight:700;">{{ (int)($summary['pending_pcs'] ?? 0) }}</td>
+                <td style="font-weight:700;">{{ number_format((float)($summary['pending_net_weight'] ?? 0), 3, '.', '') }}</td>
+                <td colspan="3"></td>
+            </tr>
         </tbody>
     </table>
 </body>

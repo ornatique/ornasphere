@@ -373,7 +373,10 @@ class ReportController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
 
         if ($request->ajax()) {
-            return DataTables::of($this->approvalOutstandingBaseQuery($company, $request)->latest('approval_date'))
+            $baseQuery = $this->approvalOutstandingBaseQuery($company, $request);
+            $summary = $this->approvalOutstandingTotals((clone $baseQuery)->get());
+
+            return DataTables::of($baseQuery->latest('approval_date'))
                 ->addIndexColumn()
                 ->addColumn('customer_name', fn($row) => optional($row->customer)->name ?? '-')
                 ->addColumn('approval_date_fmt', fn($row) => optional($row->approval_date)?->format('d-m-Y') ?? '-')
@@ -382,6 +385,7 @@ class ReportController extends Controller
                 ->addColumn('pending_items', fn($row) => (int) ($row->pending_items_count ?? 0))
                 ->addColumn('pending_net_weight_fmt', fn($row) => number_format((float) ($row->pending_net_weight ?? 0), 3))
                 ->addColumn('pending_total_amount_fmt', fn($row) => number_format((float) ($row->pending_total_amount ?? 0), 2))
+                ->with(['summary' => $summary])
                 ->make(true);
         }
 
@@ -397,8 +401,9 @@ class ReportController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
         $rows = $this->approvalOutstandingBaseQuery($company, $request)->latest('approval_date')->get();
+        $summary = $this->approvalOutstandingTotals($rows);
 
-        return response()->streamDownload(function () use ($rows) {
+        return response()->streamDownload(function () use ($rows, $summary) {
             $out = fopen('php://output', 'w');
             fputcsv($out, ['Approval No', 'Date', 'Customer', 'Status', 'Pending Pcs', 'Pending Net Wt', 'Pending Amount', 'Remarks', 'Created By']);
             foreach ($rows as $r) {
@@ -414,6 +419,17 @@ class ReportController extends Controller
                     optional($r->creator)->name ?? '-',
                 ]);
             }
+            fputcsv($out, [
+                'TOTAL',
+                '',
+                '',
+                '',
+                (int) ($summary['pending_pcs'] ?? 0),
+                number_format((float) ($summary['pending_net_weight'] ?? 0), 3, '.', ''),
+                '',
+                '',
+                '',
+            ]);
             fclose($out);
         }, 'approval_outstanding_report.csv', [
             'Content-Type' => 'text/csv; charset=UTF-8',
@@ -424,8 +440,9 @@ class ReportController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
         $rows = $this->approvalOutstandingBaseQuery($company, $request)->latest('approval_date')->get();
+        $summary = $this->approvalOutstandingTotals($rows);
 
-        return Pdf::loadView('company.reports.pdf.approval_outstanding', compact('company', 'rows'))
+        return Pdf::loadView('company.reports.pdf.approval_outstanding', compact('company', 'rows', 'summary'))
             ->setPaper('a4', 'portrait')
             ->download('approval_outstanding_report.pdf');
     }
@@ -770,6 +787,15 @@ class ReportController extends Controller
         }
 
         return $query;
+    }
+
+    private function approvalOutstandingTotals(Collection $rows): array
+    {
+        return [
+            'voucher_count' => (int) $rows->count(),
+            'pending_pcs' => (int) $rows->sum(fn($r) => (int) ($r->pending_items_count ?? 0)),
+            'pending_net_weight' => (float) $rows->sum(fn($r) => (float) ($r->pending_net_weight ?? 0)),
+        ];
     }
 
     private function barcodeHistoryRows(Company $company, Request $request): Collection

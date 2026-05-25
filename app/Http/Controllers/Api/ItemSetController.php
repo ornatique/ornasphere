@@ -372,15 +372,23 @@ public function bulkSave(Request $request)
         $item = ItemSet::where('company_id', $companyId)
             ->findOrFail($id);
 
+        $grossWeight = (float) ($request->gross_weight ?? $item->gross_weight ?? 0);
+        $otherWeight = (float) ($request->other ?? $request->other_weight ?? $item->other ?? 0);
+        $netWeight = max(0, $grossWeight - $otherWeight);
+        $saleOtherInput = $request->sale_other ?? $request->other_charges;
+        $saleOther = ($saleOtherInput === null || $saleOtherInput === '')
+            ? $item->sale_other
+            : (float) str_replace(',', '', (string) $saleOtherInput);
+
         $item->update([
-            'gross_weight' => $request->gross_weight,
-            'net_weight'   => $request->net_weight,
-            'other'        => $request->other,
+            'gross_weight' => $grossWeight,
+            'net_weight'   => $netWeight,
+            'other'        => $otherWeight,
             'size'         => $request->size,
             'HUID'         => $request->HUID ?? $request->huid,
             'sale_labour_rate' => $request->sale_labour_rate ?? $request->labour_rate,
             'sale_labour_amount' => $request->sale_labour_amount ?? $request->labour_amount,
-            'sale_other' => $request->sale_other,
+            'sale_other' => $saleOther,
         ]);
 
         return response()->json([

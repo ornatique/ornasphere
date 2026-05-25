@@ -12,7 +12,7 @@
 
             <form method="POST"
                 action="{{ isset($data)
-                    ? route('company.other-charge.update',[$company->slug,encrypt($data->id)])
+                    ? route('company.other-charge.update', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $data->id)])
                     : route('company.other-charge.store',$company->slug) }}">
 
                 @csrf

@@ -62,6 +62,7 @@
                         <th>Label Code</th>
                         <th>Gross Wt</th>
                         <th>Other Wt</th>
+                        <th>Other Charges</th>
                         <th>Net Wt</th>
                         <th>Qty Pcs</th>
                         <th>Print Date Time</th>
@@ -87,6 +88,7 @@
             <div class="modal-body">
 
                 <input type="hidden" id="edit_id">
+                <input type="hidden" id="edit_encrypted_id">
 
                 <div class="row">
 
@@ -101,7 +103,7 @@
                     </div>
 
                     <div class="col-md-6 mb-3">
-                        <label>Other</label>
+                        <label>Other Weight</label>
                         <input type="text" id="other" class="form-control  text-white border-0">
                     </div>
 
@@ -110,8 +112,8 @@
                         <input type="text" id="size" class="form-control  text-white border-0">
                     </div>
                     <div class="col-md-6 mb-3">
-                        <label>HUID</label>
-                        <input type="text" id="huid" class="form-control  text-white border-0">
+                        <label>Other Charges</label>
+                        <input type="text" id="other_charges" class="form-control  text-white border-0">
                     </div>
 
                 </div>
@@ -174,6 +176,11 @@
             {
                 data: 'other_weight',
                 name: 'other_weight',
+                searchable: true
+            },
+            {
+                data: 'other_charges',
+                name: 'other_charges',
                 searchable: true
             },
             {
@@ -241,28 +248,37 @@
         $.get(url, function(data) {
 
             $('#edit_id').val(data.id);
+            $('#edit_encrypted_id').val(data.encrypted_id);
             $('#gross_weight').val(data.gross_weight);
             $('#net_weight').val(data.net_weight);
             $('#other').val(data.other);
             $('#size').val(data.size);
-            $('#huid').val(data.HUID);
+            $('#other_charges').val(data.sale_other);
 
             $('#editModal').modal('show');
         });
 
     });
 
+    function recalculateNetWeight() {
+        const gross = parseFloat($('#gross_weight').val()) || 0;
+        const other = parseFloat($('#other').val()) || 0;
+        const net = Math.max(0, gross - other);
+        $('#net_weight').val(net.toFixed(3));
+    }
+
+    $('#gross_weight, #other').on('input', recalculateNetWeight);
+
     $('#updateBtn').click(function() {
 
-        let id = $('#edit_id').val();
+        let encryptedId = $('#edit_encrypted_id').val();
 
-        $.post("{{ url('company/'.$company->slug.'/itemsets') }}/" + id + "/update", {
+        $.post("{{ url('company/'.$company->slug.'/itemsets') }}/" + encryptedId + "/update", {
             _token: "{{ csrf_token() }}",
             gross_weight: $('#gross_weight').val(),
-            net_weight: $('#net_weight').val(),
             other: $('#other').val(),
             size: $('#size').val(),
-            huid: $('#huid').val(),
+            other_charges: $('#other_charges').val(),
         }, function() {
 
             $('#editModal').modal('hide');

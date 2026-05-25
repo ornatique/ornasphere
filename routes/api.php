@@ -20,6 +20,9 @@ use App\Http\Controllers\Api\ProductionStepApiController;
 use App\Http\Controllers\Api\JobWorkerApiController;
 use App\Http\Controllers\Api\JobworkIssueApiController;
 use App\Http\Controllers\Api\VisitingCardApiController;
+use App\Http\Controllers\Api\ProductBackgroundRemoveApiController;
+use App\Http\Controllers\Api\RoleApiController;
+use App\Http\Controllers\Api\PermissionApiController;
 
 Route::post('/company/login', [AuthController::class, 'login']);
 Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
@@ -40,6 +43,24 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/users/{id}/reset-2fa', [CompanyUserController::class, 'reset2fa']);
     Route::post('/reset2fa_users/{id}', [CompanyUserController::class, 'reset2fa']);
     Route::delete('/delete_users/{id}', [CompanyUserController::class, 'destroy']);
+
+    Route::get('/roles', [RoleApiController::class, 'index']);
+    Route::post('/roles/list', [RoleApiController::class, 'index']);
+    Route::post('/list-roles', [RoleApiController::class, 'index']);
+    Route::post('/roles', [RoleApiController::class, 'store']);
+    Route::post('/add-roles', [RoleApiController::class, 'store']);
+    Route::get('/roles/{id}', [RoleApiController::class, 'show']);
+    Route::put('/roles/{id}', [RoleApiController::class, 'update']);
+    Route::delete('/roles/{id}', [RoleApiController::class, 'destroy']);
+
+    Route::get('/permissions', [PermissionApiController::class, 'index']);
+    Route::post('/permissions/list', [PermissionApiController::class, 'index']);
+    Route::post('/list-permissions', [PermissionApiController::class, 'index']);
+    Route::post('/permissions', [PermissionApiController::class, 'store']);
+    Route::post('/add-permissions', [PermissionApiController::class, 'store']);
+    Route::get('/permissions/{id}', [PermissionApiController::class, 'show']);
+    Route::put('/permissions/{id}', [PermissionApiController::class, 'update']);
+    Route::delete('/permissions/{id}', [PermissionApiController::class, 'destroy']);
 
     Route::get('/customers', [CustomerApiController::class, 'index']);
     Route::post('/customers', [CustomerApiController::class, 'store']);
@@ -81,34 +102,31 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/create-jobwork-issues', [JobworkIssueApiController::class, 'store']);
     Route::put('/update-jobwork-issues/{id}', [JobworkIssueApiController::class, 'update']);
     Route::delete('/delete-jobwork-issues/{id}', [JobworkIssueApiController::class, 'destroy']);
-    
-    
+
+
     Route::get('/items', [ItemController::class, 'index']);
-    Route::get('/ar/catalog', [ItemController::class, 'arCatalog']);
     Route::post('/create_items', [ItemController::class, 'store']);
     Route::get('/items/{id}', [ItemController::class, 'show']);
-    Route::get('/items/{id}/ar-config', [ItemController::class, 'arConfig']);
-    Route::post('/items/{id}/ar-config', [ItemController::class, 'updateArConfig']);
     Route::put('/update_items/{id}', [ItemController::class, 'update']);
     Route::delete('/delete_items/{id}', [ItemController::class, 'destroy']);
-    
+
     Route::get('/label-configs', [LabelConfigController::class, 'index']);
     Route::post('/create-label-configs', [LabelConfigController::class, 'store']);
     Route::get('/label-configs/{id}', [LabelConfigController::class, 'show']);
     Route::put('/update-label-configs/{id}', [LabelConfigController::class, 'update']);
     Route::delete('/label-configs/{id}', [LabelConfigController::class, 'destroy']);
-    
+
     Route::post('/item-sets', [ItemSetController::class, 'index']);
     Route::post('/item-sets/save-cell', [ItemSetController::class, 'saveCell']);
     Route::post('/item-sets/bulk-save', [ItemSetController::class, 'bulkSave']);
     Route::post('/item-sets/finalize', [ItemSetController::class, 'finalize']);
     Route::get('/item-sets/qr-list', [ItemSetController::class, 'listset_data']);
-    
+
     Route::get('itemsets_list/', [ItemSetController::class, 'listset_data']);     // list + filter
     Route::get('itemsets_show/{id}', [ItemSetController::class, 'show']);  // edit data
     Route::post('itemsets_update/{id}', [ItemSetController::class, 'update']); // update
     Route::delete('itemsets_delete/{id}', [ItemSetController::class, 'destroy']); // delete
-    
+
     Route::get('/other-charges', [OtherChargeController::class, 'index']);
     Route::get('/other-charges/options', [OtherChargeController::class, 'options']);
     Route::post('/other-charges/calculate', [OtherChargeController::class, 'calculate']);
@@ -149,7 +167,7 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/add-production-steps', [ProductionStepApiController::class, 'store']);
     Route::put('/update-production-steps/{id}', [ProductionStepApiController::class, 'update']);
     Route::delete('/delete-production-steps/{id}', [ProductionStepApiController::class, 'destroy']);
-    
+
     Route::get('/sale-list', [SaleApiController::class, 'index']);             // List sales
     Route::post('/sales/get-item-by-qr', [SaleApiController::class, 'getItemByQr']);
     Route::get('/sales/customerlist', [SaleApiController::class, 'customerlist']);
@@ -170,16 +188,16 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/sales/{id}', [SaleApiController::class, 'show'])->whereNumber('id'); // Sale details
     Route::put('/sales/update/{id}', [SaleApiController::class, 'update'])->whereNumber('id');
     Route::get('/sales/itemset', [SaleApiController::class, 'getItemset']); // Scan QR
-    
-    
+
+
     Route::get('/returns/list', [SaleReturnApiController::class, 'list_of_return']);
-     Route::get('/returns/customers', [SaleReturnApiController::class, 'getSalesForReturn']);
+    Route::get('/returns/customers', [SaleReturnApiController::class, 'getSalesForReturn']);
     Route::get('/returns/sale/{saleId}', [SaleReturnApiController::class, 'saleDetails']);
     Route::get('/returns/{id}', [SaleReturnApiController::class, 'show'])->whereNumber('id');
     Route::post('/returns/store', [SaleReturnApiController::class, 'store']);
     Route::get('/returns/pdf/{returnId}', [SaleReturnApiController::class, 'pdf']);
-    Route::post('/returns/scan-product', [SaleReturnApiController::class,'scanProduct']);
-    Route::post('/returns/scan-qr', [SaleReturnApiController::class,'scanQr']);
+    Route::post('/returns/scan-product', [SaleReturnApiController::class, 'scanProduct']);
+    Route::post('/returns/scan-qr', [SaleReturnApiController::class, 'scanQr']);
     Route::get('/returns/approval-items', [SaleReturnApiController::class, 'approvalReturnItems']);
     Route::post('/returns/process-selected', [SaleReturnApiController::class, 'processSelected']);
     Route::get('/returns/cart-list', [SaleReturnApiController::class, 'returnCartList']);
@@ -226,6 +244,14 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/visiting-cards/bulk-save', [VisitingCardApiController::class, 'bulkSave']);
     Route::get('/visiting-cards', [VisitingCardApiController::class, 'index']);
     Route::get('/reports/visiting-cards/date-wise', [VisitingCardApiController::class, 'dateWiseReport']);
+
+    Route::prefix('background-remove')->group(function () {
+        Route::get('list', [ProductBackgroundRemoveApiController::class, 'index']);
+        Route::post('store', [ProductBackgroundRemoveApiController::class, 'store']);
+        Route::post('update/{id}', [ProductBackgroundRemoveApiController::class, 'update']);
+        Route::post('delete-image/{id}', [ProductBackgroundRemoveApiController::class, 'deleteImage']);
+        Route::delete('delete/{id}', [ProductBackgroundRemoveApiController::class, 'destroy']);
+    });
 });
 
 // Signed public PDF URL (for browser/app open without bearer header)

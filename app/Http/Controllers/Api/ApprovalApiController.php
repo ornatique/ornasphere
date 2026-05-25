@@ -915,7 +915,12 @@ class ApprovalApiController extends Controller
 
         $company = Company::find($companyId);
 
-        $pdf = Pdf::loadView('company.approval.approval_pdf', compact('company', 'approval'))
+        $printedBy = optional($request->user())->name
+            ?? optional($approval->creator)->name
+            ?? 'System';
+        $printedAt = now();
+
+        $pdf = Pdf::loadView('company.approval.approval_pdf', compact('company', 'approval', 'printedBy', 'printedAt'))
             ->setPaper('a4', 'portrait');
 
         return $pdf->stream('Approval-' . $approval->approval_no . '.pdf');

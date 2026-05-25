@@ -28,7 +28,14 @@ class ApprovalController extends Controller
             ->get();
 
         if ($request->ajax()) {
-            $query = ApprovalHeader::with(['customer', 'creator'])
+            $query = ApprovalHeader::with([
+                'customer',
+                'creator',
+                'items' => function ($q) {
+                    $q->where('status', '!=', 'returned')
+                        ->with(['itemSet.item', 'legacyItemSet.item']);
+                }
+            ])
                 ->withCount([
                     'items as active_items_count' => function ($q) {
                         $q->where('status', '!=', 'returned');
@@ -98,6 +105,18 @@ class ApprovalController extends Controller
                 ->addIndexColumn()
                 ->addColumn('customer_name', fn($row) => $row->customer->name ?? '-')
                 ->addColumn('approval_date', fn($row) => \Carbon\Carbon::parse($row->approval_date)->format('d-m-Y'))
+                ->addColumn('item_names', function ($row) {
+                    $names = collect($row->items ?? [])
+                        ->map(function ($it) {
+                            $set = $it->itemSet ?? $it->legacyItemSet;
+                            return optional(optional($set)->item)->item_name;
+                        })
+                        ->filter()
+                        ->unique()
+                        ->values();
+
+                    return $names->isEmpty() ? '-' : $names->implode(', ');
+                })
                 ->addColumn('total_qty', fn($row) => (int) ($row->active_items_count ?? 0))
                 ->addColumn('total_gross_weight', fn($row) => number_format((float) ($row->active_gross_weight ?? 0), 3))
                 ->addColumn('total_net_weight', fn($row) => number_format((float) ($row->active_net_weight ?? 0), 3))
@@ -188,7 +207,26 @@ class ApprovalController extends Controller
                     'remarks' => (string) ($row->remarks ?? ''),
                     'other_charges' => [],
                 ];
-            });
+            })
+            ->sortBy(function ($row) {
+                $label = strtoupper(trim((string) ($row['qr_code'] ?? '')));
+                if ($label === '') {
+                    $label = strtoupper(trim((string) ($row['huid'] ?? '')));
+                }
+
+                if ($label === '') {
+                    return 'ZZZ99999999';
+                }
+
+                if (preg_match('/^([A-Z]+)\s*0*(\d+)$/', $label, $m)) {
+                    $prefix = $m[1] ?? '';
+                    $num = (int) ($m[2] ?? 0);
+                    return sprintf('%s%010d', $prefix, $num);
+                }
+
+                return $label;
+            })
+            ->values();
 
         return view('company.approval.create', [
             'company' => $company,
@@ -463,7 +501,12 @@ class ApprovalController extends Controller
             ->where('company_id', $company->id)
             ->findOrFail($id);
 
-        $pdf = Pdf::loadView('company.approval.approval_pdf', compact('company', 'approval'))
+        $printedBy = optional(auth()->user())->name
+            ?? optional($approval->creator)->name
+            ?? 'System';
+        $printedAt = now();
+
+        $pdf = Pdf::loadView('company.approval.approval_pdf', compact('company', 'approval', 'printedBy', 'printedAt'))
             ->setPaper('a4', 'portrait');
 
         return $pdf->stream('Approval-' . $approval->approval_no . '.pdf');
