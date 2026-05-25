@@ -178,6 +178,12 @@ class SaleReturnController extends Controller
     public function store(Request $request, $slug, $encryptedSaleId = null)
     {
         $company = Company::where('slug', $slug)->firstOrFail();
+        $request->validate([
+            'refund_paid_amount' => 'nullable|numeric|min:0',
+            'refund_mode' => 'nullable|string|max:30',
+            'refund_reference' => 'nullable|string|max:120',
+            'refund_note' => 'nullable|string|max:255',
+        ]);
 
         if ($request->has('sale_item_ids') || $request->has('approval_item_ids')) {
             return $this->processSelectedGridReturns($request, $company);
@@ -197,6 +203,10 @@ class SaleReturnController extends Controller
                 'return_voucher_no' => 'SR' . time(),
                 'return_date' => now(),
                 'return_total' => 0,
+                'refund_paid_amount' => 0,
+                'refund_mode' => $request->input('refund_mode'),
+                'refund_reference' => $request->input('refund_reference'),
+                'refund_note' => $request->input('refund_note'),
                 'remarks' => $request->input('voucher_remarks'),
             ]);
 
@@ -225,11 +235,15 @@ class SaleReturnController extends Controller
             }
 
             $return->update([
-                'return_total' => $total
+                'return_total' => $total,
+                'refund_paid_amount' => (float) ($request->input('refund_paid_amount', 0) > 0
+                    ? $request->input('refund_paid_amount', 0)
+                    : $total),
             ]);
 
             // Reduce original sale total
             $sale->decrement('net_total', $total);
+            $sale->increment('paid_amount', (float) ($return->refund_paid_amount ?? 0));
 
             DB::commit();
 
@@ -445,6 +459,13 @@ class SaleReturnController extends Controller
 
     private function processSelectedGridReturns(Request $request, Company $company)
     {
+        $request->validate([
+            'refund_paid_amount' => 'nullable|numeric|min:0',
+            'refund_mode' => 'nullable|string|max:30',
+            'refund_reference' => 'nullable|string|max:120',
+            'refund_note' => 'nullable|string|max:255',
+        ]);
+
         $saleItemIds = collect($request->input('sale_item_ids', []))
             ->filter()
             ->map(fn($id) => (int) $id)
@@ -535,6 +556,10 @@ class SaleReturnController extends Controller
                 'return_voucher_no' => 'SR' . now()->format('YmdHis') . rand(10, 99),
                 'return_date' => now(),
                 'return_total' => 0,
+                'refund_paid_amount' => 0,
+                'refund_mode' => $request->input('refund_mode'),
+                'refund_reference' => $request->input('refund_reference'),
+                'refund_note' => $request->input('refund_note'),
                 'remarks' => $request->input('voucher_remarks'),
             ]);
 
@@ -624,7 +649,37 @@ class SaleReturnController extends Controller
 
             $return->update([
                 'return_total' => $total,
+                'refund_paid_amount' => (float) ($request->input('refund_paid_amount', 0) > 0
+                    ? $request->input('refund_paid_amount', 0)
+                    : $total),
             ]);
+
+            if ($saleItems->isNotEmpty()) {
+                $saleTotalsBySaleId = [];
+                foreach ($saleItems as $saleItem) {
+                    $saleId = (int) $saleItem->sale_id;
+                    if (!isset($saleTotalsBySaleId[$saleId])) {
+                        $saleTotalsBySaleId[$saleId] = 0;
+                    }
+                    $rowKey = 'sale_' . (int) $saleItem->id;
+                    $saleTotalsBySaleId[$saleId] += isset($payloadMap[$rowKey]['total_amount'])
+                        ? (float) $payloadMap[$rowKey]['total_amount']
+                        : (float) ($saleItem->total_amount ?? 0);
+                }
+
+                $totalSaleReturnAmount = array_sum($saleTotalsBySaleId);
+                $refundPaid = (float) ($return->refund_paid_amount ?? 0);
+
+                foreach ($saleTotalsBySaleId as $saleId => $saleAmount) {
+                    $share = $totalSaleReturnAmount > 0
+                        ? ($refundPaid * ($saleAmount / $totalSaleReturnAmount))
+                        : 0;
+
+                    Sale::where('company_id', $company->id)
+                        ->where('id', $saleId)
+                        ->increment('paid_amount', $share);
+                }
+            }
 
             DB::commit();
 

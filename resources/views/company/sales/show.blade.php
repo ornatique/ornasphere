@@ -18,6 +18,18 @@
                 <div class="col-md-3"><strong>Customer:</strong> {{ optional($sale->customer)->name ?? '-' }}</div>
                 <div class="col-md-3"><strong>Total:</strong> {{ number_format((float) ($sale->net_total ?? 0), 2) }}</div>
             </div>
+            <div class="row mb-3">
+                @php
+                    $received = (float) ($sale->received_amount ?? 0);
+                    $refundPaid = (float) ($sale->paid_amount ?? 0);
+                    $effectiveReceived = $received - $refundPaid;
+                    $pending = max(0, (float) ($sale->net_total ?? 0) - $effectiveReceived);
+                @endphp
+                <div class="col-md-3"><strong>Received:</strong> {{ number_format($received, 2) }}</div>
+                <div class="col-md-3"><strong>Refund Paid:</strong> {{ number_format($refundPaid, 2) }}</div>
+                <div class="col-md-3"><strong>Pending:</strong> {{ number_format($pending, 2) }}</div>
+                <div class="col-md-3"><strong>Mode:</strong> {{ $sale->payment_mode ?? '-' }}</div>
+            </div>
 
             <div class="table-responsive">
                 <table class="table table-bordered">

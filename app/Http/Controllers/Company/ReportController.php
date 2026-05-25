@@ -447,6 +447,119 @@ class ReportController extends Controller
             ->download('approval_outstanding_report.pdf');
     }
 
+    public function outstandingAmount(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        if ($request->ajax()) {
+            $baseQuery = $this->outstandingAmountBaseQuery($company, $request);
+            $summary = $this->outstandingAmountTotals((clone $baseQuery)->get());
+
+            return DataTables::of($baseQuery->latest('id'))
+                ->addIndexColumn()
+                ->addColumn('sale_date_fmt', fn($row) => optional($row->sale_date)?->format('d-m-Y') ?? '-')
+                ->addColumn('customer_name', fn($row) => optional($row->customer)->name ?? '-')
+                ->addColumn('city', fn($row) => optional($row->customer)->city ?? '-')
+                ->addColumn('gross_weight_fmt', fn($row) => number_format((float) ($row->sum_gross_weight ?? 0), 3))
+                ->addColumn('net_weight_fmt', fn($row) => number_format((float) ($row->sum_net_weight ?? 0), 3))
+                ->addColumn('amount_in_fmt', fn($row) => number_format((float) ($row->received_amount ?? 0), 2))
+                ->addColumn('amount_out_fmt', fn($row) => number_format((float) ($row->paid_amount ?? 0), 2))
+                ->addColumn('pending_amount_fmt', function ($row) {
+                    $received = (float) ($row->received_amount ?? 0);
+                    $out = (float) ($row->paid_amount ?? 0);
+                    $pending = max(0, (float) ($row->net_total ?? 0) - ($received - $out));
+                    return number_format($pending, 2);
+                })
+                ->with(['summary' => $summary])
+                ->make(true);
+        }
+
+        $customers = Customer::where('company_id', $company->id)
+            ->where('is_active', 1)
+            ->orderBy('name')
+            ->get(['id', 'name', 'city']);
+
+        $cities = Customer::where('company_id', $company->id)
+            ->where('is_active', 1)
+            ->whereNotNull('city')
+            ->where('city', '!=', '')
+            ->distinct()
+            ->orderBy('city')
+            ->pluck('city')
+            ->values();
+
+        return view('company.reports.outstanding_amount', compact('company', 'customers', 'cities'));
+    }
+
+    public function outstandingAmountExcel(Request $request, $slug): StreamedResponse
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $rows = $this->outstandingAmountBaseQuery($company, $request)->latest('id')->get();
+        $summary = $this->outstandingAmountTotals($rows);
+
+        return response()->streamDownload(function () use ($rows, $summary) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, ['Voucher No', 'Date', 'Party', 'City', 'Payment Mode', 'Gross Wt', 'Net Wt', 'Total Amount', 'Amount In', 'Amount Out', 'Pending']);
+            foreach ($rows as $r) {
+                $received = (float) ($r->received_amount ?? 0);
+                $outAmt = (float) ($r->paid_amount ?? 0);
+                $pending = max(0, (float) ($r->net_total ?? 0) - ($received - $outAmt));
+                fputcsv($out, [
+                    $r->voucher_no,
+                    optional($r->sale_date)?->format('d-m-Y') ?? '-',
+                    optional($r->customer)->name ?? '-',
+                    optional($r->customer)->city ?? '-',
+                    $r->payment_mode ?? '-',
+                    number_format((float) ($r->sum_gross_weight ?? 0), 3, '.', ''),
+                    number_format((float) ($r->sum_net_weight ?? 0), 3, '.', ''),
+                    number_format((float) ($r->net_total ?? 0), 2, '.', ''),
+                    number_format($received, 2, '.', ''),
+                    number_format($outAmt, 2, '.', ''),
+                    number_format($pending, 2, '.', ''),
+                ]);
+            }
+
+            fputcsv($out, [
+                'TOTAL',
+                '',
+                '',
+                '',
+                '',
+                number_format((float) ($summary['gross_weight'] ?? 0), 3, '.', ''),
+                number_format((float) ($summary['net_weight'] ?? 0), 3, '.', ''),
+                number_format((float) ($summary['total_amount'] ?? 0), 2, '.', ''),
+                number_format((float) ($summary['amount_in'] ?? 0), 2, '.', ''),
+                number_format((float) ($summary['amount_out'] ?? 0), 2, '.', ''),
+                number_format((float) ($summary['pending_amount'] ?? 0), 2, '.', ''),
+            ]);
+            fclose($out);
+        }, 'outstanding_amount_report.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
+    public function outstandingAmountPdf(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $rows = $this->outstandingAmountBaseQuery($company, $request)->latest('id')->get();
+        $summary = $this->outstandingAmountTotals($rows);
+
+        return Pdf::loadView('company.reports.pdf.outstanding_amount', compact('company', 'rows', 'summary'))
+            ->setPaper('a4', 'portrait')
+            ->download('outstanding_amount_report.pdf');
+    }
+
+    public function outstandingAmountLedgerPdf(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $rows = $this->outstandingAmountBaseQuery($company, $request)->latest('sale_date')->latest('id')->get();
+        $summary = $this->outstandingAmountTotals($rows);
+
+        return Pdf::loadView('company.reports.pdf.outstanding_amount_ledger', compact('company', 'rows', 'summary'))
+            ->setPaper('a4', 'landscape')
+            ->download('outstanding_amount_ledger_report.pdf');
+    }
+
     public function barcodeHistory(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
@@ -795,6 +908,67 @@ class ReportController extends Controller
             'voucher_count' => (int) $rows->count(),
             'pending_pcs' => (int) $rows->sum(fn($r) => (int) ($r->pending_items_count ?? 0)),
             'pending_net_weight' => (float) $rows->sum(fn($r) => (float) ($r->pending_net_weight ?? 0)),
+        ];
+    }
+
+    private function outstandingAmountBaseQuery(Company $company, Request $request)
+    {
+        $query = Sale::with(['customer'])
+            ->withSum('saleItems as sum_gross_weight', 'gross_weight')
+            ->withSum('saleItems as sum_net_weight', 'net_weight')
+            ->where('company_id', $company->id);
+
+        if ($request->filled('customer_id')) {
+            $query->where('customer_id', (int) $request->customer_id);
+        }
+        if ($request->filled('city')) {
+            $city = trim((string) $request->city);
+            $query->whereHas('customer', fn($q) => $q->where('city', $city));
+        }
+        if ($request->filled('payment_mode')) {
+            $query->where('payment_mode', trim((string) $request->payment_mode));
+        }
+        if ($request->filled('from_date') && $request->filled('to_date')) {
+            $query->whereBetween('sale_date', [$request->from_date, $request->to_date]);
+        }
+
+        if ($request->filled('weight_from')) {
+            $minWeight = (float) $request->weight_from;
+            $query->having('sum_net_weight', '>=', $minWeight);
+        }
+        if ($request->filled('weight_to')) {
+            $maxWeight = (float) $request->weight_to;
+            $query->having('sum_net_weight', '<=', $maxWeight);
+        }
+        if ($request->filled('amount_from')) {
+            $query->where('net_total', '>=', (float) $request->amount_from);
+        }
+        if ($request->filled('amount_to')) {
+            $query->where('net_total', '<=', (float) $request->amount_to);
+        }
+
+        return $query;
+    }
+
+    private function outstandingAmountTotals(Collection $rows): array
+    {
+        $amountIn = (float) $rows->sum(fn($r) => (float) ($r->received_amount ?? 0));
+        $amountOut = (float) $rows->sum(fn($r) => (float) ($r->paid_amount ?? 0));
+        $totalAmount = (float) $rows->sum(fn($r) => (float) ($r->net_total ?? 0));
+        $pendingAmount = (float) $rows->sum(function ($r) {
+            $received = (float) ($r->received_amount ?? 0);
+            $out = (float) ($r->paid_amount ?? 0);
+            return max(0, (float) ($r->net_total ?? 0) - ($received - $out));
+        });
+
+        return [
+            'voucher_count' => (int) $rows->count(),
+            'gross_weight' => (float) $rows->sum(fn($r) => (float) ($r->sum_gross_weight ?? 0)),
+            'net_weight' => (float) $rows->sum(fn($r) => (float) ($r->sum_net_weight ?? 0)),
+            'total_amount' => $totalAmount,
+            'amount_in' => $amountIn,
+            'amount_out' => $amountOut,
+            'pending_amount' => $pendingAmount,
         ];
     }
 

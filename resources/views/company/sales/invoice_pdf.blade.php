@@ -39,6 +39,13 @@
                 <div><strong>Estimate No</strong> : {{ $sale->voucher_no }}</div>
                 <div style="margin-top:4px;"><strong>Date</strong> : {{ \Carbon\Carbon::parse($sale->sale_date)->format('d-m-Y') }}</div>
                 <div style="margin-top:4px;"><strong>Contact No</strong> : {{ $contact }}</div>
+                <div style="margin-top:4px;"><strong>Received</strong> : {{ number_format((float)($sale->received_amount ?? 0), 2) }}</div>
+                <div style="margin-top:4px;"><strong>Refund Paid</strong> : {{ number_format((float)($sale->paid_amount ?? 0), 2) }}</div>
+                @php
+                    $effectiveReceived = (float)($sale->received_amount ?? 0) - (float)($sale->paid_amount ?? 0);
+                    $pendingAmount = max(0, (float)($sale->net_total ?? 0) - $effectiveReceived);
+                @endphp
+                <div style="margin-top:4px;"><strong>Pending</strong> : {{ number_format($pendingAmount, 2) }}</div>
             </td>
         </tr>
     </table>

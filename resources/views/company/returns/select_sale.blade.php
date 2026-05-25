@@ -137,6 +137,32 @@
                 </div>
 
                 <div class="row mb-3">
+                    <div class="col-md-3">
+                        <label>Refund Paid Amount</label>
+                        <input type="number" step="0.01" min="0" name="refund_paid_amount" class="form-control" value="0">
+                    </div>
+                    <div class="col-md-3">
+                        <label>Refund Mode</label>
+                        <select name="refund_mode" class="form-select">
+                            <option value="">Select Mode</option>
+                            <option value="cash">Cash</option>
+                            <option value="online">Online</option>
+                            <option value="upi">UPI</option>
+                            <option value="bank">Bank</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label>Refund Ref No</label>
+                        <input type="text" name="refund_reference" class="form-control" placeholder="Txn/Ref No">
+                    </div>
+                    <div class="col-md-3">
+                        <label>Refund Note</label>
+                        <input type="text" name="refund_note" class="form-control" placeholder="Optional">
+                    </div>
+                </div>
+
+                <div class="row mb-3">
                     <div class="col-md-12 return-grid-wrap">
                         <table class="table table-bordered" id="selectedQrTable">
                             <thead>

@@ -426,6 +426,15 @@
                     </li>
                     @endif
 
+                    @if($canReportSalesSummary)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.reports.outstanding-amount.*') ? 'active' : '' }}"
+                            href="{{ route('company.reports.outstanding-amount.index', auth()->user()->company->slug) }}">
+                            Outstanding Amount
+                        </a>
+                    </li>
+                    @endif
+
                     @if($canReportBarcodeHistory)
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('company.reports.barcode-history.*') ? 'active' : '' }}"

@@ -67,6 +67,9 @@
                         <th>Labour Amt</th>
                         <th>Other Amt</th>
                         <th>Total</th>
+                        <th>Received</th>
+                        <th>Refund Paid</th>
+                        <th>Pending</th>
                         <th>Created By</th>
                         <th>Modified At</th>
                         <th>Modified Count</th>
@@ -133,6 +136,9 @@ $(document).ready(function() {
             { data: 'total_other_amount', name: 'total_other_amount', orderable: false, searchable: false },
 
             { data: 'net_total', name: 'net_total' },
+            { data: 'received_amount_fmt', name: 'received_amount_fmt', orderable: false, searchable: false },
+            { data: 'refund_paid_amount_fmt', name: 'refund_paid_amount_fmt', orderable: false, searchable: false },
+            { data: 'pending_amount_fmt', name: 'pending_amount_fmt', orderable: false, searchable: false },
 
             { data: 'creator_name', name: 'creator_name', orderable: false, searchable: false },
 

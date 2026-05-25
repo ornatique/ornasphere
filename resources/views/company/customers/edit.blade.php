@@ -49,7 +49,7 @@
                             <div class="col-md-6">
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">City</label>
-                                    <div class="col-sm-9"><input type="text" name="city" value="{{ old('city', $customer->city) }}" class="form-control"></div>
+                                    <div class="col-sm-9"><input type="text" id="city" name="city" value="{{ old('city', $customer->city) }}" class="form-control"></div>
                                 </div>
                             </div>
                         </div>
@@ -58,13 +58,13 @@
                             <div class="col-md-6">
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">Area</label>
-                                    <div class="col-sm-9"><input type="text" name="area" value="{{ old('area', $customer->area) }}" class="form-control"></div>
+                                    <div class="col-sm-9"><input type="text" id="area" name="area" value="{{ old('area', $customer->area) }}" class="form-control"></div>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">Landmark</label>
-                                    <div class="col-sm-9"><input type="text" name="landmark" value="{{ old('landmark', $customer->landmark) }}" class="form-control"></div>
+                                    <div class="col-sm-9"><input type="text" id="landmark" name="landmark" value="{{ old('landmark', $customer->landmark) }}" class="form-control"></div>
                                 </div>
                             </div>
                         </div>
@@ -73,13 +73,13 @@
                             <div class="col-md-6">
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">Pincode</label>
-                                    <div class="col-sm-9"><input type="text" name="pincode" value="{{ old('pincode', $customer->pincode) }}" class="form-control"></div>
+                                    <div class="col-sm-9"><input type="text" id="pincode" name="pincode" value="{{ old('pincode', $customer->pincode) }}" class="form-control"></div>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">Address</label>
-                                    <div class="col-sm-9"><textarea name="address" class="form-control">{{ old('address', $customer->address) }}</textarea></div>
+                                    <div class="col-sm-9"><textarea id="address" name="address" class="form-control">{{ old('address', $customer->address) }}</textarea></div>
                                 </div>
                             </div>
                         </div>
@@ -190,3 +190,5 @@
     </div>
 </div>
 @endsection
+
+@include('company.customers.partials.address_autofill')

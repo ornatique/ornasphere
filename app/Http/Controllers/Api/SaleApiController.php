@@ -38,6 +38,11 @@ class SaleApiController extends Controller
             ->get();
 
         $data = $sales->map(function ($sale) use ($company) {
+            $received = (float) ($sale->received_amount ?? 0);
+            $refundPaid = (float) ($sale->paid_amount ?? 0);
+            $effectiveReceived = $received - $refundPaid;
+            $pending = max(0, (float) ($sale->net_total ?? 0) - $effectiveReceived);
+
             return [
                 'id' => $sale->id,
                 'company_id' => $sale->company_id,
@@ -55,6 +60,12 @@ class SaleApiController extends Controller
                 'labour_amount' => (float) ($sale->total_labour_amount ?? 0),
                 'other_amount' => (float) ($sale->total_other_amount ?? 0),
                 'net_total' => $sale->net_total,
+                'received_amount' => $received,
+                'refund_paid_amount' => $refundPaid,
+                'pending_amount' => $pending,
+                'payment_mode' => $sale->payment_mode,
+                'payment_reference' => $sale->payment_reference,
+                'payment_note' => $sale->payment_note,
                 'created_by' => optional($sale->creator)->name,
                 'modified_at' => optional($sale->updated_at)?->format('Y-m-d H:i:s'),
                 'modified_count' => (int) ($sale->modified_count ?? 0),
@@ -436,6 +447,10 @@ class SaleApiController extends Controller
             $request->validate([
                 'customer_id' => 'required|integer',
                 'remarks' => 'nullable|string',
+                'received_amount' => 'nullable|numeric|min:0',
+                'payment_mode' => 'nullable|string|max:30',
+                'payment_reference' => 'nullable|string|max:120',
+                'payment_note' => 'nullable|string|max:255',
             ]);
 
             $customerExists = Customer::where('company_id', $user->company_id)
@@ -463,6 +478,10 @@ class SaleApiController extends Controller
                 'sale_date'   => now(),
                 'remarks' => $request->input('remarks', $request->input('remark')),
                 'net_total'   => 0,
+                'received_amount' => (float) $request->input('received_amount', 0),
+                'payment_mode' => $request->input('payment_mode'),
+                'payment_reference' => $request->input('payment_reference'),
+                'payment_note' => $request->input('payment_note'),
                 'employee_id' => $user->id,
                 'modified_count' => 0,
             ]);
@@ -691,6 +710,10 @@ class SaleApiController extends Controller
             'items' => 'required|array|min:1',
             'items.*.itemset_id' => 'required|integer',
             'remarks' => 'nullable|string',
+            'received_amount' => 'nullable|numeric|min:0',
+            'payment_mode' => 'nullable|string|max:30',
+            'payment_reference' => 'nullable|string|max:120',
+            'payment_note' => 'nullable|string|max:255',
         ]);
 
         if ($customerId <= 0) {
@@ -731,6 +754,10 @@ class SaleApiController extends Controller
                 'sale_date'   => now(),
                 'remarks' => $request->input('remarks', $request->input('remark')),
                 'net_total'   => 0,
+                'received_amount' => (float) $request->input('received_amount', 0),
+                'payment_mode' => $request->input('payment_mode'),
+                'payment_reference' => $request->input('payment_reference'),
+                'payment_note' => $request->input('payment_note'),
                 'employee_id' => $user->id,
                 'modified_count' => 0,
             ]);
@@ -867,6 +894,10 @@ class SaleApiController extends Controller
         $sale->setAttribute('metal_amount', (float) $sale->saleItems->sum('metal_amount'));
         $sale->setAttribute('labour_amount', (float) $sale->saleItems->sum('labour_amount'));
         $sale->setAttribute('other_amount', (float) $sale->saleItems->sum('other_amount'));
+        $received = (float) ($sale->received_amount ?? 0);
+        $refundPaid = (float) ($sale->paid_amount ?? 0);
+        $sale->setAttribute('refund_paid_amount', $refundPaid);
+        $sale->setAttribute('pending_amount', max(0, (float) ($sale->net_total ?? 0) - ($received - $refundPaid)));
 
         // Add item_name in each sale item for app-side direct consumption.
         $sale->saleItems->transform(function ($row) {
@@ -896,6 +927,10 @@ class SaleApiController extends Controller
                 'customer_id' => 'required|integer',
                 'items' => 'required|array|min:1',
                 'remarks' => 'nullable|string',
+                'received_amount' => 'nullable|numeric|min:0',
+                'payment_mode' => 'nullable|string|max:30',
+                'payment_reference' => 'nullable|string|max:120',
+                'payment_note' => 'nullable|string|max:255',
             ]);
 
             $customerExists = Customer::where('company_id', $companyId)
@@ -911,6 +946,10 @@ class SaleApiController extends Controller
             $sale->update([
                 'customer_id' => (int) $request->customer_id,
                 'remarks' => $request->input('remarks', $request->input('remark', $sale->remarks)),
+                'received_amount' => (float) $request->input('received_amount', $sale->received_amount ?? 0),
+                'payment_mode' => $request->input('payment_mode', $sale->payment_mode),
+                'payment_reference' => $request->input('payment_reference', $sale->payment_reference),
+                'payment_note' => $request->input('payment_note', $sale->payment_note),
             ]);
 
             $incomingRows = collect($request->input('items', []))

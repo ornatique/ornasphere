@@ -44,6 +44,64 @@
                     </div>
                 </div>
 
+                <div class="row mb-3">
+                    <div class="col-md-3">
+                        <label>Received Amount</label>
+                        <input type="number" step="0.01" min="0" class="form-control" id="received_amount" name="received_amount" value="{{ old('received_amount', !empty($sale) ? (float)($sale->received_amount ?? 0) : 0) }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label>Payment Mode</label>
+                        @php $paymentMode = old('payment_mode', !empty($sale) ? ($sale->payment_mode ?? '') : ''); @endphp
+                        <select class="form-select" name="payment_mode" id="payment_mode">
+                            <option value="">Select Mode</option>
+                            <option value="cash" {{ $paymentMode === 'cash' ? 'selected' : '' }}>Cash</option>
+                            <option value="online" {{ $paymentMode === 'online' ? 'selected' : '' }}>Online</option>
+                            <option value="upi" {{ $paymentMode === 'upi' ? 'selected' : '' }}>UPI</option>
+                            <option value="bank" {{ $paymentMode === 'bank' ? 'selected' : '' }}>Bank</option>
+                            <option value="other" {{ $paymentMode === 'other' ? 'selected' : '' }}>Other</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label>Payment Ref No</label>
+                        <input type="text" class="form-control" name="payment_reference" id="payment_reference" value="{{ old('payment_reference', !empty($sale) ? ($sale->payment_reference ?? '') : '') }}" placeholder="Txn/Ref No">
+                    </div>
+                    <div class="col-md-3">
+                        <label>Pending Amount</label>
+                        <input type="text" class="form-control" id="pending_amount_display" value="0.00" readonly>
+                    </div>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-md-12 sale-summary d-flex flex-wrap gap-3">
+                        <div class="summary-chip">
+                            <span class="summary-label">Total Count</span>
+                            <span class="summary-value" id="saleTotalCount">0</span>
+                        </div>
+                        <div class="summary-chip">
+                            <span class="summary-label">Total Gross Wt</span>
+                            <span class="summary-value" id="saleTotalGross">0.000</span>
+                        </div>
+                        <div class="summary-chip">
+                            <span class="summary-label">Total Other Wt</span>
+                            <span class="summary-value" id="saleTotalOtherWt">0.000</span>
+                        </div>
+                        <div class="summary-chip">
+                            <span class="summary-label">Total Net Wt</span>
+                            <span class="summary-value" id="saleTotalNet">0.000</span>
+                        </div>
+                        <div class="summary-chip">
+                            <span class="summary-label">Total Amount</span>
+                            <span class="summary-value" id="saleTotalAmount">0.00</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-end mb-2">
+                    <div style="min-width: 280px;">
+                        <input type="text" id="sale_item_name_search" class="form-control" placeholder="Search Item Name">
+                    </div>
+                </div>
+
                 <div class="table-responsive sale-grid-wrap">
                     <table class="table table-bordered" id="saleTable">
                         <thead>
@@ -202,12 +260,76 @@
     }
 
     .sale-grid-wrap {
-        overflow-x: auto;
-        overflow-y: visible;
+        max-height: 62vh;
+        overflow: auto;
+        position: relative;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        scrollbar-width: thin;
+        scrollbar-color: transparent transparent;
+    }
+
+    .sale-grid-wrap:hover {
+        scrollbar-color: rgba(125, 145, 255, 0.7) rgba(255, 255, 255, 0.08);
+    }
+
+    .sale-grid-wrap::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+
+    .sale-grid-wrap::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .sale-grid-wrap::-webkit-scrollbar-thumb {
+        background: transparent;
+        border-radius: 10px;
+    }
+
+    .sale-grid-wrap:hover::-webkit-scrollbar-thumb {
+        background: rgba(125, 145, 255, 0.7);
+    }
+
+    .sale-grid-wrap:hover::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    .sale-summary .summary-chip {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        padding: 8px 12px;
+        min-width: 170px;
+    }
+
+    .sale-summary .summary-label {
+        display: block;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.72);
+        line-height: 1.1;
+        margin-bottom: 4px;
+    }
+
+    .sale-summary .summary-value {
+        display: block;
+        font-size: 24px;
+        font-weight: 700;
+        color: #ffffff;
+        letter-spacing: 0.2px;
+        line-height: 1.1;
     }
 
     #saleTable {
         min-width: 2250px;
+    }
+
+    #saleTable thead th {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        background: #2b2f4a;
+        box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
     }
 
     #saleTable th,
@@ -220,6 +342,17 @@
         min-width: 190px;
         white-space: normal;
         line-height: 1.2;
+        position: sticky;
+        left: 0;
+        z-index: 3;
+        background: #262a44;
+        box-shadow: 1px 0 0 rgba(255, 255, 255, 0.08);
+    }
+
+    #saleTable thead th:first-child {
+        position: sticky;
+        left: 0;
+        z-index: 7;
     }
 
     #saleTable input.form-control {
@@ -261,6 +394,7 @@
 <script>
 $(function () {
     const initialSaleRows = @json(!empty($editableItems) ? $editableItems : []);
+    const existingRefundPaid = {{ !empty($sale) ? (float)($sale->paid_amount ?? 0) : 0 }};
     const selectedRows = {};
     let modalRowId = null;
     let otherChargeOptions = [];
@@ -600,8 +734,10 @@ $(function () {
         let totalMetal = 0;
         let totalLabour = 0;
         let totalOtherAmount = 0;
+        let totalCount = 0;
 
         Object.values(selectedRows).forEach(row => {
+            totalCount += 1;
             totalAmount += toNum(row.total_amount);
             totalGross += toNum(row.gross_weight);
             totalOther += toNum(row.other_weight);
@@ -620,6 +756,21 @@ $(function () {
         $('#totalMetalAmt').text(nfix(totalMetal, 2));
         $('#totalLabourAmt').text(nfix(totalLabour, 2));
         $('#totalOtherAmt').text(nfix(totalOtherAmount, 2));
+
+        $('#saleTotalCount').text(totalCount);
+        $('#saleTotalGross').text(nfix(totalGross, 3));
+        $('#saleTotalOtherWt').text(nfix(totalOther, 3));
+        $('#saleTotalNet').text(nfix(totalNet, 3));
+        $('#saleTotalAmount').text(nfix(totalAmount, 2));
+        recalcPendingAmount();
+    }
+
+    function recalcPendingAmount() {
+        const netTotal = toNum($('#saleTotalAmount').text() || 0);
+        const received = toNum($('#received_amount').val() || 0);
+        const effectiveReceived = received - existingRefundPaid;
+        const pending = Math.max(0, netTotal - effectiveReceived);
+        $('#pending_amount_display').val(nfix(pending, 2));
     }
 
     function appendSaleRow(row) {
@@ -995,6 +1146,16 @@ $(function () {
         recalcTotals();
     });
 
+    $('#received_amount').on('input', recalcPendingAmount);
+
+    $('#sale_item_name_search').on('input', function () {
+        const query = $(this).val().toLowerCase().trim();
+        $('#saleBody tr').each(function () {
+            const text = $(this).find('td:first').text().toLowerCase();
+            $(this).toggle(text.indexOf(query) !== -1);
+        });
+    });
+
     $('form').submit(function() {
         let valid = true;
         $('input[name="items[]"]').each(function() {
@@ -1021,6 +1182,7 @@ $(function () {
     }
 
     $('#customerSelect').trigger('change');
+    recalcTotals();
 });
 </script>
 @endpush

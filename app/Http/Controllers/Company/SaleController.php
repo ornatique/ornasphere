@@ -94,6 +94,13 @@ class SaleController extends Controller
                 ->addColumn('total_metal_amount', fn($sale) => number_format((float) ($sale->sum_metal_amount ?? 0), 2))
                 ->addColumn('total_labour_amount', fn($sale) => number_format((float) ($sale->sum_labour_amount ?? 0), 2))
                 ->addColumn('total_other_amount', fn($sale) => number_format((float) ($sale->sum_other_amount ?? 0), 2))
+                ->addColumn('received_amount_fmt', fn($sale) => number_format((float) ($sale->received_amount ?? 0), 2))
+                ->addColumn('refund_paid_amount_fmt', fn($sale) => number_format((float) ($sale->paid_amount ?? 0), 2))
+                ->addColumn('pending_amount_fmt', function ($sale) {
+                    $net = (float) ($sale->net_total ?? 0);
+                    $effectiveReceived = (float) ($sale->received_amount ?? 0) - (float) ($sale->paid_amount ?? 0);
+                    return number_format(max(0, $net - $effectiveReceived), 2);
+                })
                 ->addColumn('creator_name', fn($sale) => optional($sale->creator)->name ?? '-')
                 ->addColumn('modified_at', function ($sale) {
                     return $sale->updated_at ? Carbon::parse($sale->updated_at)->format('d-m-Y h:i A') : '-';
@@ -331,6 +338,7 @@ class SaleController extends Controller
                 'customer_id' => 'required|integer',
                 'items' => 'required|array|min:1',
                 'items.*' => 'required|integer',
+                'received_amount' => 'nullable|numeric|min:0',
             ]);
 
             $customerExists = Customer::where('company_id', $company->id)
@@ -347,6 +355,10 @@ class SaleController extends Controller
                 'voucher_no'  => 'SL' . time(),
                 'sale_date'   => now(),
                 'net_total'   => 0,
+                'received_amount' => (float) $request->input('received_amount', 0),
+                'payment_mode' => $request->input('payment_mode'),
+                'payment_reference' => $request->input('payment_reference'),
+                'payment_note' => $request->input('payment_note'),
                 'remarks'     => $request->input('voucher_remarks'),
                 'employee_id' => optional($request->user())->id,
                 'modified_count' => 0,
@@ -471,6 +483,7 @@ class SaleController extends Controller
                 'customer_id' => 'required|integer',
                 'items' => 'required|array|min:1',
                 'items.*' => 'required|integer',
+                'received_amount' => 'nullable|numeric|min:0',
             ]);
 
             $customerExists = Customer::where('company_id', $company->id)
@@ -482,6 +495,10 @@ class SaleController extends Controller
 
             $sale->update([
                 'customer_id' => (int) $request->customer_id,
+                'received_amount' => (float) $request->input('received_amount', $sale->received_amount ?? 0),
+                'payment_mode' => $request->input('payment_mode'),
+                'payment_reference' => $request->input('payment_reference'),
+                'payment_note' => $request->input('payment_note'),
                 'remarks' => $request->input('voucher_remarks'),
             ]);
 

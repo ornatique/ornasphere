@@ -57,6 +57,11 @@
                 <div><strong>Estimate No</strong> : {{ $return->return_voucher_no }}</div>
                 <div style="margin-top:4px;"><strong>Date</strong> : {{ \Carbon\Carbon::parse($return->return_date)->format('d-m-Y') }}</div>
                 <div style="margin-top:4px;"><strong>Contact No</strong> : {{ $contact }}</div>
+                <div style="margin-top:4px;"><strong>Refund Paid</strong> : {{ number_format((float)($return->refund_paid_amount ?? 0), 2) }}</div>
+                <div style="margin-top:4px;"><strong>Refund Mode</strong> : {{ $return->refund_mode ?? '-' }}</div>
+                @if(!empty($return->refund_reference))
+                    <div style="margin-top:4px;"><strong>Refund Ref</strong> : {{ $return->refund_reference }}</div>
+                @endif
             </td>
         </tr>
     </table>

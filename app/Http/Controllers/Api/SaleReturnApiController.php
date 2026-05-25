@@ -50,6 +50,10 @@ class SaleReturnApiController extends Controller
                     'remarks' => $return->remarks,
                     'customer_name' => $customerName,
                     'return_total' => (float) $return->return_total,
+                    'refund_paid_amount' => (float) ($return->refund_paid_amount ?? 0),
+                    'refund_mode' => $return->refund_mode,
+                    'refund_reference' => $return->refund_reference,
+                    'refund_note' => $return->refund_note,
                     'source_type' => $return->source_type,
                     'source_id' => $return->source_id,
                 ];
@@ -87,12 +91,19 @@ class SaleReturnApiController extends Controller
         }
 
         $rows = $sales->orderByDesc('id')->get()->map(function ($sale) {
+            $received = (float) ($sale->received_amount ?? 0);
+            $refundPaid = (float) ($sale->paid_amount ?? 0);
+            $pending = max(0, (float) ($sale->net_total ?? 0) - ($received - $refundPaid));
+
             return [
                 'sale_id' => $sale->id,
                 'voucher_no' => $sale->voucher_no,
                 'customer_name' => optional($sale->customer)->name,
                 'sale_date' => optional($sale->sale_date)->format('Y-m-d') ?? null,
                 'net_total' => (float) $sale->net_total,
+                'received_amount' => $received,
+                'refund_paid_amount' => $refundPaid,
+                'pending_amount' => $pending,
             ];
         });
 
@@ -362,6 +373,10 @@ class SaleReturnApiController extends Controller
         $request->validate([
             'sale_id' => 'required|integer',
             'remarks' => 'nullable|string',
+            'refund_paid_amount' => 'nullable|numeric|min:0',
+            'refund_mode' => 'nullable|string|max:30',
+            'refund_reference' => 'nullable|string|max:120',
+            'refund_note' => 'nullable|string|max:255',
         ]);
 
         $cartItems = ReturnCart::with('saleItem.itemset')
@@ -398,7 +413,11 @@ class SaleReturnApiController extends Controller
                 'return_voucher_no' => 'SR' . time(),
                 'return_date' => now(),
                 'remarks' => $request->input('remarks', $request->input('remark')),
-                'return_total' => 0
+                'return_total' => 0,
+                'refund_paid_amount' => 0,
+                'refund_mode' => $request->input('refund_mode'),
+                'refund_reference' => $request->input('refund_reference'),
+                'refund_note' => $request->input('refund_note'),
             ]);
 
             $total = 0;
@@ -424,10 +443,14 @@ class SaleReturnApiController extends Controller
             }
 
             $return->update([
-                'return_total' => $total
+                'return_total' => $total,
+                'refund_paid_amount' => (float) ($request->input('refund_paid_amount', 0) > 0
+                    ? $request->input('refund_paid_amount', 0)
+                    : $total),
             ]);
 
             $sale->decrement('net_total', $total);
+            $sale->increment('paid_amount', (float) ($return->refund_paid_amount ?? 0));
 
             ReturnCart::where('user_id', $user->id)
                 ->where('company_id', $user->company_id)
@@ -717,6 +740,12 @@ class SaleReturnApiController extends Controller
     public function processSelected(Request $request)
     {
         $companyId = $request->user()->company_id;
+        $request->validate([
+            'refund_paid_amount' => 'nullable|numeric|min:0',
+            'refund_mode' => 'nullable|string|max:30',
+            'refund_reference' => 'nullable|string|max:120',
+            'refund_note' => 'nullable|string|max:255',
+        ]);
 
         $saleItemIds = collect($request->input('sale_item_ids', []))
             ->filter()
@@ -812,6 +841,10 @@ class SaleReturnApiController extends Controller
                 'return_date' => now(),
                 'remarks' => $request->input('remarks', $request->input('remark')),
                 'return_total' => 0,
+                'refund_paid_amount' => 0,
+                'refund_mode' => $request->input('refund_mode'),
+                'refund_reference' => $request->input('refund_reference'),
+                'refund_note' => $request->input('refund_note'),
             ]);
 
             if ($saleItems->isNotEmpty()) {
@@ -886,7 +919,39 @@ class SaleReturnApiController extends Controller
                 }
             }
 
-            $return->update(['return_total' => $total]);
+            $return->update([
+                'return_total' => $total,
+                'refund_paid_amount' => (float) ($request->input('refund_paid_amount', 0) > 0
+                    ? $request->input('refund_paid_amount', 0)
+                    : $total),
+            ]);
+
+            if ($saleItems->isNotEmpty()) {
+                $saleTotalsBySaleId = [];
+                foreach ($saleItems as $saleItem) {
+                    $saleId = (int) $saleItem->sale_id;
+                    if (!isset($saleTotalsBySaleId[$saleId])) {
+                        $saleTotalsBySaleId[$saleId] = 0;
+                    }
+                    $rowKey = 'sale_' . (int) $saleItem->id;
+                    $saleTotalsBySaleId[$saleId] += isset($payloadMap[$rowKey]['total_amount'])
+                        ? (float) $payloadMap[$rowKey]['total_amount']
+                        : (float) ($saleItem->total_amount ?? 0);
+                }
+
+                $totalSaleReturnAmount = array_sum($saleTotalsBySaleId);
+                $refundPaid = (float) ($return->refund_paid_amount ?? 0);
+
+                foreach ($saleTotalsBySaleId as $saleId => $saleAmount) {
+                    $share = $totalSaleReturnAmount > 0
+                        ? ($refundPaid * ($saleAmount / $totalSaleReturnAmount))
+                        : 0;
+
+                    Sale::where('company_id', $companyId)
+                        ->where('id', $saleId)
+                        ->increment('paid_amount', $share);
+                }
+            }
 
             DB::commit();
 

@@ -698,6 +698,14 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
                 ->name('approval-outstanding.export.excel');
             Route::get('/approval-outstanding/export/pdf', [ReportController::class, 'approvalOutstandingPdf'])
                 ->name('approval-outstanding.export.pdf');
+            Route::get('/outstanding-amount', [ReportController::class, 'outstandingAmount'])
+                ->name('outstanding-amount.index');
+            Route::get('/outstanding-amount/export/excel', [ReportController::class, 'outstandingAmountExcel'])
+                ->name('outstanding-amount.export.excel');
+            Route::get('/outstanding-amount/export/pdf', [ReportController::class, 'outstandingAmountPdf'])
+                ->name('outstanding-amount.export.pdf');
+            Route::get('/outstanding-amount/export/ledger-pdf', [ReportController::class, 'outstandingAmountLedgerPdf'])
+                ->name('outstanding-amount.export.ledger-pdf');
             Route::get('/barcode-history', [ReportController::class, 'barcodeHistory'])
                 ->name('barcode-history.index');
             Route::get('/barcode-history/export/excel', [ReportController::class, 'barcodeHistoryExcel'])
