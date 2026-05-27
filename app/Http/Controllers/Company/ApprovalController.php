@@ -8,6 +8,7 @@ use App\Models\Company;
 use App\Models\ApprovalHeader;
 use App\Models\ApprovalItem;
 use App\Models\ItemSet;
+use App\Models\Item;
 use App\Models\SaleReturn;
 use App\Models\SaleReturnItem;
 use App\Models\Customer;
@@ -16,6 +17,7 @@ use Yajra\DataTables\Facades\DataTables;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Crypt;
+use Carbon\Carbon;
 
 class ApprovalController extends Controller
 {
@@ -102,6 +104,42 @@ class ApprovalController extends Controller
             }
 
             return datatables()->of($query)
+                ->filter(function ($q) use ($request) {
+                    $searchValue = trim((string) data_get($request->input('search'), 'value', ''));
+                    if ($searchValue === '') {
+                        return;
+                    }
+
+                    $q->where(function ($innerQ) use ($searchValue) {
+                        $innerQ->where('approval_no', 'like', "%{$searchValue}%")
+                            ->orWhereHas('customer', function ($cq) use ($searchValue) {
+                                $cq->where('name', 'like', "%{$searchValue}%");
+                            })
+                            ->orWhereHas('items', function ($iq) use ($searchValue) {
+                                $iq->where(function ($itemsQ) use ($searchValue) {
+                                    $itemsQ->whereHas('item', function ($itemQ) use ($searchValue) {
+                                        $itemQ->where('item_name', 'like', "%{$searchValue}%");
+                                    })->orWhereHas('itemSet.item', function ($itemQ) use ($searchValue) {
+                                        $itemQ->where('item_name', 'like', "%{$searchValue}%");
+                                    })->orWhereHas('legacyItemSet.item', function ($itemQ) use ($searchValue) {
+                                        $itemQ->where('item_name', 'like', "%{$searchValue}%");
+                                    });
+                                });
+                            })
+                            ->orWhereRaw("DATE_FORMAT(approval_date, '%d-%m-%Y') like ?", ["%{$searchValue}%"])
+                            ->orWhereRaw("DATE_FORMAT(approval_date, '%Y-%m-%d') like ?", ["%{$searchValue}%"]);
+
+                        if (preg_match('/^\d{2}\-\d{2}\-\d{4}$/', $searchValue)) {
+                            try {
+                                $searchDate = Carbon::createFromFormat('d-m-Y', $searchValue)->format('Y-m-d');
+                                $innerQ->orWhereDate('approval_date', $searchDate);
+                            } catch (\Throwable $e) {
+                            }
+                        } elseif (preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $searchValue)) {
+                            $innerQ->orWhereDate('approval_date', $searchValue);
+                        }
+                    });
+                })
                 ->addIndexColumn()
                 ->addColumn('customer_name', fn($row) => $row->customer->name ?? '-')
                 ->addColumn('approval_date', fn($row) => \Carbon\Carbon::parse($row->approval_date)->format('d-m-Y'))
@@ -256,19 +294,72 @@ class ApprovalController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
 
         $keyword = trim((string) $request->keyword);
+        $limit = max(10, min((int) $request->input('limit', 1000), 2000));
 
         $data = ItemSet::with('item')
             ->where('company_id', $company->id)
-            ->where('is_final', 1)
+             ->where('is_final', 1)
             ->where('is_sold', 0)
             ->where(function ($q) use ($keyword) {
                 $q->where('HUID', 'LIKE', "%{$keyword}%")
-                    ->orWhere('qr_code', 'LIKE', "%{$keyword}%");
+                    ->orWhere('qr_code', 'LIKE', "%{$keyword}%")
+                    ->orWhere('barcode', 'LIKE', "%{$keyword}%")
+                    ->orWhereHas('item', function ($q2) use ($keyword) {
+                        $q2->where('item_name', 'like', "%{$keyword}%");
+                    });
             })
-            ->limit(10)
+            ->orderByDesc('id')
+            ->limit($limit)
             ->get();
+        $itemSetItemIds = $data->pluck('item_id')->filter()->unique()->values()->all();
+        $itemOnly = Item::query()
+            ->where('company_id', $company->id)
+            ->whereNotIn('id', $itemSetItemIds)
+            ->where(function ($q) use ($keyword) {
+                $q->where('item_name', 'like', "%{$keyword}%")
+                    ->orWhere('item_code', 'like', "%{$keyword}%");
+            })
+            ->orderBy('item_name')
+            ->limit($limit)
+            ->get(['id', 'item_name', 'item_code', 'outward_purity', 'labour_rate']);
 
-        return response()->json($data);
+        if (Schema::hasColumn('items', 'is_active')) {
+            $itemOnly = Item::query()
+                ->where('company_id', $company->id)
+                ->where('is_active', 1)
+                ->whereNotIn('id', $itemSetItemIds)
+                ->where(function ($q) use ($keyword) {
+                    $q->where('item_name', 'like', "%{$keyword}%")
+                        ->orWhere('item_code', 'like', "%{$keyword}%");
+                })
+                ->orderBy('item_name')
+                ->limit($limit)
+                ->get(['id', 'item_name', 'item_code', 'outward_purity', 'labour_rate']);
+        }
+
+        $itemOnlyRows = $itemOnly->map(function ($item) {
+            return (object) [
+                'id' => 0,
+                'item_id' => (int) $item->id,
+                'item' => (object) ['item_name' => (string) ($item->item_name ?? '')],
+                'HUID' => '',
+                'qr_code' => (string) ($item->item_code ?? ''),
+                'barcode' => '',
+                'gross_weight' => 0,
+                'other' => 0,
+                'net_weight' => 0,
+                'sale_labour_rate' => (float) ($item->labour_rate ?? 0),
+                'sale_other' => 0,
+                'is_item_only' => true,
+            ];
+        });
+
+        $rows = $data->map(function ($row) {
+            $row->is_item_only = false;
+            return $row;
+        })->concat($itemOnlyRows)->values();
+
+        return response()->json($rows);
     }
 
     public function store(Request $request, $slug)
@@ -319,8 +410,8 @@ class ApprovalController extends Controller
                 $metalAmount = (float) ($row['metal_amount'] ?? ($netWeight * $metalRate));
                 $labourRate = (float) ($row['labour_rate'] ?? $itemSet->sale_labour_rate ?? optional($itemSet->item)->labour_rate ?? 0);
                 $labourAmount = (float) ($row['labour_amount'] ?? ($netWeight * $labourRate));
-                $otherAmount = (float) ($row['other_amount'] ?? $itemSet->sale_other ?? 0);
-                $totalAmount = (float) ($row['total_amount'] ?? ($metalAmount + $labourAmount + $otherAmount));
+                $otherAmount = $this->resolveOtherAmount($row['other_amount'] ?? null, $itemSet->sale_other ?? 0);
+                $totalAmount = $this->resolveTotalAmount($row['total_amount'] ?? null, $metalAmount, $labourAmount, $otherAmount);
 
                 ApprovalItem::create([
                     'approval_id' => $approval->id,
@@ -619,8 +710,8 @@ class ApprovalController extends Controller
             $metalAmount = (float) ($row->metal_amount ?? ($net * $metalRate));
             $labourRate = (float) ($row->labour_rate ?? optional($itemSet)->sale_labour_rate ?? optional($item)->labour_rate ?? 0);
             $labourAmount = (float) ($row->labour_amount ?? ($net * $labourRate));
-            $otherAmount = (float) ($row->other_amount ?? optional($itemSet)->sale_other ?? 0);
-            $totalAmount = (float) ($row->total_amount ?? ($metalAmount + $labourAmount + $otherAmount));
+            $otherAmount = $this->resolveOtherAmount($row->other_amount ?? null, optional($itemSet)->sale_other ?? 0);
+            $totalAmount = $this->resolveTotalAmount($row->total_amount ?? null, $metalAmount, $labourAmount, $otherAmount);
             return [
                 'id' => $row->id,
                 'item_id' => $row->item_id ?? optional($itemSet)->item_id,
@@ -697,8 +788,8 @@ class ApprovalController extends Controller
         $metalAmount = (float) ($row['metal_amount'] ?? ($netWeight * $metalRate));
         $labourRate = (float) ($row['labour_rate'] ?? $itemSet->sale_labour_rate ?? optional($itemSet->item)->labour_rate ?? 0);
         $labourAmount = (float) ($row['labour_amount'] ?? ($netWeight * $labourRate));
-        $otherAmount = (float) ($row['other_amount'] ?? $itemSet->sale_other ?? 0);
-        $totalAmount = (float) ($row['total_amount'] ?? ($metalAmount + $labourAmount + $otherAmount));
+        $otherAmount = $this->resolveOtherAmount($row['other_amount'] ?? null, $itemSet->sale_other ?? 0);
+        $totalAmount = $this->resolveTotalAmount($row['total_amount'] ?? null, $metalAmount, $labourAmount, $otherAmount);
 
         return [
             'huid' => $row['huid'] ?? $itemSet->HUID,
@@ -718,6 +809,36 @@ class ApprovalController extends Controller
             'total_amount' => $totalAmount,
             'remarks' => $row['remarks'] ?? null,
         ];
+    }
+
+    private function resolveOtherAmount($inputOtherAmount, $itemSetSaleOther): float
+    {
+        $baseOther = (float) ($itemSetSaleOther ?? 0);
+        if ($inputOtherAmount === null || $inputOtherAmount === '') {
+            return $baseOther;
+        }
+
+        $inputOther = (float) $inputOtherAmount;
+        if ($inputOther <= 0 && $baseOther > 0) {
+            return $baseOther;
+        }
+
+        return $inputOther;
+    }
+
+    private function resolveTotalAmount($inputTotalAmount, float $metalAmount, float $labourAmount, float $otherAmount): float
+    {
+        $calculated = (float) ($metalAmount + $labourAmount + $otherAmount);
+        if ($inputTotalAmount === null || $inputTotalAmount === '') {
+            return $calculated;
+        }
+
+        $inputTotal = (float) $inputTotalAmount;
+        if ($inputTotal <= 0 && $calculated > 0) {
+            return $calculated;
+        }
+
+        return $inputTotal;
     }
 
     public function approvalReturnList($slug)

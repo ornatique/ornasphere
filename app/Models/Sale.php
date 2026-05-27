@@ -48,4 +48,9 @@ class Sale extends Model
     {
         return $this->belongsTo(User::class, 'employee_id');
     }
+
+    public function payments()
+    {
+        return $this->hasMany(SalePayment::class)->orderBy('paid_on')->orderBy('id');
+    }
 }

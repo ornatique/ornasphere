@@ -17,9 +17,39 @@
         white-space: normal;
     }
 
-    .table-responsive {
+    .approval-list-grid-wrap {
         overflow-x: auto;
         overflow-y: hidden;
+        border: 0;
+        border-radius: 0;
+        scrollbar-width: thin;
+        scrollbar-color: transparent transparent;
+    }
+
+    .approval-list-grid-wrap:hover {
+        scrollbar-color: rgba(125, 145, 255, 0.7) rgba(255, 255, 255, 0.08);
+    }
+
+    .approval-list-grid-wrap::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+
+    .approval-list-grid-wrap::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .approval-list-grid-wrap::-webkit-scrollbar-thumb {
+        background: transparent;
+        border-radius: 10px;
+    }
+
+    .approval-list-grid-wrap:hover::-webkit-scrollbar-thumb {
+        background: rgba(125, 145, 255, 0.7);
+    }
+
+    .approval-list-grid-wrap:hover::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.08);
     }
 </style>
 
@@ -76,7 +106,7 @@
 
         {{-- TABLE --}}
         <div class="card-body">
-            <div class="table-responsive">
+            <div class="table-responsive approval-list-grid-wrap">
                 <table class="table table-bordered" id="approvalTable">
                     <thead>
                         <tr>
@@ -120,7 +150,7 @@
     let table = $('#approvalTable').DataTable({
         processing: true,
         serverSide: true,
-        searching: false,
+        searching: true,
         scrollX: true,
         autoWidth: false,
         scrollCollapse: true,

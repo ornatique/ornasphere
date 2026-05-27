@@ -11,11 +11,14 @@ use App\Models\Customer;
 use App\Models\Company;
 use App\Models\ApprovalHeader;
 use App\Models\ApprovalItem;
+use App\Models\Item;
+use App\Models\SalePayment;
 use Yajra\DataTables\Facades\DataTables;
 use Barryvdh\DomPDF\Facade\Pdf;
 use DB;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Schema;
 
 class SaleController extends Controller
 {
@@ -237,21 +240,52 @@ class SaleController extends Controller
     public function search(Request $request, $slug)
     {
         $company = Company::where('slug', $slug)->firstOrFail();
+        $search = trim((string) $request->search);
+        $limit = max(10, min((int) $request->input('limit', 1000), 2000));
 
         $items = ItemSet::with('item')
             ->where('company_id', $company->id)
             ->where('is_final', 1)
             ->where('is_sold', 0)
-            ->where(function ($q) use ($request) {
-                $q->where('qr_code', 'like', '%' . $request->search . '%')
-                    ->orWhereHas('item', function ($q2) use ($request) {
-                        $q2->where('item_name', 'like', '%' . $request->search . '%');
+            ->where(function ($q) use ($search) {
+                $q->where('qr_code', 'like', '%' . $search . '%')
+                    ->orWhere('HUID', 'like', '%' . $search . '%')
+                    ->orWhere('barcode', 'like', '%' . $search . '%')
+                    ->orWhereHas('item', function ($q2) use ($search) {
+                        $q2->where('item_name', 'like', '%' . $search . '%');
                     });
             })
-            ->limit(10)
+            ->orderByDesc('id')
+            ->limit($limit)
             ->get();
 
-        return response()->json($items->map(function ($item) {
+        $itemSetItemIds = $items->pluck('item_id')->filter()->unique()->values()->all();
+        $itemOnly = Item::query()
+            ->where('company_id', $company->id)
+            ->whereNotIn('id', $itemSetItemIds)
+            ->where(function ($q) use ($search) {
+                $q->where('item_name', 'like', '%' . $search . '%')
+                    ->orWhere('item_code', 'like', '%' . $search . '%');
+            })
+            ->orderBy('item_name')
+            ->limit($limit)
+            ->get(['id', 'item_name', 'item_code', 'outward_purity', 'labour_rate']);
+
+        if (Schema::hasColumn('items', 'is_active')) {
+            $itemOnly = Item::query()
+                ->where('company_id', $company->id)
+                ->where('is_active', 1)
+                ->whereNotIn('id', $itemSetItemIds)
+                ->where(function ($q) use ($search) {
+                    $q->where('item_name', 'like', '%' . $search . '%')
+                        ->orWhere('item_code', 'like', '%' . $search . '%');
+                })
+                ->orderBy('item_name')
+                ->limit($limit)
+                ->get(['id', 'item_name', 'item_code', 'outward_purity', 'labour_rate']);
+        }
+
+        $itemSetRows = $items->map(function ($item) {
             $gross = (float) ($item->gross_weight ?? 0);
             $otherWeight = (float) ($item->other ?? 0);
             $net = (float) ($item->net_weight ?? ($gross - $otherWeight));
@@ -286,8 +320,36 @@ class SaleController extends Controller
                 'other_amount' => $otherAmount,
                 'total_amount' => $totalAmount,
                 'remarks' => (string) ($item->remarks ?? ''),
+                'is_item_only' => false,
             ];
-        }));
+        })->values();
+
+        $itemOnlyRows = $itemOnly->map(function ($item) {
+            return [
+                'id' => 0,
+                'item_id' => (int) $item->id,
+                'name' => (string) ($item->item_name ?? ''),
+                'code' => (string) ($item->item_code ?? ''),
+                'huid' => '',
+                'gross_weight' => 0,
+                'other_weight' => 0,
+                'net_weight' => 0,
+                'purity' => (float) ($item->outward_purity ?? 0),
+                'waste_percent' => 0,
+                'net_purity' => 0,
+                'fine_weight' => 0,
+                'metal_rate' => 0,
+                'metal_amount' => 0,
+                'labour_rate' => (float) ($item->labour_rate ?? 0),
+                'labour_amount' => 0,
+                'other_amount' => 0,
+                'total_amount' => 0,
+                'remarks' => '',
+                'is_item_only' => true,
+            ];
+        })->values();
+
+        return response()->json($itemSetRows->concat($itemOnlyRows)->values());
     }
     /**
      * Get itemset by QR OR manual select
@@ -339,6 +401,7 @@ class SaleController extends Controller
                 'items' => 'required|array|min:1',
                 'items.*' => 'required|integer',
                 'received_amount' => 'nullable|numeric|min:0',
+                'additional_received_amount' => 'nullable|numeric|min:0',
             ]);
 
             $customerExists = Customer::where('company_id', $company->id)
@@ -364,18 +427,46 @@ class SaleController extends Controller
                 'modified_count' => 0,
             ]);
 
+            $initialReceived = (float) $request->input('received_amount', 0);
+            if ($initialReceived > 0) {
+                SalePayment::create([
+                    'company_id' => $company->id,
+                    'sale_id' => $sale->id,
+                    'amount' => $initialReceived,
+                    'paid_on' => Carbon::parse($sale->sale_date)->toDateString(),
+                    'payment_mode' => $request->input('payment_mode'),
+                    'payment_reference' => $request->input('payment_reference'),
+                    'payment_note' => $request->input('payment_note'),
+                    'created_by' => optional($request->user())->id,
+                ]);
+            }
+
             $total = 0;
             $approvalIds = [];
 
-            foreach ($request->items as $index => $itemsetId) {
+            foreach ($request->items as $index => $itemsetIdRaw) {
 
-                if (empty($itemsetId)) continue;
+                $itemsetId = (int) ($itemsetIdRaw ?? 0);
+                $productId = (int) ($request->item_ids[$index] ?? 0);
 
-                $item = ItemSet::where('company_id', $company->id)
-                    ->where('is_sold', 0)
-                    ->find((int) $itemsetId);
-                if (!$item) {
-                    throw new \Exception("Item not found/already sold: {$itemsetId}");
+                if ($itemsetId <= 0 && $productId <= 0) {
+                    continue;
+                }
+
+                $item = null;
+                if ($itemsetId > 0) {
+                    $item = ItemSet::where('company_id', $company->id)
+                        ->where('is_sold', 0)
+                        ->find($itemsetId);
+
+                    if (!$item) {
+                        throw new \Exception("Item not found/already sold: {$itemsetId}");
+                    }
+                } else {
+                    $directItem = Item::where('company_id', $company->id)->find($productId);
+                    if (!$directItem) {
+                        throw new \Exception("Direct item not found: {$productId}");
+                    }
                 }
 
                 // ❗ prevent double sale
@@ -388,10 +479,11 @@ class SaleController extends Controller
                 // ✅ SAVE SALE ITEM
                 SaleItem::create([
                     'sale_id'          => $sale->id,
-                    'itemset_id'       => $item->id,
+                    'itemset_id'       => $item ? $item->id : null,
+                    'product_id'       => $productId ?: (int) ($item->item_id ?? 0),
                     'approval_item_id' => $approvalItemId,
-                    'gross_weight'     => $request->gross_weight[$index] ?? $item->gross_weight ?? 0,
-                    'other_weight'     => $request->other_weight[$index] ?? $item->other ?? 0,
+                    'gross_weight'     => $request->gross_weight[$index] ?? ($item->gross_weight ?? 0),
+                    'other_weight'     => $request->other_weight[$index] ?? ($item->other ?? 0),
                     'net_weight'       => $request->net_weight[$index] ?? 0,
                     'purity'           => $request->purity[$index] ?? 0,
                     'waste_percent'    => $request->waste_percent[$index] ?? 0,
@@ -406,8 +498,10 @@ class SaleController extends Controller
                     'remarks'          => $request->remarks[$index] ?? null,
                 ]);
 
-                // ✅ mark item sold
-                $item->update(['is_sold' => 1]);
+                // ✅ mark itemset sold (only for itemset flow)
+                if ($item) {
+                    $item->update(['is_sold' => 1]);
+                }
 
                 // ✅ UPDATE APPROVAL ITEM
                 if (!empty($approvalItemId)) {
@@ -484,6 +578,7 @@ class SaleController extends Controller
                 'items' => 'required|array|min:1',
                 'items.*' => 'required|integer',
                 'received_amount' => 'nullable|numeric|min:0',
+                'additional_received_amount' => 'nullable|numeric|min:0',
             ]);
 
             $customerExists = Customer::where('company_id', $company->id)
@@ -493,14 +588,61 @@ class SaleController extends Controller
                 throw new \Exception('Invalid customer for this company.');
             }
 
+            $incomingReceived = (float) $request->input('received_amount', $sale->received_amount ?? 0);
+            $additionalReceived = (float) $request->input('additional_received_amount', 0);
+            $finalReceived = $additionalReceived > 0
+                ? ((float) ($sale->received_amount ?? 0) + $additionalReceived)
+                : $incomingReceived;
+
+            $baseEffectiveReceived = (float) ($sale->received_amount ?? 0) - (float) ($sale->paid_amount ?? 0);
+
             $sale->update([
                 'customer_id' => (int) $request->customer_id,
-                'received_amount' => (float) $request->input('received_amount', $sale->received_amount ?? 0),
+                'received_amount' => $finalReceived,
                 'payment_mode' => $request->input('payment_mode'),
                 'payment_reference' => $request->input('payment_reference'),
                 'payment_note' => $request->input('payment_note'),
                 'remarks' => $request->input('voucher_remarks'),
             ]);
+
+            if ($additionalReceived > 0) {
+                if ((float) ($sale->payments()->sum('amount')) <= 0 && $baseEffectiveReceived > 0) {
+                    // Seed first payment for old vouchers created before payment-history tracking.
+                    SalePayment::create([
+                        'company_id' => $company->id,
+                        'sale_id' => $sale->id,
+                        'amount' => $baseEffectiveReceived,
+                        'paid_on' => Carbon::parse($sale->sale_date)->toDateString(),
+                        'payment_mode' => $sale->payment_mode,
+                        'payment_reference' => $sale->payment_reference,
+                        'payment_note' => $sale->payment_note,
+                        'created_by' => optional($request->user())->id,
+                    ]);
+                }
+
+                SalePayment::create([
+                    'company_id' => $company->id,
+                    'sale_id' => $sale->id,
+                    'amount' => $additionalReceived,
+                    'paid_on' => now()->toDateString(),
+                    'payment_mode' => $request->input('payment_mode'),
+                    'payment_reference' => $request->input('payment_reference'),
+                    'payment_note' => $request->input('payment_note'),
+                    'created_by' => optional($request->user())->id,
+                ]);
+            } elseif ((float) ($sale->payments()->sum('amount')) <= 0 && $finalReceived > 0) {
+                // Backward compatibility for old sales that only had received_amount.
+                SalePayment::create([
+                    'company_id' => $company->id,
+                    'sale_id' => $sale->id,
+                    'amount' => $finalReceived,
+                    'paid_on' => Carbon::parse($sale->sale_date)->toDateString(),
+                    'payment_mode' => $request->input('payment_mode') ?? $sale->payment_mode,
+                    'payment_reference' => $request->input('payment_reference') ?? $sale->payment_reference,
+                    'payment_note' => $request->input('payment_note') ?? $sale->payment_note,
+                    'created_by' => optional($request->user())->id,
+                ]);
+            }
 
             $existingItems = $sale->saleItems->keyBy('itemset_id');
             $existingItemsetIds = $existingItems->keys()->map(fn($id) => (int) $id)->values();
@@ -617,6 +759,11 @@ class SaleController extends Controller
                 $total += (float) ($payload['total_amount'] ?? 0);
             }
 
+            $maxAdditionalAllowed = max(0, $total - $baseEffectiveReceived);
+            if (($additionalReceived - $maxAdditionalAllowed) > 0.000001) {
+                throw new \Exception('Add Payment cannot be more than pending amount (' . number_format($maxAdditionalAllowed, 2) . ').');
+            }
+
             $sale->update(['net_total' => $total]);
             $sale->increment('modified_count');
 
@@ -674,12 +821,13 @@ class SaleController extends Controller
 
         $sale = Sale::with([
             'customer',
-            'saleItems.itemset.item'   // IMPORTANT
+            'saleItems.itemset.item',   // IMPORTANT
+            'payments'
         ])
             ->where('company_id', $company->id)
             ->findOrFail($saleId);
 
-        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale'))
+        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale', 'company'))
             ->setPaper('a4', 'portrait');
 
         return $pdf->stream('Invoice-' . $sale->voucher_no . '.pdf');

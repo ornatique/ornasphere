@@ -47,8 +47,14 @@
                 <div class="row mb-3">
                     <div class="col-md-3">
                         <label>Received Amount</label>
-                        <input type="number" step="0.01" min="0" class="form-control" id="received_amount" name="received_amount" value="{{ old('received_amount', !empty($sale) ? (float)($sale->received_amount ?? 0) : 0) }}">
+                        <input type="number" step="any" min="0" class="form-control" id="received_amount" name="received_amount" value="{{ old('received_amount', !empty($sale) ? (float)($sale->received_amount ?? 0) : 0) }}">
                     </div>
+                    @if(!empty($isEdit) && !empty($sale))
+                    <div class="col-md-3">
+                        <label>Add Payment (Later)</label>
+                        <input type="number" step="any" min="0" class="form-control" id="additional_received_amount" name="additional_received_amount" value="{{ old('additional_received_amount', 0) }}" placeholder="Enter extra received amount">
+                    </div>
+                    @endif
                     <div class="col-md-3">
                         <label>Payment Mode</label>
                         @php $paymentMode = old('payment_mode', !empty($sale) ? ($sale->payment_mode ?? '') : ''); @endphp
@@ -768,68 +774,90 @@ $(function () {
     function recalcPendingAmount() {
         const netTotal = toNum($('#saleTotalAmount').text() || 0);
         const received = toNum($('#received_amount').val() || 0);
+        const additional = toNum($('#additional_received_amount').val() || 0);
         const effectiveReceived = received - existingRefundPaid;
-        const pending = Math.max(0, netTotal - effectiveReceived);
+        const pendingBeforeAdditional = Math.max(0, netTotal - effectiveReceived);
+        const pending = Math.max(0, pendingBeforeAdditional - additional);
         $('#pending_amount_display').val(nfix(pending, 2));
+
+        const $additionalInput = $('#additional_received_amount');
+        if ($additionalInput.length) {
+            if (additional - pendingBeforeAdditional > 0.000001) {
+                const msg = `Add Payment cannot be more than pending amount (${nfix(pendingBeforeAdditional, 2)}).`;
+                $additionalInput.addClass('is-invalid');
+                $additionalInput[0].setCustomValidity(msg);
+            } else {
+                $additionalInput.removeClass('is-invalid');
+                $additionalInput[0].setCustomValidity('');
+            }
+        }
+    }
+
+    function resolveRowKey(row) {
+        if (row && row.row_key) return String(row.row_key);
+        if (toNum(row?.itemset_id) > 0) return `set_${toNum(row.itemset_id)}`;
+        if (toNum(row?.item_id) > 0) return `item_${toNum(row.item_id)}`;
+        return '';
     }
 
     function appendSaleRow(row) {
-        const itemsetId = row.itemset_id;
-        if (!itemsetId || selectedRows[itemsetId]) {
+        const rowKey = resolveRowKey(row);
+        if (!rowKey || selectedRows[rowKey]) {
             return;
         }
 
-        selectedRows[itemsetId] = row;
-        selectedRows[itemsetId].other_charges = row.other_charges || [];
+        selectedRows[rowKey] = row;
+        selectedRows[rowKey].other_charges = row.other_charges || [];
+        const itemsetIdValue = toNum(row.itemset_id);
 
         const tr = `
-        <tr id="row_${itemsetId}">
+        <tr id="row_${rowKey}">
             <td>
                 <strong>${esc(row.huid || '')}</strong><br>
                 <small>${esc(row.code || '')}</small><br>
                 <small>${esc(row.name || '')}</small>
-                <input type="hidden" name="items[]" value="${itemsetId}">
+                <input type="hidden" name="items[]" value="${itemsetIdValue > 0 ? itemsetIdValue : 0}">
                 <input type="hidden" name="approval_item_ids[]" value="${esc(row.approval_id || '')}">
                 <input type="hidden" name="item_ids[]" value="${esc(row.item_id || '')}">
 
-                <input type="hidden" name="net_weight[]" data-id="${itemsetId}" value="${nfix(row.net_weight,3)}">
-                <input type="hidden" name="net_purity[]" data-id="${itemsetId}" value="${nfix(row.net_purity,3)}">
-                <input type="hidden" name="fine_weight[]" data-id="${itemsetId}" value="${nfix(row.fine_weight,3)}">
-                <input type="hidden" name="metal_amount[]" data-id="${itemsetId}" value="${nfix(row.metal_amount,2)}">
-                <input type="hidden" name="labour_amount[]" data-id="${itemsetId}" value="${nfix(row.labour_amount,2)}">
-                <input type="hidden" name="apply_metal[]" data-id="${itemsetId}" value="${row.apply_metal ? 1 : 0}">
-                <input type="hidden" name="apply_labour[]" data-id="${itemsetId}" value="${row.apply_labour ? 1 : 0}">
-                <input type="hidden" name="total_amount[]" data-id="${itemsetId}" value="${nfix(row.total_amount,2)}">
-                <input type="hidden" name="remarks[]" data-id="${itemsetId}" value="${esc(row.remarks || '')}">
-                <input type="hidden" name="other_charge_details[]" class="other-charge-details" data-id="${itemsetId}" value="">
+                <input type="hidden" name="net_weight[]" data-id="${rowKey}" value="${nfix(row.net_weight,3)}">
+                <input type="hidden" name="net_purity[]" data-id="${rowKey}" value="${nfix(row.net_purity,3)}">
+                <input type="hidden" name="fine_weight[]" data-id="${rowKey}" value="${nfix(row.fine_weight,3)}">
+                <input type="hidden" name="metal_amount[]" data-id="${rowKey}" value="${nfix(row.metal_amount,2)}">
+                <input type="hidden" name="labour_amount[]" data-id="${rowKey}" value="${nfix(row.labour_amount,2)}">
+                <input type="hidden" name="apply_metal[]" data-id="${rowKey}" value="${row.apply_metal ? 1 : 0}">
+                <input type="hidden" name="apply_labour[]" data-id="${rowKey}" value="${row.apply_labour ? 1 : 0}">
+                <input type="hidden" name="total_amount[]" data-id="${rowKey}" value="${nfix(row.total_amount,2)}">
+                <input type="hidden" name="remarks[]" data-id="${rowKey}" value="${esc(row.remarks || '')}">
+                <input type="hidden" name="other_charge_details[]" class="other-charge-details" data-id="${rowKey}" value="">
             </td>
 
-            <td><input type="number" step="0.001" class="form-control gross" name="gross_weight[]" data-id="${itemsetId}" value="${nfix(row.gross_weight,3)}"></td>
-            <td><input type="number" step="0.001" class="form-control other-weight" name="other_weight[]" data-id="${itemsetId}" value="${nfix(row.other_weight,3)}"></td>
-            <td><input type="number" step="0.001" class="form-control" id="net_${itemsetId}" readonly value="${nfix(row.net_weight,3)}"></td>
-            <td><input type="number" step="0.001" class="form-control purity" name="purity[]" data-id="${itemsetId}" value="${nfix(row.purity,3)}"></td>
-            <td><input type="number" step="0.001" class="form-control waste-percent" name="waste_percent[]" data-id="${itemsetId}" value="${nfix(row.waste_percent,3)}"></td>
-            <td><input type="number" step="0.001" class="form-control" id="net_purity_${itemsetId}" readonly value="${nfix(row.net_purity,3)}"></td>
-            <td><input type="number" step="0.001" class="form-control" id="fine_${itemsetId}" readonly value="${nfix(row.fine_weight,3)}"></td>
-            <td><input type="number" step="0.01" class="form-control metal-rate" name="metal_rate[]" data-id="${itemsetId}" value="${nfix(row.metal_rate,2)}"></td>
-            <td class="text-center"><input type="checkbox" class="form-check-input apply-metal" data-id="${itemsetId}" ${row.apply_metal ? 'checked' : ''}></td>
-            <td><input type="number" step="0.01" class="form-control" id="metal_amt_${itemsetId}" readonly value="${nfix(row.metal_amount,2)}"></td>
-            <td><input type="number" step="0.01" class="form-control labour-rate" name="labour_rate[]" data-id="${itemsetId}" value="${nfix(row.labour_rate,2)}"></td>
-            <td class="text-center"><input type="checkbox" class="form-check-input apply-labour" data-id="${itemsetId}" ${row.apply_labour ? 'checked' : ''}></td>
-            <td><input type="number" step="0.01" class="form-control" id="labour_amt_${itemsetId}" readonly value="${nfix(row.labour_amount,2)}"></td>
+            <td><input type="number" step="0.001" class="form-control gross" name="gross_weight[]" data-id="${rowKey}" value="${nfix(row.gross_weight,3)}"></td>
+            <td><input type="number" step="0.001" class="form-control other-weight" name="other_weight[]" data-id="${rowKey}" value="${nfix(row.other_weight,3)}"></td>
+            <td><input type="number" step="0.001" class="form-control" id="net_${rowKey}" readonly value="${nfix(row.net_weight,3)}"></td>
+            <td><input type="number" step="0.001" class="form-control purity" name="purity[]" data-id="${rowKey}" value="${nfix(row.purity,3)}"></td>
+            <td><input type="number" step="0.001" class="form-control waste-percent" name="waste_percent[]" data-id="${rowKey}" value="${nfix(row.waste_percent,3)}"></td>
+            <td><input type="number" step="0.001" class="form-control" id="net_purity_${rowKey}" readonly value="${nfix(row.net_purity,3)}"></td>
+            <td><input type="number" step="0.001" class="form-control" id="fine_${rowKey}" readonly value="${nfix(row.fine_weight,3)}"></td>
+            <td><input type="number" step="0.01" class="form-control metal-rate" name="metal_rate[]" data-id="${rowKey}" value="${nfix(row.metal_rate,2)}"></td>
+            <td class="text-center"><input type="checkbox" class="form-check-input apply-metal" data-id="${rowKey}" ${row.apply_metal ? 'checked' : ''}></td>
+            <td><input type="number" step="0.01" class="form-control" id="metal_amt_${rowKey}" readonly value="${nfix(row.metal_amount,2)}"></td>
+            <td><input type="number" step="0.01" class="form-control labour-rate" name="labour_rate[]" data-id="${rowKey}" value="${nfix(row.labour_rate,2)}"></td>
+            <td class="text-center"><input type="checkbox" class="form-check-input apply-labour" data-id="${rowKey}" ${row.apply_labour ? 'checked' : ''}></td>
+            <td><input type="number" step="0.01" class="form-control" id="labour_amt_${rowKey}" readonly value="${nfix(row.labour_amount,2)}"></td>
             <td>
                 <div class="input-group other-amount-wrap">
-                    <input type="number" step="0.01" class="form-control other-amount" name="other_amount[]" data-id="${itemsetId}" value="${nfix(row.other_amount,2)}">
-                    <button type="button" class="btn btn-info open-other-charge-modal" data-id="${itemsetId}" title="Other Charges">...</button>
+                    <input type="number" step="0.01" class="form-control other-amount" name="other_amount[]" data-id="${rowKey}" value="${nfix(row.other_amount,2)}">
+                    <button type="button" class="btn btn-info open-other-charge-modal" data-id="${rowKey}" title="Other Charges">...</button>
                 </div>
             </td>
-            <td><input type="number" step="0.01" class="form-control" id="total_amt_${itemsetId}" readonly value="${nfix(row.total_amount,2)}"></td>
-            <td><input type="text" class="form-control remarks" data-id="${itemsetId}" value="${esc(row.remarks || '')}"></td>
-            <td><button type="button" class="btn btn-danger removeRow" data-id="${itemsetId}">X</button></td>
+            <td><input type="number" step="0.01" class="form-control" id="total_amt_${rowKey}" readonly value="${nfix(row.total_amount,2)}"></td>
+            <td><input type="text" class="form-control remarks" data-id="${rowKey}" value="${esc(row.remarks || '')}"></td>
+            <td><button type="button" class="btn btn-danger removeRow" data-id="${rowKey}">X</button></td>
         </tr>`;
 
         $('#saleBody').append(tr);
-        recalcRow(itemsetId);
+        recalcRow(rowKey);
     }
 
     $('#customerSelect').change(function() {
@@ -843,12 +871,19 @@ $(function () {
             return;
         }
 
-        $.get("{{ route('company.items.search', $company->slug) }}", { search: query }, function(data) {
+        $.get("{{ route('company.items.search', $company->slug) }}", { search: query, limit: 1000 }, function(data) {
             let html = '';
             data.forEach(item => {
-                if (!item.id || selectedRows[item.id]) return;
+                const rowKey = item.is_item_only ? `item_${toNum(item.item_id)}` : `set_${toNum(item.id)}`;
+                if (!item.is_item_only && !item.id) return;
+                if (selectedRows[rowKey]) return;
+                const codeText = item.code || item.huid || '';
+                const nameText = item.name || '';
+                const isItemOnly = !!item.is_item_only;
+                const noteText = isItemOnly ? '<br><small>(Item found, Itemset not created)</small>' : '';
                 html += `
                 <a href="#" class="list-group-item itemSelect"
+                    data-row-key="${rowKey}"
                     data-itemset-id="${item.id}"
                     data-item-id="${item.item_id || ''}"
                     data-approval-id=""
@@ -871,7 +906,7 @@ $(function () {
                     data-other-amount="${nfix(item.other_amount,2)}"
                     data-remarks="${esc(item.remarks || '')}"
                     data-total-amount="${nfix(item.total_amount,2)}">
-                    ${esc(item.code)} - ${esc(item.name)}
+                    ${esc(codeText)}<br><small>${esc(nameText)}</small>${noteText}
                 </a>`;
             });
 
@@ -902,6 +937,7 @@ $(function () {
         e.preventDefault();
 
         appendSaleRow({
+            row_key: $(this).data('row-key'),
             itemset_id: toNum($(this).data('itemset-id')),
             item_id: toNum($(this).data('item-id')),
             approval_id: $(this).data('approval-id'),
@@ -1147,6 +1183,7 @@ $(function () {
     });
 
     $('#received_amount').on('input', recalcPendingAmount);
+    $('#additional_received_amount').on('input', recalcPendingAmount);
 
     $('#sale_item_name_search').on('input', function () {
         const query = $(this).val().toLowerCase().trim();
@@ -1171,6 +1208,17 @@ $(function () {
 
         if (!$('input[name="items[]"]').length) {
             alert('Add at least one item');
+            return false;
+        }
+
+        const netTotal = toNum($('#saleTotalAmount').text() || 0);
+        const received = toNum($('#received_amount').val() || 0);
+        const additional = toNum($('#additional_received_amount').val() || 0);
+        const effectiveReceived = received - existingRefundPaid;
+        const pendingBeforeAdditional = Math.max(0, netTotal - effectiveReceived);
+        if (additional - pendingBeforeAdditional > 0.000001) {
+            alert(`Add Payment cannot be more than pending amount (${nfix(pendingBeforeAdditional, 2)}).`);
+            $('#additional_received_amount').focus();
             return false;
         }
     });

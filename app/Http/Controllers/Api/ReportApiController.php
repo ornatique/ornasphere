@@ -252,6 +252,59 @@ class ReportApiController extends Controller
             ->download('approval_outstanding_report.pdf');
     }
 
+    public function outstandingAmount(Request $request)
+    {
+        $companyId = (int) $request->user()->company_id;
+
+        $rows = $this->outstandingAmountBaseQuery($request, $companyId)
+            ->latest('id')
+            ->get();
+
+        $summary = $this->outstandingAmountTotals($rows);
+
+        $data = $rows->map(function ($row) {
+            $received = (float) ($row->received_amount ?? 0);
+            $amountOut = (float) ($row->paid_amount ?? 0);
+            $totalAmount = (float) ($row->net_total ?? 0);
+            $pending = max(0, $totalAmount - ($received - $amountOut));
+
+            return [
+                'id' => (int) $row->id,
+                'voucher_no' => (string) ($row->voucher_no ?? ''),
+                'sale_date' => optional($row->sale_date)?->format('Y-m-d'),
+                'sale_date_fmt' => optional($row->sale_date)?->format('d-m-Y') ?? '-',
+                'party' => (string) (optional($row->customer)->name ?? '-'),
+                'city' => (string) (optional($row->customer)->city ?? '-'),
+                'payment_mode' => (string) ($row->payment_mode ?? '-'),
+                'gross_weight' => (float) ($row->sum_gross_weight ?? 0),
+                'net_weight' => (float) ($row->sum_net_weight ?? 0),
+                'total_amount' => $totalAmount,
+                'amount_in' => $received,
+                'amount_out' => $amountOut,
+                'pending' => $pending,
+            ];
+        })->values();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Outstanding amount report fetched successfully.',
+            'count' => $data->count(),
+            'filters' => [
+                'from_date' => $request->input('from_date'),
+                'to_date' => $request->input('to_date'),
+                'customer_id' => $request->input('customer_id'),
+                'city' => $request->input('city'),
+                'payment_mode' => $request->input('payment_mode'),
+                'weight_from' => $request->input('weight_from'),
+                'weight_to' => $request->input('weight_to'),
+                'amount_from' => $request->input('amount_from'),
+                'amount_to' => $request->input('amount_to'),
+            ],
+            'summary' => $summary,
+            'data' => $data,
+        ]);
+    }
+
     public function salesSummary(Request $request)
     {
         $user = $request->user();
@@ -891,5 +944,69 @@ class ReportApiController extends Controller
         }
 
         return $query;
+    }
+
+    private function outstandingAmountBaseQuery(Request $request, int $companyId)
+    {
+        $query = Sale::with(['customer'])
+            ->withSum('saleItems as sum_gross_weight', 'gross_weight')
+            ->withSum('saleItems as sum_net_weight', 'net_weight')
+            ->where('company_id', $companyId);
+
+        if ($request->filled('customer_id')) {
+            $query->where('customer_id', (int) $request->customer_id);
+        }
+        if ($request->filled('city')) {
+            $city = trim((string) $request->city);
+            $query->whereHas('customer', fn($q) => $q->where('city', $city));
+        }
+        if ($request->filled('payment_mode')) {
+            $query->where('payment_mode', trim((string) $request->payment_mode));
+        }
+
+        if ($request->filled('from_date') && $request->filled('to_date')) {
+            $query->whereBetween('sale_date', [$request->from_date, $request->to_date]);
+        } elseif ($request->filled('from_date')) {
+            $query->whereDate('sale_date', '>=', $request->from_date);
+        } elseif ($request->filled('to_date')) {
+            $query->whereDate('sale_date', '<=', $request->to_date);
+        }
+
+        if ($request->filled('weight_from')) {
+            $query->having('sum_net_weight', '>=', (float) $request->weight_from);
+        }
+        if ($request->filled('weight_to')) {
+            $query->having('sum_net_weight', '<=', (float) $request->weight_to);
+        }
+        if ($request->filled('amount_from')) {
+            $query->where('net_total', '>=', (float) $request->amount_from);
+        }
+        if ($request->filled('amount_to')) {
+            $query->where('net_total', '<=', (float) $request->amount_to);
+        }
+
+        return $query;
+    }
+
+    private function outstandingAmountTotals(Collection $rows): array
+    {
+        $amountIn = (float) $rows->sum(fn($r) => (float) ($r->received_amount ?? 0));
+        $amountOut = (float) $rows->sum(fn($r) => (float) ($r->paid_amount ?? 0));
+        $totalAmount = (float) $rows->sum(fn($r) => (float) ($r->net_total ?? 0));
+        $pendingAmount = (float) $rows->sum(function ($r) {
+            $received = (float) ($r->received_amount ?? 0);
+            $out = (float) ($r->paid_amount ?? 0);
+            return max(0, (float) ($r->net_total ?? 0) - ($received - $out));
+        });
+
+        return [
+            'voucher_count' => (int) $rows->count(),
+            'gross_weight' => (float) $rows->sum(fn($r) => (float) ($r->sum_gross_weight ?? 0)),
+            'net_weight' => (float) $rows->sum(fn($r) => (float) ($r->sum_net_weight ?? 0)),
+            'total_amount' => $totalAmount,
+            'amount_in' => $amountIn,
+            'amount_out' => $amountOut,
+            'pending_amount' => $pendingAmount,
+        ];
     }
 }

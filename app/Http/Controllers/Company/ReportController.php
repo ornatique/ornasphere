@@ -543,8 +543,21 @@ class ReportController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
         $rows = $this->outstandingAmountBaseQuery($company, $request)->latest('id')->get();
         $summary = $this->outstandingAmountTotals($rows);
+        $visible = [
+            'default' => (int) $request->input('use_default_report', 0) === 1,
+            'date' => (int) $request->input('use_date', 0) === 1,
+            'party' => (int) $request->input('use_customer', 0) === 1,
+            'city' => (int) $request->input('use_city', 0) === 1,
+            'mode' => (int) $request->input('use_payment_mode', 0) === 1,
+            'weight' => (int) $request->input('use_weight', 0) === 1,
+            'amount' => (int) $request->input('use_amount', 0) === 1,
+        ];
 
-        return Pdf::loadView('company.reports.pdf.outstanding_amount', compact('company', 'rows', 'summary'))
+        if (!$visible['default'] && !$visible['date'] && !$visible['party'] && !$visible['city'] && !$visible['mode'] && !$visible['weight'] && !$visible['amount']) {
+            $visible['default'] = true;
+        }
+
+        return Pdf::loadView('company.reports.pdf.outstanding_amount', compact('company', 'rows', 'summary', 'visible'))
             ->setPaper('a4', 'portrait')
             ->download('outstanding_amount_report.pdf');
     }

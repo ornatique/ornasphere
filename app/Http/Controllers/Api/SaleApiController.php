@@ -7,13 +7,18 @@ use Illuminate\Http\Request;
 use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\ItemSet;
+use App\Models\Item;
+use App\Models\Company;
 use App\Models\Customer;
 use App\Models\SaleCart;
+use App\Models\SalePayment;
 use App\Models\ApprovalItem;
 use App\Models\ApprovalHeader;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Schema;
 use Endroid\QrCode\Builder\Builder;
 use Endroid\QrCode\Writer\PngWriter;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -25,7 +30,7 @@ class SaleApiController extends Controller
         $company = $request->user()->company;
         $companyId = $company->id;
 
-        $sales = Sale::with(['customer', 'creator'])
+        $sales = Sale::with(['customer', 'creator', 'payments'])
             ->withSum('saleItems as total_qty', 'qty')
             ->withSum('saleItems as total_gross_weight', 'gross_weight')
             ->withSum('saleItems as total_net_weight', 'net_weight')
@@ -66,6 +71,16 @@ class SaleApiController extends Controller
                 'payment_mode' => $sale->payment_mode,
                 'payment_reference' => $sale->payment_reference,
                 'payment_note' => $sale->payment_note,
+                'payment_history' => collect($sale->payments ?? [])->map(function ($p) {
+                    return [
+                        'id' => (int) $p->id,
+                        'paid_on' => optional($p->paid_on)?->format('Y-m-d'),
+                        'amount' => (float) ($p->amount ?? 0),
+                        'payment_mode' => $p->payment_mode,
+                        'payment_reference' => $p->payment_reference,
+                        'payment_note' => $p->payment_note,
+                    ];
+                })->values(),
                 'created_by' => optional($sale->creator)->name,
                 'modified_at' => optional($sale->updated_at)?->format('Y-m-d H:i:s'),
                 'modified_count' => (int) ($sale->modified_count ?? 0),
@@ -109,6 +124,121 @@ class SaleApiController extends Controller
         return response()->json([
             'success' => true,
             'data' => $customers
+        ]);
+    }
+
+    // Search itemsets + direct items for sale create flow (same as web behavior)
+    public function searchItemsets(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+        $search = trim((string) $request->input('search', ''));
+        $limit = max(10, min((int) $request->input('limit', 1000), 2000));
+
+        $itemSets = ItemSet::with('item')
+            ->where('company_id', $companyId)
+            ->where('is_final', 1)
+            ->where('is_sold', 0)
+            ->where(function ($q) use ($search) {
+                $q->where('qr_code', 'like', '%' . $search . '%')
+                    ->orWhere('HUID', 'like', '%' . $search . '%')
+                    ->orWhere('barcode', 'like', '%' . $search . '%')
+                    ->orWhereHas('item', function ($q2) use ($search) {
+                        $q2->where('item_name', 'like', '%' . $search . '%')
+                            ->orWhere('item_code', 'like', '%' . $search . '%');
+                    });
+            })
+            ->orderByDesc('id')
+            ->limit($limit)
+            ->get();
+
+        $itemSetItemIds = $itemSets->pluck('item_id')->filter()->unique()->values()->all();
+
+        $itemOnlyQuery = Item::query()
+            ->where('company_id', $companyId)
+            ->whereNotIn('id', $itemSetItemIds)
+            ->where(function ($q) use ($search) {
+                $q->where('item_name', 'like', '%' . $search . '%')
+                    ->orWhere('item_code', 'like', '%' . $search . '%');
+            });
+
+        if (Schema::hasColumn('items', 'is_active')) {
+            $itemOnlyQuery->where('is_active', 1);
+        }
+
+        $itemOnly = $itemOnlyQuery
+            ->orderBy('item_name')
+            ->limit($limit)
+            ->get(['id', 'item_name', 'item_code', 'outward_purity', 'labour_rate']);
+
+        $itemSetRows = $itemSets->map(function ($set) {
+            $gross = (float) ($set->gross_weight ?? 0);
+            $otherWeight = (float) ($set->other ?? 0);
+            $net = (float) ($set->net_weight ?? ($gross - $otherWeight));
+            $purity = (float) (optional($set->item)->outward_purity ?? 0);
+            $wastePercent = 0;
+            $netPurity = $purity + $wastePercent;
+            $fineWeight = $net * $netPurity / 100;
+            $metalRate = 0;
+            $metalAmount = $net * $metalRate;
+            $labourRate = (float) ($set->sale_labour_rate ?? optional($set->item)->labour_rate ?? 0);
+            $labourAmount = $net * $labourRate;
+            $otherAmount = (float) ($set->sale_other ?? 0);
+            $totalAmount = $metalAmount + $labourAmount + $otherAmount;
+
+            return [
+                'id' => (int) $set->id,
+                'itemset_id' => (int) $set->id,
+                'item_id' => (int) ($set->item_id ?? 0),
+                'name' => (string) (optional($set->item)->item_name ?? ''),
+                'code' => (string) ($set->qr_code ?? ''),
+                'huid' => (string) ($set->HUID ?? ''),
+                'gross_weight' => $gross,
+                'other_weight' => $otherWeight,
+                'net_weight' => $net,
+                'purity' => $purity,
+                'waste_percent' => $wastePercent,
+                'net_purity' => $netPurity,
+                'fine_weight' => $fineWeight,
+                'metal_rate' => $metalRate,
+                'metal_amount' => $metalAmount,
+                'labour_rate' => $labourRate,
+                'labour_amount' => $labourAmount,
+                'other_amount' => $otherAmount,
+                'total_amount' => $totalAmount,
+                'remarks' => '',
+                'is_item_only' => false,
+            ];
+        })->values();
+
+        $itemOnlyRows = $itemOnly->map(function ($item) {
+            return [
+                'id' => 0,
+                'itemset_id' => 0,
+                'item_id' => (int) $item->id,
+                'name' => (string) ($item->item_name ?? ''),
+                'code' => (string) ($item->item_code ?? ''),
+                'huid' => '',
+                'gross_weight' => 0,
+                'other_weight' => 0,
+                'net_weight' => 0,
+                'purity' => (float) ($item->outward_purity ?? 0),
+                'waste_percent' => 0,
+                'net_purity' => 0,
+                'fine_weight' => 0,
+                'metal_rate' => 0,
+                'metal_amount' => 0,
+                'labour_rate' => (float) ($item->labour_rate ?? 0),
+                'labour_amount' => 0,
+                'other_amount' => 0,
+                'total_amount' => 0,
+                'remarks' => '',
+                'is_item_only' => true,
+            ];
+        })->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => $itemSetRows->concat($itemOnlyRows)->values(),
         ]);
     }
 
@@ -443,6 +573,7 @@ class SaleApiController extends Controller
 
         try {
             $user = auth()->user();
+            $companyId = (int) $user->company_id;
 
             $request->validate([
                 'customer_id' => 'required|integer',
@@ -485,6 +616,20 @@ class SaleApiController extends Controller
                 'employee_id' => $user->id,
                 'modified_count' => 0,
             ]);
+
+            $initialReceived = (float) $request->input('received_amount', 0);
+            if ($initialReceived > 0) {
+                SalePayment::create([
+                    'company_id' => $companyId,
+                    'sale_id' => $sale->id,
+                    'amount' => $initialReceived,
+                    'paid_on' => Carbon::parse($sale->sale_date)->toDateString(),
+                    'payment_mode' => $request->input('payment_mode'),
+                    'payment_reference' => $request->input('payment_reference'),
+                    'payment_note' => $request->input('payment_note'),
+                    'created_by' => $user->id,
+                ]);
+            }
 
             $total = 0;
 
@@ -708,7 +853,6 @@ class SaleApiController extends Controller
 
         $request->validate([
             'items' => 'required|array|min:1',
-            'items.*.itemset_id' => 'required|integer',
             'remarks' => 'nullable|string',
             'received_amount' => 'nullable|numeric|min:0',
             'payment_mode' => 'nullable|string|max:30',
@@ -739,11 +883,6 @@ class SaleApiController extends Controller
             ], 422);
         }
 
-        $request->validate([
-            'items' => 'required|array|min:1',
-            'items.*.itemset_id' => 'required|integer',
-        ]);
-
         DB::beginTransaction();
 
         try {
@@ -762,32 +901,67 @@ class SaleApiController extends Controller
                 'modified_count' => 0,
             ]);
 
+            $initialReceived = (float) $request->input('received_amount', 0);
+            if ($initialReceived > 0) {
+                SalePayment::create([
+                    'company_id' => $companyId,
+                    'sale_id' => $sale->id,
+                    'amount' => $initialReceived,
+                    'paid_on' => Carbon::parse($sale->sale_date)->toDateString(),
+                    'payment_mode' => $request->input('payment_mode'),
+                    'payment_reference' => $request->input('payment_reference'),
+                    'payment_note' => $request->input('payment_note'),
+                    'created_by' => $user->id,
+                ]);
+            }
+
             $total = 0;
             $approvalIds = [];
             $soldItemsetIds = [];
 
             foreach ($request->items as $item) {
-                $itemSetQuery = ItemSet::where('company_id', $companyId)
-                    ->where('id', (int) $item['itemset_id']);
+                $itemsetId = (int) ($item['itemset_id'] ?? $item['id'] ?? 0);
+                $productId = (int) ($item['item_id'] ?? $item['product_id'] ?? 0);
 
-                // For normal sale/scanner/manual rows, only unsold labels are allowed.
-                // For approval-conversion rows, label can already be marked sold (outward on approval).
-                if (empty($item['approval_item_id'])) {
-                    $itemSetQuery->where('is_sold', 0);
-                }
-
-                $itemSet = $itemSetQuery->first();
-                if (!$itemSet) {
+                if ($itemsetId <= 0 && $productId <= 0) {
                     return response()->json([
                         'success' => false,
-                        'message' => 'ItemSet not found or not available for sale: ' . ($item['itemset_id'] ?? ''),
+                        'message' => 'Each row requires itemset_id or item_id.',
                     ], 422);
+                }
+
+                $itemSet = null;
+                if ($itemsetId > 0) {
+                    $itemSetQuery = ItemSet::where('company_id', $companyId)
+                        ->where('id', $itemsetId);
+
+                    // For normal sale/scanner/manual rows, only unsold labels are allowed.
+                    // For approval-conversion rows, label can already be marked sold (outward on approval).
+                    if (empty($item['approval_item_id'])) {
+                        $itemSetQuery->where('is_sold', 0);
+                    }
+
+                    $itemSet = $itemSetQuery->first();
+                    if (!$itemSet) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'ItemSet not found or not available for sale: ' . ($item['itemset_id'] ?? ''),
+                        ], 422);
+                    }
+                } else {
+                    $directItem = Item::where('company_id', $companyId)->find($productId);
+                    if (!$directItem) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Item not found: ' . $productId,
+                        ], 422);
+                    }
                 }
 
                 $grossWeight = (float) ($item['gross_weight'] ?? $item['gross_wt'] ?? $itemSet->gross_weight ?? 0);
                 $otherWeight = (float) ($item['other_weight'] ?? $item['other_wt'] ?? $itemSet->other ?? 0);
                 $netWeight = (float) ($item['net_weight'] ?? $item['net_wt'] ?? $itemSet->net_weight ?? max(0, $grossWeight - $otherWeight));
-                $purity = (float) ($item['purity'] ?? optional($itemSet->item)->outward_purity ?? 0);
+                $purity = (float) ($item['purity'] ?? optional($itemSet?->item)->outward_purity ?? 0);
                 $wastePercent = (float) ($item['waste_percent'] ?? $item['waste_pct'] ?? 0);
                 $netPurity = (float) ($item['net_purity'] ?? ($purity - $wastePercent));
                 $fineWeight = (float) ($item['fine_weight'] ?? $item['fine_wt'] ?? ($netWeight * $netPurity / 100));
@@ -801,8 +975,8 @@ class SaleApiController extends Controller
 
                 SaleItem::create([
                     'sale_id' => $sale->id,
-                    'itemset_id' => $itemSet->id,
-                    'product_id' => $item['product_id'] ?? $itemSet->item_id ?? null,
+                    'itemset_id' => $itemSet?->id ?: 0,
+                    'product_id' => $item['product_id'] ?? $productId ?? $itemSet->item_id ?? null,
                     'approval_item_id' => $item['approval_item_id'] ?? null,
                     'qty' => $qty,
                     'gross_weight' => $grossWeight,
@@ -830,8 +1004,10 @@ class SaleApiController extends Controller
                     }
                 }
 
-                $itemSet->update(['is_sold' => 1]);
-                $soldItemsetIds[] = (int) $itemSet->id;
+                if ($itemSet) {
+                    $itemSet->update(['is_sold' => 1]);
+                    $soldItemsetIds[] = (int) $itemSet->id;
+                }
                 $total += $lineTotal;
             }
 
@@ -868,7 +1044,7 @@ class SaleApiController extends Controller
     {
         $companyId = $request->user()->company_id;
 
-        $sale = Sale::with('customer', 'saleItems.itemset.item', 'creator')
+        $sale = Sale::with('customer', 'saleItems.itemset.item', 'creator', 'payments')
             ->where('company_id', $companyId)
             ->find($id);
 
@@ -898,6 +1074,16 @@ class SaleApiController extends Controller
         $refundPaid = (float) ($sale->paid_amount ?? 0);
         $sale->setAttribute('refund_paid_amount', $refundPaid);
         $sale->setAttribute('pending_amount', max(0, (float) ($sale->net_total ?? 0) - ($received - $refundPaid)));
+        $sale->setAttribute('payment_history', collect($sale->payments ?? [])->map(function ($p) {
+            return [
+                'id' => (int) $p->id,
+                'paid_on' => optional($p->paid_on)?->format('Y-m-d'),
+                'amount' => (float) ($p->amount ?? 0),
+                'payment_mode' => $p->payment_mode,
+                'payment_reference' => $p->payment_reference,
+                'payment_note' => $p->payment_note,
+            ];
+        })->values());
 
         // Add item_name in each sale item for app-side direct consumption.
         $sale->saleItems->transform(function ($row) {
@@ -914,12 +1100,13 @@ class SaleApiController extends Controller
 
     public function update(Request $request, $id)
     {
+        $user = $request->user();
         $companyId = $request->user()->company_id;
 
         DB::beginTransaction();
        
         try {
-            $sale = Sale::with('saleItems')
+            $sale = Sale::with('saleItems', 'payments')
                 ->where('company_id', $companyId)
                 ->findOrFail((int) $id);
                 
@@ -928,6 +1115,7 @@ class SaleApiController extends Controller
                 'items' => 'required|array|min:1',
                 'remarks' => 'nullable|string',
                 'received_amount' => 'nullable|numeric|min:0',
+                'additional_received_amount' => 'nullable|numeric|min:0',
                 'payment_mode' => 'nullable|string|max:30',
                 'payment_reference' => 'nullable|string|max:120',
                 'payment_note' => 'nullable|string|max:255',
@@ -943,14 +1131,59 @@ class SaleApiController extends Controller
                 ], 422);
             }
 
+            $incomingReceived = (float) $request->input('received_amount', $sale->received_amount ?? 0);
+            $additionalReceived = (float) $request->input('additional_received_amount', 0);
+            $finalReceived = $additionalReceived > 0
+                ? ((float) ($sale->received_amount ?? 0) + $additionalReceived)
+                : $incomingReceived;
+            $baseEffectiveReceived = (float) ($sale->received_amount ?? 0) - (float) ($sale->paid_amount ?? 0);
+
             $sale->update([
                 'customer_id' => (int) $request->customer_id,
                 'remarks' => $request->input('remarks', $request->input('remark', $sale->remarks)),
-                'received_amount' => (float) $request->input('received_amount', $sale->received_amount ?? 0),
+                'received_amount' => $finalReceived,
                 'payment_mode' => $request->input('payment_mode', $sale->payment_mode),
                 'payment_reference' => $request->input('payment_reference', $sale->payment_reference),
                 'payment_note' => $request->input('payment_note', $sale->payment_note),
             ]);
+
+            if ($additionalReceived > 0) {
+                if ((float) ($sale->payments()->sum('amount')) <= 0 && $baseEffectiveReceived > 0) {
+                    SalePayment::create([
+                        'company_id' => $companyId,
+                        'sale_id' => $sale->id,
+                        'amount' => $baseEffectiveReceived,
+                        'paid_on' => Carbon::parse($sale->sale_date)->toDateString(),
+                        'payment_mode' => $sale->payment_mode,
+                        'payment_reference' => $sale->payment_reference,
+                        'payment_note' => $sale->payment_note,
+                        'created_by' => $user->id,
+                    ]);
+                }
+
+                SalePayment::create([
+                    'company_id' => $companyId,
+                    'sale_id' => $sale->id,
+                    'amount' => $additionalReceived,
+                    'paid_on' => now()->toDateString(),
+                    'payment_mode' => $request->input('payment_mode', $sale->payment_mode),
+                    'payment_reference' => $request->input('payment_reference', $sale->payment_reference),
+                    'payment_note' => $request->input('payment_note', $sale->payment_note),
+                    'created_by' => $user->id,
+                ]);
+            } elseif ((float) ($sale->payments()->sum('amount')) <= 0 && $finalReceived > 0) {
+                // backward compatibility for older data
+                SalePayment::create([
+                    'company_id' => $companyId,
+                    'sale_id' => $sale->id,
+                    'amount' => $finalReceived,
+                    'paid_on' => Carbon::parse($sale->sale_date)->toDateString(),
+                    'payment_mode' => $sale->payment_mode,
+                    'payment_reference' => $sale->payment_reference,
+                    'payment_note' => $sale->payment_note,
+                    'created_by' => $user->id,
+                ]);
+            }
 
             $incomingRows = collect($request->input('items', []))
                 ->filter(fn($row) => is_array($row))
@@ -1145,9 +1378,10 @@ class SaleApiController extends Controller
     {
         $companyId = $request->user()->company_id;
 
-        $sale = Sale::with(['customer', 'saleItems.itemset.item'])
-            ->where('company_id', $companyId)
-            ->find($id);
+            $company = Company::find($companyId);
+            $sale = Sale::with(['customer', 'saleItems.itemset.item', 'payments'])
+                ->where('company_id', $companyId)
+                ->find($id);
 
         if (!$sale) {
             return response()->json([
@@ -1156,7 +1390,7 @@ class SaleApiController extends Controller
             ], 404);
         }
 
-        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale'))
+        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale', 'company'))
             ->setPaper('a4', 'portrait');
 
         $filename = 'sale-voucher-' . ($sale->voucher_no ?: $sale->id) . '.pdf';
@@ -1186,7 +1420,8 @@ class SaleApiController extends Controller
             ], 422);
         }
 
-        $sale = Sale::with(['customer', 'saleItems.itemset.item'])
+        $company = Company::find($companyId);
+        $sale = Sale::with(['customer', 'saleItems.itemset.item', 'payments'])
             ->where('company_id', $companyId)
             ->find($id);
 
@@ -1198,7 +1433,7 @@ class SaleApiController extends Controller
             ], 404);
         }
 
-        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale'))
+        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale', 'company'))
             ->setPaper('a4', 'portrait');
 
         $filename = 'sale-voucher-' . ($sale->voucher_no ?: $sale->id) . '.pdf';

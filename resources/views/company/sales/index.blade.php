@@ -21,6 +21,36 @@
         </div>
 
         <div class="card-body">
+            <style>
+                .sales-list-grid-wrap {
+                    overflow: auto;
+                    position: relative;
+                    border: 0;
+                    border-radius: 0;
+                    scrollbar-width: thin;
+                    scrollbar-color: transparent transparent;
+                }
+                .sales-list-grid-wrap:hover {
+                    scrollbar-color: rgba(125, 145, 255, 0.7) rgba(255, 255, 255, 0.08);
+                }
+                .sales-list-grid-wrap::-webkit-scrollbar {
+                    width: 10px;
+                    height: 10px;
+                }
+                .sales-list-grid-wrap::-webkit-scrollbar-track {
+                    background: transparent;
+                }
+                .sales-list-grid-wrap::-webkit-scrollbar-thumb {
+                    background: transparent;
+                    border-radius: 10px;
+                }
+                .sales-list-grid-wrap:hover::-webkit-scrollbar-thumb {
+                    background: rgba(125, 145, 255, 0.7);
+                }
+                .sales-list-grid-wrap:hover::-webkit-scrollbar-track {
+                    background: rgba(255, 255, 255, 0.08);
+                }
+            </style>
 
             {{-- 🔍 DATE FILTER --}}
             <div class="row mb-3">
@@ -51,6 +81,7 @@
             </div>
 
             {{-- TABLE --}}
+            <div class="table-responsive sales-list-grid-wrap">
             <table class="table table-bordered" id="salesTable">
 
                 <thead>
@@ -78,6 +109,7 @@
                 </thead>
 
             </table>
+            </div>
 
         </div>
 

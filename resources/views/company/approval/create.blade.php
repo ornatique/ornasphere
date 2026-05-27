@@ -619,13 +619,18 @@ $(function () {
             return;
         }
 
-        $.get("{{ route('company.approval.searchItemSets', $company->slug) }}", { keyword }, function (res) {
+        $.get("{{ route('company.approval.searchItemSets', $company->slug) }}", { keyword, limit: 1000 }, function (res) {
             let html = '';
 
             res.forEach(itemSet => {
-                if (selectedItems[itemSet.id]) return;
+                const isItemOnly = !!itemSet.is_item_only;
+                if (!isItemOnly && selectedItems[itemSet.id]) return;
+                const codeText = itemSet.qr_code || itemSet.HUID || itemSet.barcode || '';
+                const rowClass = isItemOnly ? ' disabled text-muted bg-transparent' : '';
+                const disabledAttr = isItemOnly ? ' data-item-only="1"' : '';
+                const noteText = isItemOnly ? '<br><small>(Item found, Itemset not created)</small>' : '';
                 html += `
-                    <a href="#" class="list-group-item list-group-item-action selectItem"
+                    <a href="#" class="list-group-item list-group-item-action selectItem${rowClass}"${disabledAttr}
                        data-id="${itemSet.id}"
                        data-item-id="${itemSet.item_id}"
                        data-item-name="${esc(itemSet.item?.item_name || '')}"
@@ -638,8 +643,8 @@ $(function () {
                        data-metal-rate="0"
                        data-labour-rate="${toNum(itemSet.sale_labour_rate ?? itemSet.item?.labour_rate).toFixed(2)}"
                        data-other-amount="${toNum(itemSet.sale_other).toFixed(2)}">
-                       ${esc(itemSet.qr_code || '')}<br>
-                        <small>${esc(itemSet.item?.item_name || '')}</small>
+                       ${esc(codeText)}<br>
+                        <small>${esc(itemSet.item?.item_name || '')}</small>${noteText}
                     </a>
                 `;
             });
@@ -650,6 +655,9 @@ $(function () {
 
     $(document).on('click', '.selectItem', function (e) {
         e.preventDefault();
+        if ($(this).data('item-only') == 1) {
+            return;
+        }
 
         const id = Number($(this).data('id'));
 

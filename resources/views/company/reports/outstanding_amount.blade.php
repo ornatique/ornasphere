@@ -278,6 +278,13 @@ $(function () {
 
     function queryParams() {
         return {
+            use_default_report: $('#use_default_report').is(':checked') ? 1 : 0,
+            use_date: $('#use_date').is(':checked') ? 1 : 0,
+            use_customer: $('#use_customer').is(':checked') ? 1 : 0,
+            use_city: $('#use_city').is(':checked') ? 1 : 0,
+            use_payment_mode: $('#use_payment_mode').is(':checked') ? 1 : 0,
+            use_weight: $('#use_weight').is(':checked') ? 1 : 0,
+            use_amount: $('#use_amount').is(':checked') ? 1 : 0,
             from_date: $('#use_date').is(':checked') ? $('#from_date').val() : '',
             to_date: $('#use_date').is(':checked') ? $('#to_date').val() : '',
             customer_id: $('#use_customer').is(':checked') ? $('#customer_id').val() : '',

@@ -439,8 +439,8 @@ class ApprovalApiController extends Controller
                 $metalAmount = (float) ($row['metal_amount'] ?? ($netWeight * $metalRate));
                 $labourRate = (float) ($row['labour_rate'] ?? $itemSet->sale_labour_rate ?? optional($itemSet->item)->labour_rate ?? 0);
                 $labourAmount = (float) ($row['labour_amount'] ?? ($netWeight * $labourRate));
-                $otherAmount = (float) ($row['other_amount'] ?? $itemSet->sale_other ?? 0);
-                $totalAmount = (float) ($row['total_amount'] ?? ($metalAmount + $labourAmount + $otherAmount));
+                $otherAmount = $this->resolveOtherAmount($row['other_amount'] ?? null, $itemSet->sale_other ?? 0);
+                $totalAmount = $this->resolveTotalAmount($row['total_amount'] ?? null, $metalAmount, $labourAmount, $otherAmount);
 
                 ApprovalItem::create([
                     'approval_id' => $approval->id,
@@ -958,8 +958,8 @@ class ApprovalApiController extends Controller
         $metalAmount = (float) ($row['metal_amount'] ?? ($netWeight * $metalRate));
         $labourRate = (float) ($row['labour_rate'] ?? $itemSet->sale_labour_rate ?? optional($itemSet->item)->labour_rate ?? 0);
         $labourAmount = (float) ($row['labour_amount'] ?? ($netWeight * $labourRate));
-        $otherAmount = (float) ($row['other_amount'] ?? $itemSet->sale_other ?? 0);
-        $totalAmount = (float) ($row['total_amount'] ?? ($metalAmount + $labourAmount + $otherAmount));
+        $otherAmount = $this->resolveOtherAmount($row['other_amount'] ?? null, $itemSet->sale_other ?? 0);
+        $totalAmount = $this->resolveTotalAmount($row['total_amount'] ?? null, $metalAmount, $labourAmount, $otherAmount);
 
         return [
             'huid' => $row['huid'] ?? $itemSet->HUID,
@@ -978,6 +978,36 @@ class ApprovalApiController extends Controller
             'other_amount' => $otherAmount,
             'total_amount' => $totalAmount,
         ];
+    }
+
+    private function resolveOtherAmount($inputOtherAmount, $itemSetSaleOther): float
+    {
+        $baseOther = (float) ($itemSetSaleOther ?? 0);
+        if ($inputOtherAmount === null || $inputOtherAmount === '') {
+            return $baseOther;
+        }
+
+        $inputOther = (float) $inputOtherAmount;
+        if ($inputOther <= 0 && $baseOther > 0) {
+            return $baseOther;
+        }
+
+        return $inputOther;
+    }
+
+    private function resolveTotalAmount($inputTotalAmount, float $metalAmount, float $labourAmount, float $otherAmount): float
+    {
+        $calculated = (float) ($metalAmount + $labourAmount + $otherAmount);
+        if ($inputTotalAmount === null || $inputTotalAmount === '') {
+            return $calculated;
+        }
+
+        $inputTotal = (float) $inputTotalAmount;
+        if ($inputTotal <= 0 && $calculated > 0) {
+            return $calculated;
+        }
+
+        return $inputTotal;
     }
 
     private function resolveApprovalUpdateItemSet(array $row, int $companyId): ?ItemSet
