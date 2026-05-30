@@ -544,13 +544,13 @@ class ReportController extends Controller
         $rows = $this->outstandingAmountBaseQuery($company, $request)->latest('id')->get();
         $summary = $this->outstandingAmountTotals($rows);
         $visible = [
-            'default' => (int) $request->input('use_default_report', 0) === 1,
-            'date' => (int) $request->input('use_date', 0) === 1,
-            'party' => (int) $request->input('use_customer', 0) === 1,
-            'city' => (int) $request->input('use_city', 0) === 1,
-            'mode' => (int) $request->input('use_payment_mode', 0) === 1,
-            'weight' => (int) $request->input('use_weight', 0) === 1,
-            'amount' => (int) $request->input('use_amount', 0) === 1,
+            'default' => $this->isOutstandingToggleEnabled($request, ['use_default_report', 'use_default']),
+            'date' => $this->isOutstandingToggleEnabled($request, ['use_date']),
+            'party' => $this->isOutstandingToggleEnabled($request, ['use_customer', 'use_party']),
+            'city' => $this->isOutstandingToggleEnabled($request, ['use_city']),
+            'mode' => $this->isOutstandingToggleEnabled($request, ['use_payment_mode', 'use_mode']),
+            'weight' => $this->isOutstandingToggleEnabled($request, ['use_weight']),
+            'amount' => $this->isOutstandingToggleEnabled($request, ['use_amount']),
         ];
 
         if (!$visible['default'] && !$visible['date'] && !$visible['party'] && !$visible['city'] && !$visible['mode'] && !$visible['weight'] && !$visible['amount']) {
@@ -931,36 +931,83 @@ class ReportController extends Controller
             ->withSum('saleItems as sum_net_weight', 'net_weight')
             ->where('company_id', $company->id);
 
-        if ($request->filled('customer_id')) {
+        $hasUseToggles = $this->hasOutstandingUseToggles($request);
+        $useDate = $this->isOutstandingToggleEnabled($request, ['use_date']);
+        $useCustomer = $this->isOutstandingToggleEnabled($request, ['use_customer', 'use_party']);
+        $useCity = $this->isOutstandingToggleEnabled($request, ['use_city']);
+        $useMode = $this->isOutstandingToggleEnabled($request, ['use_payment_mode', 'use_mode']);
+        $useWeight = $this->isOutstandingToggleEnabled($request, ['use_weight']);
+        $useAmount = $this->isOutstandingToggleEnabled($request, ['use_amount']);
+
+        if (($useCustomer || !$hasUseToggles) && $request->filled('customer_id')) {
             $query->where('customer_id', (int) $request->customer_id);
         }
-        if ($request->filled('city')) {
+        if (($useCity || !$hasUseToggles) && $request->filled('city')) {
             $city = trim((string) $request->city);
             $query->whereHas('customer', fn($q) => $q->where('city', $city));
         }
-        if ($request->filled('payment_mode')) {
+        if (($useMode || !$hasUseToggles) && $request->filled('payment_mode')) {
             $query->where('payment_mode', trim((string) $request->payment_mode));
         }
-        if ($request->filled('from_date') && $request->filled('to_date')) {
-            $query->whereBetween('sale_date', [$request->from_date, $request->to_date]);
+        $hasDateInput = $request->filled('from_date') || $request->filled('to_date');
+        if ($useDate || !$hasUseToggles || $hasDateInput) {
+            if ($request->filled('from_date') && $request->filled('to_date')) {
+                $query->whereBetween('sale_date', [$request->from_date, $request->to_date]);
+            } elseif ($request->filled('from_date')) {
+                $query->whereDate('sale_date', '>=', $request->from_date);
+            } elseif ($request->filled('to_date')) {
+                $query->whereDate('sale_date', '<=', $request->to_date);
+            }
         }
 
-        if ($request->filled('weight_from')) {
-            $minWeight = (float) $request->weight_from;
-            $query->having('sum_net_weight', '>=', $minWeight);
+        if ($useWeight || !$hasUseToggles) {
+            if ($request->filled('weight_from')) {
+                $minWeight = (float) $request->weight_from;
+                $query->having('sum_net_weight', '>=', $minWeight);
+            }
+            if ($request->filled('weight_to')) {
+                $maxWeight = (float) $request->weight_to;
+                $query->having('sum_net_weight', '<=', $maxWeight);
+            }
         }
-        if ($request->filled('weight_to')) {
-            $maxWeight = (float) $request->weight_to;
-            $query->having('sum_net_weight', '<=', $maxWeight);
-        }
-        if ($request->filled('amount_from')) {
-            $query->where('net_total', '>=', (float) $request->amount_from);
-        }
-        if ($request->filled('amount_to')) {
-            $query->where('net_total', '<=', (float) $request->amount_to);
+        if ($useAmount || !$hasUseToggles) {
+            if ($request->filled('amount_from')) {
+                $query->where('net_total', '>=', (float) $request->amount_from);
+            }
+            if ($request->filled('amount_to')) {
+                $query->where('net_total', '<=', (float) $request->amount_to);
+            }
         }
 
         return $query;
+    }
+
+    private function isOutstandingToggleEnabled(Request $request, array $keys): bool
+    {
+        foreach ($keys as $key) {
+            if (!$request->has($key)) {
+                continue;
+            }
+            $value = $request->input($key);
+            if (in_array($value, [1, '1', true, 'true', 'on', 'yes'], true)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function hasOutstandingUseToggles(Request $request): bool
+    {
+        foreach ([
+            'use_default_report', 'use_default', 'use_date',
+            'use_customer', 'use_party', 'use_city',
+            'use_payment_mode', 'use_mode', 'use_weight', 'use_amount',
+        ] as $key) {
+            if ($request->has($key)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function outstandingAmountTotals(Collection $rows): array

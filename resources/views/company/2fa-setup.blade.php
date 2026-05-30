@@ -6,7 +6,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Company Two Factor Authentication</title>
 
-    {{-- CSS --}}
     <link rel="stylesheet" href="{{ asset('celestial/assets/vendors/typicons.font/font/typicons.css') }}">
     <link rel="stylesheet" href="{{ asset('celestial/assets/vendors/mdi/css/materialdesignicons.min.css') }}">
     <link rel="stylesheet" href="{{ asset('celestial/assets/vendors/css/vendor.bundle.base.css') }}">
@@ -22,21 +21,24 @@
                     <div class="col-lg-5 mx-auto">
 
                         <div class="auth-form-transparent text-left py-5 px-4 px-sm-5">
+                            @php
+                                $user = auth()->user();
+                                $companyName = optional($company)->name ?? optional($user->company)->name ?? config('app.name');
+                                $companyLogo = !empty(optional($company)->company_logo)
+                                    ? asset('public/' . ltrim(optional($company)->company_logo, '/'))
+                                    : asset('celestial/assets/images/logo.svg');
+                            @endphp
 
                             <div class="brand-logo text-center">
-                                <img src="{{ asset('celestial/assets/images/logo.svg') }}" alt="logo">
+                                <img src="{{ $companyLogo }}" alt="company-logo" style="max-height:60px; width:auto; border-radius:6px;">
                             </div>
+                            <h4 class="text-center mb-2">{{ $companyName }}</h4>
 
-                            <h4 class="text-center mb-3">🔐 Two-Factor Authentication</h4>
+                            <h4 class="text-center mb-3">Two-Factor Authentication</h4>
                             <p class="text-center text-muted mb-4">
                                 Company Security Verification
                             </p>
 
-                            @php
-                            $user = auth()->user();
-                            @endphp
-
-                            {{-- ================= FIRST TIME: SHOW QR ================= --}}
                             @if(!$user->two_factor_confirmed_at)
 
                             <p class="text-center mb-3">
@@ -74,8 +76,6 @@
 
                             @endif
 
-
-                            {{-- ================= ALREADY ENABLED: OTP ONLY ================= --}}
                             @if($user->two_factor_confirmed_at)
 
                             <form method="POST"
@@ -99,8 +99,6 @@
 
                             @endif
 
-
-                            {{-- Errors --}}
                             @if ($errors->any())
                             <div class="alert alert-danger mt-3 text-center">
                                 {{ $errors->first() }}
@@ -116,7 +114,6 @@
         </div>
     </div>
 
-    {{-- JS --}}
     <script src="{{ asset('celestial/assets/vendors/js/vendor.bundle.base.js') }}"></script>
     <script src="{{ asset('celestial/assets/js/off-canvas.js') }}"></script>
     <script src="{{ asset('celestial/assets/js/template.js') }}"></script>

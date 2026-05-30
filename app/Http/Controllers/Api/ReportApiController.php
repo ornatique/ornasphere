@@ -305,6 +305,101 @@ class ReportApiController extends Controller
         ]);
     }
 
+    public function outstandingAmountExcel(Request $request): StreamedResponse
+    {
+        $companyId = (int) $request->user()->company_id;
+        $rows = $this->outstandingAmountBaseQuery($request, $companyId)->latest('id')->get();
+        $summary = $this->outstandingAmountTotals($rows);
+
+        return response()->streamDownload(function () use ($rows, $summary) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, ['Voucher No', 'Date', 'Party', 'City', 'Payment Mode', 'Gross Wt', 'Net Wt', 'Total Amount', 'Amount In', 'Amount Out', 'Pending']);
+            foreach ($rows as $r) {
+                $received = (float) ($r->received_amount ?? 0);
+                $outAmt = (float) ($r->paid_amount ?? 0);
+                $pending = max(0, (float) ($r->net_total ?? 0) - ($received - $outAmt));
+                fputcsv($out, [
+                    $r->voucher_no,
+                    optional($r->sale_date)?->format('d-m-Y') ?? '-',
+                    optional($r->customer)->name ?? '-',
+                    optional($r->customer)->city ?? '-',
+                    $r->payment_mode ?? '-',
+                    number_format((float) ($r->sum_gross_weight ?? 0), 3, '.', ''),
+                    number_format((float) ($r->sum_net_weight ?? 0), 3, '.', ''),
+                    number_format((float) ($r->net_total ?? 0), 2, '.', ''),
+                    number_format($received, 2, '.', ''),
+                    number_format($outAmt, 2, '.', ''),
+                    number_format($pending, 2, '.', ''),
+                ]);
+            }
+
+            fputcsv($out, [
+                'TOTAL',
+                '',
+                '',
+                '',
+                '',
+                number_format((float) ($summary['gross_weight'] ?? 0), 3, '.', ''),
+                number_format((float) ($summary['net_weight'] ?? 0), 3, '.', ''),
+                number_format((float) ($summary['total_amount'] ?? 0), 2, '.', ''),
+                number_format((float) ($summary['amount_in'] ?? 0), 2, '.', ''),
+                number_format((float) ($summary['amount_out'] ?? 0), 2, '.', ''),
+                number_format((float) ($summary['pending_amount'] ?? 0), 2, '.', ''),
+            ]);
+            fclose($out);
+        }, 'outstanding_amount_report.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
+    public function outstandingAmountPdf(Request $request)
+    {
+        $companyId = (int) $request->user()->company_id;
+        $company = Company::select('id', 'name')->find($companyId);
+        if (!$company) {
+            $company = (object) ['name' => 'Company', 'company_name' => 'Company'];
+        }
+
+        $rows = $this->outstandingAmountBaseQuery($request, $companyId)->latest('id')->get();
+        $summary = $this->outstandingAmountTotals($rows);
+        $visible = [
+            'default' => $this->isToggleEnabled($request, ['use_default_report', 'use_default']),
+            'date' => $this->isToggleEnabled($request, ['use_date']),
+            'party' => $this->isToggleEnabled($request, ['use_customer', 'use_party']),
+            'city' => $this->isToggleEnabled($request, ['use_city']),
+            'mode' => $this->isToggleEnabled($request, ['use_payment_mode', 'use_mode']),
+            'weight' => $this->isToggleEnabled($request, ['use_weight']),
+            'amount' => $this->isToggleEnabled($request, ['use_amount']),
+        ];
+
+        if (!$visible['default'] && !$visible['date'] && !$visible['party'] && !$visible['city'] && !$visible['mode'] && !$visible['weight'] && !$visible['amount']) {
+            $visible['default'] = true;
+        }
+
+        return Pdf::loadView('company.reports.pdf.outstanding_amount', compact('company', 'rows', 'summary', 'visible'))
+            ->setPaper('a4', 'portrait')
+            ->download('outstanding_amount_report.pdf');
+    }
+
+    public function outstandingAmountLedgerPdf(Request $request)
+    {
+        $companyId = (int) $request->user()->company_id;
+        $company = Company::select('id', 'name')->find($companyId);
+        if (!$company) {
+            $company = (object) ['name' => 'Company', 'company_name' => 'Company'];
+        }
+
+        $rows = $this->outstandingAmountBaseQuery($request, $companyId)
+            ->latest('sale_date')
+            ->latest('id')
+            ->get();
+        $summary = $this->outstandingAmountTotals($rows);
+
+        return Pdf::loadView('company.reports.pdf.outstanding_amount_ledger', compact('company', 'rows', 'summary'))
+            ->setPaper('a4', 'landscape')
+            ->download('outstanding_amount_ledger_report.pdf');
+    }
+
     public function salesSummary(Request $request)
     {
         $user = $request->user();
@@ -953,39 +1048,82 @@ class ReportApiController extends Controller
             ->withSum('saleItems as sum_net_weight', 'net_weight')
             ->where('company_id', $companyId);
 
-        if ($request->filled('customer_id')) {
+        $hasUseToggles = $this->hasAnyUseToggle($request);
+        $useDate = $this->isToggleEnabled($request, ['use_date']);
+        $useCustomer = $this->isToggleEnabled($request, ['use_customer', 'use_party']);
+        $useCity = $this->isToggleEnabled($request, ['use_city']);
+        $useMode = $this->isToggleEnabled($request, ['use_payment_mode', 'use_mode']);
+        $useWeight = $this->isToggleEnabled($request, ['use_weight']);
+        $useAmount = $this->isToggleEnabled($request, ['use_amount']);
+
+        if (($useCustomer || !$hasUseToggles) && $request->filled('customer_id')) {
             $query->where('customer_id', (int) $request->customer_id);
         }
-        if ($request->filled('city')) {
+        if (($useCity || !$hasUseToggles) && $request->filled('city')) {
             $city = trim((string) $request->city);
             $query->whereHas('customer', fn($q) => $q->where('city', $city));
         }
-        if ($request->filled('payment_mode')) {
+        if (($useMode || !$hasUseToggles) && $request->filled('payment_mode')) {
             $query->where('payment_mode', trim((string) $request->payment_mode));
         }
 
-        if ($request->filled('from_date') && $request->filled('to_date')) {
-            $query->whereBetween('sale_date', [$request->from_date, $request->to_date]);
-        } elseif ($request->filled('from_date')) {
-            $query->whereDate('sale_date', '>=', $request->from_date);
-        } elseif ($request->filled('to_date')) {
-            $query->whereDate('sale_date', '<=', $request->to_date);
+        $hasDateInput = $request->filled('from_date') || $request->filled('to_date');
+        if ($useDate || !$hasUseToggles || $hasDateInput) {
+            if ($request->filled('from_date') && $request->filled('to_date')) {
+                $query->whereBetween('sale_date', [$request->from_date, $request->to_date]);
+            } elseif ($request->filled('from_date')) {
+                $query->whereDate('sale_date', '>=', $request->from_date);
+            } elseif ($request->filled('to_date')) {
+                $query->whereDate('sale_date', '<=', $request->to_date);
+            }
         }
 
-        if ($request->filled('weight_from')) {
-            $query->having('sum_net_weight', '>=', (float) $request->weight_from);
+        if ($useWeight || !$hasUseToggles) {
+            if ($request->filled('weight_from')) {
+                $query->having('sum_net_weight', '>=', (float) $request->weight_from);
+            }
+            if ($request->filled('weight_to')) {
+                $query->having('sum_net_weight', '<=', (float) $request->weight_to);
+            }
         }
-        if ($request->filled('weight_to')) {
-            $query->having('sum_net_weight', '<=', (float) $request->weight_to);
-        }
-        if ($request->filled('amount_from')) {
-            $query->where('net_total', '>=', (float) $request->amount_from);
-        }
-        if ($request->filled('amount_to')) {
-            $query->where('net_total', '<=', (float) $request->amount_to);
+        if ($useAmount || !$hasUseToggles) {
+            if ($request->filled('amount_from')) {
+                $query->where('net_total', '>=', (float) $request->amount_from);
+            }
+            if ($request->filled('amount_to')) {
+                $query->where('net_total', '<=', (float) $request->amount_to);
+            }
         }
 
         return $query;
+    }
+
+    private function isToggleEnabled(Request $request, array $keys): bool
+    {
+        foreach ($keys as $key) {
+            if (!$request->has($key)) {
+                continue;
+            }
+            $value = $request->input($key);
+            if (in_array($value, [1, '1', true, 'true', 'on', 'yes'], true)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function hasAnyUseToggle(Request $request): bool
+    {
+        foreach ([
+            'use_default_report', 'use_default', 'use_date',
+            'use_customer', 'use_party', 'use_city',
+            'use_payment_mode', 'use_mode', 'use_weight', 'use_amount',
+        ] as $key) {
+            if ($request->has($key)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function outstandingAmountTotals(Collection $rows): array

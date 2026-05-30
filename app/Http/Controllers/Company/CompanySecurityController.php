@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use PragmaRX\Google2FA\Google2FA;
 use Illuminate\Support\Str;
+use App\Models\Company;
 
 class CompanySecurityController extends Controller
 {
@@ -16,6 +17,7 @@ class CompanySecurityController extends Controller
     public function showSetup($slug)
     {
         $user = Auth::user();
+        $company = Company::where('slug', $slug)->first();
             
         if ($user->two_factor_enabled) {
             return redirect()->route('company.2fa.challenge', $slug);
@@ -32,7 +34,7 @@ class CompanySecurityController extends Controller
             $secret
         );
 
-        return view('company.2fa-setup', compact('qrCodeUrl', 'slug'));
+        return view('company.2fa-setup', compact('qrCodeUrl', 'slug', 'company'));
     }
 
     /**
@@ -98,9 +100,11 @@ class CompanySecurityController extends Controller
      */
     public function challenge($slug)
     {
+        $company = Company::where('slug', $slug)->first();
         return view('company.2fa-challenge', [
             'slug' => $slug,
             'user' => Auth::user(),
+            'company' => $company,
         ]);
     }
 

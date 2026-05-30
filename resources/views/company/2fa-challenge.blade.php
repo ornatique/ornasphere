@@ -18,12 +18,19 @@
                     <div class="col-lg-4 mx-auto">
 
                         <div class="auth-form-transparent py-5 px-4">
+                            @php
+                                $companyName = optional($company)->name ?? optional(auth()->user()->company)->name ?? config('app.name');
+                                $companyLogo = !empty(optional($company)->company_logo)
+                                    ? asset('public/' . ltrim(optional($company)->company_logo, '/'))
+                                    : asset('celestial/assets/images/logo.svg');
+                            @endphp
 
                             <div class="brand-logo text-center mb-4">
-                                <img src="{{ asset('celestial/assets/images/logo.svg') }}" alt="logo">
+                                <img src="{{ $companyLogo }}" alt="company-logo" style="max-height:60px; width:auto; border-radius:6px;">
                             </div>
 
-                            <h4 class="text-center">Two-Factor Verification 🔐</h4>
+                            <h4 class="text-center mb-2">{{ $companyName }}</h4>
+                            <h4 class="text-center">Two-Factor Verification</h4>
                             <p class="text-center text-muted">
                                 Enter OTP from Google Authenticator
                             </p>
