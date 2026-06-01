@@ -13,15 +13,36 @@
         .meta { width: 100%; border-collapse: collapse; border-bottom: 1px solid #000; }
         .meta td { border-right: 1px solid #000; padding: 4px 6px; vertical-align: top; }
         .meta td:last-child { border-right: none; }
-        .voucher-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        .voucher-grid th, .voucher-grid td { border: 1px solid #000; padding: 3px 4px; vertical-align: top; word-wrap: break-word; }
-        .voucher-grid th { background: #efefef; font-weight: 700; text-align: center; }
+        .summary-grid { width: 100%; border-collapse: collapse; border: 1px solid #000; margin-top: 6px; }
+        .summary-grid td { border: 1px solid #000; padding: 6px 8px; font-size: 10px; vertical-align: top; width: 25%; }
+        .metric-row { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        .metric-row td { border: 0; padding: 0; font-size: 10px; vertical-align: top; }
+        .metric-label { font-weight: 700; width: 58%; }
+        .metric-value { width: 42%; text-align: right; white-space: nowrap; }
+        .voucher-grid { width: 100%; border-collapse: collapse; table-layout: auto; }
+        .voucher-grid th, .voucher-grid td { border: 1px solid #000; padding: 3px 4px; vertical-align: top; word-break: normal; }
+        .voucher-grid th { white-space: nowrap; background: #efefef; font-weight: 700; text-align: center; font-size: 9px; }
+        .voucher-grid td { white-space: nowrap; font-size: 9px; }
+        .voucher-grid td:nth-child(2) { white-space: normal; }
         .payment-grid { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 4px; }
         .payment-grid th, .payment-grid td { border: 1px solid #000; padding: 4px 6px; }
         .payment-grid th { background: #efefef; font-weight: 700; text-align: left; }
         .text-right { text-align: right; }
         .text-center { text-align: center; }
         .grand-total { text-align: right; font-weight: 700; padding: 6px 8px 8px; }
+        .unit-circle {
+            display: inline-block;
+            min-width: 14px;
+            height: 14px;
+            line-height: 14px;
+            text-align: center;
+            border: 1px solid #000;
+            border-radius: 50%;
+            font-size: 9px;
+            font-weight: 700;
+            margin-left: 3px;
+            vertical-align: middle;
+        }
     </style>
 </head>
 <body>
@@ -40,6 +61,38 @@
     ])->filter()->implode(', ');
     $companyEmail = $company->email ?? '';
     $receivedAmount = (float)($sale->received_amount ?? 0);
+    $advanceSummary = $advanceSummary ?? null;
+    $saleAdvanceUsage = $saleAdvanceUsage ?? null;
+    if (!$advanceSummary && !empty($sale->customer_id) && !empty($sale->company_id)) {
+        $advanceBase = \App\Models\CustomerAdvanceLedger::query()
+            ->where('company_id', (int) $sale->company_id)
+            ->where('customer_id', (int) $sale->customer_id);
+        if (!empty($sale->sale_date)) {
+            $advanceBase->whereDate('entry_date', '<=', \Carbon\Carbon::parse($sale->sale_date)->toDateString());
+        }
+        $cashBal = (clone $advanceBase)->selectRaw('COALESCE(SUM(cash_in),0) - COALESCE(SUM(cash_out),0) as bal')->value('bal');
+        $metalBal = (clone $advanceBase)->whereNotNull('metal_type')
+            ->selectRaw('metal_type, COALESCE(SUM(metal_in),0) - COALESCE(SUM(metal_out),0) as bal')
+            ->groupBy('metal_type')
+            ->pluck('bal', 'metal_type');
+        $advanceSummary = [
+            'cash' => (float) $cashBal,
+            'gold' => (float) ($metalBal['gold'] ?? 0),
+            'silver' => (float) ($metalBal['silver'] ?? 0),
+            'other' => (float) ($metalBal['other'] ?? 0),
+        ];
+    }
+    if (!$saleAdvanceUsage && !empty($sale->id) && !empty($sale->company_id)) {
+        $usage = \App\Models\CustomerAdvanceLedger::query()
+            ->where('company_id', (int) $sale->company_id)
+            ->where('reference_type', 'sale')
+            ->where('reference_id', (int) $sale->id)
+            ->selectRaw('COALESCE(SUM(CASE WHEN metal_type = "silver" THEN metal_out ELSE 0 END),0) as silver_used')
+            ->first();
+        $saleAdvanceUsage = [
+            'silver_used' => (float) ($usage->silver_used ?? 0),
+        ];
+    }
     $paymentRows = collect($sale->payments ?? [])
         ->filter(fn($p) => (float)($p->amount ?? 0) > 0)
         ->map(function ($p) {
@@ -60,18 +113,12 @@
         ]]);
     }
     $paymentTotal = (float) $paymentRows->sum('amount');
-    $sumGross = 0; $sumLess = 0; $sumNet = 0; $sumOther = 0; $sumTotal = 0;
+    $sumQty = 0; $sumGross = 0; $sumLess = 0; $sumNet = 0; $sumFine = 0; $sumMetalRate = 0; $sumLabourRate = 0; $sumOther = 0; $sumTotal = 0;
 @endphp
 
 <div class="sheet">
     <div class="company-head">
         <div class="company-name">{{ $companyName }}</div>
-        @if($companyAddress !== '')
-            <div class="company-meta">{{ $companyAddress }}</div>
-        @endif
-        @if($companyEmail !== '')
-            <div class="company-meta"><strong>Email:</strong> {{ $companyEmail }}</div>
-        @endif
     </div>
     <div class="sheet-title">Estimate</div>
 
@@ -85,31 +132,46 @@
                 <div><strong>Estimate No</strong> : {{ $sale->voucher_no }}</div>
                 <div style="margin-top:4px;"><strong>Date</strong> : {{ \Carbon\Carbon::parse($sale->sale_date)->format('d-m-Y') }}</div>
                 <div style="margin-top:4px;"><strong>Contact No</strong> : {{ $contact }}</div>
-                <div style="margin-top:4px;"><strong>Received</strong> : {{ number_format($receivedAmount, 2) }}</div>
-                <div style="margin-top:4px;"><strong>Refund Paid</strong> : {{ number_format((float)($sale->paid_amount ?? 0), 2) }}</div>
-                @php
-                    $effectiveReceived = (float)($sale->received_amount ?? 0) - (float)($sale->paid_amount ?? 0);
-                    $pendingAmount = max(0, (float)($sale->net_total ?? 0) - $effectiveReceived);
-                @endphp
-                <div style="margin-top:4px;"><strong>Pending</strong> : {{ number_format($pendingAmount, 2) }}</div>
             </td>
         </tr>
     </table>
-
+    @php
+        $effectiveReceived = (float)($sale->received_amount ?? 0) - (float)($sale->paid_amount ?? 0);
+        $pendingRaw = (float)($sale->net_total ?? 0) - $effectiveReceived;
+        $pendingType = $pendingRaw >= 0 ? 'Debit' : 'Credit';
+        $pendingAmount = abs($pendingRaw);
+        $advCashRaw = (float)($advanceSummary['cash'] ?? 0);
+        $advCashType = $advCashRaw >= 0 ? 'Credit' : 'Debit';
+        $advCashAbs = abs($advCashRaw);
+        $silverUsed = (float)($saleAdvanceUsage['silver_used'] ?? 0);
+        $silverDebit = (float)($saleAdvanceUsage['silver_debit'] ?? 0);
+        $silverCredit = (float)($saleAdvanceUsage['silver_credit'] ?? 0);
+        $silverBalance = (float)($advanceSummary['silver'] ?? 0);
+        $silverBalanceType = $silverBalance < 0 ? 'Debit' : 'Credit';
+        $silverBalanceAbs = abs($silverBalance);
+        $goldRaw = (float)($advanceSummary['gold'] ?? 0);
+        $goldType = $goldRaw >= 0 ? 'Credit' : 'Debit';
+        $goldAbs = abs($goldRaw);
+        $otherRaw = (float)($advanceSummary['other'] ?? 0);
+        $otherType = $otherRaw >= 0 ? 'Credit' : 'Debit';
+        $otherAbs = abs($otherRaw);
+    @endphp
     <table class="voucher-grid">
         <thead>
             <tr>
                 <th style="width:4%;">Sr</th>
-                <th style="width:30%; text-align:left;">Item</th>
-                <th style="width:6%;">Carat</th>
-                <th style="width:5%;">Qty</th>
-                <th style="width:9%;">Gross Wt</th>
-                <th style="width:9%;">Less Wt</th>
-                <th style="width:9%;">Net Wt</th>
-                <th style="width:8%;">Rate</th>
-                <th style="width:10%;">Labour Rate</th>
-                <th style="width:10%;">Other</th>
-                <th style="width:10%;">Total Amt</th>
+                <th style="width:22%; text-align:left;">Item</th>
+                <th style="width:8%;">Purity</th>
+                <th style="width:4%;">Qty</th>
+                <th style="width:8%;">Gross Wt</th>
+                <th style="width:8%;">Less Wt</th>
+                <th style="width:8%;">Net Wt</th>
+                <th style="width:7%;">Waste %</th>
+                <th style="width:8%;">Fine Wt</th>
+                <th style="width:8%;">Metal Rt</th>
+                <th style="width:8%;">Labour Rt</th>
+                <th style="width:6%;">Other</th>
+                <th style="width:7%;">Total Amt</th>
             </tr>
         </thead>
         <tbody>
@@ -120,48 +182,86 @@
                     $labelCode = optional($itemSet)->qr_code ?? '';
                     $itemName = optional($item)->item_name ?? '-';
                     $itemDisplay = trim(($labelCode ? ($labelCode . ' - ') : '') . $itemName);
-                    $carat = (float) (optional($item)->outward_carat ?? 0);
+                    $metalName = (string) (optional($item)->metal ?? optional($item)->metal_type ?? '-');
                     $qty = 1;
                     $gross = (float) ($row->gross_weight ?? 0);
                     $less = (float) ($row->other_weight ?? 0);
                     $net = (float) ($row->net_weight ?? ($gross - $less));
+                    $wastePercent = (float) ($row->waste_percent ?? 0);
+                    $fine = (float) ($row->fine_weight ?? 0);
                     $rate = (float) ($row->metal_rate ?? 0);
                     $labourRate = (float) ($row->labour_rate ?? 0);
                     $other = (float) ($row->other_amount ?? 0);
                     $total = (float) ($row->total_amount ?? 0);
+                    $carat = (float) (optional($item)->outward_carat ?? 0);
 
-                    $sumGross += $gross; $sumLess += $less; $sumNet += $net; $sumOther += $other; $sumTotal += $total;
+                    $sumQty += $qty; $sumGross += $gross; $sumLess += $less; $sumNet += $net; $sumFine += $fine; $sumMetalRate += $rate; $sumLabourRate += $labourRate; $sumOther += $other; $sumTotal += $total;
                 @endphp
                 <tr>
                     <td class="text-center">{{ $index + 1 }}</td>
                     <td>{{ $itemDisplay }}</td>
-                    <td class="text-right">{{ number_format($carat, 0) }}</td>
+                    <td class="text-center">{{ rtrim(rtrim(number_format($carat, 2), '0'), '.') }}%</td>
                     <td class="text-center">{{ $qty }}</td>
                     <td class="text-right">{{ number_format($gross, 3) }}</td>
                     <td class="text-right">{{ number_format($less, 3) }}</td>
                     <td class="text-right">{{ number_format($net, 3) }}</td>
+                    <td class="text-right">{{ number_format($wastePercent, 2) }}%</td>
+                    <td class="text-right">{{ number_format($fine, 3) }}</td>
                     <td class="text-right">{{ number_format($rate, 2) }}</td>
                     <td class="text-right">{{ number_format($labourRate, 2) }}</td>
                     <td class="text-right">{{ number_format($other, 2) }}</td>
-                    <td class="text-right">{{ number_format($total, 2) }}</td>
+                    <td class="text-right">Rs {{ number_format($total, 2) }}</td>
                 </tr>
             @endforeach
         </tbody>
         <tfoot>
             <tr>
-                <th colspan="4" class="text-right">Total</th>
+                <th colspan="3" class="text-right">Total</th>
+                <th class="text-center">{{ $sumQty }}</th>
                 <th class="text-right">{{ number_format($sumGross, 3) }}</th>
                 <th class="text-right">{{ number_format($sumLess, 3) }}</th>
                 <th class="text-right">{{ number_format($sumNet, 3) }}</th>
                 <th></th>
-                <th></th>
-                <th class="text-right">{{ number_format($sumOther, 2) }}</th>
-                <th class="text-right">{{ number_format($sumTotal, 2) }}</th>
+                <th class="text-right">{{ number_format($sumFine, 3) }} <span class="unit-circle">F</span></th>
+                <th class="text-right">{{ number_format($sumMetalRate, 2) }}</th>
+                <th class="text-right">{{ number_format($sumLabourRate, 2) }}</th>
+                <th class="text-right">Rs {{ number_format($sumOther, 2) }}</th>
+                <th class="text-right">Rs {{ number_format($sumTotal, 2) }}</th>
             </tr>
         </tfoot>
     </table>
 
-    <div class="grand-total">Grand Total : {{ number_format((float)($sale->net_total ?? $sumTotal), 2) }}</div>
+    <div class="grand-total">Grand Total : Rs {{ number_format((float)($sale->net_total ?? $sumTotal), 2) }}</div>
+    <table class="summary-grid">
+        <tr>
+            <td><table class="metric-row"><tr><td class="metric-label">Received</td><td class="metric-value">Rs {{ number_format($receivedAmount, 2) }}</td></tr></table></td>
+            <td><table class="metric-row"><tr><td class="metric-label">Refund Paid</td><td class="metric-value">Rs {{ number_format((float)($sale->paid_amount ?? 0), 2) }}</td></tr></table></td>
+            <td><table class="metric-row"><tr><td class="metric-label">Pending {{ $pendingType }}</td><td class="metric-value">Rs {{ number_format($pendingAmount, 2) }}</td></tr></table></td>
+            <td><table class="metric-row"><tr><td class="metric-label">Adv Cash {{ $advCashType }}</td><td class="metric-value">Rs {{ number_format($advCashAbs, 2) }}</td></tr></table></td>
+        </tr>
+        <tr>
+            @php
+                $showGoldBox = $goldAbs > 0.000001;
+                $showSilverBox = $silverBalanceAbs > 0.000001;
+                $showOtherBox = $otherAbs > 0.000001;
+            @endphp
+            @if($showGoldBox)
+                <td><table class="metric-row"><tr><td class="metric-label">Adv Gold(Fine) {{ $goldType }}</td><td class="metric-value">{{ number_format($goldAbs, 3) }}</td></tr></table></td>
+            @endif
+            @if($showSilverBox)
+                <td><table class="metric-row"><tr><td class="metric-label">Adv Silver(Fine) {{ $silverBalanceType }}</td><td class="metric-value">{{ number_format($silverBalanceAbs, 3) }}</td></tr></table></td>
+            @endif
+            <td><table class="metric-row"><tr><td class="metric-label">Silver Debit / Credit</td><td class="metric-value">{{ number_format($silverDebit, 3) }}/{{ number_format($silverCredit, 3) }}</td></tr></table></td>
+            @if($showOtherBox)
+                <td><table class="metric-row"><tr><td class="metric-label">Adv Other(Fine) {{ $otherType }}</td><td class="metric-value">{{ number_format($otherAbs, 3) }}</td></tr></table></td>
+            @else
+                @php $filled = ($showGoldBox ? 1 : 0) + ($showSilverBox ? 1 : 0) + 1; @endphp
+                @if($filled < 4)
+                    <td></td>
+                @endif
+            @endif
+        </tr>
+    </table>
     @if($paymentRows->isNotEmpty())
         <table class="payment-grid">
             <thead>
@@ -178,17 +278,17 @@
                         <td>{{ $paymentRow['date'] }}</td>
                         <td>{{ $paymentRow['mode'] !== '' ? ucfirst($paymentRow['mode']) : '-' }}</td>
                         <td>{{ $paymentRow['reference'] !== '' ? $paymentRow['reference'] : '-' }}</td>
-                        <td class="text-right">{{ number_format($paymentRow['amount'], 2) }}</td>
+                        <td class="text-right">Rs {{ number_format($paymentRow['amount'], 2) }}</td>
                     </tr>
                 @endforeach
                 <tr>
                     <td colspan="3" class="text-right"><strong>Credit Total</strong></td>
-                    <td class="text-right"><strong>{{ number_format($paymentTotal, 2) }}</strong></td>
+                    <td class="text-right"><strong>Rs {{ number_format($paymentTotal, 2) }}</strong></td>
                 </tr>
                 <tr>
                     <td colspan="3" class="text-right"><strong>Pending Amount</strong></td>
                     <td class="text-right">
-                        <strong>{{ number_format(max(0, (float)($sale->net_total ?? $sumTotal) - $paymentTotal), 2) }}</strong>
+                        <strong>Rs {{ number_format(max(0, (float)($sale->net_total ?? $sumTotal) - $paymentTotal), 2) }}</strong>
                     </td>
                 </tr>
             </tbody>

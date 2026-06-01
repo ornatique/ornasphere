@@ -12,6 +12,7 @@ use App\Models\Company;
 use App\Models\Customer;
 use App\Models\SaleCart;
 use App\Models\SalePayment;
+use App\Models\CustomerAdvanceLedger;
 use App\Models\ApprovalItem;
 use App\Models\ApprovalHeader;
 use Carbon\Carbon;
@@ -897,6 +898,7 @@ class SaleApiController extends Controller
                 'payment_mode' => $request->input('payment_mode'),
                 'payment_reference' => $request->input('payment_reference'),
                 'payment_note' => $request->input('payment_note'),
+                'use_silver_balance' => (bool) $request->input('use_silver_balance', true),
                 'employee_id' => $user->id,
                 'modified_count' => 0,
             ]);
@@ -1012,6 +1014,12 @@ class SaleApiController extends Controller
             }
 
             $sale->update(['net_total' => $total]);
+            $this->syncSilverAdvanceUsageForSale(
+                $companyId,
+                $sale,
+                (bool) ($sale->use_silver_balance ?? true),
+                (int) $user->id
+            );
             $this->refreshApprovalHeaderStatus($approvalIds);
 
             // Remove sold items from this user's sale cart after successful save.
@@ -1145,6 +1153,7 @@ class SaleApiController extends Controller
                 'payment_mode' => $request->input('payment_mode', $sale->payment_mode),
                 'payment_reference' => $request->input('payment_reference', $sale->payment_reference),
                 'payment_note' => $request->input('payment_note', $sale->payment_note),
+                'use_silver_balance' => (bool) $request->input('use_silver_balance', $sale->use_silver_balance ?? true),
             ]);
 
             if ($additionalReceived > 0) {
@@ -1332,6 +1341,12 @@ class SaleApiController extends Controller
             }
 
             $sale->update(['net_total' => $total]);
+            $this->syncSilverAdvanceUsageForSale(
+                $companyId,
+                $sale,
+                (bool) ($sale->use_silver_balance ?? true),
+                (int) $user->id
+            );
             $sale->increment('modified_count');
             $this->refreshApprovalHeaderStatus($approvalIds);
 
@@ -1372,6 +1387,68 @@ class SaleApiController extends Controller
         }
 
         return null;
+    }
+
+    private function syncSilverAdvanceUsageForSale(int $companyId, Sale $sale, bool $useSilverBalance = false, ?int $userId = null): void
+    {
+        CustomerAdvanceLedger::query()
+            ->where('company_id', $companyId)
+            ->where('reference_type', 'sale')
+            ->where('reference_id', (int) $sale->id)
+            ->where('entry_type', 'purchase_adjust_metal')
+            ->delete();
+
+        if (!$useSilverBalance || (int) ($sale->customer_id ?? 0) <= 0) {
+            return;
+        }
+
+        $asOnDate = Carbon::parse($sale->sale_date ?? now())->toDateString();
+        $items = $sale->saleItems()->with('itemset.item')->get();
+        $metalFineUsage = ['gold' => 0.0, 'silver' => 0.0, 'other' => 0.0];
+
+        foreach ($items as $row) {
+            $fine = (float) ($row->fine_weight ?? 0);
+            if ($fine <= 0) {
+                continue;
+            }
+            $metalType = $this->normalizeMetalType(optional(optional($row->itemset)->item)->metal ?? null);
+            $metalFineUsage[$metalType] = (float) ($metalFineUsage[$metalType] ?? 0) + $fine;
+        }
+
+        foreach ($metalFineUsage as $metalType => $metalOut) {
+            if ($metalOut <= 0) {
+                continue;
+            }
+            CustomerAdvanceLedger::create([
+                'company_id' => $companyId,
+                'customer_id' => (int) $sale->customer_id,
+                'entry_date' => $asOnDate,
+                'entry_type' => 'purchase_adjust_metal',
+                'payment_mode' => null,
+                'cash_in' => 0,
+                'cash_out' => 0,
+                'metal_type' => $metalType,
+                'metal_in' => 0,
+                'metal_out' => round((float) $metalOut, 3),
+                'rate' => 0,
+                'reference_type' => 'sale',
+                'reference_id' => (int) $sale->id,
+                'remarks' => 'Auto ' . $metalType . ' adjusted from sale fine weight',
+                'created_by' => $userId,
+            ]);
+        }
+    }
+
+    private function normalizeMetalType(?string $metal): string
+    {
+        $m = strtolower(trim((string) $metal));
+        if ($m === 'gold' || str_contains($m, 'gold')) {
+            return 'gold';
+        }
+        if ($m === 'silver' || str_contains($m, 'silver')) {
+            return 'silver';
+        }
+        return 'other';
     }
 
     public function pdf(Request $request, $id)

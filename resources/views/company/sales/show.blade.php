@@ -30,6 +30,24 @@
                 <div class="col-md-3"><strong>Pending:</strong> {{ number_format($pending, 2) }}</div>
                 <div class="col-md-3"><strong>Mode:</strong> {{ $sale->payment_mode ?? '-' }}</div>
             </div>
+            <div class="row mb-3">
+                <div class="col-md-3"><strong>Advance Cash:</strong> {{ number_format((float)($advanceSummary['cash'] ?? 0), 2) }}</div>
+                <div class="col-md-3"><strong>Advance Gold (Fine):</strong> {{ number_format((float)($advanceSummary['gold'] ?? 0), 3) }}</div>
+                @php
+                    $silverUsed = (float)($saleAdvanceUsage['silver_used'] ?? 0);
+                    $silverBalance = (float)($advanceSummary['silver'] ?? 0);
+                    $silverBeforeUse = $silverBalance + $silverUsed;
+                    $silverDebit = (float)($saleAdvanceUsage['silver_debit'] ?? $silverUsed);
+                    $silverCredit = (float)($saleAdvanceUsage['silver_credit'] ?? 0);
+                @endphp
+                <div class="col-md-3"><strong>Advance Silver (Fine):</strong> {{ number_format($silverBeforeUse, 3) }}</div>
+                <div class="col-md-3"><strong>Advance Other (Fine):</strong> {{ number_format((float)($advanceSummary['other'] ?? 0), 3) }}</div>
+            </div>
+            <div class="row mb-3">
+                <div class="col-md-3"><strong>Silver Debit:</strong> {{ number_format($silverDebit, 3) }}</div>
+                <div class="col-md-3"><strong>Silver Credit:</strong> {{ number_format($silverCredit, 3) }}</div>
+                <div class="col-md-5"><strong>Silver Balance (Fine):</strong> {{ number_format($silverBeforeUse, 3) }} - {{ number_format($silverUsed, 3) }} = {{ number_format($silverBalance, 3) }}</div>
+            </div>
 
             <div class="table-responsive">
                 <table class="table table-bordered">

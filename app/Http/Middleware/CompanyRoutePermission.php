@@ -81,6 +81,7 @@ class CompanyRoutePermission
             'company.itemsets.' => 'item-set',
             'company.list_itemset' => 'item-set',
             'company.get-item-details' => 'item-set',
+            'company.sales.advance.' => 'sale-advance',
             'company.sales.' => 'sale',
             'company.returns.' => 'return',
             'company.roles.' => 'role',

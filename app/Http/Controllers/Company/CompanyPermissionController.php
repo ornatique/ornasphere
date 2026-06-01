@@ -188,6 +188,7 @@ class CompanyPermissionController extends Controller
             'labour-formula',
             'production-step',
             'sale',
+            'sale-advance',
             'approval',
             'return',
             'report-sales-summary',

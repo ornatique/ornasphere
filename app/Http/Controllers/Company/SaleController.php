@@ -13,6 +13,7 @@ use App\Models\ApprovalHeader;
 use App\Models\ApprovalItem;
 use App\Models\Item;
 use App\Models\SalePayment;
+use App\Models\CustomerAdvanceLedger;
 use Yajra\DataTables\Facades\DataTables;
 use Barryvdh\DomPDF\Facade\Pdf;
 use DB;
@@ -206,6 +207,7 @@ class SaleController extends Controller
                 'item_id' => (int) ($row->product_id ?? optional($row->itemset)->item_id ?? 0),
                 'approval_id' => (int) ($row->approval_item_id ?? 0),
                 'name' => optional(optional($row->itemset)->item)->item_name ?? '',
+                'metal_type' => $this->normalizeMetalType(optional(optional($row->itemset)->item)->metal ?? null),
                 'code' => optional($row->itemset)->qr_code ?? '',
                 'huid' => optional($row->itemset)->HUID ?? '',
                 'gross_weight' => (float) ($row->gross_weight ?? 0),
@@ -304,6 +306,7 @@ class SaleController extends Controller
                 'id' => $item->id,
                 'item_id' => $item->item_id,
                 'name' => $item->item->item_name ?? '',
+                'metal_type' => $this->normalizeMetalType(optional($item->item)->metal ?? null),
                 'code' => $item->qr_code,
                 'huid' => $item->HUID,
                 'gross_weight' => $gross,
@@ -329,6 +332,7 @@ class SaleController extends Controller
                 'id' => 0,
                 'item_id' => (int) $item->id,
                 'name' => (string) ($item->item_name ?? ''),
+                'metal_type' => $this->normalizeMetalType($item->metal ?? null),
                 'code' => (string) ($item->item_code ?? ''),
                 'huid' => '',
                 'gross_weight' => 0,
@@ -523,8 +527,21 @@ class SaleController extends Controller
                 $total += $request->total_amount[$index] ?? 0;
             }
 
+            {
+                $totalFineWeight = collect($request->input('fine_weight', []))
+                    ->reduce(fn($sum, $v) => $sum + (float) $v, 0.0);
+                $advanceSummaryNow = $this->getAdvanceSummary($company->id, (int) $sale->customer_id);
+                $availableSilver = (float) ($advanceSummaryNow['silver'] ?? 0);
+            }
+
             // ✅ update total
             $sale->update(['net_total' => $total]);
+            $this->syncSilverAdvanceUsageForSale(
+                $company->id,
+                $sale,
+                true,
+                optional($request->user())->id
+            );
 
             // ✅ UPDATE APPROVAL HEADER STATUS
             foreach (array_unique($approvalIds) as $approvalId) {
@@ -759,12 +776,32 @@ class SaleController extends Controller
                 $total += (float) ($payload['total_amount'] ?? 0);
             }
 
+            {
+                $totalFineWeight = collect($request->input('fine_weight', []))
+                    ->reduce(fn($sum, $v) => $sum + (float) $v, 0.0);
+                $advanceSummaryNow = $this->getAdvanceSummary($company->id, (int) $request->customer_id);
+                $availableSilver = (float) ($advanceSummaryNow['silver'] ?? 0);
+                $existingUsed = (float) CustomerAdvanceLedger::query()
+                    ->where('company_id', $company->id)
+                    ->where('reference_type', 'sale')
+                    ->where('reference_id', (int) $sale->id)
+                    ->where('metal_type', 'silver')
+                    ->sum('metal_out');
+                $availableForThisSale = $availableSilver + $existingUsed;
+            }
+
             $maxAdditionalAllowed = max(0, $total - $baseEffectiveReceived);
             if (($additionalReceived - $maxAdditionalAllowed) > 0.000001) {
                 throw new \Exception('Add Payment cannot be more than pending amount (' . number_format($maxAdditionalAllowed, 2) . ').');
             }
 
             $sale->update(['net_total' => $total]);
+            $this->syncSilverAdvanceUsageForSale(
+                $company->id,
+                $sale,
+                true,
+                optional($request->user())->id
+            );
             $sale->increment('modified_count');
 
             foreach (array_unique($approvalIds) as $approvalId) {
@@ -808,9 +845,14 @@ class SaleController extends Controller
             ->where('company_id', $company->id)
             ->findOrFail($saleId);
 
+        $advanceSummary = $this->getAdvanceSummary($company->id, (int) ($sale->customer_id ?? 0), $sale->sale_date);
+        $saleAdvanceUsage = $this->getSaleAdvanceUsage($company->id, (int) $sale->id);
+
         return view('company.sales.show', compact(
             'company',
-            'sale'
+            'sale',
+            'advanceSummary',
+            'saleAdvanceUsage'
         ));
     }
 
@@ -827,7 +869,9 @@ class SaleController extends Controller
             ->where('company_id', $company->id)
             ->findOrFail($saleId);
 
-        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale', 'company'))
+        $advanceSummary = $this->getAdvanceSummary($company->id, (int) ($sale->customer_id ?? 0), $sale->sale_date);
+        $saleAdvanceUsage = $this->getSaleAdvanceUsage($company->id, (int) $sale->id);
+        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale', 'company', 'advanceSummary', 'saleAdvanceUsage'))
             ->setPaper('a4', 'portrait');
 
         return $pdf->stream('Invoice-' . $sale->voucher_no . '.pdf');
@@ -993,6 +1037,7 @@ class SaleController extends Controller
                 'itemset_id'  => $row->itemset_id ?? $row->item_id,
                 'item_id'     => $row->item_id ?? optional($itemSet)->item_id,
                 'name'        => optional($item)->item_name,
+                'metal_type'  => $this->normalizeMetalType(optional($item)->metal ?? null),
                 'code'        => $row->qr_code ?? optional($itemSet)->qr_code ?? '',
                 'huid'        => $row->huid ?? optional($itemSet)->HUID,
                 'gross_weight'       => $gross,
@@ -1011,5 +1056,166 @@ class SaleController extends Controller
                 'remarks'            => (string) ($row->remarks ?? ''),
             ];
         })->values());
+    }
+
+    private function getAdvanceSummary(int $companyId, int $customerId, $asOnDate = null): array
+    {
+        if ($customerId <= 0) {
+            return [
+                'cash' => 0.0,
+                'gold' => 0.0,
+                'silver' => 0.0,
+                'other' => 0.0,
+            ];
+        }
+
+        $base = CustomerAdvanceLedger::query()
+            ->where('company_id', $companyId)
+            ->where('customer_id', $customerId);
+
+        if (!empty($asOnDate)) {
+            $base->whereDate('entry_date', '<=', \Carbon\Carbon::parse($asOnDate)->toDateString());
+        }
+
+        $cash = (clone $base)->selectRaw('COALESCE(SUM(cash_in),0) - COALESCE(SUM(cash_out),0) as bal')->value('bal');
+
+        $metal = (clone $base)
+            ->whereNotNull('metal_type')
+            ->selectRaw('metal_type, COALESCE(SUM(metal_in),0) - COALESCE(SUM(metal_out),0) as bal')
+            ->groupBy('metal_type')
+            ->pluck('bal', 'metal_type');
+
+        return [
+            'cash' => (float) $cash,
+            'gold' => (float) ($metal['gold'] ?? 0),
+            'silver' => (float) ($metal['silver'] ?? 0),
+            'other' => (float) ($metal['other'] ?? 0),
+        ];
+    }
+
+    private function syncSilverAdvanceUsageForSale(int $companyId, Sale $sale, bool $useSilverBalance = false, ?int $userId = null): void
+    {
+        CustomerAdvanceLedger::query()
+            ->where('company_id', $companyId)
+            ->where('reference_type', 'sale')
+            ->where('reference_id', (int) $sale->id)
+            ->where('entry_type', 'purchase_adjust_metal')
+            ->delete();
+
+        if (!$useSilverBalance) {
+            return;
+        }
+
+        if ((int) ($sale->customer_id ?? 0) <= 0) {
+            return;
+        }
+
+        $asOnDate = Carbon::parse($sale->sale_date ?? now())->toDateString();
+        $items = $sale->saleItems()->with('itemset.item')->get();
+        $metalFineUsage = ['gold' => 0.0, 'silver' => 0.0, 'other' => 0.0];
+
+        foreach ($items as $row) {
+            $fine = (float) ($row->fine_weight ?? 0);
+            if ($fine <= 0) {
+                continue;
+            }
+            $metalType = $this->normalizeMetalType(optional(optional($row->itemset)->item)->metal ?? null);
+            $metalFineUsage[$metalType] = (float) ($metalFineUsage[$metalType] ?? 0) + $fine;
+        }
+
+        foreach ($metalFineUsage as $metalType => $metalOut) {
+            if ($metalOut <= 0) {
+                continue;
+            }
+            CustomerAdvanceLedger::create([
+                'company_id' => $companyId,
+                'customer_id' => (int) $sale->customer_id,
+                'entry_date' => $asOnDate,
+                'entry_type' => 'purchase_adjust_metal',
+                'payment_mode' => null,
+                'cash_in' => 0,
+                'cash_out' => 0,
+                'metal_type' => $metalType,
+                'metal_in' => 0,
+                'metal_out' => round((float) $metalOut, 3),
+                'rate' => 0,
+                'reference_type' => 'sale',
+                'reference_id' => (int) $sale->id,
+                'remarks' => 'Auto ' . $metalType . ' adjusted from sale fine weight',
+                'created_by' => $userId,
+            ]);
+        }
+    }
+
+    private function normalizeMetalType(?string $metal): string
+    {
+        $m = strtolower(trim((string) $metal));
+        if ($m === 'gold' || str_contains($m, 'gold')) {
+            return 'gold';
+        }
+        if ($m === 'silver' || str_contains($m, 'silver')) {
+            return 'silver';
+        }
+        return 'other';
+    }
+
+    public function customerAdvance(Request $request, $slug)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $customerId = (int) $request->query('customer_id', 0);
+        if ($customerId <= 0) {
+            return response()->json([
+                'success' => true,
+                'cash' => 0,
+                'silver' => 0,
+                'gold' => 0,
+                'other' => 0,
+            ]);
+        }
+
+        $summary = $this->getAdvanceSummary($company->id, $customerId);
+        return response()->json([
+            'success' => true,
+            'cash' => (float) ($summary['cash'] ?? 0),
+            'silver' => (float) ($summary['silver'] ?? 0),
+            'gold' => (float) ($summary['gold'] ?? 0),
+            'other' => (float) ($summary['other'] ?? 0),
+        ]);
+    }
+
+    private function getSaleAdvanceUsage(int $companyId, int $saleId): array
+    {
+        $usage = CustomerAdvanceLedger::query()
+            ->where('company_id', $companyId)
+            ->where('reference_type', 'sale')
+            ->where('reference_id', $saleId)
+            ->selectRaw('COALESCE(SUM(cash_out),0) as cash_used')
+            ->selectRaw('COALESCE(SUM(CASE WHEN metal_type = "gold" THEN metal_out ELSE 0 END),0) as gold_used')
+            ->selectRaw('COALESCE(SUM(CASE WHEN metal_type = "silver" THEN metal_out ELSE 0 END),0) as silver_used')
+            ->selectRaw('COALESCE(SUM(CASE WHEN metal_type = "other" THEN metal_out ELSE 0 END),0) as other_used')
+            ->first();
+
+        $fineRequired = (float) SaleItem::query()
+            ->where('sale_id', $saleId)
+            ->sum('fine_weight');
+        $silverUsed = (float) ($usage->silver_used ?? 0);
+        $saleCustomerId = (int) Sale::query()->where('id', $saleId)->value('customer_id');
+        $closingSummary = $this->getAdvanceSummary($companyId, $saleCustomerId);
+        $closingSilver = (float) ($closingSummary['silver'] ?? 0);
+        $openingSilver = $closingSilver + $silverUsed;
+        $silverDebit = max(0, $fineRequired - $openingSilver);
+        $silverCredit = max(0, $openingSilver - $fineRequired);
+
+        return [
+            'cash_used' => (float) ($usage->cash_used ?? 0),
+            'gold_used' => (float) ($usage->gold_used ?? 0),
+            'silver_used' => $silverUsed,
+            'other_used' => (float) ($usage->other_used ?? 0),
+            'fine_required' => $fineRequired,
+            'silver_debit' => $silverDebit,
+            'silver_credit' => $silverCredit,
+            'silver_opening' => $openingSilver,
+            'silver_closing' => $closingSilver,
+        ];
     }
 }

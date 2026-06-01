@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\VisitingCardApiController;
 use App\Http\Controllers\Api\ProductBackgroundRemoveApiController;
 use App\Http\Controllers\Api\RoleApiController;
 use App\Http\Controllers\Api\PermissionApiController;
+use App\Http\Controllers\Api\CustomerAdvanceApiController;
 
 Route::post('/company/login', [AuthController::class, 'login']);
 Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
@@ -189,6 +190,14 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::put('/sales/update/{id}', [SaleApiController::class, 'update'])->whereNumber('id');
     Route::get('/sales/itemset', [SaleApiController::class, 'getItemset']); // Scan QR
 
+    // Receive / Return / Purchase (Advance Ledger)
+    Route::get('/sales/advance-ledger/customers', [CustomerAdvanceApiController::class, 'customers']);
+    Route::get('/sales/advance-ledger/summary', [CustomerAdvanceApiController::class, 'summary']);
+    Route::get('/sales/advance-ledger/entries', [CustomerAdvanceApiController::class, 'entries']);
+    Route::post('/sales/advance-ledger/entries', [CustomerAdvanceApiController::class, 'store']);
+    Route::get('/sales/advance-ledger/pdf-url', [CustomerAdvanceApiController::class, 'pdfUrl']);
+    Route::get('/sales/advance-ledger/pdf', [CustomerAdvanceApiController::class, 'pdf']);
+
 
     Route::get('/returns/list', [SaleReturnApiController::class, 'list_of_return']);
     Route::get('/returns/customers', [SaleReturnApiController::class, 'getSalesForReturn']);
@@ -221,6 +230,8 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/approvals/return', [ApprovalApiController::class, 'returnItems']);
     Route::get('/approvals/{id}/pdf', [ApprovalApiController::class, 'pdf'])->whereNumber('id');
     Route::get('/approvals/pdf/{id}', [ApprovalApiController::class, 'pdf'])->whereNumber('id');
+    Route::get('/approvals/export/pdf', [ApprovalApiController::class, 'exportListPdf']);
+    Route::get('/approvals/export/pdf-url', [ApprovalApiController::class, 'exportListPdfUrl']);
     Route::get('/reports/barcode-history/suggest', [ReportApiController::class, 'barcodeHistorySuggest']);
     Route::get('/reports/purchase-receiver-summary', [ReportApiController::class, 'purchaseReceiverSummary']);
     Route::get('/reports/purchase-receiver-summary/export/excel', [ReportApiController::class, 'purchaseReceiverSummaryExcel']);

@@ -29,6 +29,7 @@ use App\Http\Controllers\Company\SaleReturnController;
 use App\Http\Controllers\Company\ReportController;
 use App\Http\Controllers\SuperAdmin\SuperAdmin2FAController;
 use App\Http\Controllers\Company\ApprovalController;
+use App\Http\Controllers\Company\CustomerAdvanceController;
 use App\Http\Controllers\Api\VisitingCardApiController as VisitingCardApiWebController;
 
 
@@ -309,6 +310,14 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
         Route::delete('/items/{encryptedId}', [ItemController::class, 'destroy'])
             ->name('items.destroy');
 
+        // Backward-compatibility fallback:
+        // some older builds still generate route('company.items.try-on').
+        Route::get('/items/{encryptedId}/try-on', function ($slug, $encryptedId) {
+            return redirect()
+                ->route('company.items.index', $slug)
+                ->with('error', 'Try-On module is not enabled for this panel.');
+        })->name('items.try-on');
+
         Route::get('/label-config', [LabelConfigController::class, 'index'])
             ->name('label_config.index');
 
@@ -523,11 +532,22 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
 
         Route::get('sales/get-itemset', [SaleController::class, 'getItemset'])
             ->name('sales.getItemset');
+        Route::get('sales/customer-advance', [SaleController::class, 'customerAdvance'])
+            ->name('sales.customerAdvance');
 
         Route::get(
             '/sales/search',
             [SaleReturnController::class, 'searchSales']
         )->name('sales.search');
+
+        Route::get('/sales/advance-ledger', [CustomerAdvanceController::class, 'index'])
+            ->name('sales.advance.index');
+        Route::get('/sales/advance-ledger/data', [CustomerAdvanceController::class, 'data'])
+            ->name('sales.advance.data');
+        Route::get('/sales/advance-ledger/pdf', [CustomerAdvanceController::class, 'exportPdf'])
+            ->name('sales.advance.pdf');
+        Route::post('/sales/advance-ledger', [CustomerAdvanceController::class, 'store'])
+            ->name('sales.advance.store');
 
         Route::get('sales/{encryptedId}', [SaleController::class, 'show'])
             ->name('sales.show');
@@ -629,6 +649,8 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
 
         Route::get('approval/data', [ApprovalController::class, 'index'])
             ->name('approval.data');
+        Route::get('approval/export/pdf', [ApprovalController::class, 'exportListPdf'])
+            ->name('approval.export.pdf');
 
         Route::get('approval/create', [ApprovalController::class, 'create'])
             ->name('approval.create');

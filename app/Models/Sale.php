@@ -22,6 +22,7 @@ class Sale extends Model
         'payment_mode',
         'payment_reference',
         'payment_note',
+        'use_silver_balance',
         'net_total',
         'remarks',
         'employee_id',
@@ -31,6 +32,7 @@ class Sale extends Model
     protected $casts = [
         'sale_date' => 'date',
         'modified_count' => 'integer',
+        'use_silver_balance' => 'boolean',
     ];
 
 

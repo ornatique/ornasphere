@@ -38,6 +38,25 @@
                 </div>
 
                 <div class="row mb-3">
+                    <div class="col-md-3">
+                        <label id="advance_cash_balance_label">Advance Cash Balance Credit</label>
+                        <input type="text" class="form-control" id="advance_cash_balance" value="0.00" readonly>
+                    </div>
+                    <div class="col-md-3">
+                        <label id="advance_silver_balance_label">Metal Fine Balance Credit</label>
+                        <input type="text" class="form-control" id="advance_silver_balance" value="0.000" readonly>
+                    </div>
+                    <div class="col-md-3">
+                        <label id="advance_silver_used_label">Metal Used (Fine Wt)</label>
+                        <input type="text" class="form-control" id="advance_silver_used" value="0.000" readonly>
+                    </div>
+                    <div class="col-md-3">
+                        <label id="advance_silver_after_label">Metal Balance After Use Credit</label>
+                        <input type="text" class="form-control" id="advance_silver_after" value="0.000" readonly>
+                    </div>
+                </div>
+
+                <div class="row mb-3">
                     <div class="col-md-12">
                         <label>Voucher Remarks</label>
                         <textarea name="voucher_remarks" class="form-control" rows="2" placeholder="Enter remarks for this sale">{{ old('voucher_remarks', !empty($sale) ? ($sale->remarks ?? '') : '') }}</textarea>
@@ -402,6 +421,10 @@ $(function () {
     const initialSaleRows = @json(!empty($editableItems) ? $editableItems : []);
     const existingRefundPaid = {{ !empty($sale) ? (float)($sale->paid_amount ?? 0) : 0 }};
     const selectedRows = {};
+    let advanceCashBalance = 0;
+    let advanceGoldBalance = 0;
+    let advanceSilverBalance = 0;
+    let advanceOtherBalance = 0;
     let modalRowId = null;
     let otherChargeOptions = [];
 
@@ -423,6 +446,103 @@ $(function () {
     };
 
     const esc = (v) => $('<div>').text(v ?? '').html();
+    const normalizeMetalType = (v) => {
+        const s = String(v || '').trim().toLowerCase();
+        if (s === 'gold' || s.includes('gold')) return 'gold';
+        if (s === 'silver' || s.includes('silver')) return 'silver';
+        return 'other';
+    };
+    const metalLabel = (metalType) => {
+        if (metalType === 'gold') return 'Gold';
+        if (metalType === 'silver') return 'Silver';
+        return 'Other';
+    };
+    const getActiveMetalType = () => {
+        const usage = { gold: 0, silver: 0, other: 0 };
+        Object.values(selectedRows).forEach(row => {
+            const m = normalizeMetalType(row.metal_type);
+            usage[m] += toNum(row.fine_weight || 0);
+        });
+        const hasRows = Object.keys(selectedRows).length > 0;
+        if (hasRows) {
+            let active = 'silver';
+            let max = -1;
+            ['gold', 'silver', 'other'].forEach((m) => {
+                if (usage[m] > max) {
+                    max = usage[m];
+                    active = m;
+                }
+            });
+            return active;
+        }
+        if (Math.abs(advanceGoldBalance) > 0.000001) return 'gold';
+        if (Math.abs(advanceSilverBalance) > 0.000001) return 'silver';
+        if (Math.abs(advanceOtherBalance) > 0.000001) return 'other';
+        return 'silver';
+    };
+
+    function loadCustomerAdvance(customerId) {
+        if (!customerId) {
+            advanceCashBalance = 0;
+            advanceGoldBalance = 0;
+            advanceSilverBalance = 0;
+            advanceOtherBalance = 0;
+            $('#advance_cash_balance_label').text('Advance Cash Balance Credit');
+            $('#advance_silver_balance_label').text('Metal Fine Balance Credit');
+            $('#advance_silver_used_label').text('Metal Used (Fine Wt)');
+            $('#advance_silver_after_label').text('Metal Balance After Use Credit');
+            $('#advance_cash_balance').val('0.00');
+            $('#advance_silver_balance').val('0.000');
+            updateSilverPreview();
+            return;
+        }
+
+        $.get("{{ route('company.sales.customerAdvance', $company->slug) }}", { customer_id: customerId }, function(resp) {
+            advanceCashBalance = toNum(resp.cash || 0);
+            advanceGoldBalance = toNum(resp.gold || 0);
+            advanceSilverBalance = toNum(resp.silver || 0);
+            advanceOtherBalance = toNum(resp.other || 0);
+            const cashType = advanceCashBalance >= 0 ? 'Credit' : 'Debit';
+            $('#advance_cash_balance_label').text('Advance Cash Balance ' + cashType);
+            $('#advance_cash_balance').val(nfix(Math.abs(advanceCashBalance), 2));
+            updateSilverPreview();
+        }).fail(function() {
+            advanceCashBalance = 0;
+            advanceGoldBalance = 0;
+            advanceSilverBalance = 0;
+            advanceOtherBalance = 0;
+            $('#advance_cash_balance_label').text('Advance Cash Balance Credit');
+            $('#advance_silver_balance_label').text('Metal Fine Balance Credit');
+            $('#advance_silver_used_label').text('Metal Used (Fine Wt)');
+            $('#advance_silver_after_label').text('Metal Balance After Use Credit');
+            $('#advance_cash_balance').val('0.00');
+            $('#advance_silver_balance').val('0.000');
+            updateSilverPreview();
+        });
+    }
+
+    function updateSilverPreview() {
+        const activeMetal = getActiveMetalType();
+        const activeLabel = metalLabel(activeMetal);
+        const metalBal = activeMetal === 'gold'
+            ? advanceGoldBalance
+            : (activeMetal === 'silver' ? advanceSilverBalance : advanceOtherBalance);
+        let used = 0;
+        Object.values(selectedRows).forEach(row => {
+            if (normalizeMetalType(row.metal_type) === activeMetal) {
+                used += toNum(row.fine_weight || 0);
+            }
+        });
+        const after = metalBal - used;
+        const afterType = after >= 0 ? 'Credit' : 'Debit';
+        const balType = metalBal >= 0 ? 'Credit' : 'Debit';
+        $('#advance_silver_balance_label').text(`${activeLabel} Fine Balance ${balType}`);
+        $('#advance_silver_used_label').text(`${activeLabel} Used (Fine Wt)`);
+        $('#advance_silver_after_label').text(`${activeLabel} Balance After Use ${afterType}`);
+        $('#advance_silver_balance').val(nfix(Math.abs(metalBal), 3));
+        $('#advance_silver_used').val(nfix(used, 3));
+        $('#advance_silver_after').val(nfix(Math.abs(after), 3));
+    }
 
     function normalizeSaleRowFromItem(item) {
         const gross = toNum(item.gross_weight ?? item.gross ?? 0);
@@ -449,6 +569,7 @@ $(function () {
             item_id: toNum(item.item_id ?? ''),
             approval_id: item.approval_id ?? '',
             name: item.name ?? item.item_name ?? '',
+            metal_type: normalizeMetalType(item.metal_type ?? item.metal ?? ''),
             code: item.code ?? item.qr_code ?? '',
             huid: item.huid ?? item.HUID ?? '',
             gross_weight: gross,
@@ -731,6 +852,20 @@ $(function () {
         recalcTotals();
     }
 
+    function getFirstRowKey() {
+        const firstId = String($('#saleBody tr:first').attr('id') || '');
+        return firstId.replace('row_', '');
+    }
+
+    function applyLabourRateToAll(rateValue) {
+        $('#saleBody tr').each(function() {
+            const rowKey = String(this.id || '').replace('row_', '');
+            if (!rowKey || !selectedRows[rowKey]) return;
+            $(`.labour-rate[data-id="${rowKey}"]`).val(nfix(rateValue, 2));
+            recalcRow(rowKey);
+        });
+    }
+
     function recalcTotals() {
         let totalAmount = 0;
         let totalGross = 0;
@@ -768,6 +903,7 @@ $(function () {
         $('#saleTotalOtherWt').text(nfix(totalOther, 3));
         $('#saleTotalNet').text(nfix(totalNet, 3));
         $('#saleTotalAmount').text(nfix(totalAmount, 2));
+        updateSilverPreview();
         recalcPendingAmount();
     }
 
@@ -819,6 +955,7 @@ $(function () {
                 <input type="hidden" name="items[]" value="${itemsetIdValue > 0 ? itemsetIdValue : 0}">
                 <input type="hidden" name="approval_item_ids[]" value="${esc(row.approval_id || '')}">
                 <input type="hidden" name="item_ids[]" value="${esc(row.item_id || '')}">
+                <input type="hidden" name="item_metal_type[]" value="${esc(row.metal_type || 'silver')}">
 
                 <input type="hidden" name="net_weight[]" data-id="${rowKey}" value="${nfix(row.net_weight,3)}">
                 <input type="hidden" name="net_purity[]" data-id="${rowKey}" value="${nfix(row.net_purity,3)}">
@@ -862,6 +999,7 @@ $(function () {
 
     $('#customerSelect').change(function() {
         $('#item_search').prop('disabled', !$(this).val());
+        loadCustomerAdvance($(this).val());
     });
 
     $('#item_search').on('keyup', function() {
@@ -888,6 +1026,7 @@ $(function () {
                     data-item-id="${item.item_id || ''}"
                     data-approval-id=""
                     data-name="${esc(item.name || '')}"
+                    data-metal-type="${esc(item.metal_type || '')}"
                     data-code="${esc(item.code || '')}"
                     data-huid="${esc(item.huid || '')}"
                     data-gross-weight="${nfix(item.gross_weight,3)}"
@@ -942,6 +1081,7 @@ $(function () {
             item_id: toNum($(this).data('item-id')),
             approval_id: $(this).data('approval-id'),
             name: $(this).data('name'),
+            metal_type: normalizeMetalType($(this).data('metal-type')),
             code: $(this).data('code'),
             huid: $(this).data('huid'),
             gross_weight: toNum($(this).data('gross-weight')),
@@ -1011,6 +1151,7 @@ $(function () {
                         data-item-id="${item.item_id || ''}"
                         data-approval-id="${approvalItemId}"
                         data-name="${esc(item.name || '')}"
+                        data-metal-type="${esc(item.metal_type || '')}"
                         data-code="${esc(code)}"
                         data-huid="${esc(item.huid || '')}"
                         data-gross-weight="${nfix(grossWeight,3)}"
@@ -1069,6 +1210,7 @@ $(function () {
                 item_id: toNum($(this).data('item-id')),
                 approval_id: $(this).data('approval-id'),
                 name: $(this).data('name'),
+                metal_type: normalizeMetalType($(this).data('metal-type')),
                 code: $(this).data('code'),
                 huid: $(this).data('huid'),
                 gross_weight: toNum($(this).data('gross-weight')),
@@ -1096,6 +1238,14 @@ $(function () {
 
     $(document).on('input', '.gross, .other-weight, .purity, .waste-percent, .metal-rate, .labour-rate, .other-amount', function() {
         recalcRow($(this).data('id'));
+    });
+
+    $(document).on('change', '.labour-rate', function() {
+        const changedKey = String($(this).data('id') || '');
+        const firstRowKey = getFirstRowKey();
+        if (changedKey && firstRowKey && changedKey === firstRowKey) {
+            applyLabourRateToAll(toNum($(this).val() || 0));
+        }
     });
 
     $(document).on('input', '.remarks', function() {

@@ -35,5 +35,9 @@ class Customer extends Model
     {
         return $this->belongsTo(Company::class);
     }
-}
 
+    public function advanceLedgers()
+    {
+        return $this->hasMany(CustomerAdvanceLedger::class);
+    }
+}

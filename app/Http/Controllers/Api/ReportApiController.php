@@ -183,6 +183,7 @@ class ReportApiController extends Controller
     public function approvalOutstanding(Request $request)
     {
         $companyId = (int) $request->user()->company_id;
+        $totals = $this->approvalOutstandingTotalsDetailed($request, $companyId);
         $rows = $this->approvalOutstandingBaseQuery($request, $companyId)
             ->latest('approval_date')
             ->get()
@@ -207,6 +208,7 @@ class ReportApiController extends Controller
             'success' => true,
             'message' => 'Approval outstanding fetched successfully.',
             'count' => $rows->count(),
+            'totals' => $totals,
             'data' => $rows,
         ]);
     }
@@ -1039,6 +1041,70 @@ class ReportApiController extends Controller
         }
 
         return $query;
+    }
+
+    private function approvalOutstandingTotalsDetailed(Request $request, int $companyId): array
+    {
+        $hasFineWeight = Schema::hasColumn('approval_items', 'fine_weight');
+        $hasTotalFineWeight = Schema::hasColumn('approval_items', 'total_fine_weight');
+        $hasMetalAmount = Schema::hasColumn('approval_items', 'metal_amount');
+        $hasLabourAmount = Schema::hasColumn('approval_items', 'labour_amount');
+        $hasOtherAmount = Schema::hasColumn('approval_items', 'other_amount');
+        $hasTotalAmount = Schema::hasColumn('approval_items', 'total_amount');
+
+        $fineExpr = '0';
+        if ($hasTotalFineWeight && $hasFineWeight) {
+            $fineExpr = 'COALESCE(ai.total_fine_weight, ai.fine_weight, 0)';
+        } elseif ($hasTotalFineWeight) {
+            $fineExpr = 'COALESCE(ai.total_fine_weight, 0)';
+        } elseif ($hasFineWeight) {
+            $fineExpr = 'COALESCE(ai.fine_weight, 0)';
+        }
+
+        $metalExpr = $hasMetalAmount ? 'COALESCE(ai.metal_amount, 0)' : '0';
+        $labourExpr = $hasLabourAmount ? 'COALESCE(ai.labour_amount, 0)' : '0';
+        $otherExpr = $hasOtherAmount ? 'COALESCE(ai.other_amount, 0)' : '0';
+        $totalExpr = $hasTotalAmount ? 'COALESCE(ai.total_amount, 0)' : '0';
+
+        $totals = DB::table('approval_items as ai')
+            ->join('approval_headers as ah', 'ah.id', '=', 'ai.approval_id')
+            ->where('ah.company_id', $companyId)
+            ->whereIn('ah.status', ['open', 'partial'])
+            ->where('ai.status', 'pending')
+            ->when($request->filled('customer_id'), function ($q) use ($request) {
+                $q->where('ah.customer_id', (int) $request->customer_id);
+            })
+            ->when($request->filled('from_date') && $request->filled('to_date'), function ($q) use ($request) {
+                $q->whereBetween('ah.approval_date', [$request->from_date, $request->to_date]);
+            })
+            ->when($request->filled('from_date') && !$request->filled('to_date'), function ($q) use ($request) {
+                $q->whereDate('ah.approval_date', '>=', $request->from_date);
+            })
+            ->when(!$request->filled('from_date') && $request->filled('to_date'), function ($q) use ($request) {
+                $q->whereDate('ah.approval_date', '<=', $request->to_date);
+            })
+            ->selectRaw("
+                COUNT(ai.id) as qty_pcs,
+                COALESCE(SUM(COALESCE(ai.gross_weight, 0)), 0) as gross_weight,
+                COALESCE(SUM(COALESCE(ai.net_weight, 0)), 0) as net_weight,
+                COALESCE(SUM({$fineExpr}), 0) as fine_weight,
+                COALESCE(SUM({$metalExpr}), 0) as metal_amount,
+                COALESCE(SUM({$labourExpr}), 0) as labour_amount,
+                COALESCE(SUM({$otherExpr}), 0) as other_amount,
+                COALESCE(SUM({$totalExpr}), 0) as net_total
+            ")
+            ->first();
+
+        return [
+            'qty_pcs' => (int) ($totals->qty_pcs ?? 0),
+            'gross_weight' => (float) ($totals->gross_weight ?? 0),
+            'net_weight' => (float) ($totals->net_weight ?? 0),
+            'fine_weight' => (float) ($totals->fine_weight ?? 0),
+            'metal_amount' => (float) ($totals->metal_amount ?? 0),
+            'labour_amount' => (float) ($totals->labour_amount ?? 0),
+            'other_amount' => (float) ($totals->other_amount ?? 0),
+            'net_total' => (float) ($totals->net_total ?? 0),
+        ];
     }
 
     private function outstandingAmountBaseQuery(Request $request, int $companyId)

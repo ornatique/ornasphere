@@ -210,6 +210,7 @@ class CompanyRoleController extends Controller
             'label-print',
             'other-charge',
             'sale',
+            'sale-advance',
             'approval',
             'return',
         ];

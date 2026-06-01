@@ -926,6 +926,149 @@ class ApprovalApiController extends Controller
         return $pdf->stream('Approval-' . $approval->approval_no . '.pdf');
     }
 
+    public function exportListPdfUrl(Request $request)
+    {
+        $customerId = (int) $request->query('customer_id', 0);
+        $fromDate = (string) $request->query('from_date', '');
+        $toDate = (string) $request->query('to_date', '');
+
+        $query = [];
+        if ($customerId > 0) {
+            $query['customer_id'] = $customerId;
+        }
+        if ($fromDate !== '') {
+            $query['from_date'] = $fromDate;
+        }
+        if ($toDate !== '') {
+            $query['to_date'] = $toDate;
+        }
+
+        $url = url('/api/approvals/export/pdf') . (!empty($query) ? ('?' . http_build_query($query)) : '');
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Approval list PDF URL generated successfully.',
+            'data' => [
+                'url' => $url,
+            ],
+        ]);
+    }
+
+    public function exportListPdf(Request $request)
+    {
+        $companyId = (int) $request->user()->company_id;
+        $company = Company::findOrFail($companyId);
+
+        $query = ApprovalHeader::with([
+            'customer',
+            'creator',
+            'items' => function ($q) {
+                $q->where('status', '!=', 'returned')
+                    ->with(['itemSet.item', 'legacyItemSet.item']);
+            }
+        ])
+            ->withCount([
+                'items as active_items_count' => function ($q) {
+                    $q->where('status', '!=', 'returned');
+                }
+            ])
+            ->withSum([
+                'items as active_gross_weight' => function ($q) {
+                    $q->where('status', '!=', 'returned');
+                }
+            ], 'gross_weight')
+            ->withSum([
+                'items as active_net_weight' => function ($q) {
+                    $q->where('status', '!=', 'returned');
+                }
+            ], 'net_weight')
+            ->withSum([
+                'items as active_fine_weight' => function ($q) {
+                    $q->where('status', '!=', 'returned');
+                }
+            ], 'total_fine_weight')
+            ->withSum([
+                'items as active_metal_amount' => function ($q) {
+                    $q->where('status', '!=', 'returned');
+                }
+            ], 'metal_amount')
+            ->withSum([
+                'items as active_labour_amount' => function ($q) {
+                    $q->where('status', '!=', 'returned');
+                }
+            ], 'labour_amount')
+            ->withSum([
+                'items as active_other_amount' => function ($q) {
+                    $q->where('status', '!=', 'returned');
+                }
+            ], 'other_amount')
+            ->withSum([
+                'items as active_item_amount' => function ($q) {
+                    $q->where('status', '!=', 'returned');
+                }
+            ], 'total_amount')
+            ->where('company_id', $company->id)
+            ->orderByDesc('approval_date')
+            ->orderByDesc('id');
+
+        if ($request->filled('customer_id')) {
+            $query->where('customer_id', (int) $request->query('customer_id'));
+        }
+
+        $fromDate = $request->query('from_date');
+        $toDate = $request->query('to_date');
+        $today = now()->toDateString();
+
+        if (empty($fromDate) && empty($toDate)) {
+            $fromDate = $today;
+            $toDate = $today;
+        } elseif (!empty($fromDate) && empty($toDate)) {
+            $toDate = $fromDate;
+        } elseif (empty($fromDate) && !empty($toDate)) {
+            $fromDate = $toDate;
+        }
+
+        if (!empty($fromDate) && !empty($toDate)) {
+            $query->whereBetween('approval_date', [$fromDate, $toDate]);
+        }
+
+        $rows = $query->get()->map(function ($row) {
+            $names = collect($row->items ?? [])
+                ->map(function ($it) {
+                    $set = $it->itemSet ?? $it->legacyItemSet;
+                    return optional(optional($set)->item)->item_name;
+                })
+                ->filter()
+                ->unique()
+                ->values();
+
+            return [
+                'approval_no' => (string) ($row->approval_no ?? '-'),
+                'approval_date' => $row->approval_date ? \Carbon\Carbon::parse($row->approval_date)->format('d-m-Y') : '-',
+                'customer_name' => optional($row->customer)->name ?? '-',
+                'item_names' => $names->isEmpty() ? '-' : $names->implode(', '),
+                'total_qty' => (int) ($row->active_items_count ?? 0),
+                'gross_wt' => (float) ($row->active_gross_weight ?? 0),
+                'net_wt' => (float) ($row->active_net_weight ?? 0),
+                'fine_wt' => (float) ($row->active_fine_weight ?? 0),
+                'metal_amt' => (float) ($row->active_metal_amount ?? 0),
+                'labour_amt' => (float) ($row->active_labour_amount ?? 0),
+                'other_amt' => (float) ($row->active_other_amount ?? 0),
+                'total_amt' => (float) ($row->active_item_amount ?? 0),
+                'created_by' => optional($row->creator)->name ?? '-',
+            ];
+        })->values();
+
+        $pdf = Pdf::loadView('company.approval.list_pdf', [
+            'company' => $company,
+            'rows' => $rows,
+            'fromDate' => $fromDate,
+            'toDate' => $toDate,
+        ])->setPaper('a4', 'landscape');
+
+        return $pdf->stream('approval-list-' . now()->format('YmdHis') . '.pdf');
+    }
+
     private function updateApprovalStatus(array $approvalIds): void
     {
         foreach ($approvalIds as $approvalId) {

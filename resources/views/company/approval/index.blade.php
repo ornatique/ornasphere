@@ -99,6 +99,7 @@
                     <button class="btn btn-secondary" id="clearBtn">
                         Clear
                     </button>
+                    <a class="btn btn-danger" id="exportPdfBtn" target="_blank">PDF</a>
                 </div>
 
             </div>
@@ -246,6 +247,7 @@
     });
 
     $('#filterBtn').click(function() {
+        updateApprovalPdfLink();
         table.draw();
     });
 
@@ -253,9 +255,23 @@
         $('#customer_id').val('');
         $('#from_date').val(today);
         $('#to_date').val(today);
+        updateApprovalPdfLink();
         table.draw();
     });
 
+    function updateApprovalPdfLink() {
+        const base = "{{ route('company.approval.export.pdf', $company->slug) }}";
+        const params = new URLSearchParams({
+            customer_id: $('#customer_id').val() || '',
+            from_date: $('#from_date').val() || '',
+            to_date: $('#to_date').val() || '',
+        });
+        $('#exportPdfBtn').attr('href', `${base}?${params.toString()}`);
+    }
+
+    $('#customer_id, #from_date, #to_date').on('change', updateApprovalPdfLink);
+
+    updateApprovalPdfLink();
     $('#customer_id').val('').trigger('change');
 </script>
 @endpush
