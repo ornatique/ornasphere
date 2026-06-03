@@ -60,12 +60,12 @@
     $canApproval = $canModule('approval');
     $canSales = $canModule('sale');
     $canSaleAdvance = $canModule('sale-advance');
-    $canReturns = $canModule('return');
+    $canApprovalReturn = $canModule('approval-return');
     $canReportSalesSummary = $canModule('report-sales-summary');
     $canReportPurchaseReceiverSummary = $canModule('report-purchase-receiver-summary')
         || $canModule('report-purchase-receiver')
         || $canModule('report-return-summary')
-        || $canReturns;
+        || $canModule('return');
     $canReportStockPosition = $canModule('report-stock-position');
     $canReportApprovalOutstanding = $canModule('report-approval-outstanding');
     $canReportBarcodeHistory = $canModule('report-barcode-history');
@@ -337,7 +337,7 @@
             && !str_starts_with($routeName, 'company.sales.advance.');
         $salesAdvanceActive = str_starts_with($routeName, 'company.sales.advance.');
         @endphp
-        @if($canApproval || $canSales || $canSaleAdvance || $canReturns)
+        @if($canApproval || $canSales || $canSaleAdvance || $canApprovalReturn)
         <li class="nav-item {{ $salesActive ? 'active' : '' }}">
             <a class="nav-link"
                 data-bs-toggle="collapse"
@@ -359,6 +359,15 @@
                     </li>
                     @endif
 
+                    @if($canApprovalReturn)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.returns.*') ? 'active' : '' }}"
+                            href="{{ route('company.returns.index', auth()->user()->company->slug) }}">
+                            Approval Return
+                        </a>
+                    </li>
+                    @endif
+
                     @if($canSales)
                     <li class="nav-item">
                         <a class="nav-link {{ $salesEstimateActive ? 'active' : '' }}"
@@ -372,15 +381,6 @@
                         <a class="nav-link {{ $salesAdvanceActive ? 'active' : '' }}"
                             href="{{ route('company.sales.advance.index', auth()->user()->company->slug) }}">
                             Receive / Return / Purchase
-                        </a>
-                    </li>
-                    @endif
-
-                    @if($canReturns)
-                    <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('company.returns.*') ? 'active' : '' }}"
-                            href="{{ route('company.returns.index', auth()->user()->company->slug) }}">
-                            Purchase / Receiver
                         </a>
                     </li>
                     @endif

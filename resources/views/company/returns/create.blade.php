@@ -5,7 +5,7 @@
     <div class="card">
         <div class="card-body">
 
-            <h4 class="card-title">Sales Return Voucher</h4>
+            <h4 class="card-title">Approval Return Voucher</h4>
 
             <p>
                 Customer: {{ $sale->customer->name }} <br>
@@ -18,32 +18,6 @@
                 <div class="mb-3">
                     <label>Voucher Remarks</label>
                     <textarea name="voucher_remarks" class="form-control" rows="2" placeholder="Enter remarks for this return">{{ old('voucher_remarks') }}</textarea>
-                </div>
-
-                <div class="row mb-3">
-                    <div class="col-md-3">
-                        <label>Refund Paid Amount</label>
-                        <input type="number" step="0.01" min="0" name="refund_paid_amount" class="form-control" value="{{ old('refund_paid_amount', 0) }}">
-                    </div>
-                    <div class="col-md-3">
-                        <label>Refund Mode</label>
-                        <select name="refund_mode" class="form-select">
-                            <option value="">Select Mode</option>
-                            <option value="cash">Cash</option>
-                            <option value="online">Online</option>
-                            <option value="upi">UPI</option>
-                            <option value="bank">Bank</option>
-                            <option value="other">Other</option>
-                        </select>
-                    </div>
-                    <div class="col-md-3">
-                        <label>Refund Ref No</label>
-                        <input type="text" name="refund_reference" class="form-control" value="{{ old('refund_reference') }}" placeholder="Txn/Ref No">
-                    </div>
-                    <div class="col-md-3">
-                        <label>Refund Note</label>
-                        <input type="text" name="refund_note" class="form-control" value="{{ old('refund_note') }}" placeholder="Optional">
-                    </div>
                 </div>
 
                 @php

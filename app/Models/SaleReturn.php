@@ -12,10 +12,6 @@ class SaleReturn extends Model
         'return_voucher_no',
         'return_date',
         'return_total',
-        'refund_paid_amount',
-        'refund_mode',
-        'refund_reference',
-        'refund_note',
         'remarks',
         'source_type' ,
         'source_id' 

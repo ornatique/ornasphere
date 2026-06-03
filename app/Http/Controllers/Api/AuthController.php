@@ -15,14 +15,49 @@ class AuthController extends Controller
         $request->validate([
             'email' => 'required|email',
             'password' => 'required',
+            'company_id' => 'nullable|integer',
+            'company_slug' => 'nullable|string|max:255',
         ]);
 
-        $user = User::with('company')
+        $users = User::with('company')
             ->where('email', $request->email)
-            ->first();
-            
+            ->when($request->filled('company_id'), function ($query) use ($request) {
+                $query->where('company_id', (int) $request->input('company_id'));
+            })
+            ->when($request->filled('company_slug'), function ($query) use ($request) {
+                $query->whereHas('company', function ($companyQuery) use ($request) {
+                    $companyQuery->where('slug', (string) $request->input('company_slug'));
+                });
+            })
+            ->get();
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
+        $matchedUsers = $users
+            ->filter(fn($candidate) => Hash::check($request->password, $candidate->password))
+            ->values();
+
+        if (
+            !$request->filled('company_id')
+            && !$request->filled('company_slug')
+            && $matchedUsers->count() > 1
+        ) {
+            return response()->json([
+                'success' => false,
+                'code' => 'COMPANY_SELECTION_REQUIRED',
+                'message' => 'Multiple companies use these credentials. Please select a company and log in again.',
+                'companies' => $matchedUsers
+                    ->filter(fn($candidate) => $candidate->company)
+                    ->map(fn($candidate) => [
+                        'id' => (int) $candidate->company->id,
+                        'name' => $candidate->company->name,
+                        'slug' => $candidate->company->slug,
+                    ])
+                    ->values(),
+            ], 422);
+        }
+
+        $user = $matchedUsers->first();
+
+        if (!$user) {
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
@@ -36,7 +71,12 @@ class AuthController extends Controller
 
         return response()->json([
             'otp_required' => true,
-            'user_id' => $user->id
+            'user_id' => $user->id,
+            'company' => [
+                'id' => (int) $user->company->id,
+                'name' => $user->company->name,
+                'slug' => $user->company->slug,
+            ],
         ]);
     }
 
@@ -68,7 +108,12 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Login successful',
-            'token' => $token
+            'token' => $token,
+            'company' => [
+                'id' => (int) optional($user->company)->id,
+                'name' => optional($user->company)->name,
+                'slug' => optional($user->company)->slug,
+            ],
         ]);
     }
 

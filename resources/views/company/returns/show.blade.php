@@ -4,7 +4,7 @@
 <div class="content-wrapper">
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <h4 class="card-title">Return Voucher Details</h4>
+            <h4 class="card-title">Approval Return Details</h4>
             <div class="d-flex gap-2">
                 <a href="{{ route('company.returns.pdf', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $return->id)]) }}"
                    class="btn btn-danger" target="_blank">View PDF</a>

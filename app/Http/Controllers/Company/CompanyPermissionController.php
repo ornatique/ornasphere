@@ -190,6 +190,7 @@ class CompanyPermissionController extends Controller
             'sale',
             'sale-advance',
             'approval',
+            'approval-return',
             'return',
             'report-sales-summary',
             'report-stock-position',

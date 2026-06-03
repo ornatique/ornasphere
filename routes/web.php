@@ -567,6 +567,11 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
         )->name('returns.index');
 
         Route::get(
+            '/returns/export/pdf',
+            [SaleReturnController::class, 'exportListPdf']
+        )->name('returns.export.pdf');
+
+        Route::get(
             '/returns/select-sale',
             [SaleReturnController::class, 'selectSale']
         )->name('returns.selectSale');

@@ -6,6 +6,8 @@
         @page { size: A4 portrait; margin: 8mm; }
         body { font-family: DejaVu Sans, Arial, sans-serif; font-size: 10px; color: #111; margin: 0; }
         .sheet { width: 100%; border: 1px solid #000; }
+        .company-head { border-bottom: 1px solid #000; text-align: center; padding: 10px 8px 8px; }
+        .company-name { font-size: 22px; font-weight: 700; line-height: 1.1; }
         .sheet-title { border-bottom: 1px solid #000; padding: 6px 8px; font-weight: 700; font-size: 14px; }
         .meta { width: 100%; border-collapse: collapse; border-bottom: 1px solid #000; }
         .meta td { border-right: 1px solid #000; padding: 4px 6px; vertical-align: top; }
@@ -35,6 +37,7 @@
         ?? optional(optional($return->approval)->customer)->phone
         ?? '-';
 
+    $companyName = $company->name ?? '';
     $sumGross = 0; $sumLess = 0; $sumNet = 0; $sumOther = 0; $sumTotal = 0;
 
     $approvalReturnedItems = collect();
@@ -45,7 +48,10 @@
 @endphp
 
 <div class="sheet">
-    <div class="sheet-title">Estimate Return</div>
+    <div class="company-head">
+        <div class="company-name">{{ $companyName }}</div>
+    </div>
+    <div class="sheet-title">Approval Return</div>
 
     <table class="meta">
         <tr>
@@ -57,11 +63,6 @@
                 <div><strong>Estimate No</strong> : {{ $return->return_voucher_no }}</div>
                 <div style="margin-top:4px;"><strong>Date</strong> : {{ \Carbon\Carbon::parse($return->return_date)->format('d-m-Y') }}</div>
                 <div style="margin-top:4px;"><strong>Contact No</strong> : {{ $contact }}</div>
-                <div style="margin-top:4px;"><strong>Refund Paid</strong> : {{ number_format((float)($return->refund_paid_amount ?? 0), 2) }}</div>
-                <div style="margin-top:4px;"><strong>Refund Mode</strong> : {{ $return->refund_mode ?? '-' }}</div>
-                @if(!empty($return->refund_reference))
-                    <div style="margin-top:4px;"><strong>Refund Ref</strong> : {{ $return->refund_reference }}</div>
-                @endif
             </td>
         </tr>
     </table>
@@ -71,12 +72,12 @@
             <tr>
                 <th style="width:4%;">Sr</th>
                 <th style="width:30%; text-align:left;">Item</th>
-                <th style="width:6%;">Carat</th>
+                <th style="width:6%;">Purity</th>
                 <th style="width:5%;">Qty</th>
                 <th style="width:9%;">Gross Wt</th>
                 <th style="width:9%;">Less Wt</th>
                 <th style="width:9%;">Net Wt</th>
-                <th style="width:8%;">Rate</th>
+                <th style="width:8%;">Metal Rate</th>
                 <th style="width:10%;">Labour Rate</th>
                 <th style="width:10%;">Other</th>
                 <th style="width:10%;">Total Amt</th>
@@ -98,7 +99,7 @@
                     $itemName = optional($item)->item_name ?? '-';
                     $itemDisplay = trim(($labelCode ? ($labelCode . ' - ') : '') . $itemName);
 
-                    $carat = (float) (optional($item)->outward_carat ?? 0);
+                    $purity = (float) ($saleItem->purity ?? optional($approvalItem)->purity ?? optional($item)->outward_carat ?? 0);
                     $qty = 1;
                     $gross = (float) ($saleItem->gross_weight ?? optional($approvalItem)->gross_weight ?? 0);
                     $less = (float) ($saleItem->other_weight ?? optional($approvalItem)->other_weight ?? 0);
@@ -113,15 +114,15 @@
                 <tr>
                     <td class="text-center">{{ $index + 1 }}</td>
                     <td>{{ $itemDisplay }}</td>
-                    <td class="text-right">{{ number_format($carat, 0) }}</td>
+                    <td class="text-right">{{ number_format($purity, 0) }}%</td>
                     <td class="text-center">{{ $qty }}</td>
                     <td class="text-right">{{ number_format($gross, 3) }}</td>
                     <td class="text-right">{{ number_format($less, 3) }}</td>
                     <td class="text-right">{{ number_format($net, 3) }}</td>
                     <td class="text-right">{{ number_format($rate, 2) }}</td>
                     <td class="text-right">{{ number_format($labourRate, 2) }}</td>
-                    <td class="text-right">{{ number_format($other, 2) }}</td>
-                    <td class="text-right">{{ number_format($total, 2) }}</td>
+                    <td class="text-right">Rs {{ number_format($other, 2) }}</td>
+                    <td class="text-right">Rs {{ number_format($total, 2) }}</td>
                 </tr>
             @endforeach
         </tbody>
@@ -133,13 +134,13 @@
                 <th class="text-right">{{ number_format($sumNet, 3) }}</th>
                 <th></th>
                 <th></th>
-                <th class="text-right">{{ number_format($sumOther, 2) }}</th>
-                <th class="text-right">{{ number_format($sumTotal, 2) }}</th>
+                <th class="text-right">Rs {{ number_format($sumOther, 2) }}</th>
+                <th class="text-right">Rs {{ number_format($sumTotal, 2) }}</th>
             </tr>
         </tfoot>
     </table>
 
-    <div class="grand-total">Grand Total : {{ number_format((float)($return->return_total ?? $sumTotal), 2) }}</div>
+    <div class="grand-total">Grand Total : Rs {{ number_format((float)($return->return_total ?? $sumTotal), 2) }}</div>
 </div>
 
 </body>

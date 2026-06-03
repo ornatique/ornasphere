@@ -83,7 +83,7 @@ class CompanyRoutePermission
             'company.get-item-details' => 'item-set',
             'company.sales.advance.' => 'sale-advance',
             'company.sales.' => 'sale',
-            'company.returns.' => 'return',
+            'company.returns.' => 'approval-return',
             'company.roles.' => 'role',
             'company.permissions.' => 'permission',
             'company.approval-sales.' => 'sale',

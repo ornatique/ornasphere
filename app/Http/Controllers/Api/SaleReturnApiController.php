@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Barryvdh\DomPDF\Facade\Pdf;
 
 use App\Models\Sale;
@@ -371,7 +372,6 @@ class SaleReturnApiController extends Controller
         $user = auth()->user();
 
         $request->validate([
-            'sale_id' => 'required|integer',
             'remarks' => 'nullable|string',
             'refund_paid_amount' => 'nullable|numeric|min:0',
             'refund_mode' => 'nullable|string|max:30',
@@ -475,83 +475,97 @@ class SaleReturnApiController extends Controller
 
     public function store(Request $request)
     {
-        $user = auth()->user();
-        $companyId = $user->company_id;
+        $companyId = $request->user()->company_id;
         $customerId = (int) ($request->input('customer_id') ?? 0);
+        $rawSubmittedIds = $request->input('approval_item_ids');
 
-        // Scan/cart flow support:
-        // If app scanned via /returns/scan-product and did not send explicit items payload,
-        // finalize from return_carts using existing confirmReturn logic.
-        if (
-            !$request->has('items') &&
-            !$request->has('sale_item_ids') &&
-            !$request->has('approval_item_ids') &&
-            !$request->has('row_payloads') &&
-            !$request->has('return_items') &&
-            $request->filled('sale_id')
-        ) {
-            $hasCartItems = ReturnCart::where('user_id', $user->id)
-                ->where('company_id', $companyId)
-                ->exists();
+        if (!is_array($rawSubmittedIds) || empty($rawSubmittedIds)) {
+            $rawSubmittedIds = $request->input('return_items', []);
+        }
 
-            if ($hasCartItems) {
-                return $this->confirmReturn($request);
+        $submittedApprovalIds = collect(is_array($rawSubmittedIds) ? $rawSubmittedIds : [$rawSubmittedIds])
+            ->map(fn($id) => (int) $id)
+            ->filter(fn($id) => $id > 0)
+            ->unique()
+            ->values();
+        $approvalItemIds = collect();
+        $rowPayloads = collect();
+        $unresolvedItems = collect();
+
+        Log::info('Approval return store request received.', [
+            'user_id' => optional($request->user())->id,
+            'company_id' => $companyId,
+            'customer_id' => $customerId ?: null,
+            'return_items' => $request->input('return_items', []),
+            'approval_item_ids' => $request->input('approval_item_ids', []),
+            'submitted_ids' => $submittedApprovalIds->all(),
+        ]);
+
+        foreach ($submittedApprovalIds as $submittedId) {
+            $approvalItemId = ApprovalItem::where('id', $submittedId)
+                ->where(function ($q) {
+                    $q->whereNull('status')
+                        ->orWhere('status', '!=', 'returned');
+                })
+                ->where(function ($q) use ($companyId, $customerId) {
+                    $this->scopeApprovalReturnCompany($q, $companyId, $customerId);
+                })
+                ->value('id');
+
+            if (!$approvalItemId) {
+                $approvalItemId = ApprovalItem::where(function ($q) use ($submittedId) {
+                    $q->where('itemset_id', $submittedId)
+                        ->orWhere(function ($legacyQuery) use ($submittedId) {
+                            $legacyQuery->whereNull('itemset_id')
+                                ->where('item_id', $submittedId);
+                        });
+                })
+                    ->where(function ($q) {
+                        $q->whereNull('status')
+                            ->orWhere('status', '!=', 'returned');
+                    })
+                    ->where(function ($q) use ($companyId, $customerId) {
+                        $this->scopeApprovalReturnCompany($q, $companyId, $customerId);
+                    })
+                    ->latest('id')
+                    ->value('id');
+            }
+
+            if ($approvalItemId) {
+                $approvalItemIds->push((int) $approvalItemId);
+                Log::info('Approval return store item resolved.', [
+                    'submitted_id' => $submittedId,
+                    'approval_item_id' => (int) $approvalItemId,
+                ]);
+            } else {
+                $candidates = $this->approvalReturnCandidates($submittedId);
+                $unresolvedItems->push([
+                    'submitted_id' => $submittedId,
+                    'candidates' => $candidates,
+                ]);
+
+                Log::warning('Approval return store item could not be resolved.', [
+                    'submitted_id' => $submittedId,
+                    'company_id' => $companyId,
+                    'customer_id' => $customerId ?: null,
+                    'candidates' => $candidates,
+                ]);
             }
         }
 
-        // New app payloads: delegate to mixed processor directly.
-        if (
-            $request->has('sale_item_ids') ||
-            $request->has('approval_item_ids') ||
-            $request->has('row_payloads')
-        ) {
-            return $this->processSelected($request);
-        }
-
-        // New app payload: items[] supports sale + approval + itemset rows.
+        // Store API is approval-return only. items[] remains supported for app clients
+        // that submit scanned approval rows instead of approval_item_ids directly.
         if ($request->has('items') && is_array($request->input('items'))) {
-            $saleItemIds = collect();
-            $approvalItemIds = collect();
-            $rowPayloads = collect();
-
             foreach ((array) $request->input('items', []) as $row) {
                 if (!is_array($row)) {
                     continue;
                 }
 
-                $source = strtolower((string) ($row['source'] ?? $row['source_type'] ?? 'sale'));
+                $approvalItemId = (int) ($row['approval_item_id'] ?? 0);
                 $totalAmount = (float) ($row['total_amount'] ?? $row['amount'] ?? 0);
 
-                if (!empty($row['approval_item_id'])) {
-                    $aid = (int) $row['approval_item_id'];
-                    $approvalItemIds->push($aid);
-                    $rowPayloads->push([
-                        'type' => 'approval',
-                        'id' => $aid,
-                        'total_amount' => $totalAmount,
-                    ]);
-                    continue;
-                }
-
-                if (!empty($row['sale_item_id'])) {
-                    $sid = (int) $row['sale_item_id'];
-                    $saleItemIds->push($sid);
-                    $rowPayloads->push([
-                        'type' => 'sale',
-                        'id' => $sid,
-                        'total_amount' => $totalAmount,
-                    ]);
-                    continue;
-                }
-
-                // Resolve by itemset_id when app sends scanned/search rows.
-                $itemsetId = (int) ($row['itemset_id'] ?? 0);
-                if ($itemsetId <= 0) {
-                    continue;
-                }
-
-                if ($source === 'approval') {
-                    $approvalItem = ApprovalItem::where('itemset_id', $itemsetId)
+                if ($approvalItemId <= 0 && !empty($row['itemset_id'])) {
+                    $approvalItemId = (int) ApprovalItem::where('itemset_id', (int) $row['itemset_id'])
                         ->where('status', 'pending')
                         ->whereHas('approval', function ($q) use ($companyId, $customerId) {
                             $q->where('company_id', $companyId);
@@ -560,91 +574,102 @@ class SaleReturnApiController extends Controller
                             }
                         })
                         ->latest('id')
-                        ->first();
-
-                    if ($approvalItem) {
-                        $approvalItemIds->push((int) $approvalItem->id);
-                        $rowPayloads->push([
-                            'type' => 'approval',
-                            'id' => (int) $approvalItem->id,
-                            'total_amount' => $totalAmount,
-                        ]);
-                    }
-                } else {
-                    $saleItemQuery = SaleItem::where('itemset_id', $itemsetId)
-                        ->whereHas('sale', function ($q) use ($companyId, $customerId, $request) {
-                            $q->where('company_id', $companyId);
-                            if ($customerId > 0) {
-                                $q->where('customer_id', $customerId);
-                            }
-                            if ($request->filled('sale_id')) {
-                                $q->where('id', (int) $request->input('sale_id'));
-                            }
-                        })
-                        ->whereNotExists(function ($sub) {
-                            $sub->select(DB::raw(1))
-                                ->from('sale_return_items')
-                                ->whereColumn('sale_return_items.sale_item_id', 'sale_items.id');
-                        })
-                        ->latest('id');
-
-                    $saleItem = $saleItemQuery->first();
-                    if ($saleItem) {
-                        $saleItemIds->push((int) $saleItem->id);
-                        $rowPayloads->push([
-                            'type' => 'sale',
-                            'id' => (int) $saleItem->id,
-                            'total_amount' => $totalAmount,
-                        ]);
-                    }
+                        ->value('id');
                 }
+
+                if ($approvalItemId <= 0) {
+                    continue;
+                }
+
+                $approvalItemIds->push($approvalItemId);
+                $rowPayloads->push([
+                    'type' => 'approval',
+                    'id' => $approvalItemId,
+                    'total_amount' => $totalAmount,
+                ]);
             }
-
-            $saleItemIds = $saleItemIds->filter()->unique()->values();
-            $approvalItemIds = $approvalItemIds->filter()->unique()->values();
-
-            if ($saleItemIds->isEmpty() && $approvalItemIds->isEmpty()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'No valid selected items found for return.'
-                ], 422);
-            }
-
-            $request->merge([
-                'sale_item_ids' => $saleItemIds->all(),
-                'approval_item_ids' => $approvalItemIds->all(),
-                'row_payloads' => $rowPayloads->values()->all(),
-            ]);
-
-            return $this->processSelected($request);
         }
 
-        // Legacy payload support:
-        // {
-        //   "sale_id": 123,
-        //   "return_items": [10,11,12] // sale_item ids
-        // }
-        $request->validate([
-            'sale_id' => 'required|integer',
-            'return_items' => 'required|array|min:1',
-            'return_items.*' => 'required|integer',
-        ]);
-
-        $saleItemIds = collect((array) $request->input('return_items', []))
-            ->map(fn($id) => (int) $id)
-            ->filter()
+        $approvalItemIds = $approvalItemIds
+            ->filter(fn($id) => $id > 0)
             ->unique()
             ->values();
 
+        if ($approvalItemIds->isEmpty()) {
+            $hasCompanyMismatch = $unresolvedItems
+                ->pluck('candidates')
+                ->flatten(1)
+                ->contains(function ($candidate) use ($companyId) {
+                    return (int) ($candidate['approval_company_id'] ?? 0) !== (int) $companyId
+                        && (int) ($candidate['itemset_company_id'] ?? 0) !== (int) $companyId;
+                });
+
+            Log::warning('Approval return store rejected: no available approval items.', [
+                'user_id' => optional($request->user())->id,
+                'company_id' => $companyId,
+                'customer_id' => $customerId ?: null,
+                'submitted_ids' => $submittedApprovalIds->all(),
+            ]);
+
+            if ($hasCompanyMismatch) {
+                return response()->json([
+                    'success' => false,
+                    'code' => 'APPROVAL_ITEM_COMPANY_MISMATCH',
+                    'message' => 'Selected approval item belongs to another company. Please log in with the correct company account.',
+                    'authenticated_company_id' => (int) $companyId,
+                ], 403);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Please select at least one available approval item for return.'
+            ], 422);
+        }
+
         $request->merge([
-            'sale_item_ids' => $saleItemIds->all(),
-            'approval_item_ids' => [],
-            'row_payloads' => $saleItemIds->map(function ($id) {
-                return ['type' => 'sale', 'id' => (int) $id];
-            })->all(),
+            'sale_item_ids' => [],
+            'approval_item_ids' => $approvalItemIds->all(),
+            'row_payloads' => $rowPayloads->values()->all(),
+            'approval_store_only' => true,
+        ]);
+
+        Log::info('Approval return store forwarding resolved items.', [
+            'user_id' => optional($request->user())->id,
+            'company_id' => $companyId,
+            'approval_item_ids' => $request->input('approval_item_ids', []),
         ]);
 
         return $this->processSelected($request);
+    }
+
+    private function approvalReturnCandidates(int $submittedId): array
+    {
+        return ApprovalItem::with(['approval', 'itemSet', 'legacyItemSet'])
+            ->where(function ($query) use ($submittedId) {
+                $query->where('id', $submittedId)
+                    ->orWhere('itemset_id', $submittedId)
+                    ->orWhere(function ($legacyQuery) use ($submittedId) {
+                        $legacyQuery->whereNull('itemset_id')
+                            ->where('item_id', $submittedId);
+                    });
+            })
+            ->get()
+            ->map(function ($row) {
+                $itemSet = $row->itemSet ?? $row->legacyItemSet;
+
+                return [
+                    'approval_item_id' => (int) $row->id,
+                    'approval_id' => (int) $row->approval_id,
+                    'approval_company_id' => optional($row->approval)->company_id,
+                    'approval_customer_id' => optional($row->approval)->customer_id,
+                    'itemset_id' => $row->itemset_id,
+                    'item_id' => $row->item_id,
+                    'itemset_company_id' => optional($itemSet)->company_id,
+                    'status' => $row->status,
+                ];
+            })
+            ->values()
+            ->all();
     }
 
     public function pdf($returnId)
@@ -811,11 +836,27 @@ class SaleReturnApiController extends Controller
 
             $approvalItems = collect();
             if ($approvalItemIds->isNotEmpty()) {
-                $approvalItems = ApprovalItem::with(['approval', 'itemSet'])
+                $approvalItems = ApprovalItem::with(['approval', 'itemSet', 'legacyItemSet'])
                     ->whereIn('id', $approvalItemIds)
-                    ->where('status', 'pending')
-                    ->whereHas('approval', function ($q) use ($companyId) {
-                        $q->where('company_id', $companyId);
+                    ->when(
+                        $request->boolean('approval_store_only'),
+                        function ($q) {
+                            $q->where(function ($statusQuery) {
+                                $statusQuery->whereNull('status')
+                                    ->orWhere('status', '!=', 'returned');
+                            });
+                        },
+                        fn($q) => $q->where('status', 'pending')
+                    )
+                    ->where(function ($q) use ($companyId, $request) {
+                        if ($request->boolean('approval_store_only')) {
+                            $this->scopeApprovalReturnCompany($q, $companyId);
+                            return;
+                        }
+
+                        $q->whereHas('approval', function ($approvalQuery) use ($companyId) {
+                            $approvalQuery->where('company_id', $companyId);
+                        });
                     })
                     ->get()
                     ->values();
@@ -882,7 +923,7 @@ class SaleReturnApiController extends Controller
 
             if ($approvalItems->isNotEmpty()) {
                 foreach ($approvalItems as $approvalItem) {
-                    $itemSet = $approvalItem->itemSet;
+                    $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
                     if (!$itemSet) {
                         continue;
                     }
@@ -966,6 +1007,13 @@ class SaleReturnApiController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
+            Log::error('Approval return processing failed.', [
+                'user_id' => optional($request->user())->id,
+                'company_id' => $companyId,
+                'approval_item_ids' => $approvalItemIds->all(),
+                'message' => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage()
@@ -982,6 +1030,27 @@ class SaleReturnApiController extends Controller
 
         $status = ($total > 0 && $total === $done) ? 'closed' : 'partial';
         ApprovalHeader::where('id', $approvalId)->update(['status' => $status]);
+    }
+
+    private function scopeApprovalReturnCompany($query, int $companyId, int $customerId = 0): void
+    {
+        if ($customerId > 0) {
+            $query->whereHas('approval', function ($approvalQuery) use ($companyId, $customerId) {
+                $approvalQuery->where('company_id', $companyId)
+                    ->where('customer_id', $customerId);
+            });
+            return;
+        }
+
+        $query->whereHas('approval', function ($approvalQuery) use ($companyId) {
+            $approvalQuery->where('company_id', $companyId);
+        })
+            ->orWhereHas('itemSet', function ($itemSetQuery) use ($companyId) {
+                $itemSetQuery->where('company_id', $companyId);
+            })
+            ->orWhereHas('legacyItemSet', function ($itemSetQuery) use ($companyId) {
+                $itemSetQuery->where('company_id', $companyId);
+            });
     }
 
     public function returnsearchItemSets(Request $request)

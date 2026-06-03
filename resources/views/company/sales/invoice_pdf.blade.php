@@ -13,12 +13,14 @@
         .meta { width: 100%; border-collapse: collapse; border-bottom: 1px solid #000; }
         .meta td { border-right: 1px solid #000; padding: 4px 6px; vertical-align: top; }
         .meta td:last-child { border-right: none; }
-        .summary-grid { width: 100%; border-collapse: collapse; border: 1px solid #000; margin-top: 6px; }
-        .summary-grid td { border: 1px solid #000; padding: 6px 8px; font-size: 10px; vertical-align: top; width: 25%; }
-        .metric-row { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        .metric-row td { border: 0; padding: 0; font-size: 10px; vertical-align: top; }
-        .metric-label { font-weight: 700; width: 58%; }
-        .metric-value { width: 42%; text-align: right; white-space: nowrap; }
+        .summary-grid { width: 100%; border-collapse: collapse; border: 1px solid #000; margin-top: 6px; table-layout: fixed; }
+        .summary-grid td { border: 1px solid #000; padding: 5px 7px; font-size: 9px; vertical-align: top; width: 25%; height: 34px; }
+        .metric-card { width: 100%; }
+        .metric-top { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        .metric-top td { border: 0; padding: 0; height: auto; vertical-align: top; }
+        .metric-label { font-weight: 700; white-space: nowrap; width: 58%; }
+        .metric-value { text-align: right; white-space: nowrap; width: 42%; }
+        .metric-status { margin-top: 3px; font-weight: 700; white-space: nowrap; }
         .voucher-grid { width: 100%; border-collapse: collapse; table-layout: auto; }
         .voucher-grid th, .voucher-grid td { border: 1px solid #000; padding: 3px 4px; vertical-align: top; word-break: normal; }
         .voucher-grid th { white-space: nowrap; background: #efefef; font-weight: 700; text-align: center; font-size: 9px; }
@@ -49,7 +51,14 @@
 @php
     $name = optional($sale->customer)->name ?? '-';
     $city = optional($sale->customer)->city ?? '-';
-    $contact = optional($sale->customer)->mobile ?? optional($sale->customer)->phone ?? '-';
+    $customer = $sale->customer;
+    $contact = collect([
+        optional($customer)->mobile_no,
+        optional($customer)->contact_person1_phone,
+        optional($customer)->contact_person2_phone,
+        optional($customer)->mobile,
+        optional($customer)->phone,
+    ])->first(fn ($value) => filled($value)) ?? '-';
     $companyName = $company->name ?? '';
     $companyAddress = collect([
         $company->address_1 ?? null,
@@ -232,34 +241,62 @@
     </table>
 
     <div class="grand-total">Grand Total : Rs {{ number_format((float)($sale->net_total ?? $sumTotal), 2) }}</div>
+    @php
+        $showGoldBox = $goldAbs > 0.000001;
+        $showSilverBox = $silverBalanceAbs > 0.000001;
+        $showOtherBox = $otherAbs > 0.000001;
+        $metalSummaryBoxes = [];
+        if ($showGoldBox) {
+            $metalSummaryBoxes[] = ['label' => 'Adv Gold(Fine)', 'value' => number_format($goldAbs, 3), 'status' => $goldType];
+        }
+        if ($showSilverBox) {
+            $metalSummaryBoxes[] = ['label' => 'Adv Silver(Fine)', 'value' => number_format($silverBalanceAbs, 3), 'status' => $silverBalanceType];
+        }
+        $metalSummaryBoxes[] = ['label' => 'Silver Debit / Credit', 'value' => number_format($silverDebit, 3) . '/' . number_format($silverCredit, 3), 'status' => ''];
+        if ($showOtherBox) {
+            $metalSummaryBoxes[] = ['label' => 'Adv Other(Fine)', 'value' => number_format($otherAbs, 3), 'status' => $otherType];
+        }
+        while (count($metalSummaryBoxes) < 4) {
+            $metalSummaryBoxes[] = null;
+        }
+    @endphp
     <table class="summary-grid">
         <tr>
-            <td><table class="metric-row"><tr><td class="metric-label">Received</td><td class="metric-value">Rs {{ number_format($receivedAmount, 2) }}</td></tr></table></td>
-            <td><table class="metric-row"><tr><td class="metric-label">Refund Paid</td><td class="metric-value">Rs {{ number_format((float)($sale->paid_amount ?? 0), 2) }}</td></tr></table></td>
-            <td><table class="metric-row"><tr><td class="metric-label">Pending {{ $pendingType }}</td><td class="metric-value">Rs {{ number_format($pendingAmount, 2) }}</td></tr></table></td>
-            <td><table class="metric-row"><tr><td class="metric-label">Adv Cash {{ $advCashType }}</td><td class="metric-value">Rs {{ number_format($advCashAbs, 2) }}</td></tr></table></td>
+            <td>
+                <div class="metric-card">
+                    <table class="metric-top"><tr><td class="metric-label">Received</td><td class="metric-value">Rs {{ number_format($receivedAmount, 2) }}</td></tr></table>
+                </div>
+            </td>
+            <td>
+                <div class="metric-card">
+                    <table class="metric-top"><tr><td class="metric-label">Refund Paid</td><td class="metric-value">Rs {{ number_format((float)($sale->paid_amount ?? 0), 2) }}</td></tr></table>
+                </div>
+            </td>
+            <td>
+                <div class="metric-card">
+                    <table class="metric-top"><tr><td class="metric-label">Pending {{ $pendingType }}</td><td class="metric-value">Rs {{ number_format($pendingAmount, 2) }}</td></tr></table>
+                </div>
+            </td>
+            <td>
+                <div class="metric-card">
+                    <table class="metric-top"><tr><td class="metric-label">Adv Cash</td><td class="metric-value">Rs {{ number_format($advCashAbs, 2) }}</td></tr></table>
+                    <div class="metric-status">{{ $advCashType }}</div>
+                </div>
+            </td>
         </tr>
         <tr>
-            @php
-                $showGoldBox = $goldAbs > 0.000001;
-                $showSilverBox = $silverBalanceAbs > 0.000001;
-                $showOtherBox = $otherAbs > 0.000001;
-            @endphp
-            @if($showGoldBox)
-                <td><table class="metric-row"><tr><td class="metric-label">Adv Gold(Fine) {{ $goldType }}</td><td class="metric-value">{{ number_format($goldAbs, 3) }}</td></tr></table></td>
-            @endif
-            @if($showSilverBox)
-                <td><table class="metric-row"><tr><td class="metric-label">Adv Silver(Fine) {{ $silverBalanceType }}</td><td class="metric-value">{{ number_format($silverBalanceAbs, 3) }}</td></tr></table></td>
-            @endif
-            <td><table class="metric-row"><tr><td class="metric-label">Silver Debit / Credit</td><td class="metric-value">{{ number_format($silverDebit, 3) }}/{{ number_format($silverCredit, 3) }}</td></tr></table></td>
-            @if($showOtherBox)
-                <td><table class="metric-row"><tr><td class="metric-label">Adv Other(Fine) {{ $otherType }}</td><td class="metric-value">{{ number_format($otherAbs, 3) }}</td></tr></table></td>
-            @else
-                @php $filled = ($showGoldBox ? 1 : 0) + ($showSilverBox ? 1 : 0) + 1; @endphp
-                @if($filled < 4)
-                    <td></td>
-                @endif
-            @endif
+            @foreach($metalSummaryBoxes as $box)
+                <td>
+                    @if($box)
+                        <div class="metric-card">
+                            <table class="metric-top"><tr><td class="metric-label">{{ $box['label'] }}</td><td class="metric-value">{{ $box['value'] }}</td></tr></table>
+                            @if($box['status'] !== '')
+                                <div class="metric-status">{{ $box['status'] }}</div>
+                            @endif
+                        </div>
+                    @endif
+                </td>
+            @endforeach
         </tr>
     </table>
     @if($paymentRows->isNotEmpty())

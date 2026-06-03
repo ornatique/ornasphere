@@ -212,6 +212,7 @@ class CompanyRoleController extends Controller
             'sale',
             'sale-advance',
             'approval',
+            'approval-return',
             'return',
         ];
 

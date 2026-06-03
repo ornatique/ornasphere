@@ -34,68 +34,34 @@ class SaleReturnController extends Controller
         if ($request->ajax()) {
 
             $returns = SaleReturn::with([
-                'sale.customer',
                 'approval.customer',
-                'items.saleItem.sale.customer',
+                'approval.creator',
+                'approval.items.itemSet.item',
+                'approval.items.item',
+                'items.itemSet.item',
             ])
-                ->where('company_id', $company->id);
+                ->where('company_id', $company->id)
+                ->where('source_type', 'approval');
 
-            // ✅ DATE FILTER
-            if ($request->from_date && $request->to_date) {
-
-                $returns->whereBetween('return_date', [
-                    $request->from_date,
-                    $request->to_date
-                ]);
-            } elseif ($request->from_date) {
-
-                $returns->whereDate('return_date', '>=', $request->from_date);
-            } elseif ($request->to_date) {
-
-                $returns->whereDate('return_date', '<=', $request->to_date);
+            if ($request->filled('customer_id')) {
+                $returns->whereHas('approval', function ($query) use ($request) {
+                    $query->where('customer_id', (int) $request->customer_id);
+                });
             }
 
-            $returns = $returns->latest();
+            [$fromDate, $toDate] = $this->resolveReturnDateRange($request);
+            $returns->whereBetween('return_date', [$fromDate, $toDate]);
+
+            $returns = $returns->latest()
+                ->get()
+                ->map(fn(SaleReturn $return) => $this->summarizeApprovalReturn($return));
 
             return DataTables::of($returns)
 
                 ->addIndexColumn()
 
-                ->addColumn('customer_name', function ($return) {
-
-                    if ($return->sale) {
-                        return optional($return->sale->customer)->name;
-                    }
-
-                    if ($return->approval) {
-                        return optional($return->approval->customer)->name;
-                    }
-
-                    $saleCustomer = optional(
-                        optional(
-                            optional($return->items->firstWhere('sale_item_id', '!=', null))->saleItem
-                        )->sale
-                    )->customer;
-
-                    if ($saleCustomer) {
-                        return $saleCustomer->name;
-                    }
-
-                    return '-';
-                })
-
-                ->editColumn('return_date', function ($return) {
-                    return $return->return_date
-                        ? \Carbon\Carbon::parse($return->return_date)->format('d-m-Y')
-                        : '-';
-                })
-
-                ->editColumn('return_total', function ($return) {
-                    return '₹ ' . number_format($return->return_total, 2);
-                })
-
                 ->addColumn('action', function ($return) use ($company) {
-                    $encryptedReturnId = Crypt::encryptString((string) $return->id);
+                    $encryptedReturnId = Crypt::encryptString((string) $return['return_id']);
 
                     $pdfUrl = route('company.returns.pdf', [
                         'slug' => $company->slug,
@@ -115,12 +81,132 @@ class SaleReturnController extends Controller
                 ->make(true);
         }
 
-        return view('company.returns.index', compact('company'));
+        $customers = Customer::where('company_id', $company->id)
+            ->where('is_active', 1)
+            ->orderBy('name')
+            ->get();
+
+        return view('company.returns.index', compact('company', 'customers'));
+    }
+
+    public function exportListPdf(Request $request, $slug)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        [$fromDate, $toDate] = $this->resolveReturnDateRange($request);
+
+        $query = SaleReturn::with([
+            'approval.customer',
+            'approval.creator',
+            'approval.items.itemSet.item',
+            'approval.items.item',
+            'items.itemSet.item',
+        ])
+            ->where('company_id', $company->id)
+            ->where('source_type', 'approval')
+            ->whereBetween('return_date', [$fromDate, $toDate])
+            ->latest('return_date')
+            ->latest('id');
+
+        if ($request->filled('customer_id')) {
+            $query->whereHas('approval', function ($approvalQuery) use ($request) {
+                $approvalQuery->where('customer_id', (int) $request->customer_id);
+            });
+        }
+
+        $rows = $query->get()
+            ->map(fn(SaleReturn $return) => $this->summarizeApprovalReturn($return))
+            ->values();
+
+        return Pdf::loadView('company.returns.list_pdf', compact('company', 'rows', 'fromDate', 'toDate'))
+            ->setPaper('a4', 'landscape')
+            ->stream('approval-return-list-' . now()->format('YmdHis') . '.pdf');
+    }
+
+    private function resolveReturnDateRange(Request $request): array
+    {
+        $fromDate = $request->input('from_date');
+        $toDate = $request->input('to_date');
+        $today = now()->toDateString();
+
+        if (empty($fromDate) && empty($toDate)) {
+            return [$today, $today];
+        }
+
+        return [$fromDate ?: $toDate, $toDate ?: $fromDate];
+    }
+
+    private function summarizeApprovalReturn(SaleReturn $return): array
+    {
+        if (isset($return->approvalReturnSummary)) {
+            return $return->approvalReturnSummary;
+        }
+
+        $approvalItemsByItemSet = collect(optional($return->approval)->items ?? [])
+            ->filter(fn($item) => !empty($item->itemset_id))
+            ->keyBy('itemset_id');
+        $remainingApprovalItems = collect(optional($return->approval)->items ?? [])
+            ->where('status', 'returned')
+            ->values();
+        $itemNames = collect();
+        $totals = [
+            'qty' => 0,
+            'gross_wt' => 0.0,
+            'net_wt' => 0.0,
+            'fine_wt' => 0.0,
+            'metal_amt' => 0.0,
+            'labour_amt' => 0.0,
+            'other_amt' => 0.0,
+            'total_amt' => 0.0,
+        ];
+
+        foreach ($return->items as $returnItem) {
+            $itemSet = $returnItem->itemSet;
+            $approvalItem = $itemSet
+                ? $approvalItemsByItemSet->get($itemSet->id)
+                : null;
+
+            if (!$approvalItem) {
+                $approvalItem = $remainingApprovalItems->first(function ($item) use ($returnItem) {
+                    return abs((float) ($item->total_amount ?? 0) - (float) ($returnItem->return_amount ?? 0)) < 0.01;
+                }) ?? $remainingApprovalItems->first();
+            }
+
+            if ($approvalItem) {
+                $remainingApprovalItems = $remainingApprovalItems
+                    ->reject(fn($item) => (int) $item->id === (int) $approvalItem->id)
+                    ->values();
+            }
+
+            $itemSet = $itemSet ?? optional($approvalItem)->itemSet;
+            $itemNames->push(
+                optional(optional($itemSet)->item)->item_name
+                ?? optional(optional($approvalItem)->item)->item_name
+            );
+            $totals['qty']++;
+            $totals['gross_wt'] += (float) ($approvalItem->gross_weight ?? 0);
+            $totals['net_wt'] += (float) ($approvalItem->net_weight ?? 0);
+            $totals['fine_wt'] += (float) ($approvalItem->total_fine_weight ?? 0);
+            $totals['metal_amt'] += (float) ($approvalItem->metal_amount ?? 0);
+            $totals['labour_amt'] += (float) ($approvalItem->labour_amount ?? 0);
+            $totals['other_amt'] += (float) ($approvalItem->other_amount ?? 0);
+            $totals['total_amt'] += (float) ($returnItem->return_amount ?? 0);
+        }
+
+        return $return->approvalReturnSummary = [
+            'return_id' => (int) $return->id,
+            'voucher_no' => (string) ($return->return_voucher_no ?? '-'),
+            'return_date' => $return->return_date
+                ? \Carbon\Carbon::parse($return->return_date)->format('d-m-Y')
+                : '-',
+            'customer_name' => optional(optional($return->approval)->customer)->name ?? '-',
+            'item_names' => $itemNames->filter()->unique()->implode(', ') ?: '-',
+            'created_by' => optional(optional($return->approval)->creator)->name ?? '-',
+        ] + $totals;
     }
 
     /*
     |--------------------------------------------------------------------------
-    | Select Sale For Return
+    | Select Approval Items For Return
     |--------------------------------------------------------------------------
     */
 
@@ -142,30 +228,17 @@ class SaleReturnController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | Create Return From Sale
+    | Legacy Sale Return Entry
     |--------------------------------------------------------------------------
     */
 
     public function create($slug, $encryptedSaleId)
     {
         $company = Company::where('slug', $slug)->firstOrFail();
-        $saleId = (int) Crypt::decryptString($encryptedSaleId);
 
-        $sale = Sale::where('id', $saleId)
-            ->where('company_id', $company->id)
-            ->with('saleItems.itemset.item', 'customer')
-            ->firstOrFail();
-
-        $selectedSaleItemId = request()->query('sale_item_id');
-
-        if ($selectedSaleItemId) {
-            $exists = $sale->saleItems->contains('id', (int) $selectedSaleItemId);
-            if (!$exists) {
-                abort(404, 'Sale item not found for this sale');
-            }
-        }
-
-        return view('company.returns.create', compact('company', 'sale', 'selectedSaleItemId'));
+        return redirect()
+            ->route('company.returns.selectSale', $company->slug)
+            ->with('error', 'Only pending approval items can be returned from Approval Return.');
     }
 
 
@@ -178,84 +251,14 @@ class SaleReturnController extends Controller
     public function store(Request $request, $slug, $encryptedSaleId = null)
     {
         $company = Company::where('slug', $slug)->firstOrFail();
-        $request->validate([
-            'refund_paid_amount' => 'nullable|numeric|min:0',
-            'refund_mode' => 'nullable|string|max:30',
-            'refund_reference' => 'nullable|string|max:120',
-            'refund_note' => 'nullable|string|max:255',
-        ]);
 
         if ($request->has('sale_item_ids') || $request->has('approval_item_ids')) {
             return $this->processSelectedGridReturns($request, $company);
         }
 
-        $saleId = $encryptedSaleId ? (int) Crypt::decryptString($encryptedSaleId) : null;
-        $sale = Sale::where('company_id', $company->id)
-            ->findOrFail($saleId);
-
-        DB::beginTransaction();
-
-        try {
-
-            $return = SaleReturn::create([
-                'company_id' => $company->id,
-                'sale_id' => $sale->id,
-                'return_voucher_no' => 'SR' . time(),
-                'return_date' => now(),
-                'return_total' => 0,
-                'refund_paid_amount' => 0,
-                'refund_mode' => $request->input('refund_mode'),
-                'refund_reference' => $request->input('refund_reference'),
-                'refund_note' => $request->input('refund_note'),
-                'remarks' => $request->input('voucher_remarks'),
-            ]);
-
-            $total = 0;
-
-            if ($request->has('return_items')) {
-
-                foreach ($request->return_items as $saleItemId) {
-
-                    $saleItem = SaleItem::findOrFail($saleItemId);
-
-                    SaleReturnItem::create([
-                        'sale_return_id' => $return->id,
-                        'sale_item_id' => $saleItem->id,
-                        'return_amount' => $saleItem->total_amount,
-                        'remarks' => $request->input('remarks.' . $saleItem->id),
-                    ]);
-
-                    // Restore stock
-                    $saleItem->itemset->update([
-                        'is_sold' => 0
-                    ]);
-
-                    $total += $saleItem->total_amount;
-                }
-            }
-
-            $return->update([
-                'return_total' => $total,
-                'refund_paid_amount' => (float) ($request->input('refund_paid_amount', 0) > 0
-                    ? $request->input('refund_paid_amount', 0)
-                    : $total),
-            ]);
-
-            // Reduce original sale total
-            $sale->decrement('net_total', $total);
-            $sale->increment('paid_amount', (float) ($return->refund_paid_amount ?? 0));
-
-            DB::commit();
-
-            return redirect()
-                ->route('company.returns.index', $company->slug)
-                ->with('success', 'Sale Return Created Successfully');
-        } catch (\Exception $e) {
-
-            DB::rollback();
-
-            return back()->with('error', $e->getMessage());
-        }
+        return redirect()
+            ->route('company.returns.selectSale', $company->slug)
+            ->with('error', 'Only pending approval items can be returned from Approval Return.');
     }
 
 
@@ -273,14 +276,16 @@ class SaleReturnController extends Controller
         $return = SaleReturn::with([
             'sale.customer',
             'approval.customer',
-            'approval.items.itemSet.item', // ✅ important
+            'approval.items.itemSet.item', // âœ… important
             'items.saleItem.itemset.item',
             'items.itemSet.item',
-        ])->findOrFail($returnId);
+        ])
+            ->where('company_id', $company->id)
+            ->findOrFail($returnId);
 
         $pdf = Pdf::loadView(
             'company.returns.return_pdf',
-            compact('return')
+            compact('company', 'return')
         )->setPaper('a4', 'portrait');
 
         return $pdf->stream(
@@ -318,12 +323,12 @@ class SaleReturnController extends Controller
             $sales = Sale::with(['customer', 'saleItems.itemset'])
                 ->where('company_id', $company->id);
 
-            // 🔎 Filter by customer
+            // ðŸ”Ž Filter by customer
             if ($request->customer_id) {
                 $sales->where('customer_id', $request->customer_id);
             }
 
-            // 🔎 Filter by date range
+            // ðŸ”Ž Filter by date range
             if ($request->from_date) {
                 $sales->whereDate('sale_date', '>=', $request->from_date);
             }
@@ -332,7 +337,7 @@ class SaleReturnController extends Controller
                 $sales->whereDate('sale_date', '<=', $request->to_date);
             }
 
-            // 🔎 Filter by item
+            // ðŸ”Ž Filter by item
             if ($request->item_id) {
                 $sales->whereHas('saleItems.itemset', function ($q) use ($request) {
                     $q->where('item_id', $request->item_id);
@@ -459,18 +464,15 @@ class SaleReturnController extends Controller
 
     private function processSelectedGridReturns(Request $request, Company $company)
     {
-        $request->validate([
-            'refund_paid_amount' => 'nullable|numeric|min:0',
-            'refund_mode' => 'nullable|string|max:30',
-            'refund_reference' => 'nullable|string|max:120',
-            'refund_note' => 'nullable|string|max:255',
-        ]);
-
         $saleItemIds = collect($request->input('sale_item_ids', []))
             ->filter()
             ->map(fn($id) => (int) $id)
             ->unique()
             ->values();
+
+        if ($saleItemIds->isNotEmpty()) {
+            return back()->with('error', 'Only pending approval items can be returned from Approval Return.');
+        }
 
         $approvalItemIds = collect($request->input('approval_item_ids', []))
             ->filter()
@@ -556,10 +558,6 @@ class SaleReturnController extends Controller
                 'return_voucher_no' => 'SR' . now()->format('YmdHis') . rand(10, 99),
                 'return_date' => now(),
                 'return_total' => 0,
-                'refund_paid_amount' => 0,
-                'refund_mode' => $request->input('refund_mode'),
-                'refund_reference' => $request->input('refund_reference'),
-                'refund_note' => $request->input('refund_note'),
                 'remarks' => $request->input('voucher_remarks'),
             ]);
 
@@ -649,37 +647,7 @@ class SaleReturnController extends Controller
 
             $return->update([
                 'return_total' => $total,
-                'refund_paid_amount' => (float) ($request->input('refund_paid_amount', 0) > 0
-                    ? $request->input('refund_paid_amount', 0)
-                    : $total),
             ]);
-
-            if ($saleItems->isNotEmpty()) {
-                $saleTotalsBySaleId = [];
-                foreach ($saleItems as $saleItem) {
-                    $saleId = (int) $saleItem->sale_id;
-                    if (!isset($saleTotalsBySaleId[$saleId])) {
-                        $saleTotalsBySaleId[$saleId] = 0;
-                    }
-                    $rowKey = 'sale_' . (int) $saleItem->id;
-                    $saleTotalsBySaleId[$saleId] += isset($payloadMap[$rowKey]['total_amount'])
-                        ? (float) $payloadMap[$rowKey]['total_amount']
-                        : (float) ($saleItem->total_amount ?? 0);
-                }
-
-                $totalSaleReturnAmount = array_sum($saleTotalsBySaleId);
-                $refundPaid = (float) ($return->refund_paid_amount ?? 0);
-
-                foreach ($saleTotalsBySaleId as $saleId => $saleAmount) {
-                    $share = $totalSaleReturnAmount > 0
-                        ? ($refundPaid * ($saleAmount / $totalSaleReturnAmount))
-                        : 0;
-
-                    Sale::where('company_id', $company->id)
-                        ->where('id', $saleId)
-                        ->increment('paid_amount', $share);
-                }
-            }
 
             DB::commit();
 

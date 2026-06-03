@@ -102,10 +102,10 @@
     <div class="card">
 
         <div class="card-header d-flex justify-content-between align-items-center">
-            <h4 class="card-title">Select Sale For Return</h4>
+            <h4 class="card-title">Approval Return</h4>
 
             <button type="button" class="btn btn-warning" id="openApprovalModal">
-                Add Label Return Approval
+                Add Approval Items
             </button>
         </div>
 
@@ -121,11 +121,13 @@
                     </select>
                 </div>
 
+                {{-- Approval returns must be selected from pending approval items only.
                 <div class="col-md-8 sale-search-wrap">
                     <label>Search QR Code</label>
                     <input type="text" id="sale_search" class="form-control" disabled>
                     <div id="saleSuggestion" class="list-group"></div>
                 </div>
+                --}}
             </div>
 
             <form method="POST" action="{{ route('company.returns.processSelected', $company->slug) }}" id="returnSubmitForm">
@@ -134,32 +136,6 @@
                 <div class="mb-3">
                     <label>Voucher Remarks</label>
                     <textarea name="voucher_remarks" class="form-control" rows="2" placeholder="Enter remarks for this return"></textarea>
-                </div>
-
-                <div class="row mb-3">
-                    <div class="col-md-3">
-                        <label>Refund Paid Amount</label>
-                        <input type="number" step="0.01" min="0" name="refund_paid_amount" class="form-control" value="0">
-                    </div>
-                    <div class="col-md-3">
-                        <label>Refund Mode</label>
-                        <select name="refund_mode" class="form-select">
-                            <option value="">Select Mode</option>
-                            <option value="cash">Cash</option>
-                            <option value="online">Online</option>
-                            <option value="upi">UPI</option>
-                            <option value="bank">Bank</option>
-                            <option value="other">Other</option>
-                        </select>
-                    </div>
-                    <div class="col-md-3">
-                        <label>Refund Ref No</label>
-                        <input type="text" name="refund_reference" class="form-control" placeholder="Txn/Ref No">
-                    </div>
-                    <div class="col-md-3">
-                        <label>Refund Note</label>
-                        <input type="text" name="refund_note" class="form-control" placeholder="Optional">
-                    </div>
                 </div>
 
                 <div class="row mb-3">
@@ -297,7 +273,6 @@
 @push('scripts')
 <script>
 $(function() {
-    const selectedSaleItemIds = new Set();
     const selectedApprovalItemIds = new Set();
     const selectedRows = {};
     let modalRowId = null;
@@ -325,10 +300,6 @@ $(function() {
 
     function updateHiddenInputs() {
         let html = '';
-
-        selectedSaleItemIds.forEach(function(id) {
-            html += `<input type="hidden" name="sale_item_ids[]" value="${id}">`;
-        });
 
         selectedApprovalItemIds.forEach(function(id) {
             html += `<input type="hidden" name="approval_item_ids[]" value="${id}">`;
@@ -623,7 +594,6 @@ $(function() {
     }
 
     function clearSelectionGrid() {
-        selectedSaleItemIds.clear();
         selectedApprovalItemIds.clear();
         Object.keys(selectedRows).forEach(k => delete selectedRows[k]);
 
@@ -638,11 +608,12 @@ $(function() {
     }
 
     $('#filter_customer').change(function() {
-        $('#sale_search').prop('disabled', !$(this).val()).val('');
-        $('#saleSuggestion').hide().empty();
         clearSelectionGrid();
     });
 
+    /*
+     * Sale QR search intentionally disabled. Approval Return accepts pending
+     * approval items selected through the approval item modal only.
     $('#sale_search').keyup(function() {
         const query = $(this).val().trim();
         const customerId = $('#filter_customer').val();
@@ -695,6 +666,7 @@ $(function() {
         $('#saleSuggestion').hide().empty();
         $('#sale_search').val('');
     });
+    */
 
     $(document).on('click', '.removeSelectedRow', function() {
         const rowId = $(this).data('row-id');
@@ -704,7 +676,6 @@ $(function() {
 
         delete selectedRows[rowId];
 
-        if (type === 'sale') selectedSaleItemIds.delete(id);
         if (type === 'approval') selectedApprovalItemIds.delete(id);
 
         $row.remove();
@@ -862,7 +833,7 @@ $(function() {
     });
 
     $('#returnSubmitForm').submit(function(e) {
-        if (selectedSaleItemIds.size === 0 && selectedApprovalItemIds.size === 0) {
+        if (selectedApprovalItemIds.size === 0) {
             e.preventDefault();
             alert('Please add at least one item for return');
         }
