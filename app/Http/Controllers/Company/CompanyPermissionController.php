@@ -176,6 +176,7 @@ class CompanyPermissionController extends Controller
             'user',
             'role',
             'permission',
+            'app-theme',
             'customer',
             'job-worker',
             'jobwork-issue',

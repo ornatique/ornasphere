@@ -47,6 +47,7 @@
     $canJobworkIssueEntry = $canModule('jobwork-issue');
     $canRoles = $canModule('role');
     $canPermissions = $canModule('permission');
+    $canAppTheme = $canModule('app-theme');
 
     $canItems = $canModule('item');
     $canItemSets = $canModule('item-set');
@@ -96,6 +97,16 @@
                 <span class="menu-title">Dashboard</span>
             </a>
         </li>
+
+        @if($canAppTheme)
+        <li class="nav-item {{ request()->routeIs('company.app-themes.*') ? 'active' : '' }}">
+            <a class="nav-link"
+                href="{{ route('company.app-themes.index', auth()->user()->company->slug) }}">
+                <i class="typcn typcn-brush menu-icon"></i>
+                <span class="menu-title">App Theme</span>
+            </a>
+        </li>
+        @endif
 
         {{-- ================= USERS MANAGEMENT ================= --}}
         @php

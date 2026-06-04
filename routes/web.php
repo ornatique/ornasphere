@@ -30,6 +30,7 @@ use App\Http\Controllers\Company\ReportController;
 use App\Http\Controllers\SuperAdmin\SuperAdmin2FAController;
 use App\Http\Controllers\Company\ApprovalController;
 use App\Http\Controllers\Company\CustomerAdvanceController;
+use App\Http\Controllers\Company\AppThemeController;
 use App\Http\Controllers\Api\VisitingCardApiController as VisitingCardApiWebController;
 
 
@@ -179,6 +180,21 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
 
         Route::get('/dashboard', [CompanyDashboardController::class, 'index'])
             ->name('dashboard');
+
+        Route::get('/app-themes', [AppThemeController::class, 'index'])
+            ->name('app-themes.index');
+        Route::get('/app-themes/create', [AppThemeController::class, 'create'])
+            ->name('app-themes.create');
+        Route::post('/app-themes', [AppThemeController::class, 'store'])
+            ->name('app-themes.store');
+        Route::get('/app-themes/{theme}/edit', [AppThemeController::class, 'edit'])
+            ->name('app-themes.edit');
+        Route::put('/app-themes/{theme}', [AppThemeController::class, 'update'])
+            ->name('app-themes.update');
+        Route::post('/app-themes/{theme}/activate', [AppThemeController::class, 'activate'])
+            ->name('app-themes.activate');
+        Route::delete('/app-themes/{theme}', [AppThemeController::class, 'destroy'])
+            ->name('app-themes.destroy');
 
         Route::get('/users', [CompanyUserController::class, 'index'])
             ->name('users.index')

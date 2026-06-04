@@ -457,11 +457,17 @@ class SaleController extends Controller
                     continue;
                 }
 
+                $approvalItemId = $request->approval_item_ids[$index] ?? null;
                 $item = null;
                 if ($itemsetId > 0) {
-                    $item = ItemSet::where('company_id', $company->id)
-                        ->where('is_sold', 0)
-                        ->find($itemsetId);
+                    $itemQuery = ItemSet::where('company_id', $company->id)
+                        ->where('id', $itemsetId);
+
+                    if (empty($approvalItemId)) {
+                        $itemQuery->where('is_sold', 0);
+                    }
+
+                    $item = $itemQuery->first();
 
                     if (!$item) {
                         throw new \Exception("Item not found/already sold: {$itemsetId}");
@@ -478,7 +484,6 @@ class SaleController extends Controller
                 //     throw new \Exception("Item already sold ID: " . $itemsetId);
                 // }
 
-                $approvalItemId = $request->approval_item_ids[$index] ?? null;
 
                 // ✅ SAVE SALE ITEM
                 SaleItem::create([
@@ -1219,3 +1224,4 @@ class SaleController extends Controller
         ];
     }
 }
+

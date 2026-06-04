@@ -203,6 +203,7 @@ class CompanyRoleController extends Controller
             'user',
             'role',
             'permission',
+            'app-theme',
             'customer',
             'item',
             'item-set',

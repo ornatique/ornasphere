@@ -66,6 +66,7 @@ class CompanyRoutePermission
     {
         $map = [
             'company.users.' => 'user',
+            'company.app-themes.' => 'app-theme',
             'company.customers.' => 'customer',
             'company.job-workers.' => 'job-worker',
             'company.jobwork-issue.' => 'jobwork-issue',
@@ -113,7 +114,7 @@ class CompanyRoutePermission
 
         $viewActions = ['index', 'data', 'list', 'list_data', 'show', 'view', 'qrcode', 'qrList', 'qrImage', 'search'];
         $createActions = ['create', 'store', 'generate', 'finalize', 'processSelected', 'sale', 'return', 'fromApproval', 'options'];
-        $editActions = ['edit', 'update', 'saveCell'];
+        $editActions = ['edit', 'update', 'saveCell', 'activate'];
         $deleteActions = ['delete', 'destroy', 'toggle', 'remove'];
 
         if (in_array($lastSegment, $deleteActions, true)) {

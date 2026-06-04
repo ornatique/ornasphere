@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\ProductBackgroundRemoveApiController;
 use App\Http\Controllers\Api\RoleApiController;
 use App\Http\Controllers\Api\PermissionApiController;
 use App\Http\Controllers\Api\CustomerAdvanceApiController;
+use App\Http\Controllers\Api\AppThemeApiController;
 
 Route::post('/company/login', [AuthController::class, 'login']);
 Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
@@ -37,6 +38,9 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
 
 
 Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
+
+    Route::get('/app-theme', [AppThemeApiController::class, 'active']);
+    Route::get('/app/themes/active', [AppThemeApiController::class, 'active']);
 
     Route::get('/users', [CompanyUserController::class, 'index']);
     Route::post('/create_users', [CompanyUserController::class, 'store']);

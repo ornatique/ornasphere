@@ -19,7 +19,7 @@
             <div class="card-body">
 
                 <div class="row mb-3">
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <label>Customer</label>
                         <select name="customer_id" class="form-select" id="customerSelect" required>
                             <option value="">Select Customer</option>
@@ -29,7 +29,19 @@
                         </select>
                     </div>
 
-                    <div class="col-md-6 position-relative">
+                    <div class="col-md-4">
+                        <label>Approval Person</label>
+                        <select class="form-select" id="approvalPersonSelect">
+                            <option value="">Select Approval Person</option>
+                            @foreach($customers as $customer)
+                            <option value="{{ $customer->id }}">
+                                {{ $customer->name }}{{ !empty($customer->city) ? ' - '.$customer->city : '' }}
+                            </option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div class="col-md-4 position-relative">
                         <label>Scan / Search</label>
                         <input type="text" id="item_search" class="form-control" disabled autocomplete="off">
 
@@ -189,18 +201,24 @@
 
 {{-- ================= MODAL ================= --}}
 <div class="modal fade" id="approvalModal">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-xl approval-modal-dialog">
         <div class="modal-content">
 
             <div class="modal-header">
-                <h5>Approval Items</h5>
+                <h5 class="mb-0">Approval Items</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
 
             <div class="modal-body">
+                <div class="approval-search-wrap">
+                    <label class="approval-search-label" for="approvalItemSearch">Search Item / QR Code</label>
+                    <input type="text" id="approvalItemSearch" class="form-control" placeholder="Type item name or QR/code..." autocomplete="off">
+                </div>
 
-                <div class="row">
+                <div class="row approval-scroll-area">
                     <div class="col-md-6">
-                        <table class="table table-bordered">
+                        <div class="approval-list-title">Available Items</div>
+                        <table class="table table-bordered approval-items-table">
                             <thead>
                                 <tr>
                                     <th>#</th>
@@ -214,7 +232,8 @@
                     </div>
 
                     <div class="col-md-6">
-                        <table class="table table-bordered">
+                        <div class="approval-list-title">Selected Items</div>
+                        <table class="table table-bordered approval-items-table">
                             <thead>
                                 <tr>
                                     <th>#</th>
@@ -228,7 +247,7 @@
                     </div>
                 </div>
 
-                <div class="mt-2 d-flex justify-content-between">
+                <div class="mt-2 d-flex justify-content-between approval-total-bar">
                     <div>Total Items: <b id="totalItems">0</b></div>
                     <div>Total Gross: <b id="totalGross">0</b></div>
                 </div>
@@ -282,6 +301,130 @@
     #suggestionBox .active {
         background: #007bff;
         color: #fff;
+    }
+
+    #approvalModal .approval-modal-dialog {
+        max-width: min(1180px, calc(100vw - 32px));
+        height: calc(100vh - 56px);
+        margin: 28px auto;
+    }
+
+    #approvalModal .modal-content {
+        height: 100%;
+        background: #34394c;
+        color: #ffffff;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    #approvalModal .modal-header,
+    #approvalModal .modal-footer {
+        flex: 0 0 auto;
+        background: #34394c;
+        border-color: rgba(255, 255, 255, 0.08);
+    }
+
+    #approvalModal .modal-body {
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+        padding: 18px 24px 12px;
+    }
+
+    #approvalModal .approval-search-wrap {
+        flex: 0 0 auto;
+        margin-bottom: 14px;
+    }
+
+    #approvalModal .approval-search-label {
+        display: block;
+        margin-bottom: 6px;
+        font-weight: 700;
+        color: rgba(255, 255, 255, 0.86);
+    }
+
+    #approvalModal #approvalItemSearch {
+        background: #292d49;
+        border: 1px solid rgba(150, 170, 255, 0.5);
+        color: #ffffff;
+        height: 44px;
+    }
+
+    #approvalModal #approvalItemSearch::placeholder {
+        color: rgba(255, 255, 255, 0.55);
+    }
+
+    #approvalModal .approval-scroll-area {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding-right: 4px;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(125, 145, 255, 0.7) rgba(255, 255, 255, 0.08);
+    }
+
+    #approvalModal .approval-scroll-area::-webkit-scrollbar {
+        width: 10px;
+    }
+
+    #approvalModal .approval-scroll-area::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+    }
+
+    #approvalModal .approval-scroll-area::-webkit-scrollbar-thumb {
+        background: rgba(125, 145, 255, 0.7);
+        border-radius: 10px;
+    }
+
+    #approvalModal .approval-list-title {
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        color: rgba(255, 255, 255, 0.75);
+        margin-bottom: 8px;
+    }
+
+    #approvalModal .approval-items-table {
+        color: #ffffff;
+        margin-bottom: 0;
+    }
+
+    #approvalModal .approval-items-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #2b2f4a;
+        border-color: rgba(255, 255, 255, 0.08);
+        font-weight: 700;
+    }
+
+    #approvalModal .approval-items-table td,
+    #approvalModal .approval-items-table th {
+        border-color: rgba(255, 255, 255, 0.08);
+        vertical-align: middle;
+    }
+
+    #approvalModal .leftRow,
+    #approvalModal .rightRow {
+        cursor: pointer;
+    }
+
+    #approvalModal .leftRow:hover,
+    #approvalModal .rightRow:hover {
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    #approvalModal .approval-total-bar {
+        flex: 0 0 auto;
+        padding-top: 10px;
+        color: rgba(255, 255, 255, 0.9);
     }
 
     .sale-grid-wrap {
@@ -1000,6 +1143,9 @@ $(function () {
     $('#customerSelect').change(function() {
         $('#item_search').prop('disabled', !$(this).val());
         loadCustomerAdvance($(this).val());
+        if ($(this).val() && !$('#approvalPersonSelect').val()) {
+            $('#approvalPersonSelect').val($(this).val());
+        }
     });
 
     $('#item_search').on('keyup', function() {
@@ -1108,16 +1254,23 @@ $(function () {
     });
 
     $('#openApprovalModal').click(function() {
-        const customerId = $('#customerSelect').val();
+        const saleCustomerId = $('#customerSelect').val();
+        const approvalCustomerId = $('#approvalPersonSelect').val();
 
-        if (!customerId) {
-            alert('Select customer first');
+        if (!saleCustomerId) {
+            alert('Select sale customer first');
+            return;
+        }
+
+        if (!approvalCustomerId) {
+            alert('Select approval person first');
             return;
         }
 
         $('#approvalModal').modal('show');
+        $('#approvalItemSearch').val('');
 
-        $.get("{{ route('company.sales.approval.items', $company->slug) }}", { customer_id: customerId }, function(resp) {
+        $.get("{{ route('company.sales.approval.items', $company->slug) }}", { customer_id: approvalCustomerId }, function(resp) {
             let data = [];
             if (Array.isArray(resp)) {
                 data = resp;
@@ -1143,14 +1296,17 @@ $(function () {
                     const labourAmount = toNum(item.labour_amount ?? item.labour_amt ?? 0);
                     const otherAmount = toNum(item.other_amount ?? item.other_amt ?? 0);
                     const totalAmount = toNum(item.total_amount ?? item.total_amt ?? 0);
+                    const itemName = item.name || '';
+                    const searchableText = `${code} ${itemName} ${item.huid || ''}`.toLowerCase();
 
                     if (!itemsetId || selectedRows[itemsetId]) return;
                     html += `
                     <tr class="leftRow"
+                        data-search="${esc(searchableText)}"
                         data-itemset-id="${itemsetId}"
                         data-item-id="${item.item_id || ''}"
                         data-approval-id="${approvalItemId}"
-                        data-name="${esc(item.name || '')}"
+                        data-name="${esc(itemName)}"
                         data-metal-type="${esc(item.metal_type || '')}"
                         data-code="${esc(code)}"
                         data-huid="${esc(item.huid || '')}"
@@ -1172,24 +1328,51 @@ $(function () {
                         data-total-amount="${nfix(totalAmount,2)}">
                         <td>${i + 1}</td>
                         <td>${esc(code)}</td>
-                        <td>${esc(item.name || '')}</td>
+                        <td>${esc(itemName)}</td>
                         <td>${nfix(grossWeight,3)}</td>
                     </tr>`;
                 });
             }
+            if (!html.trim()) {
+                html = `<tr><td colspan="4" class="text-center">No Data</td></tr>`;
+            }
             $('#leftTable').html(html);
             $('#rightTable').html('');
+            filterApprovalRows();
             updateModalTotals();
         });
     });
 
+    $('#approvalItemSearch').on('input', function() {
+        filterApprovalRows();
+    });
+
+    function filterApprovalRows() {
+        const term = String($('#approvalItemSearch').val() || '').trim().toLowerCase();
+        let visibleCount = 0;
+
+        $('#leftTable .approval-empty-row').remove();
+        $('#leftTable tr.leftRow').each(function() {
+            const haystack = String($(this).data('search') || '').toLowerCase();
+            const matched = !term || haystack.includes(term);
+            $(this).toggle(matched);
+            if (matched) visibleCount++;
+        });
+
+        if ($('#leftTable tr.leftRow').length > 0 && visibleCount === 0) {
+            $('#leftTable').append(`<tr class="approval-empty-row"><td colspan="4" class="text-center">No matching item</td></tr>`);
+        }
+    }
+
     $(document).on('click', '.leftRow', function() {
         $(this).removeClass('leftRow').addClass('rightRow').appendTo('#rightTable');
+        filterApprovalRows();
         updateModalTotals();
     });
 
     $(document).on('click', '.rightRow', function() {
         $(this).removeClass('rightRow').addClass('leftRow').appendTo('#leftTable');
+        filterApprovalRows();
         updateModalTotals();
     });
 

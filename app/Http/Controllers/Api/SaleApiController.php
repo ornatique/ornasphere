@@ -120,7 +120,59 @@ class SaleApiController extends Controller
         $customers = Customer::where('company_id', $companyId)
             ->where('is_active', 1)
             ->orderBy('name')
-            ->get();
+            ->get()
+            ->map(function ($customer) use ($companyId) {
+                $summary = $this->getAdvanceSummary($companyId, (int) $customer->id);
+                $cash = (float) ($summary['cash'] ?? 0);
+                $gold = (float) ($summary['gold'] ?? 0);
+                $silver = (float) ($summary['silver'] ?? 0);
+                $other = (float) ($summary['other'] ?? 0);
+
+                $row = $customer->toArray();
+                $row['advance'] = [
+                    'cash' => $this->formatAdvanceBalance($cash, 2, 'Advance Cash Balance'),
+                    'gold' => $this->formatAdvanceBalance($gold, 3, 'Gold Fine Balance'),
+                    'silver' => array_merge(
+                        $this->formatAdvanceBalance($silver, 3, 'Silver Fine Balance'),
+                        [
+                            'used_fine_weight' => 0.0,
+                            'used_label' => 'Silver Used (Fine Wt)',
+                            'balance_after_use' => $silver,
+                            'balance_after_use_display' => round(abs($silver), 3),
+                            'balance_after_use_type' => $silver >= 0 ? 'Credit' : 'Debit',
+                            'balance_after_use_label' => 'Silver Balance After Use ' . ($silver >= 0 ? 'Credit' : 'Debit'),
+                        ]
+                    ),
+                    'other' => $this->formatAdvanceBalance($other, 3, 'Other Metal Balance'),
+                ];
+
+                // Flat keys are included for app screens that bind directly to customer rows.
+                $row['advance_cash_balance'] = $cash;
+                $row['advance_cash_balance_display'] = round(abs($cash), 2);
+                $row['advance_cash_balance_type'] = $cash >= 0 ? 'Credit' : 'Debit';
+                $row['advance_cash_balance_label'] = 'Advance Cash Balance ' . $row['advance_cash_balance_type'];
+                $row['advance_gold_fine_balance'] = $gold;
+                $row['advance_gold_fine_balance_display'] = round(abs($gold), 3);
+                $row['advance_gold_fine_balance_type'] = $gold >= 0 ? 'Credit' : 'Debit';
+                $row['advance_gold_fine_balance_label'] = 'Gold Fine Balance ' . $row['advance_gold_fine_balance_type'];
+                $row['advance_silver_fine_balance'] = $silver;
+                $row['advance_silver_fine_balance_display'] = round(abs($silver), 3);
+                $row['advance_silver_fine_balance_type'] = $silver >= 0 ? 'Credit' : 'Debit';
+                $row['advance_silver_fine_balance_label'] = 'Silver Fine Balance ' . $row['advance_silver_fine_balance_type'];
+                $row['advance_silver_used_fine_weight'] = 0.0;
+                $row['advance_silver_used_fine_weight_label'] = 'Silver Used (Fine Wt)';
+                $row['advance_silver_balance_after_use'] = $silver;
+                $row['advance_silver_balance_after_use_display'] = round(abs($silver), 3);
+                $row['advance_silver_balance_after_use_type'] = $silver >= 0 ? 'Credit' : 'Debit';
+                $row['advance_silver_balance_after_use_label'] = 'Silver Balance After Use ' . $row['advance_silver_balance_after_use_type'];
+                $row['advance_other_fine_balance'] = $other;
+                $row['advance_other_fine_balance_display'] = round(abs($other), 3);
+                $row['advance_other_fine_balance_type'] = $other >= 0 ? 'Credit' : 'Debit';
+                $row['advance_other_fine_balance_label'] = 'Other Metal Balance ' . $row['advance_other_fine_balance_type'];
+
+                return $row;
+            })
+            ->values();
 
         return response()->json([
             'success' => true,
@@ -724,7 +776,10 @@ class SaleApiController extends Controller
     {
         $companyId = $request->user()->company_id;
         $customerId = (int) (
-            $request->input('customer_id')
+            $request->input('approval_customer_id')
+            ?? $request->input('approval_person_id')
+            ?? $request->input('approval_party_id')
+            ?? $request->input('customer_id')
             ?? $request->input('customer')
             ?? $request->input('party_id')
             ?? 0
@@ -742,7 +797,7 @@ class SaleApiController extends Controller
             ->whereIn('status', ['open', 'partial'])
             ->pluck('id');
 
-        $rows = ApprovalItem::with(['itemSet.item', 'legacyItemSet.item'])
+        $rows = ApprovalItem::with(['approval.customer', 'itemSet.item', 'legacyItemSet.item'])
             ->whereIn('approval_id', $approvalIds)
             ->where('status', '!=', 'sold')
             ->get()
@@ -773,6 +828,8 @@ class SaleApiController extends Controller
                 return [
                     'approval_item_id' => $row->id,
                     'approval_id' => $row->approval_id,
+                    'approval_customer_id' => optional($row->approval)->customer_id,
+                    'approval_customer_name' => optional(optional($row->approval)->customer)->name,
                     'itemset_id' => $row->itemset_id ?? $row->item_id ?? optional($itemSet)->id,
                     'item_id' => $row->item_id ?? optional($itemSet)->item_id,
                     'qty' => 1,
@@ -851,6 +908,12 @@ class SaleApiController extends Controller
             ?? $request->input('party_id')
             ?? 0
         );
+        $approvalCustomerId = (int) (
+            $request->input('approval_customer_id')
+            ?? $request->input('approval_person_id')
+            ?? $request->input('approval_party_id')
+            ?? 0
+        );
 
         $request->validate([
             'items' => 'required|array|min:1',
@@ -924,12 +987,45 @@ class SaleApiController extends Controller
             foreach ($request->items as $item) {
                 $itemsetId = (int) ($item['itemset_id'] ?? $item['id'] ?? 0);
                 $productId = (int) ($item['item_id'] ?? $item['product_id'] ?? 0);
+                $approvalItemId = (int) ($item['approval_item_id'] ?? 0);
+                $approvalItem = null;
 
                 if ($itemsetId <= 0 && $productId <= 0) {
                     return response()->json([
                         'success' => false,
                         'message' => 'Each row requires itemset_id or item_id.',
                     ], 422);
+                }
+
+                if ($approvalItemId > 0) {
+                    $approvalItem = $this->resolveApprovalItemForSale(
+                        $companyId,
+                        $approvalItemId,
+                        $itemsetId > 0 ? $itemsetId : null,
+                        $approvalCustomerId > 0 ? $approvalCustomerId : null,
+                        false
+                    );
+
+                    if (!$approvalItem) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Approval item not found or already sold for selected approval person.',
+                        ], 422);
+                    }
+
+                    $approvalItemId = (int) $approvalItem->id;
+                } elseif ($approvalCustomerId > 0 && $itemsetId > 0) {
+                    $approvalItem = $this->resolveApprovalItemForSale(
+                        $companyId,
+                        null,
+                        $itemsetId,
+                        $approvalCustomerId,
+                        false
+                    );
+
+                    if ($approvalItem) {
+                        $approvalItemId = (int) $approvalItem->id;
+                    }
                 }
 
                 $itemSet = null;
@@ -939,7 +1035,7 @@ class SaleApiController extends Controller
 
                     // For normal sale/scanner/manual rows, only unsold labels are allowed.
                     // For approval-conversion rows, label can already be marked sold (outward on approval).
-                    if (empty($item['approval_item_id'])) {
+                    if ($approvalItemId <= 0) {
                         $itemSetQuery->where('is_sold', 0);
                     }
 
@@ -979,7 +1075,7 @@ class SaleApiController extends Controller
                     'sale_id' => $sale->id,
                     'itemset_id' => $itemSet?->id ?: 0,
                     'product_id' => $item['product_id'] ?? $productId ?? $itemSet->item_id ?? null,
-                    'approval_item_id' => $item['approval_item_id'] ?? null,
+                    'approval_item_id' => $approvalItemId > 0 ? $approvalItemId : null,
                     'qty' => $qty,
                     'gross_weight' => $grossWeight,
                     'other_weight' => $otherWeight,
@@ -996,10 +1092,10 @@ class SaleApiController extends Controller
                     'total_amount' => $lineTotal,
                 ]);
 
-                if (!empty($item['approval_item_id'])) {
-                    $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
+                if ($approvalItemId > 0) {
+                    $approvalItem = $approvalItem ?: ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
                         $q->where('company_id', $companyId);
-                    })->find((int) $item['approval_item_id']);
+                    })->find($approvalItemId);
                     if ($approvalItem) {
                         $approvalItem->update(['status' => 'sold']);
                         $approvalIds[] = $approvalItem->approval_id;
@@ -1110,6 +1206,12 @@ class SaleApiController extends Controller
     {
         $user = $request->user();
         $companyId = $request->user()->company_id;
+        $approvalCustomerId = (int) (
+            $request->input('approval_customer_id')
+            ?? $request->input('approval_person_id')
+            ?? $request->input('approval_party_id')
+            ?? 0
+        );
 
         DB::beginTransaction();
        
@@ -1263,9 +1365,41 @@ class SaleApiController extends Controller
                 $itemsetId = (int) $itemSet->id;
 
                 $existingSaleItem = $existingItems->get($itemsetId);
-                $approvalItemId = $row['approval_item_id'] ?? null;
+                $approvalItemId = (int) ($row['approval_item_id'] ?? 0);
+                $approvalItem = null;
 
-                if (!$existingSaleItem && empty($approvalItemId) && (int) $itemSet->is_sold === 1) {
+                if ($approvalItemId > 0) {
+                    $approvalItem = $this->resolveApprovalItemForSale(
+                        $companyId,
+                        $approvalItemId,
+                        $itemsetId,
+                        $approvalCustomerId > 0 ? $approvalCustomerId : null,
+                        true
+                    );
+
+                    if (!$approvalItem) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Approval item not found for selected approval person.',
+                        ], 422);
+                    }
+
+                    $approvalItemId = (int) $approvalItem->id;
+                } elseif ($approvalCustomerId > 0) {
+                    $approvalItem = $this->resolveApprovalItemForSale(
+                        $companyId,
+                        null,
+                        $itemsetId,
+                        $approvalCustomerId,
+                        false
+                    );
+
+                    if ($approvalItem) {
+                        $approvalItemId = (int) $approvalItem->id;
+                    }
+                }
+
+                if (!$existingSaleItem && $approvalItemId <= 0 && (int) $itemSet->is_sold === 1) {
                     return response()->json([
                         'success' => false,
                         'message' => 'ItemSet not available for sale: ' . $itemsetId,
@@ -1288,7 +1422,7 @@ class SaleApiController extends Controller
 
                 $payload = [
                     'itemset_id' => $itemSet->id,
-                    'approval_item_id' => $approvalItemId,
+                    'approval_item_id' => $approvalItemId > 0 ? $approvalItemId : null,
                     'gross_weight' => $grossWeight,
                     'other_weight' => $otherWeight,
                     'net_weight' => $netWeight,
@@ -1327,10 +1461,10 @@ class SaleApiController extends Controller
                     $itemSet->update(['is_sold' => 1]);
                 }
 
-                if (!empty($approvalItemId)) {
-                    $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
+                if ($approvalItemId > 0) {
+                    $approvalItem = $approvalItem ?: ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
                         $q->where('company_id', $companyId);
-                    })->find((int) $approvalItemId);
+                    })->find($approvalItemId);
                     if ($approvalItem) {
                         $approvalItem->update(['status' => 'sold']);
                         $approvalIds[] = (int) $approvalItem->approval_id;
@@ -1364,6 +1498,96 @@ class SaleApiController extends Controller
                 'message' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    private function resolveApprovalItemForSale(
+        int $companyId,
+        ?int $approvalItemId = null,
+        ?int $itemsetId = null,
+        ?int $approvalCustomerId = null,
+        bool $allowSold = false
+    ): ?ApprovalItem {
+        if (($approvalItemId ?? 0) <= 0 && ($itemsetId ?? 0) <= 0) {
+            return null;
+        }
+
+        $query = ApprovalItem::with(['approval', 'itemSet', 'legacyItemSet'])
+            ->whereHas('approval', function ($q) use ($companyId, $approvalCustomerId) {
+                $q->where('company_id', $companyId);
+
+                if (($approvalCustomerId ?? 0) > 0) {
+                    $q->where('customer_id', $approvalCustomerId);
+                }
+            });
+
+        if (!$allowSold) {
+            $query->where('status', '!=', 'sold');
+        }
+
+        if (($approvalItemId ?? 0) > 0) {
+            $query->where('id', $approvalItemId);
+        } else {
+            $query->where(function ($q) use ($itemsetId) {
+                $q->where('itemset_id', $itemsetId)
+                    ->orWhereHas('itemSet', function ($sq) use ($itemsetId) {
+                        $sq->where('id', $itemsetId);
+                    })
+                    ->orWhereHas('legacyItemSet', function ($sq) use ($itemsetId) {
+                        $sq->where('id', $itemsetId);
+                    });
+            });
+        }
+
+        return $query->first();
+    }
+
+    private function getAdvanceSummary(int $companyId, int $customerId, $asOnDate = null): array
+    {
+        if ($customerId <= 0) {
+            return [
+                'cash' => 0.0,
+                'gold' => 0.0,
+                'silver' => 0.0,
+                'other' => 0.0,
+            ];
+        }
+
+        $base = CustomerAdvanceLedger::query()
+            ->where('company_id', $companyId)
+            ->where('customer_id', $customerId);
+
+        if (!empty($asOnDate)) {
+            $base->whereDate('entry_date', '<=', Carbon::parse($asOnDate)->toDateString());
+        }
+
+        $cash = (clone $base)
+            ->selectRaw('COALESCE(SUM(cash_in),0) - COALESCE(SUM(cash_out),0) as bal')
+            ->value('bal');
+
+        $metal = (clone $base)
+            ->whereNotNull('metal_type')
+            ->selectRaw('metal_type, COALESCE(SUM(metal_in),0) - COALESCE(SUM(metal_out),0) as bal')
+            ->groupBy('metal_type')
+            ->pluck('bal', 'metal_type');
+
+        return [
+            'cash' => (float) $cash,
+            'gold' => (float) ($metal['gold'] ?? 0),
+            'silver' => (float) ($metal['silver'] ?? 0),
+            'other' => (float) ($metal['other'] ?? 0),
+        ];
+    }
+
+    private function formatAdvanceBalance(float $balance, int $decimals, string $labelPrefix): array
+    {
+        $type = $balance >= 0 ? 'Credit' : 'Debit';
+
+        return [
+            'balance' => $balance,
+            'display_balance' => round(abs($balance), $decimals),
+            'type' => $type,
+            'label' => $labelPrefix . ' ' . $type,
+        ];
     }
 
     private function resolveSaleUpdateItemSet(array $row, int $companyId): ?ItemSet
