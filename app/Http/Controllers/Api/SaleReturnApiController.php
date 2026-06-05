@@ -17,6 +17,7 @@ use App\Models\ApprovalHeader;
 use App\Models\ApprovalItem;
 use Illuminate\Support\Facades\Schema;
 use App\Models\ItemSet;
+use App\Models\Company;
 
 class SaleReturnApiController extends Controller
 {
@@ -690,6 +691,128 @@ class SaleReturnApiController extends Controller
             ->setPaper('a4', 'portrait');
 
         return $pdf->download('Return-' . $return->return_voucher_no . '.pdf');
+    }
+
+    public function exportListPdf(Request $request)
+    {
+        $user = $request->user();
+        $company = Company::findOrFail($user->company_id);
+        [$fromDate, $toDate] = $this->resolveReturnDateRange($request);
+
+        $query = SaleReturn::with([
+            'approval.customer',
+            'approval.creator',
+            'approval.items.itemSet.item',
+            'approval.items.item',
+            'items.itemSet.item',
+        ])
+            ->where('company_id', $company->id)
+            ->where('source_type', 'approval')
+            ->whereBetween('return_date', [$fromDate, $toDate])
+            ->latest('return_date')
+            ->latest('id');
+
+        if ($request->filled('customer_id')) {
+            $query->whereHas('approval', function ($approvalQuery) use ($request) {
+                $approvalQuery->where('customer_id', (int) $request->customer_id);
+            });
+        }
+
+        $rows = $query->get()
+            ->map(fn(SaleReturn $return) => $this->summarizeApprovalReturn($return))
+            ->values();
+
+        $fileName = 'approval-return-list-' . now()->format('YmdHis') . '.pdf';
+        $pdf = Pdf::loadView('company.returns.list_pdf', compact('company', 'rows', 'fromDate', 'toDate'))
+            ->setPaper('a4', 'landscape');
+
+        if ($request->boolean('download')) {
+            return $pdf->download($fileName);
+        }
+
+        return $pdf->stream($fileName);
+    }
+
+    private function resolveReturnDateRange(Request $request): array
+    {
+        $fromDate = $request->input('from_date');
+        $toDate = $request->input('to_date');
+        $today = now()->toDateString();
+
+        if (empty($fromDate) && empty($toDate)) {
+            return [$today, $today];
+        }
+
+        return [$fromDate ?: $toDate, $toDate ?: $fromDate];
+    }
+
+    private function summarizeApprovalReturn(SaleReturn $return): array
+    {
+        if (isset($return->approvalReturnSummary)) {
+            return $return->approvalReturnSummary;
+        }
+
+        $approvalItemsByItemSet = collect(optional($return->approval)->items ?? [])
+            ->filter(fn($item) => !empty($item->itemset_id))
+            ->keyBy('itemset_id');
+        $remainingApprovalItems = collect(optional($return->approval)->items ?? [])
+            ->where('status', 'returned')
+            ->values();
+        $itemNames = collect();
+        $totals = [
+            'qty' => 0,
+            'gross_wt' => 0.0,
+            'net_wt' => 0.0,
+            'fine_wt' => 0.0,
+            'metal_amt' => 0.0,
+            'labour_amt' => 0.0,
+            'other_amt' => 0.0,
+            'total_amt' => 0.0,
+        ];
+
+        foreach ($return->items as $returnItem) {
+            $itemSet = $returnItem->itemSet;
+            $approvalItem = $itemSet
+                ? $approvalItemsByItemSet->get($itemSet->id)
+                : null;
+
+            if (!$approvalItem) {
+                $approvalItem = $remainingApprovalItems->first(function ($item) use ($returnItem) {
+                    return abs((float) ($item->total_amount ?? 0) - (float) ($returnItem->return_amount ?? 0)) < 0.01;
+                }) ?? $remainingApprovalItems->first();
+            }
+
+            if ($approvalItem) {
+                $remainingApprovalItems = $remainingApprovalItems
+                    ->reject(fn($item) => (int) $item->id === (int) $approvalItem->id)
+                    ->values();
+            }
+
+            $itemSet = $itemSet ?? optional($approvalItem)->itemSet;
+            $itemNames->push(
+                optional(optional($itemSet)->item)->item_name
+                ?? optional(optional($approvalItem)->item)->item_name
+            );
+            $totals['qty']++;
+            $totals['gross_wt'] += (float) ($approvalItem->gross_weight ?? 0);
+            $totals['net_wt'] += (float) ($approvalItem->net_weight ?? 0);
+            $totals['fine_wt'] += (float) ($approvalItem->total_fine_weight ?? 0);
+            $totals['metal_amt'] += (float) ($approvalItem->metal_amount ?? 0);
+            $totals['labour_amt'] += (float) ($approvalItem->labour_amount ?? 0);
+            $totals['other_amt'] += (float) ($approvalItem->other_amount ?? 0);
+            $totals['total_amt'] += (float) ($returnItem->return_amount ?? 0);
+        }
+
+        return $return->approvalReturnSummary = [
+            'return_id' => (int) $return->id,
+            'voucher_no' => (string) ($return->return_voucher_no ?? '-'),
+            'return_date' => $return->return_date
+                ? \Carbon\Carbon::parse($return->return_date)->format('d-m-Y')
+                : '-',
+            'customer_name' => optional(optional($return->approval)->customer)->name ?? '-',
+            'item_names' => $itemNames->filter()->unique()->implode(', ') ?: '-',
+            'created_by' => optional(optional($return->approval)->creator)->name ?? '-',
+        ] + $totals;
     }
 
     // Add Label Return Approval (same as web button flow)

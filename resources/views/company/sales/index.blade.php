@@ -77,6 +77,7 @@
                 <div class="col-md-3 d-flex align-items-end">
                     <button id="filter" class="btn btn-success me-2">Filter</button>
                     <button id="reset" class="btn btn-secondary">Reset</button>
+                    <button type="button" id="download_pdf" class="btn btn-danger ms-2">PDF</button>
                 </div>
             </div>
 
@@ -195,6 +196,16 @@ $(document).ready(function() {
         $('#to_date').val(today);
         $('#customer_id').val('');
         table.draw();
+    });
+
+    $('#download_pdf').click(function () {
+        const params = new URLSearchParams({
+            from_date: $('#from_date').val(),
+            to_date: $('#to_date').val(),
+            customer_id: $('#customer_id').val()
+        });
+
+        window.open("{{ route('company.sales.export.pdf', $company->slug) }}?" + params.toString(), '_blank');
     });
 
 });

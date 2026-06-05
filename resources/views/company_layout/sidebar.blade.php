@@ -1,6 +1,11 @@
 <nav class="sidebar sidebar-offcanvas" id="sidebar">
     @php
     $authUser = auth()->user();
+    $company = optional($authUser)->company;
+    $defaultCompanyAvatar = asset('celestial/assets/images/faces/face29.png');
+    $companyLogo = !empty(optional($company)->company_logo)
+        ? asset('public/' . ltrim($company->company_logo, '/'))
+        : $defaultCompanyAvatar;
     $isCompanyAdmin = $authUser && $authUser->hasRole('company_admin');
     $routeName = (string) optional(request()->route())->getName();
     $isVisitingCardsRoute = str_starts_with($routeName, 'company.reports.visiting-cards.');
@@ -79,7 +84,7 @@
         <li class="nav-item">
             <div class="d-flex sidebar-profile">
                 <div class="sidebar-profile-image">
-                    <img src="{{ asset('celestial/assets/images/faces/face29.png') }}" alt="image">
+                    <img src="{{ $companyLogo }}" alt="company logo" onerror="this.onerror=null;this.src='{{ $defaultCompanyAvatar }}';">
                     <span class="sidebar-status-indicator"></span>
                 </div>
                 <div class="sidebar-profile-name">

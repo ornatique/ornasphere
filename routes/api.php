@@ -174,6 +174,7 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::delete('/delete-production-steps/{id}', [ProductionStepApiController::class, 'destroy']);
 
     Route::get('/sale-list', [SaleApiController::class, 'index']);             // List sales
+    Route::get('/sales/export/listpdf', [SaleApiController::class, 'exportListPdf']);
     Route::post('/sales/get-item-by-qr', [SaleApiController::class, 'getItemByQr']);
     Route::get('/sales/customerlist', [SaleApiController::class, 'customerlist']);
     Route::post('/sales/scan-qr', [SaleApiController::class, 'scanQr']);
@@ -204,6 +205,7 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
 
 
     Route::get('/returns/list', [SaleReturnApiController::class, 'list_of_return']);
+    Route::get('/returns/export/listpdf', [SaleReturnApiController::class, 'exportListPdf']);
     Route::get('/returns/customers', [SaleReturnApiController::class, 'getSalesForReturn']);
     Route::get('/returns/sale/{saleId}', [SaleReturnApiController::class, 'saleDetails']);
     Route::get('/returns/{id}', [SaleReturnApiController::class, 'show'])->whereNumber('id');

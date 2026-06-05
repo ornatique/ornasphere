@@ -536,6 +536,9 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
         Route::get('sales', [SaleController::class, 'index'])
             ->name('sales.index');
 
+        Route::get('sales/export/pdf', [SaleController::class, 'exportListPdf'])
+            ->name('sales.export.pdf');
+
         Route::get('sales/create', [SaleController::class, 'create'])
             ->name('sales.create');
 

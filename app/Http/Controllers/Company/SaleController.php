@@ -154,6 +154,84 @@ class SaleController extends Controller
         return view('company.sales.index', compact('company', 'customers'));
     }
 
+    public function exportListPdf(Request $request, $slug)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        [$fromDate, $toDate] = $this->resolveSaleDateRange($request);
+
+        $rows = $this->saleListQuery($company->id, $request, $fromDate, $toDate)
+            ->get()
+            ->map(fn(Sale $sale) => $this->summarizeSaleListRow($sale))
+            ->values();
+
+        $pdf = Pdf::loadView('company.sales.list_pdf', compact('company', 'rows', 'fromDate', 'toDate'))
+            ->setPaper('a4', 'landscape');
+
+        return $pdf->stream('sales-list-' . now()->format('YmdHis') . '.pdf');
+    }
+
+    private function resolveSaleDateRange(Request $request): array
+    {
+        $fromDate = $request->input('from_date');
+        $toDate = $request->input('to_date');
+        $today = now()->toDateString();
+
+        if (empty($fromDate) && empty($toDate)) {
+            return [$today, $today];
+        }
+
+        return [$fromDate ?: $toDate, $toDate ?: $fromDate];
+    }
+
+    private function saleListQuery(int $companyId, Request $request, string $fromDate, string $toDate)
+    {
+        $query = Sale::with(['customer', 'creator'])
+            ->withSum('saleItems as sum_qty', 'qty')
+            ->withSum('saleItems as sum_gross_weight', 'gross_weight')
+            ->withSum('saleItems as sum_net_weight', 'net_weight')
+            ->withSum('saleItems as sum_fine_weight', 'fine_weight')
+            ->withSum('saleItems as sum_metal_amount', 'metal_amount')
+            ->withSum('saleItems as sum_labour_amount', 'labour_amount')
+            ->withSum('saleItems as sum_other_amount', 'other_amount')
+            ->where('company_id', $companyId)
+            ->whereBetween('sale_date', [
+                Carbon::parse($fromDate)->startOfDay(),
+                Carbon::parse($toDate)->endOfDay(),
+            ]);
+
+        if ($request->filled('customer_id')) {
+            $query->where('customer_id', (int) $request->customer_id);
+        }
+
+        return $query->orderByDesc('id');
+    }
+
+    private function summarizeSaleListRow(Sale $sale): array
+    {
+        $received = (float) ($sale->received_amount ?? 0);
+        $refundPaid = (float) ($sale->paid_amount ?? 0);
+        $pending = max(0, (float) ($sale->net_total ?? 0) - ($received - $refundPaid));
+
+        return [
+            'id' => (int) $sale->id,
+            'voucher_no' => (string) ($sale->voucher_no ?? '-'),
+            'sale_date' => $sale->sale_date ? Carbon::parse($sale->sale_date)->format('d-m-Y') : '-',
+            'customer_name' => optional($sale->customer)->name ?? '-',
+            'qty' => (int) ($sale->sum_qty ?? 0),
+            'gross_wt' => (float) ($sale->sum_gross_weight ?? 0),
+            'net_wt' => (float) ($sale->sum_net_weight ?? 0),
+            'fine_wt' => (float) ($sale->sum_fine_weight ?? 0),
+            'metal_amt' => (float) ($sale->sum_metal_amount ?? 0),
+            'labour_amt' => (float) ($sale->sum_labour_amount ?? 0),
+            'other_amt' => (float) ($sale->sum_other_amount ?? 0),
+            'total_amt' => (float) ($sale->net_total ?? 0),
+            'received_amt' => $received,
+            'refund_amt' => $refundPaid,
+            'pending_amt' => $pending,
+            'created_by' => optional($sale->creator)->name ?? '-',
+        ];
+    }
+
 
 
     /**
