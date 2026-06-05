@@ -524,12 +524,62 @@
     }
 
     #saleTable input.form-control {
-        min-width: 95px;
+        min-width: 125px;
+        width: 100%;
+        padding-left: 10px;
+        padding-right: 10px;
         text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    #saleTable input[type="number"]::-webkit-outer-spin-button,
+    #saleTable input[type="number"]::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+
+    #saleTable input[type="number"] {
+        -moz-appearance: textfield;
+    }
+
+    #saleTable input[id^="metal_amt_"],
+    #saleTable input[id^="labour_amt_"],
+    #saleTable input[id^="total_amt_"],
+    #saleTable input.other-amount {
+        min-width: 150px;
+    }
+
+    #saleTable input.metal-rate,
+    #saleTable input.labour-rate,
+    #saleTable input.purity,
+    #saleTable input.waste-percent {
+        min-width: 125px;
     }
 
     .other-amount-wrap {
-        min-width: 170px;
+        display: flex;
+        flex-wrap: nowrap;
+        width: 230px;
+        min-width: 230px;
+    }
+
+    #saleTable .other-amount-wrap .other-amount {
+        flex: 1 1 auto;
+        min-width: 0;
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
+    }
+
+    #saleTable .other-amount-wrap .open-other-charge-modal {
+        flex: 0 0 54px;
+        width: 54px;
+        min-width: 54px;
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
+    }
+
+    #saleTable .other-amount-cell {
+        min-width: 240px;
     }
 
     #otherChargeTable {
@@ -696,7 +746,7 @@ $(function () {
         const netPurity = toNum(item.net_purity ?? (purity + wastePercent));
         const fineWeight = toNum(item.fine_weight ?? (net * netPurity / 100));
         const metalRate = toNum(item.metal_rate ?? 0);
-        const metalAmount = toNum(item.metal_amount ?? (net * metalRate));
+        const metalAmount = toNum(item.metal_amount ?? (fineWeight * metalRate));
         const labourRate = toNum(item.labour_rate ?? 0);
         const labourAmount = toNum(item.labour_amount ?? (net * labourRate));
         const applyMetal = toBool(item.apply_metal, true);
@@ -972,7 +1022,7 @@ $(function () {
         row.net_weight = row.gross_weight - row.other_weight;
         row.net_purity = row.purity + row.waste_percent;
         row.fine_weight = (row.net_weight * row.net_purity) / 100;
-        row.metal_amount = row.apply_metal ? (row.net_weight * row.metal_rate) : 0;
+        row.metal_amount = row.apply_metal ? (row.fine_weight * row.metal_rate) : 0;
         row.labour_amount = row.apply_labour ? (row.net_weight * row.labour_rate) : 0;
         row.total_amount = row.metal_amount + row.labour_amount + row.other_amount;
 
@@ -1125,7 +1175,7 @@ $(function () {
             <td><input type="number" step="0.01" class="form-control labour-rate" name="labour_rate[]" data-id="${rowKey}" value="${nfix(row.labour_rate,2)}"></td>
             <td class="text-center"><input type="checkbox" class="form-check-input apply-labour" data-id="${rowKey}" ${row.apply_labour ? 'checked' : ''}></td>
             <td><input type="number" step="0.01" class="form-control" id="labour_amt_${rowKey}" readonly value="${nfix(row.labour_amount,2)}"></td>
-            <td>
+            <td class="other-amount-cell">
                 <div class="input-group other-amount-wrap">
                     <input type="number" step="0.01" class="form-control other-amount" name="other_amount[]" data-id="${rowKey}" value="${nfix(row.other_amount,2)}">
                     <button type="button" class="btn btn-info open-other-charge-modal" data-id="${rowKey}" title="Other Charges">...</button>
@@ -1366,6 +1416,7 @@ $(function () {
 
     $(document).on('click', '.leftRow', function() {
         $(this).removeClass('leftRow').addClass('rightRow').appendTo('#rightTable');
+        $('#approvalItemSearch').val('');
         filterApprovalRows();
         updateModalTotals();
     });

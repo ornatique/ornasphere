@@ -1147,7 +1147,7 @@ class SaleApiController extends Controller
                 $netPurity = (float) ($item['net_purity'] ?? ($purity - $wastePercent));
                 $fineWeight = (float) ($item['fine_weight'] ?? $item['fine_wt'] ?? ($netWeight * $netPurity / 100));
                 $metalRate = (float) ($item['metal_rate'] ?? 0);
-                $metalAmount = (float) ($item['metal_amount'] ?? $item['metal_amt'] ?? ($netWeight * $metalRate));
+                $metalAmount = (float) ($item['metal_amount'] ?? $item['metal_amt'] ?? ($fineWeight * $metalRate));
                 $labourRate = (float) ($item['labour_rate'] ?? $itemSet->sale_labour_rate ?? 0);
                 $labourAmount = (float) ($item['labour_amount'] ?? $item['labour_amt'] ?? $itemSet->sale_labour_amount ?? ($netWeight * $labourRate));
                 $otherAmount = (float) ($item['other_amount'] ?? $item['other_amt'] ?? $itemSet->sale_other ?? 0);
@@ -1497,7 +1497,7 @@ class SaleApiController extends Controller
                 $netPurity = (float) ($row['net_purity'] ?? ($purity - $wastePercent));
                 $fineWeight = (float) ($row['fine_weight'] ?? ($netWeight * $netPurity / 100));
                 $metalRate = (float) ($row['metal_rate'] ?? 0);
-                $metalAmount = (float) ($row['metal_amount'] ?? ($netWeight * $metalRate));
+                $metalAmount = (float) ($row['metal_amount'] ?? ($fineWeight * $metalRate));
                 $labourRate = (float) ($row['labour_rate'] ?? 0);
                 $labourAmount = (float) ($row['labour_amount'] ?? ($netWeight * $labourRate));
                 $otherAmount = (float) ($row['other_amount'] ?? 0);
