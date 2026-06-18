@@ -313,6 +313,10 @@ public function bulkSave(Request $request)
     {
         $companyId = $request->user()->company_id;
 
+        if ($request->input('view_mode') === 'bulk') {
+            return $this->bulkListsetData($request);
+        }
+
         $query = ItemSet::with('item')
             ->where('company_id', $companyId)
             ->where('is_final', 1)
@@ -346,6 +350,76 @@ public function bulkSave(Request $request)
         return response()->json([
             'status' => true,
             'data' => $data
+        ]);
+    }
+
+    public function bulkListsetData(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+
+        $query = ItemSet::query()
+            ->join('items', 'items.id', '=', 'item_sets.item_id')
+            ->where('item_sets.company_id', $companyId)
+            ->where('item_sets.is_final', 1)
+            ->whereNotNull('item_sets.qr_code');
+
+        if ($request->filled('item_id')) {
+            $query->where('item_sets.item_id', (int) $request->item_id);
+        }
+
+        if ($request->filled('from_date') && $request->filled('to_date')) {
+            $query->whereDate('item_sets.created_at', '>=', $request->from_date)
+                ->whereDate('item_sets.created_at', '<=', $request->to_date);
+        }
+
+        if ($request->filled('search')) {
+            $search = trim((string) $request->search);
+            $query->where(function ($q) use ($search) {
+                $q->where('items.item_name', 'like', "%{$search}%")
+                    ->orWhere('items.item_code', 'like', "%{$search}%");
+            });
+        }
+
+        $data = $query->selectRaw('
+                DATE(item_sets.created_at) as batch_date,
+                item_sets.item_id,
+                items.item_name,
+                items.item_code,
+                COUNT(item_sets.id) as total_pcs,
+                COALESCE(SUM(item_sets.gross_weight), 0) as total_gross_weight,
+                COALESCE(SUM(item_sets.other), 0) as total_other_weight,
+                COALESCE(SUM(item_sets.net_weight), 0) as total_net_weight,
+                COALESCE(SUM(item_sets.sale_other), 0) as total_other_charges
+            ')
+            ->groupBy(DB::raw('DATE(item_sets.created_at)'), 'item_sets.item_id', 'items.item_name', 'items.item_code')
+            ->orderByDesc(DB::raw('DATE(item_sets.created_at)'))
+            ->orderBy('items.item_name')
+            ->get()
+            ->map(function ($row) {
+                return [
+                    'date' => $row->batch_date,
+                    'date_formatted' => \Carbon\Carbon::parse($row->batch_date)->format('d-m-Y'),
+                    'item_id' => (int) $row->item_id,
+                    'item_name' => $row->item_name,
+                    'item_code' => $row->item_code,
+                    'total_pcs' => (int) $row->total_pcs,
+                    'total_gross_weight' => number_format((float) $row->total_gross_weight, 3, '.', ''),
+                    'total_other_weight' => number_format((float) $row->total_other_weight, 3, '.', ''),
+                    'total_net_weight' => number_format((float) $row->total_net_weight, 3, '.', ''),
+                    'total_other_charges' => number_format((float) $row->total_other_charges, 2, '.', ''),
+                    'details_params' => [
+                        'item_id' => (int) $row->item_id,
+                        'from_date' => $row->batch_date,
+                        'to_date' => $row->batch_date,
+                    ],
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Bulk item sets fetched successfully',
+            'data' => $data,
         ]);
     }
 

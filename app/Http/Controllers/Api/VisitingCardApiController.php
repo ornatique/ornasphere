@@ -3,11 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Company;
 use App\Models\VisitingCard;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class VisitingCardApiController extends Controller
 {
@@ -299,6 +302,75 @@ class VisitingCardApiController extends Controller
             'total' => $rows->count(),
             'data' => $rows->values(),
         ]);
+    }
+
+    public function exportExcel(Request $request): StreamedResponse
+    {
+        $rows = $this->visitingCardsReportQuery($request)
+            ->latest('id')
+            ->get();
+
+        return response()->streamDownload(function () use ($rows) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, ['Name', 'Mobile', 'Email', 'City', 'Pincode', 'Address', 'Date']);
+
+            foreach ($rows as $row) {
+                fputcsv($out, [
+                    $row->name ?: '-',
+                    $row->mobile_no ?: '-',
+                    $row->email ?: '-',
+                    $row->city ?: '-',
+                    $row->pincode ?: '-',
+                    $row->address ?: '-',
+                    optional($row->created_at)->format('d-m-Y h:i A') ?: '-',
+                ]);
+            }
+
+            fclose($out);
+        }, 'visiting_cards_report.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
+    public function exportPdf(Request $request)
+    {
+        $company = Company::findOrFail((int) $request->user()->company_id);
+        $fromDate = $request->input('from_date', now()->format('Y-m-d'));
+        $toDate = $request->input('to_date', now()->format('Y-m-d'));
+        $rows = $this->visitingCardsReportQuery($request)
+            ->latest('id')
+            ->get();
+
+        return Pdf::loadView('company.reports.pdf.visiting_cards', compact('company', 'rows', 'fromDate', 'toDate'))
+            ->setPaper('a4', 'landscape')
+            ->download('visiting_cards_report.pdf');
+    }
+
+    private function visitingCardsReportQuery(Request $request)
+    {
+        $companyId = (int) $request->user()->company_id;
+        $fromDate = $request->input('from_date', now()->format('Y-m-d'));
+        $toDate = $request->input('to_date', now()->format('Y-m-d'));
+        $selectedDate = $request->input('selected_date');
+        $search = trim((string) $request->input('search', ''));
+
+        return VisitingCard::query()
+            ->where('company_id', $companyId)
+            ->whereDate('created_at', '>=', $fromDate)
+            ->whereDate('created_at', '<=', $toDate)
+            ->when($selectedDate, function ($q) use ($selectedDate) {
+                $q->whereDate('created_at', $selectedDate);
+            })
+            ->when($search !== '', function ($q) use ($search) {
+                $q->where(function ($q2) use ($search) {
+                    $q2->where('name', 'like', "%{$search}%")
+                        ->orWhere('mobile_no', 'like', "%{$search}%")
+                        ->orWhere('city', 'like', "%{$search}%")
+                        ->orWhere('pincode', 'like', "%{$search}%")
+                        ->orWhere('address', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%");
+                });
+            });
     }
 
     private function translateToEnglish(string $text, ?string $originalLanguage): string

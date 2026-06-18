@@ -53,23 +53,46 @@
         {{-- TABLE --}}
         <div class="card-body">
 
-            <table class="table table-bordered" id="itemset-table">
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>Date</th>
-                        <th>Item</th>
-                        <th>Label Code</th>
-                        <th>Gross Wt</th>
-                        <th>Other Wt</th>
-                        <th>Other Charges</th>
-                        <th>Net Wt</th>
-                        <th>Qty Pcs</th>
-                        <th>Print Date Time</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-            </table>
+            <div class="itemset-view-actions d-flex justify-content-end gap-2 mb-3">
+                <button type="button" class="btn btn-primary" id="defaultViewBtn">Default List</button>
+                <button type="button" class="btn btn-secondary" id="bulkViewBtn">Bulk View</button>
+            </div>
+
+            <div id="defaultListWrap">
+                <table class="table table-bordered w-100" id="itemset-table" style="width:100%;">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Date</th>
+                            <th>Item</th>
+                            <th>Label Code</th>
+                            <th>Gross Wt</th>
+                            <th>Other Wt</th>
+                            <th>Other Charges</th>
+                            <th>Net Wt</th>
+                            <th>Qty Pcs</th>
+                            <th>Print Date Time</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                </table>
+            </div>
+
+            <div id="bulkListWrap" style="display:none;">
+                <table class="table table-bordered w-100" id="bulk-itemset-table" style="width:100%;">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Date</th>
+                            <th>Item</th>
+                            <th>Total Pcs</th>
+                            <th>Total Gross Wt</th>
+                            <th>Total Net Wt</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                </table>
+            </div>
 
         </div>
     </div>
@@ -132,18 +155,69 @@
 </div>
 @endsection
 
+@push('styles')
+<style>
+    #defaultListWrap,
+    #bulkListWrap,
+    #itemset-table_wrapper,
+    #bulk-itemset-table_wrapper {
+        width: 100%;
+    }
+
+    #bulk-itemset-table {
+        table-layout: fixed;
+    }
+
+    #bulk-itemset-table th,
+    #bulk-itemset-table td {
+        vertical-align: middle;
+        white-space: normal;
+    }
+
+    #bulk-itemset-table th:nth-child(1),
+    #bulk-itemset-table td:nth-child(1) {
+        width: 56px;
+        text-align: center;
+    }
+
+    #bulk-itemset-table th:nth-child(2),
+    #bulk-itemset-table td:nth-child(2) {
+        width: 120px;
+    }
+
+    #bulk-itemset-table th:nth-child(4),
+    #bulk-itemset-table td:nth-child(4),
+    #bulk-itemset-table th:nth-child(5),
+    #bulk-itemset-table td:nth-child(5),
+    #bulk-itemset-table th:nth-child(6),
+    #bulk-itemset-table td:nth-child(6) {
+        width: 150px;
+    }
+
+    #bulk-itemset-table th:nth-child(7),
+    #bulk-itemset-table td:nth-child(7) {
+        width: 110px;
+        text-align: center;
+    }
+</style>
+@endpush
+
 
 @push('scripts')
 <script>
+    let currentView = 'default';
+
     let table = $('#itemset-table').DataTable({
         processing: true,
         serverSide: true,
+        autoWidth: false,
         ajax: {
             url: "{{ route('company.list_itemset', $company->slug) }}",
             data: function(d) {
                 d.item_id = $('#item_id').val();
                 d.from_date = $('#from_date').val();
                 d.to_date = $('#to_date').val();
+                d.view_mode = 'default';
             }
         },
                 columns: [
@@ -209,8 +283,107 @@
 
 
     // 🔍 FILTER
-    $('#filterBtn').click(function() {
+    let bulkTable = $('#bulk-itemset-table').DataTable({
+        processing: true,
+        serverSide: true,
+        autoWidth: false,
+        ajax: {
+            url: "{{ route('company.list_itemset', $company->slug) }}",
+            data: function(d) {
+                d.item_id = $('#item_id').val();
+                d.from_date = $('#from_date').val();
+                d.to_date = $('#to_date').val();
+                d.view_mode = 'bulk';
+            }
+        },
+        columns: [
+            {
+                data: 'DT_RowIndex',
+                name: 'DT_RowIndex',
+                orderable: false,
+                searchable: false
+            },
+            {
+                data: 'date',
+                name: 'batch_date',
+                searchable: false
+            },
+            {
+                data: 'item_name',
+                name: 'item_name',
+                searchable: true
+            },
+            {
+                data: 'qty_pcs',
+                name: 'total_pcs',
+                searchable: false
+            },
+            {
+                data: 'gross_weight',
+                name: 'total_gross_weight',
+                searchable: false
+            },
+            {
+                data: 'net_weight',
+                name: 'total_net_weight',
+                searchable: false
+            },
+            {
+                data: 'action',
+                name: 'action',
+                orderable: false,
+                searchable: false
+            }
+        ]
+    });
+
+    function switchItemSetView(view) {
+        currentView = view;
+        const isBulk = view === 'bulk';
+
+        $('#defaultListWrap').toggle(!isBulk);
+        $('#bulkListWrap').toggle(isBulk);
+        $('#defaultViewBtn').toggleClass('btn-primary', !isBulk).toggleClass('btn-secondary', isBulk);
+        $('#bulkViewBtn').toggleClass('btn-primary', isBulk).toggleClass('btn-secondary', !isBulk);
+
+        setTimeout(function() {
+            if (isBulk) {
+                bulkTable.columns.adjust().draw();
+            } else {
+                table.columns.adjust().draw();
+            }
+        }, 0);
+    }
+
+    $('#defaultViewBtn').on('click', function() {
+        switchItemSetView('default');
+    });
+
+    $('#bulkViewBtn').on('click', function() {
+        switchItemSetView('bulk');
+    });
+
+    $(document).on('click', '.viewBulkItems', function() {
+        const date = $(this).data('date');
+        const itemId = $(this).data('item-id');
+
+        $('#from_date').val(date);
+        $('#to_date').val(date);
+        $('#item_id').val(itemId);
+        switchItemSetView('default');
+    });
+
+    function redrawCurrentItemSetTable() {
+        if (currentView === 'bulk') {
+            bulkTable.draw();
+            return;
+        }
+
         table.draw();
+    }
+
+    $('#filterBtn').click(function() {
+        redrawCurrentItemSetTable();
     });
 
     $('#resetBtn').click(function() {
@@ -218,7 +391,7 @@
         $('#from_date').val(today);
         $('#to_date').val(today);
         $('#item_id').val('');
-        table.draw();
+        redrawCurrentItemSetTable();
     });
 
 

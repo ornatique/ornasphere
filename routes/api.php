@@ -126,8 +126,10 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/item-sets/bulk-save', [ItemSetController::class, 'bulkSave']);
     Route::post('/item-sets/finalize', [ItemSetController::class, 'finalize']);
     Route::get('/item-sets/qr-list', [ItemSetController::class, 'listset_data']);
+    Route::get('/item-sets/bulk-list', [ItemSetController::class, 'bulkListsetData']);
 
     Route::get('itemsets_list/', [ItemSetController::class, 'listset_data']);     // list + filter
+    Route::get('itemsets_bulk_list/', [ItemSetController::class, 'bulkListsetData']); // bulk grouped list
     Route::get('itemsets_show/{id}', [ItemSetController::class, 'show']);  // edit data
     Route::post('itemsets_update/{id}', [ItemSetController::class, 'update']); // update
     Route::delete('itemsets_delete/{id}', [ItemSetController::class, 'destroy']); // delete
@@ -265,6 +267,10 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/visiting-cards/bulk-save', [VisitingCardApiController::class, 'bulkSave']);
     Route::get('/visiting-cards', [VisitingCardApiController::class, 'index']);
     Route::get('/reports/visiting-cards/date-wise', [VisitingCardApiController::class, 'dateWiseReport']);
+    Route::get('/reports/visiting-cards/export/excel', [VisitingCardApiController::class, 'exportExcel']);
+    Route::get('/reports/visiting-cards/export/pdf', [VisitingCardApiController::class, 'exportPdf']);
+    Route::get('/visiting-cards/export/excel', [VisitingCardApiController::class, 'exportExcel']);
+    Route::get('/visiting-cards/export/pdf', [VisitingCardApiController::class, 'exportPdf']);
 
     Route::prefix('background-remove')->group(function () {
         Route::get('list', [ProductBackgroundRemoveApiController::class, 'index']);

@@ -53,6 +53,66 @@ class ItemSetController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
 
         if ($request->ajax()) {
+            if ($request->input('view_mode') === 'bulk') {
+                $data = ItemSet::query()
+                    ->join('items', 'items.id', '=', 'item_sets.item_id')
+                    ->where('item_sets.company_id', $company->id)
+                    ->where('item_sets.is_final', 1)
+                    ->whereNotNull('item_sets.qr_code');
+
+                $fromDate = $request->input('from_date');
+                $toDate = $request->input('to_date');
+
+                if (empty($fromDate) && empty($toDate)) {
+                    $fromDate = Carbon::today()->toDateString();
+                    $toDate = Carbon::today()->toDateString();
+                } elseif (!empty($fromDate) && empty($toDate)) {
+                    $toDate = $fromDate;
+                } elseif (empty($fromDate) && !empty($toDate)) {
+                    $fromDate = $toDate;
+                }
+
+                if (!empty($fromDate) && !empty($toDate)) {
+                    $data->whereDate('item_sets.created_at', '>=', $fromDate)
+                        ->whereDate('item_sets.created_at', '<=', $toDate);
+                }
+
+                if ($request->filled('item_id')) {
+                    $data->where('item_sets.item_id', (int) $request->item_id);
+                }
+
+                $data->selectRaw('
+                        DATE(item_sets.created_at) as batch_date,
+                        item_sets.item_id,
+                        items.item_name,
+                        COUNT(item_sets.id) as total_pcs,
+                        COALESCE(SUM(item_sets.gross_weight), 0) as total_gross_weight,
+                        COALESCE(SUM(item_sets.net_weight), 0) as total_net_weight
+                    ')
+                    ->groupBy(DB::raw('DATE(item_sets.created_at)'), 'item_sets.item_id', 'items.item_name')
+                    ->orderByDesc(DB::raw('DATE(item_sets.created_at)'))
+                    ->orderBy('items.item_name');
+
+                return datatables()->of($data)
+                    ->addIndexColumn()
+                    ->addColumn('date', fn($row) => Carbon::parse($row->batch_date)->format('d-m-Y'))
+                    ->addColumn('item_name', fn($row) => $row->item_name ?? '-')
+                    ->addColumn('qty_pcs', fn($row) => (int) ($row->total_pcs ?? 0))
+                    ->addColumn('gross_weight', fn($row) => number_format((float) ($row->total_gross_weight ?? 0), 3, '.', ''))
+                    ->addColumn('net_weight', fn($row) => number_format((float) ($row->total_net_weight ?? 0), 3, '.', ''))
+                    ->filterColumn('item_name', function ($query, $keyword) {
+                        $query->where('items.item_name', 'like', "%{$keyword}%");
+                    })
+                    ->addColumn('action', function ($row) {
+                        return '<button type="button" class="btn btn-sm btn-info viewBulkItems"
+                            data-item-id="' . (int) $row->item_id . '"
+                            data-date="' . e($row->batch_date) . '">
+                            View
+                        </button>';
+                    })
+                    ->rawColumns(['action'])
+                    ->make(true);
+            }
 
             $data = ItemSet::with('item')
                 ->where('company_id', $company->id)
@@ -121,15 +181,9 @@ class ItemSetController extends Controller
                     $encryptedId = Crypt::encryptString((string) $row->id);
                     $editUrl = route('company.itemsets.edit', [$company->slug, $encryptedId]);
                     $deleteUrl = route('company.itemsets.delete', [$company->slug, $encryptedId]);
-                    $printUrl = route('company.item_sets.printPdf', $company->slug) . '?ids=' . $row->id;
 
                     return '
-                     <a class="btn btn-sm btn-success"
-                            href="' . $printUrl . '"
-                            target="_blank">
-                            Print
-                        </a>
-                     <button class="btn btn-sm btn-primary editBtn"
+                        <button class="btn btn-sm btn-primary editBtn"
                             data-url="' . $editUrl . '">
                             Edit
                         </button>
