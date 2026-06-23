@@ -87,19 +87,24 @@
             @foreach($return->items as $index => $rItem)
                 @php
                     $saleItem = $rItem->saleItem;
-                    $approvalItem = null;
+                    $approvalItem = $rItem->approvalItem;
                     if (!$saleItem) {
-                        $approvalItem = $approvalReturnedItems->get($approvalPointer);
+                        $approvalItem = $approvalItem ?? $approvalReturnedItems->get($approvalPointer);
                         $approvalPointer++;
                     }
 
                     $itemSet = $saleItem->itemset ?? $rItem->itemSet ?? optional($approvalItem)->itemSet;
-                    $item = optional($itemSet)->item;
+                    $item = optional($itemSet)->item ?? optional($approvalItem)->item;
                     $labelCode = optional($itemSet)->qr_code ?? optional($approvalItem)->qr_code ?? '';
                     $itemName = optional($item)->item_name ?? '-';
                     $itemDisplay = trim(($labelCode ? ($labelCode . ' - ') : '') . $itemName);
 
-                    $purity = (float) ($saleItem->purity ?? optional($approvalItem)->purity ?? optional($item)->outward_carat ?? 0);
+                    $purity = (float) ($saleItem->purity
+                        ?? optional($approvalItem)->purity
+                        ?? optional($item)->outward_purity
+                        ?? optional($item)->purity
+                        ?? optional($item)->outward_carat
+                        ?? 0);
                     $qty = 1;
                     $gross = (float) ($saleItem->gross_weight ?? optional($approvalItem)->gross_weight ?? 0);
                     $less = (float) ($saleItem->other_weight ?? optional($approvalItem)->other_weight ?? 0);

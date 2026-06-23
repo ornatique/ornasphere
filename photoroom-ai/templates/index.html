@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Photoroom AI</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <main class="workspace">
+        <section class="editor">
+            <div class="toolbar">
+                <div>
+                    <h1>Photoroom AI</h1>
+                    <p>Product image editor with prompt background generation.</p>
+                </div>
+                <a class="health" href="/health" target="_blank">API status</a>
+            </div>
+
+            <form class="upload-panel" method="post" action="/generate" enctype="multipart/form-data">
+                {% if current_source %}
+                    <input type="hidden" name="current_source" value="{{ current_source }}">
+                {% endif %}
+
+                <label class="field">
+                    <span>Product image</span>
+                    <input type="file" name="image" accept="image/png,image/jpeg,image/webp">
+                    {% if current_source %}
+                        <small>Using current image. Choose a new file only if you want to replace it.</small>
+                    {% endif %}
+                </label>
+
+                <label class="field">
+                    <span>Background prompt</span>
+                    <textarea name="prompt" rows="4" placeholder="Example: luxury jewellery product photo on clean gold studio background">{{ prompt or "" }}</textarea>
+                </label>
+
+                <button type="submit">Generate Preview</button>
+            </form>
+
+            {% if error %}
+                <div class="alert">{{ error }}</div>
+            {% endif %}
+
+            {% if enhanced_prompt %}
+                <div class="prompt-card">
+                    <strong>Enhanced prompt used</strong>
+                    <p>{{ enhanced_prompt }}</p>
+                </div>
+            {% endif %}
+
+            {% if provider_status %}
+                <div class="note">{{ provider_status }}</div>
+            {% endif %}
+        </section>
+
+        <section class="preview">
+            <div class="preview-header">
+                <h2>Preview</h2>
+                {% if download_url %}
+                    <a class="download" href="{{ download_url }}">Download PNG</a>
+                {% endif %}
+            </div>
+
+            <div class="preview-grid">
+                <div class="image-box">
+                    <span>Original</span>
+                    {% if source_url %}
+                        <img src="{{ source_url }}" alt="Original uploaded product image">
+                    {% else %}
+                        <div class="empty">Upload an image to start</div>
+                    {% endif %}
+                </div>
+
+                <div class="image-box">
+                    <span>Result</span>
+                    {% if output_url %}
+                        <img src="{{ output_url }}" alt="Generated product image">
+                    {% else %}
+                        <div class="empty">Generated result appears here</div>
+                    {% endif %}
+                </div>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

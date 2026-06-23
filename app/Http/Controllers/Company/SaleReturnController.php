@@ -278,6 +278,9 @@ class SaleReturnController extends Controller
             'approval.customer',
             'approval.items.itemSet.item', // âœ… important
             'items.saleItem.itemset.item',
+            'items.approvalItem.itemSet.item',
+            'items.approvalItem.legacyItemSet.item',
+            'items.approvalItem.item',
             'items.itemSet.item',
         ])
             ->where('company_id', $company->id)
@@ -303,6 +306,9 @@ class SaleReturnController extends Controller
             'approval.customer',
             'approval.items.itemSet.item',
             'items.saleItem.itemset.item',
+            'items.approvalItem.itemSet.item',
+            'items.approvalItem.legacyItemSet.item',
+            'items.approvalItem.item',
             'items.itemSet.item',
         ])
             ->where('company_id', $company->id)
@@ -674,3 +680,4 @@ class SaleReturnController extends Controller
         ]);
     }
 }
+

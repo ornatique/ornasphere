@@ -271,6 +271,10 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/reports/visiting-cards/export/pdf', [VisitingCardApiController::class, 'exportPdf']);
     Route::get('/visiting-cards/export/excel', [VisitingCardApiController::class, 'exportExcel']);
     Route::get('/visiting-cards/export/pdf', [VisitingCardApiController::class, 'exportPdf']);
+    Route::get('/visiting-cards/{id}', [VisitingCardApiController::class, 'show'])->whereNumber('id');
+    Route::put('/visiting-cards/{id}', [VisitingCardApiController::class, 'update'])->whereNumber('id');
+    Route::post('/visiting-cards/{id}', [VisitingCardApiController::class, 'update'])->whereNumber('id');
+    Route::delete('/visiting-cards/{id}', [VisitingCardApiController::class, 'destroy'])->whereNumber('id');
 
     Route::prefix('background-remove')->group(function () {
         Route::get('list', [ProductBackgroundRemoveApiController::class, 'index']);

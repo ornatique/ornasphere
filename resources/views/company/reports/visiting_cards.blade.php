@@ -52,10 +52,58 @@
                             <th>Pincode</th>
                             <th>Address</th>
                             <th>Date</th>
+                            <th>Action</th> 
                         </tr>
                     </thead>
                 </table>
             </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="visitingCardEditModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark text-white border-0">
+            <div class="modal-header border-bottom">
+                <h5 class="modal-title">Edit Visiting Card</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="visitingCardEditForm">
+                <div class="modal-body">
+                    <input type="hidden" id="edit_update_url">
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Name</label>
+                            <input type="text" id="edit_name" name="name" class="form-control">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Mobile</label>
+                            <input type="text" id="edit_mobile_no" name="mobile_no" class="form-control">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Email</label>
+                            <input type="email" id="edit_email" name="email" class="form-control">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">City</label>
+                            <input type="text" id="edit_city" name="city" class="form-control">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Pincode</label>
+                            <input type="text" id="edit_pincode" name="pincode" class="form-control">
+                        </div>
+                        <div class="col-md-12">
+                            <label class="form-label">Address</label>
+                            <textarea id="edit_address" name="address" class="form-control" rows="3"></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-top">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Update</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
@@ -108,7 +156,8 @@ $(function () {
             { data: 'city_fmt', name: 'city' },
             { data: 'pincode_fmt', name: 'pincode' },
             { data: 'address_fmt', name: 'address' },
-            { data: 'created_at_fmt', name: 'created_at' }
+            { data: 'created_at_fmt', name: 'created_at' },
+            { data: 'action', name: 'action', searchable: false, orderable: false }
         ],
         language: {
             emptyTable: 'No data found'
@@ -133,6 +182,71 @@ $(function () {
 
     $('#exportPdfBtn').on('click', function () {
         window.location.href = "{{ route('company.reports.visiting-cards.export.pdf', $company->slug) }}?" + queryParams();
+    });
+
+    $(document).on('click', '.edit-visiting-card', function () {
+        const showUrl = $(this).data('show-url');
+        const updateUrl = $(this).data('update-url');
+
+        $.get(showUrl, function (response) {
+            const card = response.data || {};
+
+            $('#edit_update_url').val(updateUrl);
+            $('#edit_name').val(card.name || '');
+            $('#edit_mobile_no').val(card.mobile_no || '');
+            $('#edit_email').val(card.email || '');
+            $('#edit_city').val(card.city || '');
+            $('#edit_pincode').val(card.pincode || '');
+            $('#edit_address').val(card.address || '');
+            $('#visitingCardEditModal').modal('show');
+        });
+    });
+
+    $('#visitingCardEditForm').on('submit', function (e) {
+        e.preventDefault();
+
+        $.ajax({
+            url: $('#edit_update_url').val(),
+            type: 'POST',
+            data: {
+                _token: "{{ csrf_token() }}",
+                _method: 'PUT',
+                name: $('#edit_name').val(),
+                mobile_no: $('#edit_mobile_no').val(),
+                email: $('#edit_email').val(),
+                city: $('#edit_city').val(),
+                pincode: $('#edit_pincode').val(),
+                address: $('#edit_address').val()
+            },
+            success: function () {
+                $('#visitingCardEditModal').modal('hide');
+                table.draw(false);
+            },
+            error: function (xhr) {
+                alert(xhr.responseJSON?.message || 'Unable to update visiting card.');
+            }
+        });
+    });
+
+    $(document).on('click', '.delete-visiting-card', function () {
+        if (!confirm('Delete this visiting card?')) {
+            return;
+        }
+
+        $.ajax({
+            url: $(this).data('delete-url'),
+            type: 'POST',
+            data: {
+                _token: "{{ csrf_token() }}",
+                _method: 'DELETE'
+            },
+            success: function () {
+                table.draw(false);
+            },
+            error: function (xhr) {
+                alert(xhr.responseJSON?.message || 'Unable to delete visiting card.');
+            }
+        });
     });
 });
 </script>

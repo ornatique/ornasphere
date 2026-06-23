@@ -267,6 +267,74 @@ class VisitingCardApiController extends Controller
         ]);
     }
 
+    public function show(Request $request, int $id)
+    {
+        $companyId = (int) $request->user()->company_id;
+        $card = VisitingCard::where('company_id', $companyId)->findOrFail($id);
+        $card->image_url = $card->image_path ? Storage::disk('public')->url($card->image_path) : null;
+
+        return response()->json([
+            'success' => true,
+            'data' => $card,
+        ]);
+    }
+
+    public function update(Request $request, int $id)
+    {
+        $companyId = (int) $request->user()->company_id;
+        $card = VisitingCard::where('company_id', $companyId)->findOrFail($id);
+
+        $validated = $request->validate([
+            'image_path' => 'nullable|string|max:500',
+            'name' => 'nullable|string|max:255',
+            'mobile_no' => 'nullable|string|max:30',
+            'mobile_numbers' => 'nullable|array',
+            'mobile_numbers.*' => 'nullable|string|max:30',
+            'email' => 'nullable|email|max:191',
+            'address' => 'nullable|string',
+            'city' => 'nullable|string|max:191',
+            'pincode' => 'nullable|string|max:20',
+            'original_language' => 'nullable|string|max:50',
+            'original_text' => 'nullable|string',
+            'english_text' => 'nullable|string',
+            'raw_payload' => 'nullable|array',
+        ]);
+
+        if ($request->has('mobile_numbers')) {
+            $mobileNumbers = $this->normalizeMobileNumbersArray($validated['mobile_numbers'] ?? []);
+            $validated['mobile_numbers'] = !empty($mobileNumbers) ? $mobileNumbers : null;
+            $validated['mobile_no'] = $mobileNumbers[0] ?? $this->normalizePhone($validated['mobile_no'] ?? null);
+        } elseif ($request->has('mobile_no')) {
+            $validated['mobile_no'] = $this->normalizePhone($validated['mobile_no'] ?? null);
+        }
+
+        if ($request->has('pincode')) {
+            $validated['pincode'] = $this->normalizePincode($validated['pincode'] ?? null);
+        }
+
+        $card->update($validated);
+        $card = $card->fresh();
+        $card->image_url = $card->image_path ? Storage::disk('public')->url($card->image_path) : null;
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Visiting card updated successfully.',
+            'data' => $card,
+        ]);
+    }
+
+    public function destroy(Request $request, int $id)
+    {
+        $companyId = (int) $request->user()->company_id;
+        $card = VisitingCard::where('company_id', $companyId)->findOrFail($id);
+        $card->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Visiting card deleted successfully.',
+        ]);
+    }
+
     public function dateWiseReport(Request $request)
     {
         $companyId = (int) $request->user()->company_id;

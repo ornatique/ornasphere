@@ -59,9 +59,27 @@ class ReportController extends Controller
                 ->addColumn('pincode_fmt', fn($row) => $row->pincode ?: '-')
                 ->addColumn('address_fmt', fn($row) => $row->address ?: '-')
                 ->addColumn('email_fmt', fn($row) => $row->email ?: '-')
+                ->addColumn('action', function ($row) use ($company) {
+                    $showUrl = route('company.reports.visiting-cards.show', [$company->slug, $row->id]);
+                    $updateUrl = route('company.reports.visiting-cards.update', [$company->slug, $row->id]);
+                    $deleteUrl = route('company.reports.visiting-cards.destroy', [$company->slug, $row->id]);
+
+                    return '
+                        <button type="button" class="btn btn-sm btn-primary edit-visiting-card"
+                            data-show-url="' . e($showUrl) . '"
+                            data-update-url="' . e($updateUrl) . '">
+                            Edit
+                        </button>
+                        <button type="button" class="btn btn-sm btn-danger delete-visiting-card"
+                            data-delete-url="' . e($deleteUrl) . '">
+                            Delete
+                        </button>
+                    ';
+                })
                 ->with([
                     'selected_date' => $selectedDate,
                 ])
+                ->rawColumns(['action'])
                 ->make(true);
         }
 
@@ -80,6 +98,52 @@ class ReportController extends Controller
             ->values();
 
         return view('company.reports.visiting_cards', compact('company', 'fromDate', 'toDate', 'summary'));
+    }
+
+    public function visitingCardsShow(Request $request, $slug, int $id)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $card = VisitingCard::where('company_id', $company->id)->findOrFail($id);
+
+        return response()->json([
+            'success' => true,
+            'data' => $card,
+        ]);
+    }
+
+    public function visitingCardsUpdate(Request $request, $slug, int $id)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $card = VisitingCard::where('company_id', $company->id)->findOrFail($id);
+
+        $validated = $request->validate([
+            'name' => 'nullable|string|max:255',
+            'mobile_no' => 'nullable|string|max:30',
+            'email' => 'nullable|email|max:191',
+            'city' => 'nullable|string|max:191',
+            'pincode' => 'nullable|string|max:20',
+            'address' => 'nullable|string',
+        ]);
+
+        $card->update($validated);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Visiting card updated successfully.',
+            'data' => $card->fresh(),
+        ]);
+    }
+
+    public function visitingCardsDestroy(Request $request, $slug, int $id)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $card = VisitingCard::where('company_id', $company->id)->findOrFail($id);
+        $card->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Visiting card deleted successfully.',
+        ]);
     }
 
     public function visitingCardsExcel(Request $request, $slug): StreamedResponse
