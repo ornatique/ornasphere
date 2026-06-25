@@ -206,6 +206,7 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/sales/advance-ledger/pdf', [CustomerAdvanceApiController::class, 'pdf']);
 
 
+    Route::get('/returns', [SaleReturnApiController::class, 'list_of_return']);
     Route::get('/returns/list', [SaleReturnApiController::class, 'list_of_return']);
     Route::get('/returns/export/listpdf', [SaleReturnApiController::class, 'exportListPdf']);
     Route::get('/returns/customers', [SaleReturnApiController::class, 'getSalesForReturn']);

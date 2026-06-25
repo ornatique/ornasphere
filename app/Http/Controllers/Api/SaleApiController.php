@@ -268,12 +268,80 @@ class SaleApiController extends Controller
     {
         $companyId = $request->user()->company_id;
         $search = trim((string) $request->input('search', ''));
+        $customerId = (int) $request->input('customer_id', 0);
         $limit = max(10, min((int) $request->input('limit', 1000), 2000));
+
+        $approvalItems = collect();
+        if ($customerId > 0) {
+            $approvalItems = ApprovalItem::with(['approval.customer', 'itemSet.item', 'legacyItemSet.item', 'item'])
+                ->whereExists(function ($q) use ($companyId, $customerId) {
+                    $q->select(DB::raw(1))
+                        ->from('approval_headers')
+                        ->whereColumn('approval_headers.id', 'approval_items.approval_id')
+                        ->where('approval_headers.company_id', $companyId)
+                        ->where('approval_headers.customer_id', $customerId);
+                })
+                ->where(function ($q) {
+                    $q->whereNull('status')
+                        ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+                })
+                ->whereNotExists(function ($sub) {
+                    $sub->select(DB::raw(1))
+                        ->from('sale_items')
+                        ->where(function ($q) {
+                            $q->whereColumn('sale_items.approval_item_id', 'approval_items.id')
+                                ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
+                                ->orWhereColumn('sale_items.itemset_id', 'approval_items.item_id');
+                        });
+                })
+                ->where(function ($q) use ($search) {
+                    $q->where('approval_items.qr_code', 'like', '%' . $search . '%')
+                        ->orWhere('approval_items.huid', 'like', '%' . $search . '%')
+                        ->orWhereHas('itemSet', function ($q2) use ($search) {
+                            $q2->where('qr_code', 'like', '%' . $search . '%')
+                                ->orWhere('HUID', 'like', '%' . $search . '%')
+                                ->orWhere('barcode', 'like', '%' . $search . '%')
+                                ->orWhereHas('item', function ($q3) use ($search) {
+                                    $q3->where('item_name', 'like', '%' . $search . '%')
+                                        ->orWhere('item_code', 'like', '%' . $search . '%');
+                                });
+                        })
+                        ->orWhereHas('legacyItemSet', function ($q2) use ($search) {
+                            $q2->where('qr_code', 'like', '%' . $search . '%')
+                                ->orWhere('HUID', 'like', '%' . $search . '%')
+                                ->orWhere('barcode', 'like', '%' . $search . '%')
+                                ->orWhereHas('item', function ($q3) use ($search) {
+                                    $q3->where('item_name', 'like', '%' . $search . '%')
+                                        ->orWhere('item_code', 'like', '%' . $search . '%');
+                                });
+                        })
+                        ->orWhereHas('item', function ($q2) use ($search) {
+                            $q2->where('item_name', 'like', '%' . $search . '%')
+                                ->orWhere('item_code', 'like', '%' . $search . '%');
+                        });
+                })
+                ->orderByDesc('id')
+                ->limit($limit)
+                ->get();
+        }
+
+        $approvalItemsetIds = $approvalItems
+            ->map(function ($approvalItem) {
+                $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
+                return optional($itemSet)->id;
+            })
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
 
         $itemSets = ItemSet::with('item')
             ->where('company_id', $companyId)
             ->where('is_final', 1)
             ->where('is_sold', 0)
+            ->when(!empty($approvalItemsetIds), function ($q) use ($approvalItemsetIds) {
+                $q->whereNotIn('id', $approvalItemsetIds);
+            })
             ->where(function ($q) use ($search) {
                 $q->where('qr_code', 'like', '%' . $search . '%')
                     ->orWhere('HUID', 'like', '%' . $search . '%')
@@ -287,7 +355,53 @@ class SaleApiController extends Controller
             ->limit($limit)
             ->get();
 
-        $itemSetItemIds = $itemSets->pluck('item_id')->filter()->unique()->values()->all();
+        $approvalRows = $approvalItems->map(function ($approvalItem) {
+            $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
+            $item = optional($itemSet)->item ?? $approvalItem->item;
+            $gross = (float) ($approvalItem->gross_weight ?? optional($itemSet)->gross_weight ?? 0);
+            $otherWeight = (float) ($approvalItem->other_weight ?? optional($itemSet)->other ?? 0);
+            $net = (float) ($approvalItem->net_weight ?? optional($itemSet)->net_weight ?? max(0, $gross - $otherWeight));
+            $purity = (float) ($approvalItem->purity ?? optional($item)->outward_purity ?? 0);
+            $wastePercent = (float) ($approvalItem->waste_percent ?? 0);
+            $netPurity = (float) ($approvalItem->net_purity ?? max(0, $purity + $wastePercent));
+            $fineWeight = (float) ($approvalItem->total_fine_weight ?? (($net * $netPurity) / 100));
+            $metalRate = (float) ($approvalItem->metal_rate ?? 0);
+            $metalAmount = (float) ($approvalItem->metal_amount ?? ($net * $metalRate));
+            $labourRate = (float) ($approvalItem->labour_rate ?? optional($itemSet)->sale_labour_rate ?? optional($item)->labour_rate ?? 0);
+            $labourAmount = (float) ($approvalItem->labour_amount ?? ($net * $labourRate));
+            $otherAmount = (float) ($approvalItem->other_amount ?? optional($itemSet)->sale_other ?? 0);
+            $totalAmount = (float) ($approvalItem->total_amount ?? ($metalAmount + $labourAmount + $otherAmount));
+
+            return [
+                'id' => (int) (optional($itemSet)->id ?? 0),
+                'itemset_id' => (int) (optional($itemSet)->id ?? 0),
+                'approval_item_id' => (int) $approvalItem->id,
+                'approval_id' => (int) ($approvalItem->approval_id ?? 0),
+                'item_id' => (int) ($approvalItem->item_id ?? optional($itemSet)->item_id ?? 0),
+                'name' => (string) (optional($item)->item_name ?? ''),
+                'code' => (string) ($approvalItem->qr_code ?? optional($itemSet)->qr_code ?? ''),
+                'huid' => (string) ($approvalItem->huid ?? optional($itemSet)->HUID ?? ''),
+                'gross_weight' => $gross,
+                'other_weight' => $otherWeight,
+                'net_weight' => $net,
+                'purity' => $purity,
+                'waste_percent' => $wastePercent,
+                'net_purity' => $netPurity,
+                'fine_weight' => $fineWeight,
+                'metal_rate' => $metalRate,
+                'metal_amount' => $metalAmount,
+                'labour_rate' => $labourRate,
+                'labour_amount' => $labourAmount,
+                'other_amount' => $otherAmount,
+                'total_amount' => $totalAmount,
+                'remarks' => (string) ($approvalItem->remarks ?? ''),
+                'is_item_only' => false,
+                'source' => 'approval',
+            ];
+        })->values();
+
+        $approvalItemIds = $approvalRows->pluck('item_id')->filter()->unique()->values()->all();
+        $itemSetItemIds = $itemSets->pluck('item_id')->filter()->merge($approvalItemIds)->unique()->values()->all();
 
         $itemOnlyQuery = Item::query()
             ->where('company_id', $companyId)
@@ -343,6 +457,7 @@ class SaleApiController extends Controller
                 'total_amount' => $totalAmount,
                 'remarks' => '',
                 'is_item_only' => false,
+                'source' => 'itemset',
             ];
         })->values();
 
@@ -369,12 +484,57 @@ class SaleApiController extends Controller
                 'total_amount' => 0,
                 'remarks' => '',
                 'is_item_only' => true,
+                'source' => 'item',
             ];
         })->values();
 
+        $resultRows = $approvalRows->concat($itemSetRows)->concat($itemOnlyRows)->values();
+        if ($resultRows->isEmpty()) {
+            $itemSetMatch = function ($q) use ($search) {
+                $q->where('qr_code', 'like', '%' . $search . '%')
+                    ->orWhere('HUID', 'like', '%' . $search . '%')
+                    ->orWhere('barcode', 'like', '%' . $search . '%')
+                    ->orWhereHas('item', function ($q2) use ($search) {
+                        $q2->where('item_name', 'like', '%' . $search . '%')
+                            ->orWhere('item_code', 'like', '%' . $search . '%');
+                    });
+            };
+            $itemMatch = function ($q) use ($search) {
+                $q->where('item_name', 'like', '%' . $search . '%')
+                    ->orWhere('item_code', 'like', '%' . $search . '%');
+            };
+
+            $existsInOtherCompany = ItemSet::where('company_id', '!=', $companyId)
+                ->where($itemSetMatch)
+                ->exists()
+                || Item::where('company_id', '!=', $companyId)
+                    ->where($itemMatch)
+                    ->exists();
+
+            $existsInCompany = ItemSet::where('company_id', $companyId)
+                ->where($itemSetMatch)
+                ->exists()
+                || Item::where('company_id', $companyId)
+                    ->where($itemMatch)
+                    ->exists();
+
+            $message = 'No item found for this keyword.';
+            if ($existsInOtherCompany) {
+                $message = 'This item does not belong to your company.';
+            } elseif ($existsInCompany) {
+                $message = 'Item found but it is not available for sale.';
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => $message,
+                'data' => [],
+            ], 404);
+        }
+
         return response()->json([
             'success' => true,
-            'data' => $itemSetRows->concat($itemOnlyRows)->values(),
+            'data' => $resultRows,
         ]);
     }
 
@@ -384,10 +544,77 @@ class SaleApiController extends Controller
 
         $request->validate([
             'qr_code' => 'required|string',
+            'customer_id' => 'nullable|integer',
         ]);
 
+        $qrCode = trim((string) $request->qr_code);
+        $customerId = (int) $request->input('customer_id', 0);
+       
+        if ($customerId > 0) {
+            if (!Schema::hasColumn('sale_carts', 'approval_item_id')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Sale cart approval item column missing. Please run migration.'
+                ], 500);
+            }
+            
+            $approvalItem = ApprovalItem::with(['approval.customer', 'itemSet.item', 'legacyItemSet.item', 'item'])
+                ->whereExists(function ($q) use ($user, $customerId) {
+                    $q->select(DB::raw(1))
+                        ->from('approval_headers')
+                        ->whereColumn('approval_headers.id', 'approval_items.approval_id')
+                        ->where('approval_headers.company_id', $user->company_id)
+                        ->where('approval_headers.customer_id', $customerId);
+                })
+                ->where(function ($q) {
+                    $q->whereNull('status')
+                        ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+                })
+                ->whereRaw('TRIM(qr_code) = ?', [$qrCode])
+                ->whereNotExists(function ($sub) {
+                    $sub->select(DB::raw(1))
+                        ->from('sale_items')
+                        ->where(function ($q) {
+                            $q->whereColumn('sale_items.approval_item_id', 'approval_items.id')
+                                ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
+                                ->orWhereColumn('sale_items.itemset_id', 'approval_items.item_id');
+                        });
+                })
+                ->latest('id')
+                ->first();
+                 
+            if ($approvalItem) {
+                $exists = SaleCart::where('user_id', $user->id)
+                    ->where('company_id', $user->company_id)
+                    ->where('approval_item_id', $approvalItem->id)
+                    ->exists();
+
+                if ($exists) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Product already added. Please add different product.'
+                    ]);
+                }
+
+                $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
+                SaleCart::create([
+                    'user_id' => $user->id,
+                    'company_id' => $user->company_id,
+                    'itemset_id' => optional($itemSet)->id,
+                    'approval_item_id' => $approvalItem->id,
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Approval product added to cart',
+                    'source' => 'approval',
+                    'approval_item' => $approvalItem,
+                ]);
+            }
+        }
+
         $item = ItemSet::where('company_id', $user->company_id)
-            ->where('qr_code', $request->qr_code)
+            ->where('qr_code', $qrCode)
             ->where('is_sold', 0)
             ->first();
 
@@ -427,10 +654,54 @@ class SaleApiController extends Controller
     {
         $user = auth()->user();
 
-        $items = SaleCart::with('itemset.item')
+        $items = SaleCart::with([
+                'itemset.item',
+                'approvalItem.approval.customer',
+                'approvalItem.itemSet.item',
+                'approvalItem.legacyItemSet.item',
+                'approvalItem.item',
+            ])
             ->where('user_id', $user->id)
             ->where('company_id', $user->company_id)
-            ->get();
+            ->get()
+            ->map(function ($cart) {
+                if ($cart->approvalItem) {
+                    $approvalItem = $cart->approvalItem;
+                    $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
+                    $item = optional($itemSet)->item ?? $approvalItem->item;
+                    $grossWeight = (float) (optional($itemSet)->gross_weight ?? $approvalItem->gross_weight ?? 0);
+                    $otherWeight = (float) (optional($itemSet)->other ?? $approvalItem->other_weight ?? 0);
+                    $netWeight = (float) (optional($itemSet)->net_weight ?? $approvalItem->net_weight ?? max(0, $grossWeight - $otherWeight));
+
+                    return [
+                        'id' => $cart->id,
+                        'source' => 'approval',
+                        'approval_item_id' => $approvalItem->id,
+                        'approval_id' => $approvalItem->approval_id,
+                        'itemset_id' => optional($itemSet)->id,
+                        'item_id' => $approvalItem->item_id ?? optional($itemSet)->item_id,
+                        'qr_code' => $approvalItem->qr_code ?? optional($itemSet)->qr_code,
+                        'huid' => $approvalItem->huid ?? optional($itemSet)->HUID,
+                        'item_name' => optional($item)->item_name,
+                        'gross_weight' => number_format($grossWeight, 3, '.', ''),
+                        'other_weight' => number_format($otherWeight, 3, '.', ''),
+                        'net_weight' => number_format($netWeight, 3, '.', ''),
+                        'purity' => number_format((float) ($approvalItem->purity ?? optional($item)->outward_purity ?? 0), 3, '.', ''),
+                        'waste_percent' => number_format((float) ($approvalItem->waste_percent ?? 0), 3, '.', ''),
+                        'net_purity' => number_format((float) ($approvalItem->net_purity ?? $approvalItem->purity ?? optional($item)->outward_purity ?? 0), 3, '.', ''),
+                        'fine_weight' => number_format((float) ($approvalItem->total_fine_weight ?? 0), 3, '.', ''),
+                        'metal_rate' => number_format((float) ($approvalItem->metal_rate ?? 0), 2, '.', ''),
+                        'metal_amount' => number_format((float) ($approvalItem->metal_amount ?? 0), 2, '.', ''),
+                        'labour_rate' => number_format((float) ($approvalItem->labour_rate ?? 0), 2, '.', ''),
+                        'labour_amount' => number_format((float) ($approvalItem->labour_amount ?? 0), 2, '.', ''),
+                        'other_amount' => number_format((float) ($approvalItem->other_amount ?? optional($itemSet)->sale_other ?? 0), 2, '.', ''),
+                        'total_amount' => number_format((float) ($approvalItem->total_amount ?? 0), 2, '.', ''),
+                    ];
+                }
+
+                return $cart;
+            })
+            ->values();
 
         return response()->json([
             'success' => true,
@@ -770,6 +1041,69 @@ class SaleApiController extends Controller
             $total = 0;
 
             foreach ($cartItems as $cart) {
+                if (!empty($cart->approval_item_id)) {
+                    $approvalItem = ApprovalItem::with(['itemSet.item', 'legacyItemSet.item', 'item'])
+                        ->whereExists(function ($q) use ($user, $request) {
+                            $q->select(DB::raw(1))
+                                ->from('approval_headers')
+                                ->whereColumn('approval_headers.id', 'approval_items.approval_id')
+                                ->where('approval_headers.company_id', $user->company_id)
+                                ->where('approval_headers.customer_id', (int) $request->customer_id);
+                        })
+                        ->where(function ($q) {
+                            $q->whereNull('status')
+                                ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+                        })
+                        ->find($cart->approval_item_id);
+
+                    if (!$approvalItem) {
+                        throw new \Exception('Approval item not available for sale');
+                    }
+
+                    $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
+                    $item = optional($itemSet)->item ?? $approvalItem->item;
+                    $gross = (float) (optional($itemSet)->gross_weight ?? $approvalItem->gross_weight ?? 0);
+                    $otherWeight = (float) (optional($itemSet)->other ?? $approvalItem->other_weight ?? 0);
+                    $net = (float) (optional($itemSet)->net_weight ?? $approvalItem->net_weight ?? max(0, $gross - $otherWeight));
+                    $purity = (float) ($approvalItem->purity ?? optional($item)->outward_purity ?? 0);
+                    $wastePercent = (float) ($approvalItem->waste_percent ?? 0);
+                    $netPurity = (float) ($approvalItem->net_purity ?? max(0, $purity + $wastePercent));
+                    $fineWeight = (float) ($approvalItem->total_fine_weight ?? (($net * $netPurity) / 100));
+                    $metalAmount = (float) ($approvalItem->metal_amount ?? 0);
+                    $labourAmount = (float) ($approvalItem->labour_amount ?? 0);
+                    $otherAmount = (float) ($approvalItem->other_amount ?? optional($itemSet)->sale_other ?? 0);
+                    $lineTotal = (float) ($approvalItem->total_amount ?? ($metalAmount + $labourAmount + $otherAmount));
+
+                    SaleItem::create([
+                        'sale_id' => $sale->id,
+                        'itemset_id' => optional($itemSet)->id,
+                        'product_id' => $approvalItem->item_id ?? optional($itemSet)->item_id,
+                        'qty' => 1,
+                        'gross_weight' => $gross,
+                        'other_weight' => $otherWeight,
+                        'net_weight' => $net,
+                        'purity' => $purity,
+                        'waste_percent' => $wastePercent,
+                        'net_purity' => $netPurity,
+                        'fine_weight' => $fineWeight,
+                        'metal_rate' => (float) ($approvalItem->metal_rate ?? 0),
+                        'metal_amount' => $metalAmount,
+                        'labour_rate' => (float) ($approvalItem->labour_rate ?? 0),
+                        'labour_amount' => $labourAmount,
+                        'other_amount' => $otherAmount,
+                        'total_amount' => $lineTotal,
+                        'approval_item_id' => $approvalItem->id,
+                    ]);
+
+                    $approvalItem->update(['status' => 'sold']);
+                    if ($itemSet) {
+                        $itemSet->update(['is_sold' => 1]);
+                    }
+
+                    $total += $lineTotal;
+                    continue;
+                }
+
                 $item = ItemSet::with('item')
                     ->where('company_id', $user->company_id)
                     ->where('is_sold', 0)
@@ -882,7 +1216,19 @@ class SaleApiController extends Controller
 
         $rows = ApprovalItem::with(['approval.customer', 'itemSet.item', 'legacyItemSet.item'])
             ->whereIn('approval_id', $approvalIds)
-            ->where('status', '!=', 'sold')
+            ->where(function ($q) {
+                $q->whereNull('status')
+                    ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+            })
+            ->whereNotExists(function ($sub) {
+                $sub->select(DB::raw(1))
+                    ->from('sale_items')
+                    ->where(function ($q) {
+                        $q->whereColumn('sale_items.approval_item_id', 'approval_items.id')
+                            ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
+                            ->orWhereColumn('sale_items.itemset_id', 'approval_items.item_id');
+                    });
+            })
             ->get()
             ->filter(function ($row) {
                 // Match web logic exactly:
@@ -1604,7 +1950,19 @@ class SaleApiController extends Controller
             });
 
         if (!$allowSold) {
-            $query->where('status', '!=', 'sold');
+            $query->where(function ($q) {
+                $q->whereNull('status')
+                    ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+            })
+                ->whereNotExists(function ($sub) {
+                    $sub->select(DB::raw(1))
+                        ->from('sale_items')
+                        ->where(function ($q) {
+                            $q->whereColumn('sale_items.approval_item_id', 'approval_items.id')
+                                ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
+                                ->orWhereColumn('sale_items.itemset_id', 'approval_items.item_id');
+                        });
+                });
         }
 
         if (($approvalItemId ?? 0) > 0) {
@@ -1855,6 +2213,3 @@ class SaleApiController extends Controller
         }
     }
 }
-
-
-

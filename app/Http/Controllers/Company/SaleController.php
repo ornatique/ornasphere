@@ -1089,7 +1089,19 @@ class SaleController extends Controller
             ->whereIn('approval_id', $approvalIds)
 
             // 🔥 IMPORTANT FILTER
-            ->where('status', '!=', 'sold')
+            ->where(function ($q) {
+                $q->whereNull('status')
+                    ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+            })
+            ->whereNotExists(function ($sub) {
+                $sub->select(DB::raw(1))
+                    ->from('sale_items')
+                    ->where(function ($q) {
+                        $q->whereColumn('sale_items.approval_item_id', 'approval_items.id')
+                            ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
+                            ->orWhereColumn('sale_items.itemset_id', 'approval_items.item_id');
+                    });
+            })
 
             ->get()
             ->filter(function ($row) {

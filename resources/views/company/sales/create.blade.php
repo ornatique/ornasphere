@@ -1146,7 +1146,7 @@ $(function () {
                 <small>${esc(row.code || '')}</small><br>
                 <small>${esc(row.name || '')}</small>
                 <input type="hidden" name="items[]" value="${itemsetIdValue > 0 ? itemsetIdValue : 0}">
-                <input type="hidden" name="approval_item_ids[]" value="${esc(row.approval_id || '')}">
+                <input type="hidden" name="approval_item_ids[]" value="${esc(row.approval_item_id || row.approval_id || '')}">
                 <input type="hidden" name="item_ids[]" value="${esc(row.item_id || '')}">
                 <input type="hidden" name="item_metal_type[]" value="${esc(row.metal_type || 'silver')}">
 
@@ -1275,6 +1275,7 @@ $(function () {
             row_key: $(this).data('row-key'),
             itemset_id: toNum($(this).data('itemset-id')),
             item_id: toNum($(this).data('item-id')),
+            approval_item_id: $(this).data('approval-id'),
             approval_id: $(this).data('approval-id'),
             name: $(this).data('name'),
             metal_type: normalizeMetalType($(this).data('metal-type')),
@@ -1442,6 +1443,7 @@ $(function () {
             appendSaleRow({
                 itemset_id: toNum($(this).data('itemset-id')),
                 item_id: toNum($(this).data('item-id')),
+                approval_item_id: $(this).data('approval-id'),
                 approval_id: $(this).data('approval-id'),
                 name: $(this).data('name'),
                 metal_type: normalizeMetalType($(this).data('metal-type')),

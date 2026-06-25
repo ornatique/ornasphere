@@ -42,7 +42,8 @@ class SaleReturnApiController extends Controller
                     $customerName = $return->approval->customer->name;
                 } else {
                     $firstSaleItem = $return->items->firstWhere('sale_item_id', '!=', null);
-                    $customerName = optional(optional(optional($firstSaleItem)->saleItem)->sale->customer)->name ?? '-';
+                    $sale = optional(optional($firstSaleItem)->saleItem)->sale;
+                    $customerName = optional(optional($sale)->customer)->name ?? '-';
                 }
 
                 return [
@@ -1511,9 +1512,11 @@ class SaleReturnApiController extends Controller
 
                 $customerName = '-';
                 if ($source === 'approval') {
-                    $customerName = optional(optional($approvalItem)->approval->customer)->name ?? '-';
+                    $approval = optional($approvalItem)->approval;
+                    $customerName = optional(optional($approval)->customer)->name ?? '-';
                 } else {
-                    $customerName = optional(optional($saleItem)->sale->customer)->name ?? '-';
+                    $sale = optional($saleItem)->sale;
+                    $customerName = optional(optional($sale)->customer)->name ?? '-';
                 }
 
                 return [

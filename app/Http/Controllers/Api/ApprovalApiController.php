@@ -173,10 +173,54 @@ class ApprovalApiController extends Controller
             ->where('is_sold', 0)
             ->where(function ($q) use ($keyword) {
                 $q->where('HUID', 'LIKE', "%{$keyword}%")
-                    ->orWhere('qr_code', 'LIKE', "%{$keyword}%");
+                    ->orWhere('qr_code', 'LIKE', "%{$keyword}%")
+                    ->orWhere('barcode', 'LIKE', "%{$keyword}%")
+                    ->orWhereHas('item', function ($itemQuery) use ($keyword) {
+                        $itemQuery->where('item_name', 'LIKE', "%{$keyword}%")
+                            ->orWhere('item_code', 'LIKE', "%{$keyword}%");
+                    });
             })
             ->limit(20)
             ->get();
+
+        if ($rows->isEmpty()) {
+            $existsInOtherCompany = ItemSet::where('company_id', '!=', $companyId)
+                ->where(function ($q) use ($keyword) {
+                    $q->where('HUID', 'LIKE', "%{$keyword}%")
+                        ->orWhere('qr_code', 'LIKE', "%{$keyword}%")
+                        ->orWhere('barcode', 'LIKE', "%{$keyword}%")
+                        ->orWhereHas('item', function ($itemQuery) use ($keyword) {
+                            $itemQuery->where('item_name', 'LIKE', "%{$keyword}%")
+                                ->orWhere('item_code', 'LIKE', "%{$keyword}%");
+                        });
+                })
+                ->exists();
+
+            $existsInCompany = ItemSet::where('company_id', $companyId)
+                ->where(function ($q) use ($keyword) {
+                    $q->where('HUID', 'LIKE', "%{$keyword}%")
+                        ->orWhere('qr_code', 'LIKE', "%{$keyword}%")
+                        ->orWhere('barcode', 'LIKE', "%{$keyword}%")
+                        ->orWhereHas('item', function ($itemQuery) use ($keyword) {
+                            $itemQuery->where('item_name', 'LIKE', "%{$keyword}%")
+                                ->orWhere('item_code', 'LIKE', "%{$keyword}%");
+                        });
+                })
+                ->exists();
+
+            $message = 'No item found for this keyword.';
+            if ($existsInOtherCompany) {
+                $message = 'This item does not belong to your company.';
+            } elseif ($existsInCompany) {
+                $message = 'Item found but it is not available for approval.';
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => $message,
+                'data' => [],
+            ], 404);
+        }
 
         return response()->json([
             'success' => true,

@@ -15,6 +15,7 @@ class SaleCart extends Model
         'user_id',
         'company_id',
         'itemset_id',
+        'approval_item_id',
     ];
 
     /*
@@ -39,5 +40,10 @@ class SaleCart extends Model
     public function itemset()
     {
         return $this->belongsTo(ItemSet::class);
+    }
+
+    public function approvalItem()
+    {
+        return $this->belongsTo(ApprovalItem::class, 'approval_item_id');
     }
 }
