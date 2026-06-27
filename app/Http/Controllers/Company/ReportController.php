@@ -461,6 +461,53 @@ class ReportController extends Controller
         return view('company.reports.approval_outstanding', compact('company', 'customers'));
     }
 
+    public function approvalOutstandingDetails($slug, ApprovalHeader $approval)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        abort_unless((int) $approval->company_id === (int) $company->id, 404);
+
+        $approval->load(['customer', 'creator']);
+
+        $items = $approval->items()
+            ->with(['itemSet.item', 'legacyItemSet.item', 'item'])
+            ->where('status', 'pending')
+            ->orderBy('id')
+            ->get()
+            ->map(function ($row) {
+                $itemSet = $row->itemSet ?? $row->legacyItemSet;
+                $item = optional($itemSet)->item ?? $row->item;
+
+                return [
+                    'qr_code' => $row->qr_code ?? optional($itemSet)->qr_code ?? '-',
+                    'huid' => $row->huid ?? optional($itemSet)->HUID ?? '-',
+                    'item_name' => optional($item)->item_name ?? '-',
+                    'gross_weight' => number_format((float) ($row->gross_weight ?? optional($itemSet)->gross_weight ?? 0), 3),
+                    'other_weight' => number_format((float) ($row->other_weight ?? optional($itemSet)->other ?? 0), 3),
+                    'net_weight' => number_format((float) ($row->net_weight ?? optional($itemSet)->net_weight ?? 0), 3),
+                    'total_amount' => number_format((float) ($row->total_amount ?? 0), 2),
+                    'status' => $row->status ?? '-',
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'approval' => [
+                'approval_no' => $approval->approval_no,
+                'approval_date' => optional($approval->approval_date)?->format('d-m-Y') ?? '-',
+                'customer_name' => optional($approval->customer)->name ?? '-',
+                'status' => $approval->status ?? '-',
+                'remarks' => $approval->remarks ?? '-',
+                'created_by' => optional($approval->creator)->name ?? '-',
+            ],
+            'summary' => [
+                'pending_pcs' => $items->count(),
+                'pending_net_weight' => number_format((float) $items->sum(fn($row) => (float) str_replace(',', '', $row['net_weight'])), 3),
+                'pending_amount' => number_format((float) $items->sum(fn($row) => (float) str_replace(',', '', $row['total_amount'])), 2),
+            ],
+            'items' => $items->values(),
+        ]);
+    }
+
     public function approvalOutstandingExcel(Request $request, $slug): StreamedResponse
     {
         $company = Company::whereSlug($slug)->firstOrFail();
@@ -985,6 +1032,7 @@ class ReportController extends Controller
             'voucher_count' => (int) $rows->count(),
             'pending_pcs' => (int) $rows->sum(fn($r) => (int) ($r->pending_items_count ?? 0)),
             'pending_net_weight' => (float) $rows->sum(fn($r) => (float) ($r->pending_net_weight ?? 0)),
+            'pending_amount' => (float) $rows->sum(fn($r) => (float) ($r->pending_total_amount ?? 0)),
         ];
     }
 
@@ -1137,22 +1185,35 @@ class ReportController extends Controller
                 })
                 ->orderBy('ah.approval_date')
                 ->orderBy('ah.id')
-                ->get(['ah.id as approval_id', 'ah.approval_no', 'ah.approval_date', 'ai.status'])
+                ->get(['ai.id as approval_item_id', 'ah.id as approval_id', 'ah.approval_no', 'ah.approval_date', 'ai.status'])
                 ->map(function ($r) {
                     $date = $r->approval_date ? Carbon::parse($r->approval_date)->format('d-m-Y') : '-';
                     $status = $r->status ?: '-';
                     return [
                         'id' => (int) $r->approval_id,
+                        'approval_item_id' => (int) $r->approval_item_id,
                         'label' => "{$r->approval_no} ({$date}) [{$status}]",
+                        'status' => $status,
                     ];
                 })
+                ->values()
+                ->all();
+
+            $approvalItemIds = collect($approvalHistory)
+                ->pluck('approval_item_id')
+                ->filter()
                 ->values()
                 ->all();
 
             $saleHistory = DB::table('sale_items as si')
                 ->join('sales as s', 's.id', '=', 'si.sale_id')
                 ->where('s.company_id', $company->id)
-                ->where('si.itemset_id', $set->id)
+                ->where(function ($q) use ($set, $approvalItemIds) {
+                    $q->where('si.itemset_id', $set->id);
+                    if (!empty($approvalItemIds) && Schema::hasColumn('sale_items', 'approval_item_id')) {
+                        $q->orWhereIn('si.approval_item_id', $approvalItemIds);
+                    }
+                })
                 ->orderBy('s.sale_date')
                 ->orderBy('s.id')
                 ->get(['s.id as sale_id', 's.voucher_no', 's.sale_date'])
@@ -1191,10 +1252,17 @@ class ReportController extends Controller
                 ->values()
                 ->all();
 
+            $hasPendingApproval = collect($approvalHistory)
+                ->contains(fn($row) => strtolower((string) ($row['status'] ?? '')) === 'pending');
+
             $currentStatus = 'In Stock';
             if (!empty($returnHistory)) {
                 $currentStatus = 'Returned';
-            } elseif (!empty($saleHistory) || (int) ($set->is_sold ?? 0) === 1) {
+            } elseif (!empty($saleHistory)) {
+                $currentStatus = 'Sold';
+            } elseif ($hasPendingApproval) {
+                $currentStatus = 'Approval';
+            } elseif ((int) ($set->is_sold ?? 0) === 1) {
                 $currentStatus = 'Sold';
             } elseif (!empty($approvalHistory)) {
                 $currentStatus = 'Approval';

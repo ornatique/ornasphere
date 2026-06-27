@@ -740,6 +740,9 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
                 ->name('stock-position.export.pdf');
             Route::get('/approval-outstanding', [ReportController::class, 'approvalOutstanding'])
                 ->name('approval-outstanding.index');
+            Route::get('/approval-outstanding/{approval}/details', [ReportController::class, 'approvalOutstandingDetails'])
+                ->whereNumber('approval')
+                ->name('approval-outstanding.details');
             Route::get('/approval-outstanding/export/excel', [ReportController::class, 'approvalOutstandingExcel'])
                 ->name('approval-outstanding.export.excel');
             Route::get('/approval-outstanding/export/pdf', [ReportController::class, 'approvalOutstandingPdf'])
@@ -766,6 +769,15 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
                 ->name('visiting-cards.extract-bulk');
             Route::post('/visiting-cards/bulk-save', [VisitingCardApiWebController::class, 'bulkSave'])
                 ->name('visiting-cards.bulk-save');
+            Route::get('/visiting-cards/{id}', [ReportController::class, 'visitingCardsShow'])
+                ->whereNumber('id')
+                ->name('visiting-cards.show');
+            Route::put('/visiting-cards/{id}', [ReportController::class, 'visitingCardsUpdate'])
+                ->whereNumber('id')
+                ->name('visiting-cards.update');
+            Route::delete('/visiting-cards/{id}', [ReportController::class, 'visitingCardsDestroy'])
+                ->whereNumber('id')
+                ->name('visiting-cards.destroy');
             Route::get('/visiting-cards/export/excel', [ReportController::class, 'visitingCardsExcel'])
                 ->name('visiting-cards.export.excel');
             Route::get('/visiting-cards/export/pdf', [ReportController::class, 'visitingCardsPdf'])

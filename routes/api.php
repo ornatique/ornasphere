@@ -249,6 +249,7 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/reports/stock-position/export/excel', [ReportApiController::class, 'stockPositionExcel']);
     Route::get('/reports/stock-position/export/pdf', [ReportApiController::class, 'stockPositionPdf']);
     Route::get('/reports/approval-outstanding', [ReportApiController::class, 'approvalOutstanding']);
+    Route::get('/reports/approval-outstanding/{approval}/details', [ReportApiController::class, 'approvalOutstandingDetails'])->whereNumber('approval');
     Route::get('/reports/approval-outstanding/export/excel', [ReportApiController::class, 'approvalOutstandingExcel']);
     Route::get('/reports/approval-outstanding/export/pdf', [ReportApiController::class, 'approvalOutstandingPdf']);
     Route::get('/reports/outstanding-amount', [ReportApiController::class, 'outstandingAmount']);

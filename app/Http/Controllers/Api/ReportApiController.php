@@ -130,6 +130,7 @@ class ReportApiController extends Controller
                     'net_weight' => (float) ($row->net_weight ?? 0),
                     'labour_amount' => (float) ($row->labour_amount ?? 0),
                     'other_amount' => (float) ($row->other_amount ?? 0),
+                    'created_at' => $row->created_at ? Carbon::parse($row->created_at)->format('Y-m-d H:i:s') : null,
                 ];
             })
             ->values();
@@ -184,10 +185,18 @@ class ReportApiController extends Controller
     {
         $companyId = (int) $request->user()->company_id;
         $totals = $this->approvalOutstandingTotalsDetailed($request, $companyId);
-        $rows = $this->approvalOutstandingBaseQuery($request, $companyId)
+        $approvalRows = $this->approvalOutstandingBaseQuery($request, $companyId)
             ->latest('approval_date')
-            ->get()
-            ->map(function ($row) {
+            ->get();
+        $voucherTotals = $this->approvalOutstandingVoucherTotals(
+            $companyId,
+            $approvalRows->pluck('id')->map(fn($id) => (int) $id)->all()
+        );
+
+        $rows = $approvalRows
+            ->map(function ($row) use ($voucherTotals) {
+                $rowTotals = $voucherTotals[(int) $row->id] ?? [];
+
                 return [
                     'id' => (int) $row->id,
                     'approval_no' => $row->approval_no,
@@ -200,6 +209,14 @@ class ReportApiController extends Controller
                     'pending_items' => (int) ($row->pending_items_count ?? 0),
                     'pending_net_weight' => (float) ($row->pending_net_weight ?? 0),
                     'pending_total_amount' => (float) ($row->pending_total_amount ?? 0),
+                    'qty_pcs' => (int) ($rowTotals['qty_pcs'] ?? 0),
+                    'gross_weight' => (float) ($rowTotals['gross_weight'] ?? 0),
+                    'net_weight' => (float) ($rowTotals['net_weight'] ?? 0),
+                    'fine_weight' => (float) ($rowTotals['fine_weight'] ?? 0),
+                    'metal_amount' => (float) ($rowTotals['metal_amount'] ?? 0),
+                    'labour_amount' => (float) ($rowTotals['labour_amount'] ?? 0),
+                    'other_amount' => (float) ($rowTotals['other_amount'] ?? 0),
+                    'net_total' => (float) ($rowTotals['net_total'] ?? 0),
                 ];
             })
             ->values();
@@ -210,6 +227,80 @@ class ReportApiController extends Controller
             'count' => $rows->count(),
             'totals' => $totals,
             'data' => $rows,
+        ]);
+    }
+
+    public function approvalOutstandingDetails(Request $request, ApprovalHeader $approval)
+    {
+        $companyId = (int) $request->user()->company_id;
+
+        if ((int) $approval->company_id !== $companyId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Approval voucher not found for this company.',
+            ], 404);
+        }
+
+        $approval->load(['customer', 'creator']);
+
+        $items = $approval->items()
+            ->with(['itemSet.item', 'legacyItemSet.item', 'item'])
+            ->where('status', 'pending')
+            ->orderBy('id')
+            ->get()
+            ->map(function ($row) {
+                $itemSet = $row->itemSet ?? $row->legacyItemSet;
+                $item = optional($itemSet)->item ?? $row->item;
+                $grossWeight = (float) ($row->gross_weight ?? optional($itemSet)->gross_weight ?? 0);
+                $otherWeight = (float) ($row->other_weight ?? optional($itemSet)->other ?? 0);
+                $netWeight = (float) ($row->net_weight ?? optional($itemSet)->net_weight ?? max(0, $grossWeight - $otherWeight));
+
+                return [
+                    'approval_item_id' => (int) $row->id,
+                    'itemset_id' => optional($itemSet)->id,
+                    'item_id' => $row->item_id ?? optional($itemSet)->item_id,
+                    'qr_code' => $row->qr_code ?? optional($itemSet)->qr_code,
+                    'huid' => $row->huid ?? optional($itemSet)->HUID,
+                    'item_name' => optional($item)->item_name,
+                    'gross_weight' => $grossWeight,
+                    'other_weight' => $otherWeight,
+                    'net_weight' => $netWeight,
+                    'purity' => (float) ($row->purity ?? optional($item)->outward_purity ?? 0),
+                    'waste_percent' => (float) ($row->waste_percent ?? 0),
+                    'net_purity' => (float) ($row->net_purity ?? 0),
+                    'fine_weight' => (float) ($row->total_fine_weight ?? 0),
+                    'metal_rate' => (float) ($row->metal_rate ?? 0),
+                    'metal_amount' => (float) ($row->metal_amount ?? 0),
+                    'labour_rate' => (float) ($row->labour_rate ?? optional($itemSet)->sale_labour_rate ?? optional($item)->labour_rate ?? 0),
+                    'labour_amount' => (float) ($row->labour_amount ?? 0),
+                    'other_amount' => (float) ($row->other_amount ?? optional($itemSet)->sale_other ?? 0),
+                    'total_amount' => (float) ($row->total_amount ?? 0),
+                    'status' => $row->status,
+                    'remarks' => $row->remarks ?? '',
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Approval outstanding details fetched successfully.',
+            'approval' => [
+                'id' => (int) $approval->id,
+                'approval_no' => $approval->approval_no,
+                'approval_date' => optional($approval->approval_date)?->format('Y-m-d'),
+                'approval_date_fmt' => optional($approval->approval_date)?->format('d-m-Y') ?? '-',
+                'customer_id' => (int) ($approval->customer_id ?? 0),
+                'customer_name' => optional($approval->customer)->name ?? '-',
+                'status' => $approval->status,
+                'remarks' => $approval->remarks ?? '-',
+                'created_by' => optional($approval->creator)->name ?? '-',
+            ],
+            'summary' => [
+                'pending_pcs' => $items->count(),
+                'pending_net_weight' => (float) $items->sum('net_weight'),
+                'pending_amount' => (float) $items->sum('total_amount'),
+            ],
+            'data' => $items,
         ]);
     }
 
@@ -248,8 +339,9 @@ class ReportApiController extends Controller
             $company = (object) ['name' => 'Company', 'company_name' => 'Company'];
         }
         $rows = $this->approvalOutstandingBaseQuery($request, $companyId)->latest('approval_date')->get();
+        $summary = $this->approvalOutstandingTotals($rows);
 
-        return Pdf::loadView('company.reports.pdf.approval_outstanding', compact('company', 'rows'))
+        return Pdf::loadView('company.reports.pdf.approval_outstanding', compact('company', 'rows', 'summary'))
             ->setPaper('a4', 'portrait')
             ->download('approval_outstanding_report.pdf');
     }
@@ -691,19 +783,33 @@ class ReportApiController extends Controller
                 })
                 ->orderBy('ah.approval_date')
                 ->orderBy('ah.id')
-                ->get(['ah.id', 'ah.approval_no', 'ah.approval_date', 'ai.status'])
+                ->get(['ai.id as approval_item_id', 'ah.id', 'ah.approval_no', 'ah.approval_date', 'ai.status'])
                 ->map(function ($r) {
+                    $status = (string) ($r->status ?? '');
                     return [
                         'id' => (int) $r->id,
-                        'label' => $r->approval_no . ' (' . ( $r->approval_date ? Carbon::parse($r->approval_date)->format('d-m-Y') : '-') . ')' . (($r->status ?? '') !== '' ? ' [' . $r->status . ']' : ''),
+                        'approval_item_id' => (int) $r->approval_item_id,
+                        'label' => $r->approval_no . ' (' . ( $r->approval_date ? Carbon::parse($r->approval_date)->format('d-m-Y') : '-') . ')' . ($status !== '' ? ' [' . $status . ']' : ''),
+                        'status' => $status,
                     ];
                 })
                 ->values();
 
+            $approvalItemIds = $approvalHistory
+                ->pluck('approval_item_id')
+                ->filter()
+                ->values()
+                ->all();
+
             $saleHistory = DB::table('sale_items as si')
                 ->join('sales as s', 's.id', '=', 'si.sale_id')
                 ->where('s.company_id', $companyId)
-                ->where('si.itemset_id', $set->id)
+                ->where(function ($q) use ($set, $approvalItemIds) {
+                    $q->where('si.itemset_id', $set->id);
+                    if (!empty($approvalItemIds) && Schema::hasColumn('sale_items', 'approval_item_id')) {
+                        $q->orWhereIn('si.approval_item_id', $approvalItemIds);
+                    }
+                })
                 ->orderBy('s.sale_date')
                 ->orderBy('s.id')
                 ->get(['s.id', 's.voucher_no', 's.sale_date'])
@@ -738,10 +844,17 @@ class ReportApiController extends Controller
                 })
                 ->values();
 
+            $hasPendingApproval = $approvalHistory
+                ->contains(fn($row) => strtolower((string) ($row['status'] ?? '')) === 'pending');
+
             $currentStatus = 'in_stock';
             if ($returnHistory->isNotEmpty()) {
                 $currentStatus = 'returned';
-            } elseif ($saleHistory->isNotEmpty() || (int) ($set->is_sold ?? 0) === 1) {
+            } elseif ($saleHistory->isNotEmpty()) {
+                $currentStatus = 'sold';
+            } elseif ($hasPendingApproval) {
+                $currentStatus = 'approval';
+            } elseif ((int) ($set->is_sold ?? 0) === 1) {
                 $currentStatus = 'sold';
             } elseif ($approvalHistory->isNotEmpty()) {
                 $currentStatus = 'approval';
@@ -1004,6 +1117,7 @@ class ReportApiController extends Controller
                 DB::raw('SUM(COALESCE(item_sets.net_weight,0)) as net_weight'),
                 DB::raw('SUM(COALESCE(item_sets.sale_labour_amount,0)) as labour_amount'),
                 DB::raw('SUM(COALESCE(item_sets.sale_other,0)) as other_amount'),
+                DB::raw('MAX(item_sets.created_at) as created_at'),
             ])
             ->groupBy('item_sets.item_id', 'items.item_name');
     }
@@ -1041,6 +1155,79 @@ class ReportApiController extends Controller
         }
 
         return $query;
+    }
+
+    private function approvalOutstandingTotals(Collection $rows): array
+    {
+        return [
+            'voucher_count' => (int) $rows->count(),
+            'pending_pcs' => (int) $rows->sum(fn($r) => (int) ($r->pending_items_count ?? 0)),
+            'pending_net_weight' => (float) $rows->sum(fn($r) => (float) ($r->pending_net_weight ?? 0)),
+            'pending_amount' => (float) $rows->sum(fn($r) => (float) ($r->pending_total_amount ?? 0)),
+        ];
+    }
+
+    private function approvalOutstandingVoucherTotals(int $companyId, array $approvalIds): array
+    {
+        $approvalIds = array_values(array_filter(array_unique(array_map('intval', $approvalIds))));
+        if (empty($approvalIds)) {
+            return [];
+        }
+
+        $hasFineWeight = Schema::hasColumn('approval_items', 'fine_weight');
+        $hasTotalFineWeight = Schema::hasColumn('approval_items', 'total_fine_weight');
+        $hasMetalAmount = Schema::hasColumn('approval_items', 'metal_amount');
+        $hasLabourAmount = Schema::hasColumn('approval_items', 'labour_amount');
+        $hasOtherAmount = Schema::hasColumn('approval_items', 'other_amount');
+        $hasTotalAmount = Schema::hasColumn('approval_items', 'total_amount');
+
+        $fineExpr = '0';
+        if ($hasTotalFineWeight && $hasFineWeight) {
+            $fineExpr = 'COALESCE(ai.total_fine_weight, ai.fine_weight, 0)';
+        } elseif ($hasTotalFineWeight) {
+            $fineExpr = 'COALESCE(ai.total_fine_weight, 0)';
+        } elseif ($hasFineWeight) {
+            $fineExpr = 'COALESCE(ai.fine_weight, 0)';
+        }
+
+        $metalExpr = $hasMetalAmount ? 'COALESCE(ai.metal_amount, 0)' : '0';
+        $labourExpr = $hasLabourAmount ? 'COALESCE(ai.labour_amount, 0)' : '0';
+        $otherExpr = $hasOtherAmount ? 'COALESCE(ai.other_amount, 0)' : '0';
+        $totalExpr = $hasTotalAmount ? 'COALESCE(ai.total_amount, 0)' : '0';
+
+        return DB::table('approval_items as ai')
+            ->join('approval_headers as ah', 'ah.id', '=', 'ai.approval_id')
+            ->where('ah.company_id', $companyId)
+            ->whereIn('ai.approval_id', $approvalIds)
+            ->where('ai.status', 'pending')
+            ->groupBy('ai.approval_id')
+            ->selectRaw("
+                ai.approval_id,
+                COUNT(ai.id) as qty_pcs,
+                COALESCE(SUM(COALESCE(ai.gross_weight, 0)), 0) as gross_weight,
+                COALESCE(SUM(COALESCE(ai.net_weight, 0)), 0) as net_weight,
+                COALESCE(SUM({$fineExpr}), 0) as fine_weight,
+                COALESCE(SUM({$metalExpr}), 0) as metal_amount,
+                COALESCE(SUM({$labourExpr}), 0) as labour_amount,
+                COALESCE(SUM({$otherExpr}), 0) as other_amount,
+                COALESCE(SUM({$totalExpr}), 0) as net_total
+            ")
+            ->get()
+            ->mapWithKeys(function ($row) {
+                return [
+                    (int) $row->approval_id => [
+                        'qty_pcs' => (int) ($row->qty_pcs ?? 0),
+                        'gross_weight' => (float) ($row->gross_weight ?? 0),
+                        'net_weight' => (float) ($row->net_weight ?? 0),
+                        'fine_weight' => (float) ($row->fine_weight ?? 0),
+                        'metal_amount' => (float) ($row->metal_amount ?? 0),
+                        'labour_amount' => (float) ($row->labour_amount ?? 0),
+                        'other_amount' => (float) ($row->other_amount ?? 0),
+                        'net_total' => (float) ($row->net_total ?? 0),
+                    ],
+                ];
+            })
+            ->all();
     }
 
     private function approvalOutstandingTotalsDetailed(Request $request, int $companyId): array

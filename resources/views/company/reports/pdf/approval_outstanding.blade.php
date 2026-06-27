@@ -45,7 +45,8 @@
                 <td colspan="4" style="font-weight:700;">TOTAL</td>
                 <td style="font-weight:700;">{{ (int)($summary['pending_pcs'] ?? 0) }}</td>
                 <td style="font-weight:700;">{{ number_format((float)($summary['pending_net_weight'] ?? 0), 3, '.', '') }}</td>
-                <td colspan="3"></td>
+                <td style="font-weight:700;">{{ number_format((float)($summary['pending_amount'] ?? 0), 2, '.', '') }}</td>
+                <td colspan="2"></td>
             </tr>
         </tbody>
     </table>
