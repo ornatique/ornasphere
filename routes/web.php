@@ -23,6 +23,8 @@ use App\Http\Controllers\Company\LabourFormulaController;
 use App\Http\Controllers\Company\ProductionStepController;
 use App\Http\Controllers\Company\ItemSetController;
 use Endroid\QrCode\QrCode;
+use Endroid\QrCode\ErrorCorrectionLevel;
+use Endroid\QrCode\Logo\Logo;
 use Endroid\QrCode\Writer\PngWriter;
 use App\Http\Controllers\Company\SaleController;
 use App\Http\Controllers\Company\SaleReturnController;
@@ -52,6 +54,94 @@ Route::get('/', function () {
 
     return view('welcome');
 });
+
+Route::get('/app', function () {
+    $androidUrl = 'https://play.google.com/store/apps/details?id=com.ornatique';
+    $iosUrl = 'https://apps.apple.com/by/app/ornatique/id6746642350';
+    $userAgent = strtolower(request()->userAgent() ?? '');
+
+    if (str_contains($userAgent, 'android')) {
+        return redirect()->away($androidUrl);
+    }
+
+    if (
+        str_contains($userAgent, 'iphone') ||
+        str_contains($userAgent, 'ipad') ||
+        str_contains($userAgent, 'ipod')
+    ) {
+        return redirect()->away($iosUrl);
+    }
+
+    return view('app-download', compact('androidUrl', 'iosUrl'));
+})->name('app.download');
+
+Route::get('/app/qr', function () {
+    $qr = new QrCode(
+        data: url('/app'),
+        errorCorrectionLevel: ErrorCorrectionLevel::High,
+        size: 400,
+        margin: 16
+    );
+
+    $logo = new Logo(
+        path: public_path('images/ornatique-qr-logo-white-box.png'),
+        resizeToWidth: 110,
+        resizeToHeight: 110,
+        punchoutBackground: false
+    );
+
+    $writer = new PngWriter();
+
+    return response(
+        $writer->write($qr, $logo)->getString(),
+        200,
+        ['Content-Type' => 'image/png']
+    );
+})->name('app.download.qr');
+
+Route::get('/download-app', function () {
+    $androidUrl = 'https://play.google.com/store/apps/details?id=com.ornatique';
+    $iosUrl = 'https://apps.apple.com/by/app/ornatique/id6746642350';
+    $userAgent = strtolower(request()->userAgent() ?? '');
+
+    if (str_contains($userAgent, 'android')) {
+        return redirect()->away($androidUrl);
+    }
+
+    if (
+        str_contains($userAgent, 'iphone') ||
+        str_contains($userAgent, 'ipad') ||
+        str_contains($userAgent, 'ipod')
+    ) {
+        return redirect()->away($iosUrl);
+    }
+
+    return view('app-download', compact('androidUrl', 'iosUrl'));
+})->name('download-app');
+
+Route::get('/download-app/qr', function () {
+    $qr = new QrCode(
+        data: url('/download-app'),
+        errorCorrectionLevel: ErrorCorrectionLevel::High,
+        size: 400,
+        margin: 16
+    );
+
+    $logo = new Logo(
+        path: public_path('images/ornatique-qr-logo-white-box.png'),
+        resizeToWidth: 100,
+        resizeToHeight: 100,
+        punchoutBackground: false
+    );
+
+    $writer = new PngWriter();
+
+    return response(
+        $writer->write($qr, $logo)->getString(),
+        200,
+        ['Content-Type' => 'image/png']
+    );
+})->name('download-app.qr');
 
 Route::get('/dashboard', function () {
     if (Auth::guard('superadmin')->check()) {
