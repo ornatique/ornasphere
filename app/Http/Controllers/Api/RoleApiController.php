@@ -23,7 +23,8 @@ class RoleApiController extends Controller
             ->orderByDesc('id')
             ->get();
 
-        $this->appendUsersCount($roles);
+        $roles->each(fn ($role) => $this->removeDeprecatedPermissionsFromRole($role));
+        $this->appendUsersCount($roles, $companyId);
 
         return response()->json([
             'success' => true,
@@ -65,6 +66,11 @@ class RoleApiController extends Controller
                     $q->whereNull('company_id')
                         ->orWhere('company_id', $companyId);
                 })
+                ->where(function ($q) {
+                    foreach ($this->deprecatedPermissionModules() as $module) {
+                        $q->where('name', 'not like', "{$module}-%");
+                    }
+                })
                 ->pluck('id')
                 ->all();
 
@@ -74,7 +80,7 @@ class RoleApiController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Role created successfully',
-            'data' => $role->load('permissions:id,name'),
+            'data' => tap($role->load('permissions:id,name'), fn ($loadedRole) => $this->removeDeprecatedPermissionsFromRole($loadedRole)),
         ], 201);
     }
 
@@ -96,8 +102,9 @@ class RoleApiController extends Controller
             ], 404);
         }
 
-        $role->setAttribute('users_count', $this->getUsersCountForRole((int) $role->id));
+        $role->setAttribute('users_count', $this->getUsersCountForRole((int) $role->id, $companyId));
 
+        $this->removeDeprecatedPermissionsFromRole($role);
         return response()->json([
             'success' => true,
             'data' => $role,
@@ -149,6 +156,11 @@ class RoleApiController extends Controller
                     $q->whereNull('company_id')
                         ->orWhere('company_id', $companyId);
                 })
+                ->where(function ($q) {
+                    foreach ($this->deprecatedPermissionModules() as $module) {
+                        $q->where('name', 'not like', "{$module}-%");
+                    }
+                })
                 ->pluck('id')
                 ->all();
 
@@ -158,7 +170,7 @@ class RoleApiController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Role updated successfully',
-            'data' => $role->load('permissions:id,name'),
+            'data' => tap($role->load('permissions:id,name'), fn ($loadedRole) => $this->removeDeprecatedPermissionsFromRole($loadedRole)),
         ]);
     }
 
@@ -179,7 +191,7 @@ class RoleApiController extends Controller
             ], 404);
         }
 
-        if ($this->getUsersCountForRole((int) $role->id) > 0) {
+        if ($this->getUsersCountForRole((int) $role->id, $companyId) > 0) {
             return response()->json([
                 'success' => false,
                 'message' => 'Role is assigned to users and cannot be deleted.',
@@ -194,7 +206,7 @@ class RoleApiController extends Controller
         ]);
     }
 
-    private function appendUsersCount($roles): void
+    private function appendUsersCount($roles, int $companyId): void
     {
         $roleIds = $roles->pluck('id')->map(fn ($id) => (int) $id)->all();
         if (empty($roleIds)) {
@@ -205,8 +217,10 @@ class RoleApiController extends Controller
 
         $counts = DB::table($pivotTable)
             ->select('role_id', DB::raw('COUNT(DISTINCT model_id) as users_count'))
+            ->join('users', 'users.id', '=', "{$pivotTable}.model_id")
             ->whereIn('role_id', $roleIds)
             ->where('model_type', User::class)
+            ->where('users.company_id', $companyId)
             ->groupBy('role_id')
             ->pluck('users_count', 'role_id');
 
@@ -215,14 +229,43 @@ class RoleApiController extends Controller
         }
     }
 
-    private function getUsersCountForRole(int $roleId): int
+    private function getUsersCountForRole(int $roleId, int $companyId): int
     {
         $pivotTable = config('permission.table_names.model_has_roles', 'model_has_roles');
 
         return (int) DB::table($pivotTable)
+            ->join('users', 'users.id', '=', "{$pivotTable}.model_id")
             ->where('role_id', $roleId)
             ->where('model_type', User::class)
+            ->where('users.company_id', $companyId)
             ->distinct()
-            ->count('model_id');
+            ->count('users.id');
+    }
+
+    private function removeDeprecatedPermissionsFromRole(Role $role): void
+    {
+        if (!$role->relationLoaded('permissions')) {
+            return;
+        }
+
+        $role->setRelation('permissions', $role->permissions
+            ->reject(fn ($permission) => $this->isDeprecatedPermission((string) $permission->name))
+            ->values());
+    }
+
+    private function isDeprecatedPermission(string $permissionName): bool
+    {
+        foreach ($this->deprecatedPermissionModules() as $module) {
+            if (str_starts_with($permissionName, "{$module}-")) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function deprecatedPermissionModules(): array
+    {
+        return ['return'];
     }
 }

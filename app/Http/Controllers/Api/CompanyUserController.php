@@ -259,6 +259,50 @@ public function update(Request $request, $id)
     }
 
     // ✅ Delete Company User
+    public function toggleStatus(Request $request, $id)
+    {
+       
+        $authUser = $request->user();
+        $companyId = $authUser->company_id;
+       
+        $user = User::where('company_id', $companyId)
+            ->where('id', $id)
+            ->first();
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'User not found.'
+            ], 404);
+        }
+
+        if ((int) $authUser->id === (int) $user->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You cannot change your own account status.'
+            ], 403);
+        }
+
+        if ($request->has('is_active')) {
+            $newStatus = $request->boolean('is_active') ? 1 : 0;
+        } elseif ($request->filled('status')) {
+            $status = strtolower((string) $request->status);
+            $newStatus = in_array($status, ['1', 'active', 'true', 'yes'], true) ? 1 : 0;
+        } else {
+            $newStatus = (int) $user->is_active === 1 ? 0 : 1;
+        }
+
+        $user->forceFill(['is_active' => $newStatus])->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => $newStatus ? 'User activated successfully.' : 'User deactivated successfully.',
+            'user_id' => (int) $user->id,
+            'is_active' => (int) $user->is_active,
+            'status' => $newStatus ? 'active' : 'inactive',
+            'data' => $user->fresh(),
+        ], 200);
+    }
     public function destroy(Request $request, $id)
     {
     $authUser = $request->user();

@@ -9,6 +9,7 @@
         </div>
     </div>
 
+    @if($canViewDashboardData ?? true)
     <div class="row">
         <div class="col-xl-3 col-md-6 grid-margin stretch-card">
             <div class="card">
@@ -125,10 +126,24 @@
             </div>
         </div>
     </div>
+    @else
+    <div class="row">
+        <div class="col-lg-7 col-xl-6">
+            <div class="card">
+                <div class="card-body py-5">
+                    <h4 class="mb-3">Dashboard data is not available for your account.</h4>
+                    <p class="mb-2 text-muted">You can continue using the modules assigned to your role from the left menu.</p>
+                    <p class="mb-0 text-muted">If you need dashboard reports, please contact your company admin to enable Dashboard View permission.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    @endif
 </div>
 @endsection
 
 @push('scripts')
+@if($canViewDashboardData ?? true)
 <script>
 (function () {
     const el = document.getElementById('companyMonthlyChart');
@@ -187,4 +202,5 @@
     });
 })();
 </script>
+@endif
 @endpush

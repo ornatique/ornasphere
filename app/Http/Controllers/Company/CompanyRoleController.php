@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\Permission;
 use App\Models\Role;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -20,16 +21,19 @@ class CompanyRoleController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
 
         if ($request->ajax()) {
-            $roles = Role::where('company_id', $company->id)->withCount('users');
+            $roles = Role::where('company_id', $company->id);
 
             return DataTables::of($roles)
                 ->addIndexColumn()
+                ->addColumn('users_count', function ($role) use ($company) {
+                    return $this->usersCountForRole((int) $role->id, (int) $company->id);
+                })
                 ->addColumn('action', function ($role) use ($company) {
                     $encryptedId = Crypt::encryptString($role->id);
 
                     $editUrl = route('company.roles.edit', [$company->slug, $encryptedId]);
                     $deleteUrl = route('company.roles.delete', [$company->slug, $encryptedId]);
-                    $deleteBtn = $role->users_count > 0
+                    $deleteBtn = $this->usersCountForRole((int) $role->id, (int) $company->id) > 0
                         ? '<span class="badge badge-danger">In Use</span>'
                         : '<form method="POST" action="' . $deleteUrl . '" style="display:inline">
                             ' . csrf_field() . method_field('DELETE') . '
@@ -138,10 +142,9 @@ class CompanyRoleController extends Controller
 
         $role = Role::where('id', $roleId)
             ->where('company_id', $company->id)
-            ->withCount('users')
             ->firstOrFail();
 
-        if ($role->users_count > 0) {
+        if ($this->usersCountForRole((int) $role->id, (int) $company->id) > 0) {
             return back()->withErrors('Role is assigned to users and cannot be deleted.');
         }
 
@@ -162,10 +165,15 @@ class CompanyRoleController extends Controller
                     ->orWhere('company_id', $companyId);
             })
             ->get()
+            ->reject(function ($permission) {
+                return in_array($this->extractModule($permission->name), $this->deprecatedPermissionModules(), true);
+            })
             ->groupBy(function ($permission) {
                 return $this->extractModule($permission->name);
             })
-            ->map(function ($items) use ($actionOrder, $allowedActions) {
+            ->map(function ($items, $module) use ($actionOrder) {
+                $allowedActions = $this->actionsForModule((string) $module);
+
                 return $items
                     ->filter(function ($permission) use ($allowedActions) {
                         return in_array($this->extractAction($permission->name), $allowedActions, true);
@@ -194,6 +202,19 @@ class CompanyRoleController extends Controller
             ->sortKeys();
     }
 
+    private function usersCountForRole(int $roleId, int $companyId): int
+    {
+        $pivotTable = config('permission.table_names.model_has_roles', 'model_has_roles');
+
+        return (int) DB::table($pivotTable)
+            ->join('users', 'users.id', '=', "{$pivotTable}.model_id")
+            ->where("{$pivotTable}.role_id", $roleId)
+            ->where("{$pivotTable}.model_type", User::class)
+            ->where('users.company_id', $companyId)
+            ->distinct()
+            ->count('users.id');
+    }
+
     private function ensureWebPermissions(int $companyId): void
     {
         $this->normalizeLegacyPermissionNames();
@@ -203,35 +224,41 @@ class CompanyRoleController extends Controller
             'user',
             'role',
             'permission',
+            'notification',
             'app-theme',
             'customer',
+            'job-worker',
+            'jobwork-issue',
             'item',
             'item-set',
             'label-config',
             'label-print',
             'other-charge',
+            'production-cost',
+            'labour-formula',
+            'production-step',
             'sale',
             'sale-advance',
             'approval',
             'approval-return',
-            'return',
+            'report-sales-summary',
+            'report-purchase-receiver-summary',
+            'report-stock-position',
+            'report-approval-outstanding',
+            'report-outstanding-amount',
+            'report-barcode-history',
+            'report-visiting-cards',
         ];
 
-        $actions = ['view', 'create', 'edit', 'delete', 'manage'];
-
         foreach ($defaultModules as $module) {
-            foreach ($actions as $action) {
-                if ($module === 'dashboard' && $action !== 'view') {
-                    continue;
-                }
-
+            foreach ($this->actionsForModule($module) as $action) {
                 $permission = Permission::firstOrCreate([
                     'name' => "{$module}-{$action}",
                     'guard_name' => 'web',
                 ]);
 
-                if ($permission->company_id === null) {
-                    $permission->company_id = $companyId;
+                if ($permission->company_id !== null) {
+                    $permission->company_id = null;
                     $permission->save();
                 }
             }
@@ -267,6 +294,18 @@ class CompanyRoleController extends Controller
             $legacyPermission->name = $canonical;
             $legacyPermission->save();
         }
+    }
+
+    private function deprecatedPermissionModules(): array
+    {
+        return ['return'];
+    }
+
+    private function actionsForModule(string $module): array
+    {
+        return in_array($module, ['dashboard', 'notification'], true)
+            ? ['view']
+            : ['view', 'create', 'edit', 'delete', 'manage'];
     }
 
     private function extractModule(string $permissionName): string

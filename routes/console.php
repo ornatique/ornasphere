@@ -31,6 +31,7 @@ Artisan::command('erp:sync-company-rbac {--company_id=} {--slug=}', function () 
     }
 
     $modules = [
+        'dashboard',
         'user',
         'customer',
         'item',
@@ -39,11 +40,25 @@ Artisan::command('erp:sync-company-rbac {--company_id=} {--slug=}', function () 
         'label-print',
         'other-charge',
         'sale',
-        'return',
-        'approval-return',
+        'sale-advance',
         'approval',
+        'approval-return',
         'role',
         'permission',
+        'notification',
+        'app-theme',
+        'job-worker',
+        'jobwork-issue',
+        'production-cost',
+        'labour-formula',
+        'production-step',
+        'report-sales-summary',
+        'report-purchase-receiver-summary',
+        'report-stock-position',
+        'report-approval-outstanding',
+        'report-outstanding-amount',
+        'report-barcode-history',
+        'report-visiting-cards',
     ];
 
     $actions = ['view', 'create', 'edit', 'delete'];
@@ -52,8 +67,8 @@ Artisan::command('erp:sync-company-rbac {--company_id=} {--slug=}', function () 
         'company_admin' => ['*'],
         'sales_user' => [
             'sale-view', 'sale-create', 'sale-edit',
+            'sale-advance-view', 'sale-advance-create', 'sale-advance-edit',
             'approval-view', 'approval-create', 'approval-edit',
-            'return-view', 'return-create', 'return-edit',
             'approval-return-view', 'approval-return-create', 'approval-return-edit',
             'customer-view', 'customer-create', 'customer-edit',
             'label-print-view',
@@ -77,7 +92,11 @@ Artisan::command('erp:sync-company-rbac {--company_id=} {--slug=}', function () 
 
         $permissionByName = [];
         foreach ($modules as $module) {
-            foreach ($actions as $action) {
+            $moduleActions = in_array($module, ['dashboard', 'notification'], true)
+                ? ['view']
+                : $actions;
+
+            foreach ($moduleActions as $action) {
                 $name = "{$module}-{$action}";
                 $permission = Permission::where('name', $name)
                     ->where('guard_name', $guard)
@@ -93,6 +112,10 @@ Artisan::command('erp:sync-company-rbac {--company_id=} {--slug=}', function () 
 
                 $permissionByName[$name] = $permission;
                 $totalPermissions++;
+            }
+
+            if (in_array($module, ['dashboard', 'notification'], true)) {
+                continue;
             }
 
             $manageName = "{$module}-manage";
@@ -128,8 +151,12 @@ Artisan::command('erp:sync-company-rbac {--company_id=} {--slug=}', function () 
 
             if ($permissionNames === ['*']) {
                 $permissionModels = collect($modules)->map(function ($module) use ($permissionByName) {
-                    return $permissionByName["{$module}-manage"];
-                })->values();
+                    $permissionName = in_array($module, ['dashboard', 'notification'], true)
+                        ? "{$module}-view"
+                        : "{$module}-manage";
+
+                    return $permissionByName[$permissionName] ?? null;
+                })->filter()->values();
             } else {
                 $permissionModels = collect($permissionNames)
                     ->map(fn($permissionName) => $permissionByName[$permissionName] ?? null)

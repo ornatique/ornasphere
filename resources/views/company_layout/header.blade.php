@@ -9,6 +9,11 @@
         $miniLogo = !empty(optional($company)->company_logo)
             ? asset('public/' . ltrim($company->company_logo, '/'))
             : asset('celestial/assets/images/logo-mini.svg');
+        $notificationSummary = $companyNotificationSummary ?? ['total' => 0, 'latest' => collect()];
+        $notificationTotal = (int) ($notificationSummary['total'] ?? 0);
+        $notificationItems = collect($notificationSummary['latest'] ?? []);
+        $isCompanyAdmin = auth()->user() && auth()->user()->hasRole('company_admin');
+        $canNotifications = auth()->user() && ($isCompanyAdmin || auth()->user()->can('notification-view'));
      @endphp
      <style>
          .company-top-brand {
@@ -26,6 +31,39 @@
              line-height: 1;
              text-align: left;
              white-space: nowrap;
+         }
+
+         .company-notification-bell {
+             position: relative;
+             width: 36px;
+             height: 36px;
+             border-radius: 12px;
+             color: #fff;
+         }
+
+         .company-notification-badge {
+             position: absolute;
+             top: 2px;
+             right: 0;
+             min-width: 18px;
+             height: 18px;
+             padding: 0 5px;
+             border-radius: 999px;
+             background: #ff1744;
+             color: #fff;
+             font-size: 11px;
+             font-weight: 700;
+             line-height: 18px;
+             text-align: center;
+         }
+
+         .company-notification-dropdown {
+             width: 340px;
+             max-width: calc(100vw - 24px);
+         }
+
+         .company-notification-item {
+             white-space: normal;
          }
      </style>
      <div class="text-center navbar-brand-wrapper d-flex align-items-center justify-content-center">
@@ -137,6 +175,58 @@
                      </a>
                  </div>
              </li> -->
+             @if($canNotifications)
+             <li class="nav-item dropdown d-flex align-items-center me-2">
+                 <a class="nav-link dropdown-toggle d-flex align-items-center justify-content-center company-notification-bell"
+                     id="companyNotificationDropdown"
+                     href="#"
+                     data-bs-toggle="dropdown"
+                     aria-expanded="false">
+                     <i class="typcn typcn-bell"></i>
+                     @if($notificationTotal > 0)
+                     <span class="company-notification-badge">{{ $notificationTotal > 99 ? '99+' : $notificationTotal }}</span>
+                     @endif
+                 </a>
+                 <div class="dropdown-menu dropdown-menu-end navbar-dropdown preview-list company-notification-dropdown" aria-labelledby="companyNotificationDropdown">
+                     <div class="d-flex align-items-center justify-content-between px-3 py-2">
+                         <p class="mb-0 fw-bold">Notifications</p>
+                         @if($notificationTotal > 0)
+                         <form method="POST" action="{{ route('company.notifications.read', auth()->user()->company->slug) }}">
+                             @csrf
+                             <button type="submit" class="btn btn-link btn-sm p-0 text-primary">Mark all read</button>
+                         </form>
+                         @endif
+                     </div>
+                     <div class="dropdown-divider my-0"></div>
+                     @forelse($notificationItems as $notification)
+                     @php
+                         $notificationUrl = '#';
+                         if (!empty($notification->route_name) && \Illuminate\Support\Facades\Route::has($notification->route_name)) {
+                             try {
+                                 $notificationUrl = route($notification->route_name, $notification->route_params ?: ['slug' => auth()->user()->company->slug]);
+                             } catch (\Throwable $e) {
+                                 $notificationUrl = '#';
+                             }
+                         }
+                     @endphp
+                     <a class="dropdown-item preview-item company-notification-item" href="{{ $notificationUrl }}">
+                         <div class="preview-thumbnail">
+                             <div class="preview-icon bg-primary">
+                                 <i class="typcn typcn-info-large mx-0"></i>
+                             </div>
+                         </div>
+                         <div class="preview-item-content flex-grow">
+                             <h6 class="preview-subject fw-normal mb-1">{{ $notification->title }}</h6>
+                             <p class="small-text mb-0 text-muted">{{ $notification->message }}</p>
+                             <p class="small-text mb-0 text-muted">{{ optional($notification->created_at)->diffForHumans() }}</p>
+                         </div>
+                     </a>
+                     @empty
+                     <div class="px-3 py-3 text-muted small">No unread activity.</div>
+                     @endforelse
+                 </div>
+             </li>
+             @endif
              <li class="nav-item nav-profile dropdown">
                  <a class="nav-link dropdown-toggle  pl-0 pr-0" href="#" data-bs-toggle="dropdown" id="profileDropdown">
                      <i class="typcn typcn-user-outline me-0"></i>

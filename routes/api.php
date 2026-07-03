@@ -25,6 +25,7 @@ use App\Http\Controllers\Api\RoleApiController;
 use App\Http\Controllers\Api\PermissionApiController;
 use App\Http\Controllers\Api\CustomerAdvanceApiController;
 use App\Http\Controllers\Api\AppThemeApiController;
+use App\Http\Controllers\Api\NotificationApiController;
 
 Route::post('/company/login', [AuthController::class, 'login']);
 Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
@@ -39,6 +40,11 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
 
 Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
 
+    Route::get('/notifications/summary', [NotificationApiController::class, 'summary']);
+    Route::get('/notifications', [NotificationApiController::class, 'index']);
+    Route::post('/notifications/read', [NotificationApiController::class, 'markAllRead']);
+    Route::post('/notifications/read-module', [NotificationApiController::class, 'markModuleRead']);
+
     Route::get('/app-theme', [AppThemeApiController::class, 'active']);
     Route::get('/app/themes/active', [AppThemeApiController::class, 'active']);
 
@@ -47,6 +53,9 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::put('/update_users/{id}', [CompanyUserController::class, 'update']);
     Route::post('/users/{id}/reset-2fa', [CompanyUserController::class, 'reset2fa']);
     Route::post('/reset2fa_users/{id}', [CompanyUserController::class, 'reset2fa']);
+    Route::post('/users/{id}/toggle-status', [CompanyUserController::class, 'toggleStatus']);
+    Route::post('/users/{id}/status', [CompanyUserController::class, 'toggleStatus']);
+    Route::post('/toggle_users/{id}', [CompanyUserController::class, 'toggleStatus']);
     Route::delete('/delete_users/{id}', [CompanyUserController::class, 'destroy']);
 
     Route::get('/roles', [RoleApiController::class, 'index']);

@@ -21,6 +21,11 @@ class CompanyPermissionController extends Controller
                     $q->whereNull('company_id')
                         ->orWhere('company_id', $company->id);
                 })
+                ->where(function ($q) {
+                    foreach ($this->deprecatedPermissionModules() as $module) {
+                        $q->where('name', 'not like', "{$module}-%");
+                    }
+                })
                 ->withCount('roles');
 
             return DataTables::of($permissions)
@@ -176,6 +181,7 @@ class CompanyPermissionController extends Controller
             'user',
             'role',
             'permission',
+            'notification',
             'app-theme',
             'customer',
             'job-worker',
@@ -192,29 +198,24 @@ class CompanyPermissionController extends Controller
             'sale-advance',
             'approval',
             'approval-return',
-            'return',
             'report-sales-summary',
+            'report-purchase-receiver-summary',
             'report-stock-position',
             'report-approval-outstanding',
+            'report-outstanding-amount',
             'report-barcode-history',
             'report-visiting-cards',
         ];
 
-        $actions = ['view', 'create', 'edit', 'delete', 'manage'];
-
         foreach ($defaultModules as $module) {
-            foreach ($actions as $action) {
-                if ($module === 'dashboard' && $action !== 'view') {
-                    continue;
-                }
-
+            foreach ($this->actionsForModule($module) as $action) {
                 $permission = Permission::firstOrCreate([
                     'name' => "{$module}-{$action}",
                     'guard_name' => 'web',
                 ]);
 
-                if ($permission->company_id === null) {
-                    $permission->company_id = $companyId;
+                if ($permission->company_id !== null) {
+                    $permission->company_id = null;
                     $permission->save();
                 }
             }
@@ -250,6 +251,18 @@ class CompanyPermissionController extends Controller
             $legacyPermission->name = $canonical;
             $legacyPermission->save();
         }
+    }
+
+    private function deprecatedPermissionModules(): array
+    {
+        return ['return'];
+    }
+
+    private function actionsForModule(string $module): array
+    {
+        return in_array($module, ['dashboard', 'notification'], true)
+            ? ['view']
+            : ['view', 'create', 'edit', 'delete', 'manage'];
     }
 
     private function normalizePermissionName(string $name): string

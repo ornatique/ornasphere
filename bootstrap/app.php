@@ -38,6 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
             'company.route.permission' => \App\Http\Middleware\CompanyRoutePermission::class,
             'company.active' => \App\Http\Middleware\EnsureCompanyIsActive::class,
+            'company.notification.read' => \App\Http\Middleware\MarkCompanyNotificationModuleRead::class,
         ]);
 
     })

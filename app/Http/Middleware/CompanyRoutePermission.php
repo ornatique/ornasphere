@@ -87,13 +87,15 @@ class CompanyRoutePermission
             'company.returns.' => 'approval-return',
             'company.roles.' => 'role',
             'company.permissions.' => 'permission',
+            'company.notifications.' => 'notification',
             'company.approval-sales.' => 'sale',
             'company.approval.return.' => 'approval',
             'company.approval.' => 'approval',
             'company.reports.sales-summary.' => 'report-sales-summary',
-            'company.reports.purchase-receiver-summary.' => 'return',
+            'company.reports.purchase-receiver-summary.' => 'report-purchase-receiver-summary',
             'company.reports.stock-position.' => 'report-stock-position',
             'company.reports.approval-outstanding.' => 'report-approval-outstanding',
+            'company.reports.outstanding-amount.' => 'report-outstanding-amount',
             'company.reports.barcode-history.' => 'report-barcode-history',
             'company.reports.visiting-cards.' => 'report-visiting-cards',
         ];
@@ -112,7 +114,7 @@ class CompanyRoutePermission
         $lastSegment = Str::afterLast($routeName, '.');
         $verb = strtoupper($request->method());
 
-        $viewActions = ['index', 'data', 'list', 'list_data', 'show', 'view', 'qrcode', 'qrList', 'qrImage', 'search'];
+        $viewActions = ['index', 'data', 'list', 'list_data', 'show', 'view', 'qrcode', 'qrList', 'qrImage', 'search', 'read', 'read-module'];
         $createActions = ['create', 'store', 'generate', 'finalize', 'processSelected', 'sale', 'return', 'fromApproval', 'options'];
         $editActions = ['edit', 'update', 'saveCell', 'activate'];
         $deleteActions = ['delete', 'destroy', 'toggle', 'remove'];

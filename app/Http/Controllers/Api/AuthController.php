@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use App\Models\Permission;
 use App\Models\User;
 use PragmaRX\Google2FA\Google2FA;
 
@@ -127,7 +128,7 @@ class AuthController extends Controller
     public function me(Request $request)
     {
         $user = $request->user()->loadMissing('roles:id,name');
-        $basePermissions = $user->getAllPermissions()->pluck('name')->values();
+        $basePermissions = $this->basePermissionsForUser($user);
         $expandedPermissions = $basePermissions->flatMap(function ($permissionName) {
             $name = (string) $permissionName;
 
@@ -145,6 +146,9 @@ class AuthController extends Controller
                 $module . '-delete',
             ];
         })->unique()->values();
+        $expandedPermissions = $expandedPermissions
+            ->reject(fn ($permissionName) => $this->isDeprecatedPermission((string) $permissionName))
+            ->values();
 
         return response()->json([
             'success' => true,
@@ -152,5 +156,83 @@ class AuthController extends Controller
             'role_names' => $user->roles->pluck('name')->values(),
             'permissions' => $expandedPermissions,
         ]);
+    }
+
+    private function basePermissionsForUser(User $user)
+    {
+        if ($user->hasRole('company_admin')) {
+            $this->ensureWebPermissions();
+
+            return collect($this->defaultPermissionModules())
+                ->flatMap(function ($module) {
+                    return collect($this->actionsForModule($module))->map(fn ($action) => "{$module}-{$action}");
+                })
+                ->values();
+        }
+
+        return $user->getAllPermissions()->pluck('name')->values();
+    }
+
+    private function ensureWebPermissions(): void
+    {
+        foreach ($this->defaultPermissionModules() as $module) {
+            foreach ($this->actionsForModule($module) as $action) {
+                $permission = Permission::firstOrCreate([
+                    'name' => "{$module}-{$action}",
+                    'guard_name' => 'web',
+                ]);
+
+                if ($permission->company_id !== null) {
+                    $permission->company_id = null;
+                    $permission->save();
+                }
+            }
+        }
+    }
+
+    private function defaultPermissionModules(): array
+    {
+        return [
+            'dashboard',
+            'user',
+            'role',
+            'permission',
+            'notification',
+            'app-theme',
+            'customer',
+            'job-worker',
+            'jobwork-issue',
+            'item',
+            'item-set',
+            'label-config',
+            'label-print',
+            'other-charge',
+            'production-cost',
+            'labour-formula',
+            'production-step',
+            'sale',
+            'sale-advance',
+            'approval',
+            'approval-return',
+            'report-sales-summary',
+            'report-purchase-receiver-summary',
+            'report-stock-position',
+            'report-approval-outstanding',
+            'report-outstanding-amount',
+            'report-barcode-history',
+            'report-visiting-cards',
+        ];
+    }
+
+    private function isDeprecatedPermission(string $permissionName): bool
+    {
+        return str_starts_with($permissionName, 'return-');
+    }
+
+    private function actionsForModule(string $module): array
+    {
+        return in_array($module, ['dashboard', 'notification'], true)
+            ? ['view']
+            : ['view', 'create', 'edit', 'delete', 'manage'];
     }
 }

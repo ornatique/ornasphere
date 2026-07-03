@@ -29,6 +29,7 @@ use Endroid\QrCode\Writer\PngWriter;
 use App\Http\Controllers\Company\SaleController;
 use App\Http\Controllers\Company\SaleReturnController;
 use App\Http\Controllers\Company\ReportController;
+use App\Http\Controllers\Company\NotificationController;
 use App\Http\Controllers\SuperAdmin\SuperAdmin2FAController;
 use App\Http\Controllers\Company\ApprovalController;
 use App\Http\Controllers\Company\CustomerAdvanceController;
@@ -260,13 +261,22 @@ Route::prefix('company/{slug}')
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permission'])
+Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permission', 'company.notification.read'])
     ->prefix('company/{slug}')
     ->name('company.')
     ->group(function () {
 
         Route::post('logout', [CompanyAuthController::class, 'logout'])
             ->name('logout');
+
+        Route::get('notifications/summary', [NotificationController::class, 'summary'])
+            ->name('notifications.summary');
+        Route::get('notifications', [NotificationController::class, 'index'])
+            ->name('notifications.index');
+        Route::post('notifications/read', [NotificationController::class, 'markAllRead'])
+            ->name('notifications.read');
+        Route::post('notifications/read-module', [NotificationController::class, 'markModuleRead'])
+            ->name('notifications.read-module');
 
         Route::get('/dashboard', [CompanyDashboardController::class, 'index'])
             ->name('dashboard');
@@ -875,7 +885,7 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
         });
     });
 
-Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permission'])
+Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permission', 'company.notification.read'])
     ->prefix('company/{slug}')
     ->name('company.')
     ->group(function () {

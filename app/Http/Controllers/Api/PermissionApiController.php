@@ -19,6 +19,11 @@ class PermissionApiController extends Controller
                 $q->whereNull('company_id')
                     ->orWhere('company_id', $companyId);
             })
+            ->where(function ($q) {
+                foreach ($this->deprecatedPermissionModules() as $module) {
+                    $q->where('name', 'not like', "{$module}-%");
+                }
+            })
             ->withCount('roles')
             ->orderBy('name')
             ->get();
@@ -191,5 +196,10 @@ class PermissionApiController extends Controller
         $name = preg_replace('/-+/', '-', $name);
 
         return $name;
+    }
+
+    private function deprecatedPermissionModules(): array
+    {
+        return ['return'];
     }
 }

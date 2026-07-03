@@ -17,7 +17,16 @@ class CompanyDashboardController extends Controller
 {
     public function index()
     {
-        $companyId = auth()->user()->company_id;
+        $user = auth()->user();
+        $canViewDashboardData = $user->hasRole('company_admin') || $user->can('dashboard-view');
+
+        if (!$canViewDashboardData) {
+            return view('company.dashboard', [
+                'canViewDashboardData' => false,
+            ]);
+        }
+
+        $companyId = $user->company_id;
         $today = Carbon::today();
         $monthStart = Carbon::now()->startOfMonth();
         $monthEnd = Carbon::now()->endOfMonth();
@@ -124,6 +133,7 @@ class CompanyDashboardController extends Controller
             ->values();
 
         return view('company.dashboard', [
+            'canViewDashboardData' => true,
             'users' => $usersCount,
             'customersCount' => $customersCount,
             'activeCustomersCount' => $activeCustomersCount,
