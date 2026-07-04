@@ -581,6 +581,23 @@
             const salesMenu = document.getElementById('sales-menu');
             const reportsMenu = document.getElementById('reports-menu');
 
+            document.querySelectorAll('#sidebar a.nav-link[href]').forEach(function(link) {
+                link.addEventListener('click', function() {
+                    const href = link.getAttribute('href') || '';
+                    if (!href || href.charAt(0) === '#') {
+                        return;
+                    }
+
+                    try {
+                        const url = new URL(link.href, window.location.origin);
+                        url.searchParams.set('mark_notifications_read', '1');
+                        link.href = url.toString();
+                    } catch (e) {
+                        // Keep the original link if URL parsing fails.
+                    }
+                });
+            });
+
             if (!window.bootstrap || !salesMenu || !reportsMenu || !salesToggle || !reportsToggle) {
                 return;
             }

@@ -77,7 +77,7 @@ class CompanyNotificationService
             ->map(fn ($count) => (int) $count)
             ->all();
 
-        $latest = self::latest($user, 8);
+        $latest = self::latest($user, 20, true);
 
         return [
             'total' => array_sum($moduleCounts),

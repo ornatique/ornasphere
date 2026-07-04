@@ -35,23 +35,17 @@
                                 <input type="email"
                                        name="email"
                                        value="{{ old('email') }}"
-                                       class="form-control form-control-lg @error('email') is-invalid @enderror"
+                                       class="form-control form-control-lg"
                                        placeholder="Email address"
                                        required>
-                                @error('email')
-                                    <div class="invalid-feedback">{{ $message }}</div>
-                                @enderror
                             </div>
 
                             <div class="form-group mt-3">
                                 <input type="password"
                                        name="password"
-                                       class="form-control form-control-lg @error('password') is-invalid @enderror"
+                                       class="form-control form-control-lg"
                                        placeholder="Password"
                                        required>
-                                @error('password')
-                                    <div class="invalid-feedback">{{ $message }}</div>
-                                @enderror
                             </div>
 
                             @if ($errors->any())

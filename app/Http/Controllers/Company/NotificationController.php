@@ -29,9 +29,15 @@ class NotificationController extends Controller
 
     public function markAllRead(Request $request)
     {
+        $updated = CompanyNotificationService::markAllRead($request->user());
+
+        if (!$request->expectsJson()) {
+            return back();
+        }
+
         return response()->json([
             'success' => true,
-            'updated' => CompanyNotificationService::markAllRead($request->user()),
+            'updated' => $updated,
         ]);
     }
 
@@ -39,9 +45,15 @@ class NotificationController extends Controller
     {
         $request->validate(['module' => 'required']);
 
+        $updated = CompanyNotificationService::markModuleRead($request->user(), $request->input('module'));
+
+        if (!$request->expectsJson()) {
+            return back();
+        }
+
         return response()->json([
             'success' => true,
-            'updated' => CompanyNotificationService::markModuleRead($request->user(), $request->input('module')),
+            'updated' => $updated,
         ]);
     }
 }

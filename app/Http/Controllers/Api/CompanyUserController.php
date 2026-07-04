@@ -8,10 +8,50 @@ use App\Models\User;
 use App\Models\Company;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class CompanyUserController extends Controller
 {
+    private function storeProfileImageToUploads(Request $request): ?string
+    {
+        if (!$request->hasFile('profile_image')) {
+            return null;
+        }
+
+        $file = $request->file('profile_image');
+        $dir = public_path('uploads/profile_images');
+
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+
+        $name = Str::uuid()->toString() . '.' . $file->getClientOriginalExtension();
+        $file->move($dir, $name);
+
+        return 'uploads/profile_images/' . $name;
+    }
+
+    private function deleteProfileImageIfExists(?string $path): void
+    {
+        if (!$path) {
+            return;
+        }
+
+        $normalized = ltrim($path, '/');
+        if (str_starts_with($normalized, 'public/')) {
+            $normalized = substr($normalized, 7);
+        }
+
+        $publicFile = public_path($normalized);
+        if (file_exists($publicFile)) {
+            @unlink($publicFile);
+            return;
+        }
+
+        Storage::disk('public')->delete($path);
+    }
+
     // ✅ List Company Users
     public function index(Request $request)
     {
@@ -82,16 +122,11 @@ public function store(Request $request)
         'name'  => 'required|string',
         'email' => 'required|email|unique:users,email',
         'role'  => 'required',
-        //'profile_image' => 'nullable|image|max:2048',
+        'profile_image' => 'nullable|image|max:2048',
     ]);
 
     // 🔹 Upload Image (If Provided)
-    $imagePath = null;
-
-    if ($request->hasFile('profile_image')) {
-        $imagePath = $request->file('profile_image')
-            ->store('profile_images', 'public');
-    }
+    $imagePath = $this->storeProfileImageToUploads($request);
 
     // 🔹 Create User
     $user = User::create([
@@ -132,7 +167,7 @@ public function store(Request $request)
         'success' => true,
         'message' => 'User created successfully',
         'default_password' => $validated['email'],
-        'data' => $user
+        'data' => $user->append('profile_image_url')
     ], 200);
 }
 
@@ -165,7 +200,7 @@ public function update(Request $request, $id)
                 Rule::unique('users')->ignore($user->id),
             ],
             'role'  => 'required|string',
-            //'profile_image' => 'nullable|image|max:2048',
+            'profile_image' => 'nullable|image|max:2048',
         ]);
 
         if (strtolower((string) $validated['role']) === 'customer') {
@@ -177,16 +212,8 @@ public function update(Request $request, $id)
 
         // 🖼 Update Image
         if ($request->hasFile('profile_image')) {
-
-            // delete old image
-            if ($user->profile_image) {
-                Storage::disk('public')->delete($user->profile_image);
-            }
-
-            $imagePath = $request->file('profile_image')
-                                 ->store('profile_images', 'public');
-
-            $user->profile_image = $imagePath;
+            $this->deleteProfileImageIfExists($user->profile_image);
+            $user->profile_image = $this->storeProfileImageToUploads($request);
         }
 
         // 🔄 Update other fields
@@ -194,6 +221,7 @@ public function update(Request $request, $id)
             'name'  => $validated['name'],
             'email' => $validated['email'],
             'role'  => $validated['role'],
+            'profile_image' => $user->profile_image,
 
             'person_code' => $request->person_code,
             'city' => $request->city,
@@ -224,7 +252,7 @@ public function update(Request $request, $id)
             'success' => true,
             'message' => 'User updated successfully',
             'updated_user_id' => $user->id,
-            'data' => $user
+            'data' => $user->fresh()->append('profile_image_url')
         ], 200);
     }
 
@@ -329,9 +357,7 @@ public function update(Request $request, $id)
     }
 
     // 🖼 Delete profile image if exists
-    if ($user->profile_image) {
-        Storage::disk('public')->delete($user->profile_image);
-    }
+    $this->deleteProfileImageIfExists($user->profile_image);
 
     // 🔁 Remove roles (Spatie)
     $user->syncRoles([]);
@@ -346,3 +372,4 @@ public function update(Request $request, $id)
     ], 200);
 }
 }
+

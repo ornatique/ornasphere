@@ -127,13 +127,79 @@
         </div>
     </div>
     @else
-    <div class="row">
-        <div class="col-lg-7 col-xl-6">
-            <div class="card">
-                <div class="card-body py-5">
-                    <h4 class="mb-3">Dashboard data is not available for your account.</h4>
-                    <p class="mb-2 text-muted">You can continue using the modules assigned to your role from the left menu.</p>
-                    <p class="mb-0 text-muted">If you need dashboard reports, please contact your company admin to enable Dashboard View permission.</p>
+    <style>
+        .dashboard-access-state {
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 18px;
+            background:
+                radial-gradient(circle at top right, rgba(255, 23, 68, 0.18), transparent 34%),
+                linear-gradient(135deg, rgba(46, 50, 84, 0.98), rgba(29, 31, 54, 0.98));
+            box-shadow: 0 18px 45px rgba(0, 0, 0, 0.24);
+        }
+
+        .dashboard-access-state::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(120deg, rgba(255, 255, 255, 0.08), transparent 38%);
+            pointer-events: none;
+        }
+
+        .dashboard-access-icon {
+            width: 72px;
+            height: 72px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 22px;
+            background: linear-gradient(135deg, #ff1764, #1f7af8);
+            color: #fff;
+            font-size: 34px;
+            box-shadow: 0 14px 30px rgba(31, 122, 248, 0.25);
+        }
+
+        .dashboard-access-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.07);
+            color: #cfd2ff;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .dashboard-access-wrap {
+            min-height: calc(100vh - 310px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+
+    <div class="row dashboard-access-wrap">
+        <div class="col-lg-9 col-xl-8 mx-auto">
+            <div class="card dashboard-access-state">
+                <div class="card-body p-5 position-relative">
+                    <div class="row align-items-center">
+                        <div class="col-md-auto mb-4 mb-md-0">
+                            <div class="dashboard-access-icon">
+                                <i class="typcn typcn-lock-closed"></i>
+                            </div>
+                        </div>
+                        <div class="col">
+                            <span class="dashboard-access-pill mb-3">
+                                <i class="typcn typcn-info-large"></i>
+                                Limited dashboard access
+                            </span>
+                            <h3 class="mb-3 fw-bold text-white">Dashboard data is not available for your account.</h3>
+                            <p class="mb-2 text-muted">You can continue using the modules assigned to your role from the left menu.</p>
+                            <p class="mb-0 text-muted">If you need dashboard reports, please contact your company admin to enable Dashboard View permission.</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

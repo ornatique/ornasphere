@@ -51,6 +51,7 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/users', [CompanyUserController::class, 'index']);
     Route::post('/create_users', [CompanyUserController::class, 'store']);
     Route::put('/update_users/{id}', [CompanyUserController::class, 'update']);
+    Route::post('/update_users/{id}', [CompanyUserController::class, 'update']);
     Route::post('/users/{id}/reset-2fa', [CompanyUserController::class, 'reset2fa']);
     Route::post('/reset2fa_users/{id}', [CompanyUserController::class, 'reset2fa']);
     Route::post('/users/{id}/toggle-status', [CompanyUserController::class, 'toggleStatus']);

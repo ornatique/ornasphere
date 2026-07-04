@@ -770,6 +770,7 @@ class SaleApiController extends Controller
                     'labour_amount' => (float) ($set->sale_labour_amount ?? 0),
                     'sale_other' => (float) ($set->sale_other ?? 0),
                     'is_printed' => (int) ($set->is_printed ?? 0),
+                    'created_at' => $set->created_at ? \Carbon\Carbon::parse($set->created_at)->format('d-m-Y h:i A') : null,
                     'printed_at' => $set->printed_at ? \Carbon\Carbon::parse($set->printed_at)->format('d-m-Y h:i A') : null,
                     'qr_image' => 'data:image/png;base64,' . $base64,
                 ];

@@ -19,6 +19,34 @@ class EnsureCompanyIsActive
 
         $company = $user->company;
 
+        if ((int) $user->is_active !== 1) {
+            if ($request->expectsJson() || $request->is('api/*')) {
+                if ($user->currentAccessToken()) {
+                    $user->currentAccessToken()->delete();
+                }
+
+                return response()->json([
+                    'success' => false,
+                    'code' => 'USER_INACTIVE',
+                    'message' => 'Your account has been deactivated. Please contact your company admin.',
+                ], 403);
+            }
+
+            Auth::logout();
+
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            if ($company && $company->slug) {
+                return redirect()
+                    ->route('company.login', $company->slug)
+                    ->withErrors(['email' => 'Your account has been deactivated. Please contact your company admin.']);
+            }
+
+            return redirect('/')
+                ->withErrors(['email' => 'Your account has been deactivated. Please contact your company admin.']);
+        }
+
         if (!$company || (int) $company->status !== 1) {
             // Revoke current API token if present.
             if ($request->expectsJson() || $request->is('api/*')) {
