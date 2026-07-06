@@ -1,131 +1,131 @@
-﻿name: Deploy Laravel to Hostinger
+# ﻿name: Deploy Laravel to Hostinger
 
-on:
-  push:
-    branches:
-      - main
+# on:
+#   push:
+#     branches:
+#       - main
 
-  workflow_dispatch:
+#   workflow_dispatch:
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
 
-    env:
-      SSH_HOST: 82.180.142.181
-      SSH_USER: u264513720
-      SSH_PORT: 65002
-      DEPLOY_PATH: /home/u264513720/domains/ornasphere.com/public_html
+#     env:
+#       SSH_HOST: 82.180.142.181
+#       SSH_USER: u264513720
+#       SSH_PORT: 65002
+#       DEPLOY_PATH: /home/u264513720/domains/ornasphere.com/public_html
 
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+#     steps:
+#       - name: Checkout Repository
+#         uses: actions/checkout@v4
 
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.2'
-          extensions: mbstring, intl, pdo_mysql, bcmath, gd, zip
-          coverage: none
+#       - name: Setup PHP
+#         uses: shivammathur/setup-php@v2
+#         with:
+#           php-version: '8.2'
+#           extensions: mbstring, intl, pdo_mysql, bcmath, gd, zip
+#           coverage: none
 
-      - name: Install Composer Dependencies
-        run: |
-          composer install \
-            --no-dev \
-            --prefer-dist \
-            --no-interaction \
-            --optimize-autoloader
+#       - name: Install Composer Dependencies
+#         run: |
+#           composer install \
+#             --no-dev \
+#             --prefer-dist \
+#             --no-interaction \
+#             --optimize-autoloader
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+#       - name: Setup Node
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: 20
 
-      - name: Install Node Packages
-        run: npm ci
+#       - name: Install Node Packages
+#         run: npm ci
 
-      - name: Build Assets
-        run: npm run build
+#       - name: Build Assets
+#         run: npm run build
 
-      - name: Configure SSH
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        run: |
-          mkdir -p ~/.ssh
+#       - name: Configure SSH
+#         env:
+#           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+#         run: |
+#           mkdir -p ~/.ssh
 
-          echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/deploy_key
+#           echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/deploy_key
 
-          chmod 600 ~/.ssh/deploy_key
+#           chmod 600 ~/.ssh/deploy_key
 
-          ssh-keyscan -H -p $SSH_PORT $SSH_HOST >> ~/.ssh/known_hosts
+#           ssh-keyscan -H -p $SSH_PORT $SSH_HOST >> ~/.ssh/known_hosts
 
-      - name: Test SSH Connection
-        run: |
-          ssh \
-            -i ~/.ssh/deploy_key \
-            -o StrictHostKeyChecking=no \
-            -p $SSH_PORT \
-            $SSH_USER@$SSH_HOST \
-            "echo 'SSH Connection Successful'"
+#       - name: Test SSH Connection
+#         run: |
+#           ssh \
+#             -i ~/.ssh/deploy_key \
+#             -o StrictHostKeyChecking=no \
+#             -p $SSH_PORT \
+#             $SSH_USER@$SSH_HOST \
+#             "echo 'SSH Connection Successful'"
 
-      - name: Create Deployment Directory
-        run: |
-          ssh \
-            -i ~/.ssh/deploy_key \
-            -o StrictHostKeyChecking=no \
-            -p $SSH_PORT \
-            $SSH_USER@$SSH_HOST \
-            "mkdir -p '$DEPLOY_PATH'"
+#       - name: Create Deployment Directory
+#         run: |
+#           ssh \
+#             -i ~/.ssh/deploy_key \
+#             -o StrictHostKeyChecking=no \
+#             -p $SSH_PORT \
+#             $SSH_USER@$SSH_HOST \
+#             "mkdir -p '$DEPLOY_PATH'"
 
-      - name: Upload Project
-        run: |
-          rsync -avz --delete \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='node_modules' \
-            --exclude='tests' \
-            --exclude='storage' \
-            --exclude='.env' \
-            --exclude='*.log' \
-            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -p $SSH_PORT" \
-            ./ \
-            $SSH_USER@$SSH_HOST:$DEPLOY_PATH/
+#       - name: Upload Project
+#         run: |
+#           rsync -avz --delete \
+#             --exclude='.git' \
+#             --exclude='.github' \
+#             --exclude='node_modules' \
+#             --exclude='tests' \
+#             --exclude='storage' \
+#             --exclude='.env' \
+#             --exclude='*.log' \
+#             -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -p $SSH_PORT" \
+#             ./ \
+#             $SSH_USER@$SSH_HOST:$DEPLOY_PATH/
 
-      - name: Laravel Deployment
-        run: |
-          ssh \
-            -i ~/.ssh/deploy_key \
-            -o StrictHostKeyChecking=no \
-            -p $SSH_PORT \
-            $SSH_USER@$SSH_HOST << 'EOF'
+#       - name: Laravel Deployment
+#         run: |
+#           ssh \
+#             -i ~/.ssh/deploy_key \
+#             -o StrictHostKeyChecking=no \
+#             -p $SSH_PORT \
+#             $SSH_USER@$SSH_HOST << 'EOF'
 
-          set -e
+#           set -e
 
-          cd /home/u264513720/domains/ornasphere.com/public_html
+#           cd /home/u264513720/domains/ornasphere.com/public_html
 
-          composer install \
-              --no-dev \
-              --prefer-dist \
-              --no-interaction \
-              --optimize-autoloader
+#           composer install \
+#               --no-dev \
+#               --prefer-dist \
+#               --no-interaction \
+#               --optimize-autoloader
 
-          php artisan optimize:clear
+#           php artisan optimize:clear
 
-          php artisan migrate --force
+#           php artisan migrate --force
 
-          php artisan storage:link || true
+#           php artisan storage:link || true
 
-          php artisan config:cache
+#           php artisan config:cache
 
-          php artisan route:cache
+#           php artisan route:cache
 
-          php artisan view:cache
+#           php artisan view:cache
 
-          chmod -R ug+rw storage bootstrap/cache || true
+#           chmod -R ug+rw storage bootstrap/cache || true
 
-          echo "Deployment completed successfully."
+#           echo "Deployment completed successfully."
 
-          EOF
+#           EOF
 
-      - name: Deployment Finished
-        run: echo "Application deployed successfully."
+#       - name: Deployment Finished
+#         run: echo "Application deployed successfully."
