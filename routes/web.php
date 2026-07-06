@@ -22,7 +22,7 @@ use App\Http\Controllers\Company\ProductionCostController;
 use App\Http\Controllers\Company\LabourFormulaController;
 use App\Http\Controllers\Company\ProductionStepController;
 use App\Http\Controllers\Company\ItemSetController;
-use Endroid\QrCode\QrCode;
+use Endroid\QrCode\QrCode; 
 use Endroid\QrCode\ErrorCorrectionLevel;
 use Endroid\QrCode\Logo\Logo;
 use Endroid\QrCode\Writer\PngWriter;
