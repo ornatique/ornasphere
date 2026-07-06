@@ -6,112 +6,93 @@ on:
       - main
   workflow_dispatch:
 
-concurrency:
-  group: production-deploy
-  cancel-in-progress: true
-
 jobs:
   deploy:
-    name: Build and deploy
     runs-on: ubuntu-latest
 
     env:
-      # Hostinger target for ornasphere.com. Keep SSH_PRIVATE_KEY only in GitHub Secrets.
       SSH_HOST: 82.180.142.181
       SSH_USER: u264513720
-      SSH_PORT: '65002'
+      SSH_PORT: 65002
       DEPLOY_PATH: /home/u264513720/domains/ornasphere.com/public_html
-      RUN_MIGRATIONS: ${{ vars.RUN_MIGRATIONS }}
 
     steps:
-      - name: Checkout code
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.2'
-          extensions: mbstring, intl, pdo_mysql, bcmath, gd, zip
-          coverage: none
+          php-version: 8.2
 
-      - name: Install Composer dependencies
-        run: composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
+      - name: Install Composer
+        run: composer install --no-dev --prefer-dist --optimize-autoloader
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: npm
+          node-version: 22
 
-      - name: Install Node dependencies
+      - name: Install Node Modules
         run: npm ci
 
-      - name: Build frontend assets
+      - name: Build Assets
         run: npm run build
 
-      - name: Validate deployment secrets
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        run: |
-          missing=0
-          for name in SSH_PRIVATE_KEY; do
-            if [ -z "${!name}" ]; then
-              echo "::error::Missing GitHub secret: $name"
-              missing=1
-            fi
-          done
-          exit "$missing"
+      - name: Start SSH Agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Configure SSH
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      - name: Add Host Key
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh-keyscan -H -p $SSH_PORT $SSH_HOST >> ~/.ssh/known_hosts
 
-      - name: Ensure deploy directory exists
+      - name: Test SSH
         run: |
-          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$DEPLOY_PATH'"
+          ssh -p $SSH_PORT $SSH_USER@$SSH_HOST "echo SSH Connected"
 
-      - name: Upload application files
+      - name: Create Deploy Directory
         run: |
-          rsync -az --delete \
+          ssh -p $SSH_PORT $SSH_USER@$SSH_HOST \
+          "mkdir -p '$DEPLOY_PATH'"
+
+      - name: Upload Files
+        run: |
+          rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='storage' \
             --exclude='.env' \
-            --exclude='.env.*' \
-            --exclude='.git/' \
-            --exclude='.github/' \
-            --exclude='node_modules/' \
-            --exclude='storage/' \
-            --exclude='tests/' \
-            --exclude='.phpunit.cache/' \
-            --exclude='*.log' \
-            -e "ssh -i ~/.ssh/deploy_key -p $SSH_PORT" \
-            ./ "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/"
+            -e "ssh -p $SSH_PORT" \
+            ./ \
+            $SSH_USER@$SSH_HOST:$DEPLOY_PATH
 
-      - name: Run Laravel deployment commands
+      - name: Laravel Deployment
         run: |
-          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "DEPLOY_PATH='$DEPLOY_PATH' RUN_MIGRATIONS='$RUN_MIGRATIONS' sh -s" <<'REMOTE'
-          set -eu
-          RUN_MIGRATIONS="${RUN_MIGRATIONS:-true}"
+          ssh -p $SSH_PORT $SSH_USER@$SSH_HOST << EOF
 
-          cd "$DEPLOY_PATH"
+          cd $DEPLOY_PATH
 
-          if [ ! -f .env ]; then
-            echo "Missing .env on server at $DEPLOY_PATH/.env"
-            exit 1
-          fi
+          composer install \
+            --no-dev \
+            --optimize-autoloader \
+            --no-interaction
 
           php artisan optimize:clear
 
-          if [ "$RUN_MIGRATIONS" != "false" ]; then
-            php artisan migrate --force
-          fi
+          php artisan migrate --force
 
           php artisan storage:link || true
+
           php artisan config:cache
+
+          php artisan route:cache
+
           php artisan view:cache
-          chmod -R ug+rw storage bootstrap/cache || true
-          REMOTE
+
+          chmod -R ug+rw storage bootstrap/cache
+
+          EOF
