@@ -73,7 +73,6 @@ class ItemController extends Controller
             'auto_load_purity' => $request->boolean('auto_load_purity'),
             'auto_create_label_purchase' => $request->boolean('auto_create_label_purchase'),
             'auto_create_label_config' => $request->boolean('auto_create_label_config'),
-            'is_active' => 1,
         ]);
 
         return response()->json([

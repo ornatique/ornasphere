@@ -835,6 +835,7 @@ class ReportController extends Controller
 
     private function purchaseReceiverSummaryBaseQuery(Company $company, Request $request)
     {
+        $hasReturnApprovalItemId = Schema::hasColumn('sale_return_items', 'approval_item_id');
         $hasReturnItemsetId = Schema::hasColumn('sale_return_items', 'itemset_id');
 
         $query = DB::table('sale_returns as sr')
@@ -881,34 +882,81 @@ class ReportController extends Controller
             );
 
         if ($hasReturnItemsetId) {
-            $query->leftJoin('item_sets as iset', 'iset.id', '=', 'sri.itemset_id');
+            $query->leftJoin('item_sets as iset', 'iset.id', '=', 'sri.itemset_id')
+                ->leftJoin('approval_items as ai_by_itemset', function ($join) {
+                    $join->on('ai_by_itemset.itemset_id', '=', 'sri.itemset_id')
+                        ->on('ai_by_itemset.approval_id', '=', 'sr.source_id');
+                });
         }
 
-        $grossWeightExpr = $hasReturnItemsetId
-            ? 'COALESCE(si.gross_weight, iset.gross_weight, 0)'
-            : 'COALESCE(si.gross_weight, 0)';
-        $netWeightExpr = $hasReturnItemsetId
-            ? 'COALESCE(si.net_weight, iset.net_weight, 0)'
-            : 'COALESCE(si.net_weight, 0)';
+        if ($hasReturnApprovalItemId) {
+            $query->leftJoin('approval_items as ai', 'ai.id', '=', 'sri.approval_item_id');
+        }
+
+        $itemSetGrossExpr = $hasReturnItemsetId ? 'iset.gross_weight' : 'NULL';
+        $itemSetNetExpr = $hasReturnItemsetId ? 'iset.net_weight' : 'NULL';
+        $itemSetOtherExpr = $hasReturnItemsetId ? 'iset.sale_other' : 'NULL';
+
+        $approvalGrossExpr = 'NULL';
+        $approvalNetExpr = 'NULL';
+        $approvalFineExpr = 'NULL';
+        $approvalMetalExpr = 'NULL';
+        $approvalLabourExpr = 'NULL';
+        $approvalOtherExpr = 'NULL';
+        $approvalTotalExpr = 'NULL';
+
+        if ($hasReturnApprovalItemId && $hasReturnItemsetId) {
+            $approvalGrossExpr = 'COALESCE(ai.gross_weight, ai_by_itemset.gross_weight)';
+            $approvalNetExpr = 'COALESCE(ai.net_weight, ai_by_itemset.net_weight)';
+            $approvalFineExpr = 'COALESCE(ai.total_fine_weight, ai_by_itemset.total_fine_weight)';
+            $approvalMetalExpr = 'COALESCE(ai.metal_amount, ai_by_itemset.metal_amount)';
+            $approvalLabourExpr = 'COALESCE(ai.labour_amount, ai_by_itemset.labour_amount)';
+            $approvalOtherExpr = 'COALESCE(ai.other_amount, ai_by_itemset.other_amount)';
+            $approvalTotalExpr = 'COALESCE(ai.total_amount, ai_by_itemset.total_amount)';
+        } elseif ($hasReturnApprovalItemId) {
+            $approvalGrossExpr = 'ai.gross_weight';
+            $approvalNetExpr = 'ai.net_weight';
+            $approvalFineExpr = 'ai.total_fine_weight';
+            $approvalMetalExpr = 'ai.metal_amount';
+            $approvalLabourExpr = 'ai.labour_amount';
+            $approvalOtherExpr = 'ai.other_amount';
+            $approvalTotalExpr = 'ai.total_amount';
+        } elseif ($hasReturnItemsetId) {
+            $approvalGrossExpr = 'ai_by_itemset.gross_weight';
+            $approvalNetExpr = 'ai_by_itemset.net_weight';
+            $approvalFineExpr = 'ai_by_itemset.total_fine_weight';
+            $approvalMetalExpr = 'ai_by_itemset.metal_amount';
+            $approvalLabourExpr = 'ai_by_itemset.labour_amount';
+            $approvalOtherExpr = 'ai_by_itemset.other_amount';
+            $approvalTotalExpr = 'ai_by_itemset.total_amount';
+        }
+
+        $grossWeightExpr = "COALESCE(si.gross_weight, {$approvalGrossExpr}, {$itemSetGrossExpr}, 0)";
+        $netWeightExpr = "COALESCE(si.net_weight, {$approvalNetExpr}, {$itemSetNetExpr}, 0)";
+        $fineWeightExpr = "COALESCE(si.fine_weight, {$approvalFineExpr}, 0)";
+        $metalAmountExpr = "COALESCE(si.metal_amount, {$approvalMetalExpr}, 0)";
+        $labourAmountExpr = "COALESCE(si.labour_amount, {$approvalLabourExpr}, 0)";
+        $otherAmountExpr = "COALESCE(si.other_amount, NULLIF({$approvalOtherExpr}, 0), {$itemSetOtherExpr}, 0)";
+        $totalAmountExpr = "COALESCE(NULLIF(si.total_amount, 0), NULLIF({$approvalTotalExpr}, 0), ({$metalAmountExpr} + {$labourAmountExpr} + {$otherAmountExpr}), 0)";
 
         $query->selectRaw("
-                sr.id,
-                sr.return_voucher_no,
-                sr.return_date,
-                sr.return_total,
-                sr.remarks,
-                sr.source_type,
-                sr.created_at,
-                COALESCE(sc.name, ac.name, '-') as customer_name,
-                COALESCE(su.name, au.name, '-') as created_by,
-                COUNT(sri.id) as total_qty,
-                COALESCE(SUM({$grossWeightExpr}), 0) as total_gross_weight,
-                COALESCE(SUM({$netWeightExpr}), 0) as total_net_weight,
-                COALESCE(SUM(COALESCE(si.fine_weight, 0)), 0) as total_fine_weight,
-                COALESCE(SUM(COALESCE(si.metal_amount, 0)), 0) as total_metal_amount,
-                COALESCE(SUM(COALESCE(si.labour_amount, 0)), 0) as total_labour_amount,
-                COALESCE(SUM(COALESCE(si.other_amount, 0)), 0) as total_other_amount
-            ");
+            sr.id,
+            sr.return_voucher_no,
+            sr.return_date,
+            COALESCE(NULLIF(sr.return_total, 0), SUM({$totalAmountExpr}), 0) as return_total,
+            sr.remarks,
+            sr.source_type,
+            sr.created_at,
+            COALESCE(sc.name, ac.name, '-') as customer_name,
+            COALESCE(su.name, au.name, '-') as created_by,
+            COUNT(sri.id) as total_qty,
+            COALESCE(SUM({$grossWeightExpr}), 0) as total_gross_weight,
+            COALESCE(SUM({$netWeightExpr}), 0) as total_net_weight,
+            COALESCE(SUM({$fineWeightExpr}), 0) as total_fine_weight,
+            COALESCE(SUM({$metalAmountExpr}), 0) as total_metal_amount,
+            COALESCE(SUM({$labourAmountExpr}), 0) as total_labour_amount,
+            COALESCE(SUM({$otherAmountExpr}), 0) as total_other_amount
+        ");
 
         return $query;
     }

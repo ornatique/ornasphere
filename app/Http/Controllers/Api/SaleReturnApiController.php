@@ -140,9 +140,29 @@ class SaleReturnApiController extends Controller
             'items.saleItem.sale.customer',
             'items.saleItem.itemset.item',
             'items.itemSet.item',
+            'items.approvalItem.approval.customer',
+            'items.approvalItem.itemSet.item',
+            'items.approvalItem.legacyItemSet.item',
+            'items.approvalItem.item',
         ])
             ->where('company_id', $user->company_id)
             ->findOrFail((int) $id);
+
+        $approvalItemFallbacks = collect();
+        $needsApprovalFallback = $return->source_type === 'approval'
+            && $return->source_id
+            && $return->items->contains(function ($row) {
+                return empty($row->approval_item_id) && empty($row->itemset_id);
+            });
+
+        if ($needsApprovalFallback) {
+            $approvalItemFallbacks = ApprovalItem::with(['approval.customer', 'itemSet.item', 'legacyItemSet.item', 'item'])
+                ->where('approval_id', $return->source_id)
+                ->where('status', 'returned')
+                ->orderBy('id')
+                ->get()
+                ->values();
+        }
 
         $customers = collect();
         if ($return->sale && $return->sale->customer) {
@@ -155,6 +175,11 @@ class SaleReturnApiController extends Controller
             $saleCustomer = optional(optional($row->saleItem)->sale)->customer;
             if ($saleCustomer) {
                 $customers->push($saleCustomer);
+            }
+
+            $approvalCustomer = optional(optional($row->approvalItem)->approval)->customer;
+            if ($approvalCustomer) {
+                $customers->push($approvalCustomer);
             }
         }
 
@@ -174,11 +199,74 @@ class SaleReturnApiController extends Controller
 
         $customer = $uniqueCustomers->first();
         $customerName = $customer['name'] ?? '-';
+        $formattedItems = $return->items->values()->map(function ($row, $index) use ($approvalItemFallbacks) {
+            $saleItem = $row->saleItem;
+            $approvalItem = $row->approvalItem ?: $approvalItemFallbacks->get($index);
+
+            $itemSet = $row->itemSet ?: ($saleItem ? $saleItem->itemset : null);
+            if (!$itemSet && $approvalItem) {
+                $itemSet = $approvalItem->itemSet ?: $approvalItem->legacyItemSet;
+            }
+
+            $item = $itemSet ? $itemSet->item : null;
+            if (!$item && $approvalItem) {
+                $item = $approvalItem->item;
+            }
+
+            $gross = (float) ($approvalItem->gross_weight ?? $saleItem->gross_weight ?? optional($itemSet)->gross_weight ?? 0);
+            $otherWeight = (float) ($approvalItem->other_weight ?? $saleItem->other_weight ?? optional($itemSet)->other ?? 0);
+            $net = (float) ($approvalItem->net_weight ?? $saleItem->net_weight ?? optional($itemSet)->net_weight ?? max(0, $gross - $otherWeight));
+            $purity = (float) ($approvalItem->purity ?? $saleItem->purity ?? optional($item)->outward_purity ?? optional($item)->purity ?? 0);
+            $wastePercent = (float) ($approvalItem->waste_percent ?? $saleItem->waste_percent ?? 0);
+            $netPurity = (float) ($approvalItem->net_purity ?? $saleItem->net_purity ?? max(0, $purity - $wastePercent));
+            $fineWeight = (float) ($approvalItem->total_fine_weight ?? $saleItem->fine_weight ?? (($net * $netPurity) / 100));
+            $metalRate = (float) ($approvalItem->metal_rate ?? $saleItem->metal_rate ?? 0);
+            $metalAmount = (float) ($approvalItem->metal_amount ?? $saleItem->metal_amount ?? 0);
+            $labourRate = (float) ($approvalItem->labour_rate ?? $saleItem->labour_rate ?? optional($itemSet)->sale_labour_rate ?? optional($item)->labour_rate ?? 0);
+            $labourAmount = (float) ($approvalItem->labour_amount ?? $saleItem->labour_amount ?? 0);
+            $otherAmount = (float) ($approvalItem->other_amount ?? $saleItem->other_amount ?? optional($itemSet)->sale_other ?? 0);
+            $totalAmount = (float) ($approvalItem->total_amount ?? $saleItem->total_amount ?? ($metalAmount + $labourAmount + $otherAmount));
+
+            $rowData = $row->toArray();
+            $rowData['sale_item'] = $saleItem ? $saleItem->toArray() : null;
+            $rowData['approval_item'] = $approvalItem ? $approvalItem->toArray() : null;
+            $rowData['item_set'] = $itemSet ? $itemSet->toArray() : null;
+            $rowData['item'] = $item ? [
+                'id' => (int) $item->id,
+                'item_name' => $item->item_name,
+                'item_code' => $item->item_code ?? null,
+            ] : null;
+            $rowData['approval_item_id'] = $row->approval_item_id ?? optional($approvalItem)->id;
+            $rowData['itemset_id'] = $row->itemset_id ?? optional($itemSet)->id;
+            $rowData['item_id'] = optional($approvalItem)->item_id ?? optional($itemSet)->item_id ?? optional($item)->id;
+            $rowData['qr_code'] = optional($approvalItem)->qr_code ?? optional($itemSet)->qr_code;
+            $rowData['huid'] = optional($approvalItem)->huid ?? optional($itemSet)->HUID ?? null;
+            $rowData['item_name'] = optional($item)->item_name;
+            $rowData['gross_weight'] = number_format($gross, 3, '.', '');
+            $rowData['other_weight'] = number_format($otherWeight, 3, '.', '');
+            $rowData['net_weight'] = number_format($net, 3, '.', '');
+            $rowData['purity'] = number_format($purity, 3, '.', '');
+            $rowData['waste_percent'] = number_format($wastePercent, 3, '.', '');
+            $rowData['net_purity'] = number_format($netPurity, 3, '.', '');
+            $rowData['fine_weight'] = number_format($fineWeight, 3, '.', '');
+            $rowData['metal_rate'] = number_format($metalRate, 2, '.', '');
+            $rowData['metal_amount'] = number_format($metalAmount, 2, '.', '');
+            $rowData['labour_rate'] = number_format($labourRate, 2, '.', '');
+            $rowData['labour_amount'] = number_format($labourAmount, 2, '.', '');
+            $rowData['other_amount'] = number_format($otherAmount, 2, '.', '');
+            $rowData['total_amount'] = number_format($totalAmount, 2, '.', '');
+            $rowData['source'] = $approvalItem ? 'approval' : 'sale';
+
+            return $rowData;
+        });
+
+        $returnData = $return->toArray();
+        $returnData['items'] = $formattedItems->values()->all();
 
         return response()->json([
             'success' => true,
             'message' => 'Return voucher fetched successfully.',
-            'data' => array_merge($return->toArray(), [
+            'data' => array_merge($returnData, [
                 'customer_name' => $customerName,
                 'customer' => $customer,
                 'customers' => $uniqueCustomers,
@@ -1368,6 +1456,13 @@ class SaleReturnApiController extends Controller
                 }
             }
 
+            $removedFromCart = $this->clearProcessedReturnCart(
+                (int) $request->user()->id,
+                (int) $companyId,
+                $saleItems->pluck('id')->all(),
+                $approvalItems->pluck('id')->all()
+            );
+
             DB::commit();
 
             return response()->json([
@@ -1377,6 +1472,7 @@ class SaleReturnApiController extends Controller
                     'return_id' => $return->id,
                     'return_voucher_no' => $return->return_voucher_no,
                     'return_total' => (float) $return->return_total,
+                    'removed_from_cart' => $removedFromCart,
                 ]
             ]);
         } catch (\Exception $e) {
@@ -1393,6 +1489,36 @@ class SaleReturnApiController extends Controller
                 'message' => $e->getMessage()
             ], 422);
         }
+    }
+
+    private function clearProcessedReturnCart(int $userId, int $companyId, array $saleItemIds = [], array $approvalItemIds = []): int
+    {
+        $saleItemIds = array_values(array_unique(array_filter(array_map('intval', $saleItemIds))));
+        $approvalItemIds = array_values(array_unique(array_filter(array_map('intval', $approvalItemIds))));
+
+        if (empty($saleItemIds) && empty($approvalItemIds)) {
+            return 0;
+        }
+
+        $hasSaleItemId = Schema::hasColumn('return_carts', 'sale_item_id');
+        $hasApprovalItemId = Schema::hasColumn('return_carts', 'approval_item_id');
+
+        if ((!$hasSaleItemId || empty($saleItemIds)) && (!$hasApprovalItemId || empty($approvalItemIds))) {
+            return 0;
+        }
+
+        return ReturnCart::where('user_id', $userId)
+            ->where('company_id', $companyId)
+            ->where(function ($query) use ($saleItemIds, $approvalItemIds, $hasSaleItemId, $hasApprovalItemId) {
+                if ($hasSaleItemId && !empty($saleItemIds)) {
+                    $query->orWhereIn('sale_item_id', $saleItemIds);
+                }
+
+                if ($hasApprovalItemId && !empty($approvalItemIds)) {
+                    $query->orWhereIn('approval_item_id', $approvalItemIds);
+                }
+            })
+            ->delete();
     }
 
     private function refreshApprovalStatus(int $approvalId): void

@@ -134,7 +134,7 @@ public function store(Request $request)
         'name' => $validated['name'],
         'email' => $validated['email'],
         // Requested behavior: default password = same email id.
-        'password' => Hash::make($validated['email']),
+        'password' => Hash::make($request->password),
         'role' => $validated['role'],
         'profile_image' => $imagePath,
 
