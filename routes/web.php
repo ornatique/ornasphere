@@ -21,6 +21,15 @@ use App\Http\Controllers\Company\OtherChargeController;
 use App\Http\Controllers\Company\ProductionCostController;
 use App\Http\Controllers\Company\LabourFormulaController;
 use App\Http\Controllers\Company\ProductionStepController;
+use App\Http\Controllers\Company\VacuumBuchController;
+use App\Http\Controllers\Company\VacuumProcessController;
+use App\Http\Controllers\Company\VacuumVoucherController;
+use App\Http\Controllers\Company\CastingHeatingController;
+use App\Http\Controllers\Company\CastingMetalIssueController;
+use App\Http\Controllers\Company\CastingReleaseController;
+use App\Http\Controllers\Company\TreeCuttingIssueController;
+use App\Http\Controllers\Company\TreeCuttingReceiveController;
+use App\Http\Controllers\Company\CastingSortingController;
 use App\Http\Controllers\Company\ItemSetController;
 use Endroid\QrCode\QrCode; 
 use Endroid\QrCode\ErrorCorrectionLevel;
@@ -542,6 +551,149 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
 
         Route::delete('production-step/{id}', [ProductionStepController::class, 'destroy'])
             ->name('production-step.destroy');
+
+        Route::get('vacuum-buchs', [VacuumBuchController::class, 'index'])
+            ->name('vacuum-buchs.index');
+
+        Route::get('vacuum-buchs/create', [VacuumBuchController::class, 'create'])
+            ->name('vacuum-buchs.create');
+
+        Route::post('vacuum-buchs/store', [VacuumBuchController::class, 'store'])
+            ->name('vacuum-buchs.store');
+
+        Route::get('vacuum-buchs/edit/{id}', [VacuumBuchController::class, 'edit'])
+            ->name('vacuum-buchs.edit');
+
+        Route::post('vacuum-buchs/update/{id}', [VacuumBuchController::class, 'update'])
+            ->name('vacuum-buchs.update');
+
+        Route::delete('vacuum-buchs/{id}', [VacuumBuchController::class, 'destroy'])
+            ->name('vacuum-buchs.destroy');
+
+        Route::get('vacuum-processes', [VacuumProcessController::class, 'index'])
+            ->name('vacuum-processes.index');
+
+        Route::get('vacuum-processes/create', [VacuumProcessController::class, 'create'])
+            ->name('vacuum-processes.create');
+
+        Route::post('vacuum-processes/store', [VacuumProcessController::class, 'store'])
+            ->name('vacuum-processes.store');
+
+        Route::get('vacuum-processes/edit/{id}', [VacuumProcessController::class, 'edit'])
+            ->name('vacuum-processes.edit');
+
+        Route::post('vacuum-processes/update/{id}', [VacuumProcessController::class, 'update'])
+            ->name('vacuum-processes.update');
+
+        Route::delete('vacuum-processes/{id}', [VacuumProcessController::class, 'destroy'])
+            ->name('vacuum-processes.destroy');
+
+        Route::get('vacuum-vouchers', [VacuumVoucherController::class, 'index'])
+            ->name('vacuum-vouchers.index');
+
+        Route::get('vacuum-vouchers/create', [VacuumVoucherController::class, 'create'])
+            ->name('vacuum-vouchers.create');
+
+        Route::post('vacuum-vouchers/store', [VacuumVoucherController::class, 'store'])
+            ->name('vacuum-vouchers.store');
+
+        Route::get('vacuum-vouchers/buch-options', [VacuumVoucherController::class, 'buchOptions'])
+            ->name('vacuum-vouchers.buch-options');
+
+        Route::get('vacuum-vouchers/{id}/view', [VacuumVoucherController::class, 'show'])
+            ->name('vacuum-vouchers.show');
+
+        Route::get('vacuum-vouchers/{id}/pdf', [VacuumVoucherController::class, 'pdf'])
+            ->name('vacuum-vouchers.pdf');
+
+        Route::get('vacuum-vouchers/edit/{id}', [VacuumVoucherController::class, 'edit'])
+            ->name('vacuum-vouchers.edit');
+
+        Route::post('vacuum-vouchers/update/{id}', [VacuumVoucherController::class, 'update'])
+            ->name('vacuum-vouchers.update');
+
+        Route::delete('vacuum-vouchers/{id}', [VacuumVoucherController::class, 'destroy'])
+            ->name('vacuum-vouchers.destroy');
+
+        Route::get('casting-heating', [CastingHeatingController::class, 'index'])
+            ->name('casting-heating.index');
+
+        Route::get('casting-heating/{id}/view', [CastingHeatingController::class, 'show'])
+            ->name('casting-heating.show');
+
+        Route::get('casting-heating/{id}/pdf', [CastingHeatingController::class, 'pdf'])
+            ->name('casting-heating.pdf');
+
+        Route::post('casting-heating/{id}/update', [CastingHeatingController::class, 'update'])
+            ->name('casting-heating.update');
+
+        Route::get('casting-metal-issue', [CastingMetalIssueController::class, 'index'])
+            ->name('casting-metal-issue.index');
+
+        Route::get('casting-metal-issue/{id}/view', [CastingMetalIssueController::class, 'show'])
+            ->name('casting-metal-issue.show');
+
+        Route::get('casting-metal-issue/{id}/pdf', [CastingMetalIssueController::class, 'pdf'])
+            ->name('casting-metal-issue.pdf');
+
+        Route::post('casting-metal-issue/{id}/update', [CastingMetalIssueController::class, 'update'])
+            ->name('casting-metal-issue.update');
+
+        Route::get('casting-release', [CastingReleaseController::class, 'index']);
+
+        Route::get('casting-release/{id}/view', [CastingReleaseController::class, 'show']);
+
+        Route::get('casting-release/{id}/pdf', [CastingReleaseController::class, 'pdf']);
+
+        Route::post('casting-release/{id}/update', [CastingReleaseController::class, 'update']);
+
+        Route::get('casting-receive', [CastingReleaseController::class, 'index'])
+            ->name('casting-release.index');
+
+        Route::get('casting-receive/{id}/view', [CastingReleaseController::class, 'show'])
+            ->name('casting-release.show');
+
+        Route::get('casting-receive/{id}/pdf', [CastingReleaseController::class, 'pdf'])
+            ->name('casting-release.pdf');
+
+        Route::post('casting-receive/{id}/update', [CastingReleaseController::class, 'update'])
+            ->name('casting-release.update');
+
+        Route::get('tree-cutting-issue', [TreeCuttingIssueController::class, 'index'])
+            ->name('tree-cutting-issue.index');
+
+        Route::get('tree-cutting-issue/{id}/view', [TreeCuttingIssueController::class, 'show'])
+            ->name('tree-cutting-issue.show');
+
+        Route::get('tree-cutting-issue/{id}/pdf', [TreeCuttingIssueController::class, 'pdf'])
+            ->name('tree-cutting-issue.pdf');
+
+        Route::post('tree-cutting-issue/{id}/update', [TreeCuttingIssueController::class, 'update'])
+            ->name('tree-cutting-issue.update');
+
+        Route::get('tree-cutting-receive', [TreeCuttingReceiveController::class, 'index'])
+            ->name('tree-cutting-receive.index');
+
+        Route::get('tree-cutting-receive/{id}/view', [TreeCuttingReceiveController::class, 'show'])
+            ->name('tree-cutting-receive.show');
+
+        Route::get('tree-cutting-receive/{id}/pdf', [TreeCuttingReceiveController::class, 'pdf'])
+            ->name('tree-cutting-receive.pdf');
+
+        Route::post('tree-cutting-receive/{id}/update', [TreeCuttingReceiveController::class, 'update'])
+            ->name('tree-cutting-receive.update');
+
+        Route::get('casting-sorting', [CastingSortingController::class, 'index'])
+            ->name('casting-sorting.index');
+
+        Route::get('casting-sorting/{id}/view', [CastingSortingController::class, 'show'])
+            ->name('casting-sorting.show');
+
+        Route::get('casting-sorting/{id}/pdf', [CastingSortingController::class, 'pdf'])
+            ->name('casting-sorting.pdf');
+
+        Route::post('casting-sorting/{id}/update', [CastingSortingController::class, 'update'])
+            ->name('casting-sorting.update');
 
         Route::get('/itemsets', [ItemSetController::class, 'list_data'])
             ->name('itemsets.list_data');

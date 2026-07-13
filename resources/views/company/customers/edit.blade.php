@@ -14,16 +14,6 @@
                         @csrf
                         @method('PUT')
 
-                        @if ($errors->any())
-                        <div class="alert alert-danger">
-                            <ul class="mb-0">
-                                @foreach ($errors->all() as $error)
-                                <li>{{ $error }}</li>
-                                @endforeach
-                            </ul>
-                        </div>
-                        @endif
-
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group row">
@@ -34,7 +24,12 @@
                             <div class="col-md-6">
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">Email</label>
-                                    <div class="col-sm-9"><input type="email" name="email" value="{{ old('email', $customer->email) }}" class="form-control"></div>
+                                    <div class="col-sm-9">
+                                        <input type="email" name="email" value="{{ old('email', $customer->email) }}" class="form-control @error('email') is-invalid @enderror">
+                                        @error('email')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
                                 </div>
                             </div>
                         </div>

@@ -5,6 +5,7 @@ namespace App\Observers;
 use App\Models\ApprovalHeader;
 use App\Models\CompanyAppTheme;
 use App\Models\Customer;
+use App\Models\CustomerAdvanceLedger;
 use App\Models\Item;
 use App\Models\ItemSet;
 use App\Models\JobWorker;
@@ -15,6 +16,7 @@ use App\Models\OtherCharge;
 use App\Models\ProductionCost;
 use App\Models\ProductionStep;
 use App\Models\Sale;
+use App\Models\SaleReturn;
 use App\Models\User;
 use App\Models\VisitingCard;
 use App\Services\CompanyNotificationService;
@@ -107,7 +109,9 @@ class CompanyActivityObserver
             $model instanceof ItemSet => ['item_set', 'Label Item', 'company.list_itemset'],
             $model instanceof OtherCharge => ['other_charge', 'Other Charge', 'company.other-charge.index'],
             $model instanceof ApprovalHeader => ['approval', 'Approval', 'company.approval.index'],
+            $model instanceof SaleReturn => ['approval_return', 'Approval Return', 'company.returns.index'],
             $model instanceof Sale => ['sale', 'Sale', 'company.sales.index'],
+            $model instanceof CustomerAdvanceLedger => ['sale_advance', 'Receive / Return / Purchase', 'company.sales.advance.index'],
             $model instanceof JobWorker => ['job_worker', 'Job Worker', 'company.job-workers.index'],
             $model instanceof JobworkIssue => ['jobwork_issue', 'Jobwork Issue', 'company.jobwork-issue.index'],
             $model instanceof ProductionCost => ['production_cost', 'Production Cost', 'company.production-cost.index'],
@@ -120,7 +124,7 @@ class CompanyActivityObserver
 
     private function displayName(Model $model): string
     {
-        foreach (['name', 'item_name', 'other_charge', 'prefix', 'qr_code', 'barcode', 'approval_no', 'voucher_no', 'mobile_no'] as $field) {
+        foreach (['name', 'item_name', 'other_charge', 'prefix', 'qr_code', 'barcode', 'approval_no', 'voucher_no', 'return_voucher_no', 'mobile_no', 'entry_type'] as $field) {
             $value = $model->getAttribute($field);
             if ($value !== null && $value !== '') {
                 return (string) $value;

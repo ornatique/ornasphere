@@ -63,6 +63,15 @@
     $canProductionCost = $canModule('production-cost');
     $canLabourFormula = $canModule('labour-formula');
     $canProductionStep = $canModule('production-step');
+    $canVacuumBuch = $canModule('vacuum-buch');
+    $canVacuumProcess = $canModule('vacuum-process');
+    $canVacuumVoucher = $canModule('vacuum-voucher');
+    $canCastingHeating = $canModule('casting-heating');
+    $canCastingMetalIssue = $canModule('casting-metal-issue');
+    $canCastingRelease = $canModule('casting-release');
+    $canTreeCuttingIssue = $canModule('tree-cutting-issue');
+    $canTreeCuttingReceive = $canModule('tree-cutting-receive');
+    $canCastingSorting = $canModule('casting-sorting');
 
     $canApproval = $canModule('approval');
     $canSales = $canModule('sale');
@@ -319,6 +328,117 @@
         </li>
         @endif
 
+        {{-- ================= VACUUM ================= --}}
+        @php
+        $vacuumActive =
+        request()->routeIs('company.vacuum-buchs.*') ||
+        request()->routeIs('company.vacuum-processes.*') ||
+        request()->routeIs('company.vacuum-vouchers.*') ||
+        request()->routeIs('company.casting-heating.*') ||
+        request()->routeIs('company.casting-metal-issue.*') ||
+        request()->routeIs('company.casting-release.*') ||
+        request()->routeIs('company.tree-cutting-issue.*') ||
+        request()->routeIs('company.tree-cutting-receive.*') ||
+        request()->routeIs('company.casting-sorting.*');
+        @endphp
+        @if($canVacuumBuch || $canVacuumProcess || $canVacuumVoucher || $canCastingHeating || $canCastingMetalIssue || $canCastingRelease || $canTreeCuttingIssue || $canTreeCuttingReceive || $canCastingSorting)
+        <li class="nav-item {{ $vacuumActive ? 'active' : '' }}">
+            <a class="nav-link"
+                data-bs-toggle="collapse"
+                href="#vacuum-menu"
+                aria-expanded="{{ $vacuumActive ? 'true' : 'false' }}">
+                <i class="typcn typcn-cog menu-icon"></i>
+                <span class="menu-title">Vacuum</span>
+                <i class="typcn typcn-chevron-right menu-arrow"></i>
+            </a>
+
+            <div class="collapse {{ $vacuumActive ? 'show' : '' }}" id="vacuum-menu" data-bs-parent="#sidebar-accordion">
+                <ul class="nav flex-column sub-menu">
+                    @if($canVacuumBuch)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.vacuum-buchs.*') ? 'active' : '' }}"
+                            href="{{ route('company.vacuum-buchs.index', auth()->user()->company->slug) }}">
+                            Buch
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canVacuumProcess)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.vacuum-processes.*') ? 'active' : '' }}"
+                            href="{{ route('company.vacuum-processes.index', auth()->user()->company->slug) }}">
+                            Process
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canVacuumVoucher)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.vacuum-vouchers.*') ? 'active' : '' }}"
+                            href="{{ route('company.vacuum-vouchers.index', auth()->user()->company->slug) }}">
+                            Voucher
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canCastingHeating)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.casting-heating.*') ? 'active' : '' }}"
+                            href="{{ route('company.casting-heating.index', auth()->user()->company->slug) }}">
+                            Casting Heating
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canCastingMetalIssue)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.casting-metal-issue.*') ? 'active' : '' }}"
+                            href="{{ route('company.casting-metal-issue.index', auth()->user()->company->slug) }}">
+                            Casting Metal Issue
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canCastingRelease)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.casting-release.*') ? 'active' : '' }}"
+                            href="{{ route('company.casting-release.index', auth()->user()->company->slug) }}">
+                            Casting Receive
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canTreeCuttingIssue)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.tree-cutting-issue.*') ? 'active' : '' }}"
+                            href="{{ route('company.tree-cutting-issue.index', auth()->user()->company->slug) }}">
+                            Tree Cutting Issue
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canTreeCuttingReceive)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.tree-cutting-receive.*') ? 'active' : '' }}"
+                            href="{{ route('company.tree-cutting-receive.index', auth()->user()->company->slug) }}">
+                            Tree Cutting Receive
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canCastingSorting)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.casting-sorting.*') ? 'active' : '' }}"
+                            href="{{ route('company.casting-sorting.index', auth()->user()->company->slug) }}">
+                            Casting Sorting
+                        </a>
+                    </li>
+                    @endif
+                </ul>
+            </div>
+        </li>
+        @endif
+
         {{-- ================= JOBWORK ISSUE ================= --}}
         @php
         $jobworkIssueActive =
@@ -426,7 +546,7 @@
                 aria-expanded="{{ $salesActive ? 'true' : 'false' }}">
                 <i class="typcn typcn-chart-line menu-icon"></i>
                 <span class="menu-title">Sales</span>
-                @php $salesNotifications = $notifySum(['approval', 'approval_return', 'sale']); @endphp
+                @php $salesNotifications = $notifySum(['approval', 'approval_return', 'sale', 'sale_advance']); @endphp
                 @if($canNotifications && $salesNotifications > 0)
                 <span class="sidebar-notification-badge">{{ $salesNotifications > 99 ? '99+' : $salesNotifications }}</span>
                 @endif
@@ -475,6 +595,9 @@
                         <a class="nav-link {{ $salesAdvanceActive ? 'active' : '' }}"
                             href="{{ route('company.sales.advance.index', auth()->user()->company->slug) }}">
                             Receive / Return / Purchase
+                            @if($canNotifications && $notifyCount('sale_advance') > 0)
+                            <span class="sidebar-notification-badge">{{ $notifyCount('sale_advance') > 99 ? '99+' : $notifyCount('sale_advance') }}</span>
+                            @endif
                         </a>
                     </li>
                     @endif

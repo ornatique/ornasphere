@@ -7,11 +7,15 @@ use App\Models\ApprovalHeader;
 use App\Models\Company;
 use App\Models\Customer;
 use App\Models\Sale;
+use App\Models\User;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Database\QueryException;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 use Yajra\DataTables\Facades\DataTables;
 
 class CustomerController extends Controller
@@ -56,12 +60,19 @@ class CustomerController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
+        $this->normalizeCustomerRequest($request);
         $validated = $this->validateCustomer($request, $company->id);
+        $this->ensureEmailIsUnique($validated['email'] ?? null);
 
-        Customer::create(array_merge($validated, [
-            'company_id' => $company->id,
-            'is_active' => $request->boolean('is_active', true),
-        ]));
+        try {
+            Customer::create(array_merge($validated, [
+                'company_id' => $company->id,
+                'is_active' => $request->boolean('is_active', true),
+            ]));
+        } catch (Throwable $e) {
+            $this->throwDuplicateEmailValidation($e);
+            throw $e;
+        }
 
         return redirect()
             ->route('company.customers.index', $company->slug)
@@ -89,11 +100,18 @@ class CustomerController extends Controller
             ->where('id', $customerId)
             ->firstOrFail();
 
+        $this->normalizeCustomerRequest($request);
         $validated = $this->validateCustomer($request, $company->id, $customer->id);
+        $this->ensureEmailIsUnique($validated['email'] ?? null, (int) $customer->id, $customer->legacy_user_id ? (int) $customer->legacy_user_id : null);
 
-        $customer->update(array_merge($validated, [
-            'is_active' => $request->boolean('is_active', false),
-        ]));
+        try {
+            $customer->update(array_merge($validated, [
+                'is_active' => $request->boolean('is_active', false),
+            ]));
+        } catch (Throwable $e) {
+            $this->throwDuplicateEmailValidation($e);
+            throw $e;
+        }
 
         return redirect()
             ->route('company.customers.index', $company->slug)
@@ -195,7 +213,86 @@ class CustomerController extends Controller
             'anniversary_date' => 'nullable|date',
             'reference' => 'nullable|string|max:191',
             'remarks' => 'nullable|string',
+        ], [
+            'email.unique' => 'This email id is already used for another customer.',
+            'email.email' => 'Please enter a valid email id.',
         ]);
+    }
+
+    private function normalizeCustomerRequest(Request $request): void
+    {
+        $input = [];
+
+        foreach ([
+            'name',
+            'email',
+            'mobile_no',
+            'city',
+            'area',
+            'landmark',
+            'pincode',
+            'contact_person1_name',
+            'contact_person1_phone',
+            'contact_person2_name',
+            'contact_person2_phone',
+            'gst_no',
+            'pan_no',
+            'aadhaar_no',
+            'reference',
+        ] as $field) {
+            if ($request->has($field)) {
+                $input[$field] = trim((string) $request->input($field));
+            }
+        }
+
+        if (array_key_exists('email', $input) && $input['email'] !== '') {
+            $input['email'] = strtolower($input['email']);
+        }
+
+        $request->merge($input);
+    }
+
+    private function throwDuplicateEmailValidation(Throwable $e): void
+    {
+        $message = (string) $e->getMessage();
+        $normalizedMessage = strtolower($message);
+
+        if (
+            str_contains($normalizedMessage, 'duplicate')
+            || str_contains($normalizedMessage, '1062')
+            || ((string) $e->getCode() === '23000' && (str_contains($normalizedMessage, 'email') || str_contains($normalizedMessage, 'customers') || str_contains($normalizedMessage, 'users')))
+        ) {
+            throw ValidationException::withMessages([
+                'email' => 'This email id is already used for another customer.',
+            ]);
+        }
+    }
+
+    private function ensureEmailIsUnique(?string $email, ?int $ignoreCustomerId = null, ?int $ignoreUserId = null): void
+    {
+        $email = strtolower(trim((string) $email));
+
+        if ($email === '') {
+            return;
+        }
+
+        $exists = Customer::query()
+            ->whereRaw('TRIM(LOWER(email)) = ?', [$email])
+            ->when($ignoreCustomerId, fn($query) => $query->where('id', '!=', $ignoreCustomerId))
+            ->exists();
+
+        if (!$exists) {
+            $exists = User::query()
+                ->whereRaw('TRIM(LOWER(email)) = ?', [$email])
+                ->when($ignoreUserId, fn($query) => $query->where('id', '!=', $ignoreUserId))
+                ->exists();
+        }
+
+        if ($exists) {
+            throw ValidationException::withMessages([
+                'email' => 'This email id is already used for another customer.',
+            ]);
+        }
     }
 
     private function isCustomerUsed(int $companyId, int $customerId): bool

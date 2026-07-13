@@ -6,10 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\LabourFormula;
 use Illuminate\Http\Request;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Yajra\DataTables\Facades\DataTables;
 
 class LabourFormulaController extends Controller
@@ -57,13 +59,19 @@ class LabourFormulaController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
+        $this->normalizeRequest($request);
         $validated = $this->validateData($request, $company->id);
 
-        LabourFormula::create([
-            'company_id' => $company->id,
-            'name' => $validated['name'],
-            'status' => (bool) ($validated['status'] ?? true),
-        ]);
+        try {
+            LabourFormula::create([
+                'company_id' => $company->id,
+                'name' => $validated['name'],
+                'status' => (bool) ($validated['status'] ?? true),
+            ]);
+        } catch (QueryException $e) {
+            $this->throwDuplicateNameValidation($e);
+            throw $e;
+        }
 
         return redirect()
             ->route('company.labour-formula.index', $company->slug)
@@ -91,12 +99,18 @@ class LabourFormulaController extends Controller
             ->where('id', $id)
             ->firstOrFail();
 
+        $this->normalizeRequest($request);
         $validated = $this->validateData($request, $company->id, (int) $data->id);
 
-        $data->update([
-            'name' => $validated['name'],
-            'status' => (bool) ($validated['status'] ?? false),
-        ]);
+        try {
+            $data->update([
+                'name' => $validated['name'],
+                'status' => (bool) ($validated['status'] ?? false),
+            ]);
+        } catch (QueryException $e) {
+            $this->throwDuplicateNameValidation($e);
+            throw $e;
+        }
 
         return redirect()
             ->route('company.labour-formula.index', $company->slug)
@@ -139,7 +153,30 @@ class LabourFormulaController extends Controller
                     ->ignore($id),
             ],
             'status' => ['required', 'boolean'],
+        ], [
+            'name.unique' => 'This labour formula name already exists.',
+            'name.required' => 'Labour formula name is required.',
         ]);
+    }
+
+    private function normalizeRequest(Request $request): void
+    {
+        if ($request->has('name')) {
+            $request->merge([
+                'name' => trim((string) $request->input('name')),
+            ]);
+        }
+    }
+
+    private function throwDuplicateNameValidation(QueryException $e): void
+    {
+        $message = strtolower((string) $e->getMessage());
+
+        if ((string) $e->getCode() === '23000' && str_contains($message, 'labour_formulas')) {
+            throw ValidationException::withMessages([
+                'name' => 'This labour formula name already exists.',
+            ]);
+        }
     }
 
     private function isUsedInJobwork(int $companyId, int $labourFormulaId, string $labourFormulaName): bool
@@ -182,4 +219,3 @@ class LabourFormulaController extends Controller
         return false;
     }
 }
-

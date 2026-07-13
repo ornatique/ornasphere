@@ -28,9 +28,12 @@
                             <label>Name *</label>
                             <input type="text"
                                 name="name"
-                                class="form-control"
+                                class="form-control @error('name') is-invalid @enderror"
                                 required
                                 value="{{ old('name', $data->name ?? '') }}">
+                            @error('name')
+                            <div class="invalid-feedback">{{ $message }}</div>
+                            @enderror
                         </div>
                     </div>
 
@@ -59,4 +62,3 @@
     </div>
 </div>
 @endsection
-

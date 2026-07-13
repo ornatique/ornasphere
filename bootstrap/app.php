@@ -49,7 +49,12 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $exceptions->render(function (ValidationException $e, Request $request) use ($isApi) {
             if (!$isApi($request)) {
-                return null; // keep default web redirect with validation errors
+                $firstError = collect($e->errors())->flatten()->first() ?: 'Validation failed.';
+
+                return back()
+                    ->withInput($request->except(['password', 'password_confirmation', 'current_password']))
+                    ->withErrors($e->errors())
+                    ->with('error', $firstError);
             }
 
             $firstError = collect($e->errors())->flatten()->first() ?: 'Validation failed.';
@@ -157,6 +162,22 @@ return Application::configure(basePath: dirname(__DIR__))
                 'user_id' => optional($request->user())->id,
             ]);
 
+            $message = strtolower((string) $e->getMessage());
+            if (
+                !$isApi($request)
+                && !$request->isMethod('get')
+                && str_contains((string) $request->route()?->getName(), 'company.customers.')
+                && (str_contains($message, 'duplicate') || str_contains($message, '1062'))
+                && (str_contains($message, 'email') || str_contains($message, 'customers') || str_contains($message, 'users'))
+            ) {
+                $duplicateEmailMessage = 'This email id is already used for another customer.';
+
+                return back()
+                    ->withInput($request->except(['password', 'password_confirmation', 'current_password']))
+                    ->withErrors(['email' => $duplicateEmailMessage])
+                    ->with('error', $duplicateEmailMessage);
+            }
+
             if ($isApi($request)) {
                 return response()->json([
                     'success' => false,
@@ -173,6 +194,15 @@ return Application::configure(basePath: dirname(__DIR__))
         });
 
         $exceptions->render(function (Throwable $e, Request $request) use ($isApi) {
+            if (!$isApi($request) && $e instanceof ValidationException) {
+                $firstError = collect($e->errors())->flatten()->first() ?: 'Validation failed.';
+
+                return back()
+                    ->withInput($request->except(['password', 'password_confirmation', 'current_password']))
+                    ->withErrors($e->errors())
+                    ->with('error', $firstError);
+            }
+
             if ($e instanceof HttpExceptionInterface && $e->getStatusCode() === 403) {
                 if ($isApi($request)) {
                     return response()->json([
@@ -219,6 +249,22 @@ return Application::configure(basePath: dirname(__DIR__))
                     ->with('error', 'Session expired. Please login again.');
             }
 
+            $message = strtolower((string) $e->getMessage());
+            if (
+                !$isApi($request)
+                && !$request->isMethod('get')
+                && str_contains((string) $request->route()?->getName(), 'company.customers.')
+                && (str_contains($message, 'duplicate') || str_contains($message, '1062'))
+                && (str_contains($message, 'email') || str_contains($message, 'customers') || str_contains($message, 'users'))
+            ) {
+                $duplicateEmailMessage = 'This email id is already used for another customer.';
+
+                return back()
+                    ->withInput($request->except(['password', 'password_confirmation', 'current_password']))
+                    ->withErrors(['email' => $duplicateEmailMessage])
+                    ->with('error', $duplicateEmailMessage);
+            }
+
             Log::error('Unhandled exception', [
                 'message' => $e->getMessage(),
                 'file' => $e->getFile(),
@@ -245,5 +291,3 @@ return Application::configure(basePath: dirname(__DIR__))
         });
     })
     ->create();
-
-
