@@ -166,13 +166,19 @@ class CompanyUserController extends Controller
                         ';
                     }
 
-                    if ($canDeleteUsers) {
+                    if (!$isCompanyAdminUser && $canDeleteUsers) {
                         $html .= '
                             <button type="button"
                                 class="btn btn-sm ' . $statusBtnClass . ' toggle-status-btn"
                                 data-url="' . $toggleUrl . '">
                                 ' . $statusText . '
                             </button>
+                        ';
+                    } elseif ($isCompanyAdminUser) {
+                        $html .= '
+                            <span class="btn btn-sm ' . $statusBtnClass . ' disabled" aria-disabled="true">
+                                ' . $statusText . '
+                            </span>
                         ';
                     }
 
@@ -441,6 +447,13 @@ class CompanyUserController extends Controller
             return response()->json([
                 'status' => false,
                 'message' => 'You cannot deactivate yourself.'
+            ], 403);
+        }
+
+        if ($this->isCompanyAdminUser($user)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Company admin status can only be changed by superadmin.'
             ], 403);
         }
 

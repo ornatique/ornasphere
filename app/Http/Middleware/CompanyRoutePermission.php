@@ -81,12 +81,14 @@ class CompanyRoutePermission
             'company.vacuum-buchs.' => 'vacuum-buch',
             'company.vacuum-processes.' => 'vacuum-process',
             'company.vacuum-vouchers.' => 'vacuum-voucher',
+            'company.vacuum-live-dashboard.' => 'vacuum-live-dashboard',
             'company.casting-heating.' => 'casting-heating',
             'company.casting-metal-issue.' => 'casting-metal-issue',
             'company.casting-release.' => 'casting-release',
             'company.tree-cutting-issue.' => 'tree-cutting-issue',
             'company.tree-cutting-receive.' => 'tree-cutting-receive',
             'company.casting-sorting.' => 'casting-sorting',
+            'company.voucher-history.' => 'voucher-history',
             'company.item_sets.' => 'item-set',
             'company.itemsets.' => 'item-set',
             'company.list_itemset' => 'item-set',
@@ -106,6 +108,7 @@ class CompanyRoutePermission
             'company.reports.approval-outstanding.' => 'report-approval-outstanding',
             'company.reports.outstanding-amount.' => 'report-outstanding-amount',
             'company.reports.barcode-history.' => 'report-barcode-history',
+            'company.reports.worker-loss.' => 'report-worker-loss',
             'company.reports.visiting-cards.' => 'report-visiting-cards',
         ];
 

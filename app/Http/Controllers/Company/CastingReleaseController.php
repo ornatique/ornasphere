@@ -59,6 +59,12 @@ class CastingReleaseController extends Controller
                                 ->orWhereNotNull('casting_release_items.release_tree_bhuko');
                         });
                 }, 'assigned_receive_count')
+                ->selectSub(function ($query) use ($company) {
+                    $query->from('casting_release_items')
+                        ->selectRaw('MAX(COALESCE(casting_release_items.released_at, casting_release_items.created_at))')
+                        ->whereColumn('casting_release_items.vacuum_voucher_id', 'vacuum_vouchers.id')
+                        ->where('casting_release_items.company_id', $company->id);
+                }, 'release_datetime')
                 ->orderByDesc('metal_issue_datetime')
                 ->orderByDesc('id');
 
@@ -67,7 +73,7 @@ class CastingReleaseController extends Controller
                 ->addColumn('voucher_no_view', fn($row) => $row->voucher_no)
                 ->addColumn('process_name', fn($row) => $row->process?->name ?? '-')
                 ->addColumn('worker_name', fn($row) => $row->jobWorker?->name ?? '-')
-                ->addColumn('date_time_view', fn($row) => $row->metal_issue_datetime ? \Carbon\Carbon::parse($row->metal_issue_datetime)->format('d-m-Y / h:i A') : '-')
+                ->addColumn('date_time_view', fn($row) => $row->release_datetime ? \Carbon\Carbon::parse($row->release_datetime)->format('d-m-Y / h:i A') : ($row->metal_issue_datetime ? \Carbon\Carbon::parse($row->metal_issue_datetime)->format('d-m-Y / h:i A') : '-'))
                 ->addColumn('assigned_receive_view', function ($row) {
                     $assigned = (int) ($row->assigned_receive_count ?? 0);
 

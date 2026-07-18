@@ -432,6 +432,144 @@ class ReportController extends Controller
             ->download('stock_position_report.pdf');
     }
 
+    public function workerLoss(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        if ($request->ajax()) {
+            $query = $this->workerLossBaseQuery($company, $request);
+            $totals = $this->workerLossTotals($company, $request);
+            $summary = $this->workerLossSummary($company, $request);
+
+            return DataTables::of($query)
+                ->addIndexColumn()
+                ->editColumn('process_datetime', function ($row) {
+                    return $row->process_datetime
+                        ? Carbon::parse($row->process_datetime)->format('d-m-Y h:i A')
+                        : '-';
+                })
+                ->editColumn('worker_name', fn($row) => $row->worker_name ?: '-')
+                ->addColumn('voucher_no_html', fn($row) => $this->workerLossVoucherLink($company, $row, $row->voucher_no ?: '-'))
+                ->addColumn('buch_no_html', fn($row) => $this->workerLossVoucherLink($company, $row, $row->buch_no ?: '-'))
+                ->editColumn('source_wt', fn($row) => number_format((float) ($row->source_wt ?? 0), 3, '.', ''))
+                ->editColumn('receive_wt', fn($row) => number_format((float) ($row->receive_wt ?? 0), 3, '.', ''))
+                ->editColumn('bhuko', fn($row) => number_format((float) ($row->bhuko ?? 0), 3, '.', ''))
+                ->editColumn('loss', fn($row) => number_format((float) ($row->loss ?? 0), 3, '.', ''))
+                ->with([
+                    'totals' => $totals,
+                    'worker_summary' => $summary['workers'],
+                    'stage_summary' => $summary['stages'],
+                ])
+                ->rawColumns(['voucher_no_html', 'buch_no_html'])
+                ->make(true);
+        }
+
+        $workers = DB::table('job_workers')
+            ->where('company_id', $company->id)
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        $defaultFromDate = now()->subDays(6)->toDateString();
+        $defaultToDate = now()->toDateString();
+
+        return view('company.reports.worker_loss', compact('company', 'workers', 'defaultFromDate', 'defaultToDate'));
+    }
+
+    public function workerLossSuggest(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $term = trim((string) $request->get('q', ''));
+        $limit = max(1, min((int) $request->get('limit', 12), 50));
+
+        $filterRequest = new Request($request->except(['q', 'limit', 'voucher_no']));
+        $baseQuery = $this->workerLossBaseQuery($company, $filterRequest);
+        $query = DB::query()
+            ->fromSub($baseQuery, 'loss_rows')
+            ->when($term !== '', fn($q) => $q->where('voucher_no', 'like', "%{$term}%"))
+            ->selectRaw('voucher_id, voucher_no, MAX(process_datetime) as latest_process_datetime')
+            ->groupBy('voucher_id', 'voucher_no')
+            ->orderByDesc('latest_process_datetime')
+            ->limit($limit)
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $query->map(function ($row) {
+                return [
+                    'id' => (int) $row->voucher_id,
+                    'voucher_no' => $row->voucher_no,
+                    'date_time' => $row->latest_process_datetime
+                        ? Carbon::parse($row->latest_process_datetime)->format('d-m-Y h:i A')
+                        : null,
+                ];
+            })->values(),
+        ]);
+    }
+
+    public function workerLossPdf(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $rows = $this->workerLossBaseQuery($company, $request)->get();
+        $totals = $this->workerLossTotals($company, $request);
+        $summary = $this->workerLossSummary($company, $request);
+
+        return Pdf::loadView('company.reports.pdf.worker_loss', compact('company', 'rows', 'totals', 'summary', 'request'))
+            ->setPaper('a4', 'landscape')
+            ->download('worker_loss_report.pdf');
+    }
+
+    public function workerLossExcel(Request $request, $slug): StreamedResponse
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $rows = $this->workerLossBaseQuery($company, $request)->get();
+        $totals = $this->workerLossTotals($company, $request);
+        $summary = $this->workerLossSummary($company, $request);
+
+        return response()->streamDownload(function () use ($rows, $totals, $summary) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, ['Date Time', 'Worker', 'Voucher No', 'B. No', 'Stage', 'Source Wt', 'Receive Wt', 'Bhuko', 'Loss']);
+            foreach ($rows as $row) {
+                fputcsv($out, [
+                    $row->process_datetime ? Carbon::parse($row->process_datetime)->format('d-m-Y h:i A') : '-',
+                    $row->worker_name ?: '-',
+                    $row->voucher_no ?: '-',
+                    $row->buch_no ?: '-',
+                    $row->stage ?: '-',
+                    number_format((float) ($row->source_wt ?? 0), 3, '.', ''),
+                    number_format((float) ($row->receive_wt ?? 0), 3, '.', ''),
+                    number_format((float) ($row->bhuko ?? 0), 3, '.', ''),
+                    number_format((float) ($row->loss ?? 0), 3, '.', ''),
+                ]);
+            }
+            fputcsv($out, [
+                'TOTAL',
+                '',
+                '',
+                '',
+                '',
+                number_format((float) ($totals['source_wt'] ?? 0), 3, '.', ''),
+                number_format((float) ($totals['receive_wt'] ?? 0), 3, '.', ''),
+                number_format((float) ($totals['bhuko'] ?? 0), 3, '.', ''),
+                number_format((float) ($totals['loss'] ?? 0), 3, '.', ''),
+            ]);
+            fputcsv($out, []);
+            fputcsv($out, ['Worker Summary']);
+            fputcsv($out, ['Worker', 'Rows', 'Source Wt', 'Receive Wt', 'Bhuko', 'Loss']);
+            foreach ($summary['workers'] as $row) {
+                fputcsv($out, [$row['label'], $row['rows'], $row['source_wt'], $row['receive_wt'], $row['bhuko'], $row['loss']]);
+            }
+            fputcsv($out, []);
+            fputcsv($out, ['Stage Summary']);
+            fputcsv($out, ['Stage', 'Rows', 'Source Wt', 'Receive Wt', 'Bhuko', 'Loss']);
+            foreach ($summary['stages'] as $row) {
+                fputcsv($out, [$row['label'], $row['rows'], $row['source_wt'], $row['receive_wt'], $row['bhuko'], $row['loss']]);
+            }
+            fclose($out);
+        }, 'worker_loss_report.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
     public function approvalOutstanding(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
@@ -1041,6 +1179,166 @@ class ReportController extends Controller
                 DB::raw('SUM(COALESCE(item_sets.sale_other,0)) as other_amount'),
             ])
             ->groupBy('item_sets.item_id', 'items.item_name');
+    }
+
+    private function workerLossBaseQuery(Company $company, Request $request)
+    {
+        $castingReceive = DB::table('casting_release_items as cr')
+            ->join('vacuum_vouchers as vv', 'vv.id', '=', 'cr.vacuum_voucher_id')
+            ->leftJoin('vacuum_voucher_items as vvi', 'vvi.id', '=', 'cr.vacuum_voucher_item_id')
+            ->leftJoin('casting_metal_issue_items as cmi', function ($join) {
+                $join->on('cmi.company_id', '=', 'cr.company_id')
+                    ->on('cmi.vacuum_voucher_item_id', '=', 'cr.vacuum_voucher_item_id');
+            })
+            ->leftJoin('job_workers as jw', 'jw.id', '=', 'vv.job_worker_id')
+            ->where('cr.company_id', $company->id)
+            ->where(function ($query) {
+                $query->whereNotNull('cr.release_tree_wt')
+                    ->orWhereNotNull('cr.release_tree_bhuko')
+                    ->orWhereNotNull('cr.loss');
+            })
+            ->selectRaw("
+                'Casting Receive' as stage,
+                vv.job_worker_id as worker_id,
+                jw.name as worker_name,
+                vv.id as voucher_id,
+                vv.voucher_no as voucher_no,
+                vvi.buch_no as buch_no,
+                cmi.issue_silver_wt as source_wt,
+                cr.release_tree_wt as receive_wt,
+                cr.release_tree_bhuko as bhuko,
+                cr.loss as loss,
+                COALESCE(cr.released_at, cr.created_at) as process_datetime
+            ");
+
+        $treeCuttingReceive = DB::table('tree_cutting_receive_items as tcr')
+            ->join('vacuum_vouchers as vv', 'vv.id', '=', 'tcr.vacuum_voucher_id')
+            ->leftJoin('tree_cutting_issue_items as tci', 'tci.id', '=', 'tcr.tree_cutting_issue_item_id')
+            ->leftJoin('vacuum_voucher_items as vvi', function ($join) {
+                $join->on('vvi.id', '=', DB::raw('COALESCE(tcr.vacuum_voucher_item_id, tci.vacuum_voucher_item_id)'));
+            })
+            ->leftJoin('job_workers as jw', function ($join) {
+                $join->on('jw.id', '=', DB::raw('COALESCE(tcr.job_worker_id, tci.job_worker_id)'));
+            })
+            ->where('tcr.company_id', $company->id)
+            ->where(function ($query) {
+                $query->whereNotNull('tcr.receive_pc_wt')
+                    ->orWhereNotNull('tcr.receive_tree_bhuko')
+                    ->orWhereNotNull('tcr.loss');
+            })
+            ->selectRaw("
+                'Tree Cutting Receive' as stage,
+                COALESCE(tcr.job_worker_id, tci.job_worker_id) as worker_id,
+                jw.name as worker_name,
+                vv.id as voucher_id,
+                vv.voucher_no as voucher_no,
+                CASE
+                    WHEN COALESCE(tcr.is_custom, tci.is_custom, 0) = 1
+                        THEN COALESCE(tcr.custom_buch_no, tci.custom_buch_no)
+                    ELSE COALESCE(vvi.buch_no, tcr.custom_buch_no, tci.custom_buch_no)
+                END as buch_no,
+                tci.receive_tree_wt as source_wt,
+                tcr.receive_pc_wt as receive_wt,
+                tcr.receive_tree_bhuko as bhuko,
+                tcr.loss as loss,
+                COALESCE(tcr.received_at, tcr.created_at) as process_datetime
+            ");
+
+        $query = DB::query()
+            ->fromSub($castingReceive->unionAll($treeCuttingReceive), 'worker_loss')
+            ->select('worker_loss.*');
+
+        if ($request->filled('from_date')) {
+            $query->whereDate('process_datetime', '>=', $request->input('from_date'));
+        }
+        if ($request->filled('to_date')) {
+            $query->whereDate('process_datetime', '<=', $request->input('to_date'));
+        }
+        if ($request->filled('worker_id')) {
+            $query->where('worker_id', (int) $request->input('worker_id'));
+        }
+        if ($request->filled('stage')) {
+            $query->where('stage', $request->input('stage'));
+        }
+        if ($request->filled('voucher_no')) {
+            $voucherNo = trim((string) $request->input('voucher_no'));
+            $query->where('voucher_no', 'like', "%{$voucherNo}%");
+        }
+
+        match ($request->input('loss_type')) {
+            'plus' => $query->where('loss', '>', 0),
+            'minus' => $query->where('loss', '<', 0),
+            'zero' => $query->where(function ($q) {
+                $q->where('loss', 0)->orWhereNull('loss');
+            }),
+            default => null,
+        };
+
+        if ($this->isTruthyRequestValue($request->input('only_loss'))) {
+            $query->where('loss', '!=', 0);
+        }
+
+        return $query->orderByDesc('process_datetime');
+    }
+
+    private function workerLossTotals(Company $company, Request $request): array
+    {
+        $rows = $this->workerLossBaseQuery($company, $request)->get();
+
+        return [
+            'row_count' => $rows->count(),
+            'source_wt' => (float) $rows->sum(fn($row) => (float) ($row->source_wt ?? 0)),
+            'receive_wt' => (float) $rows->sum(fn($row) => (float) ($row->receive_wt ?? 0)),
+            'bhuko' => (float) $rows->sum(fn($row) => (float) ($row->bhuko ?? 0)),
+            'loss' => (float) $rows->sum(fn($row) => (float) ($row->loss ?? 0)),
+        ];
+    }
+
+    private function workerLossSummary(Company $company, Request $request): array
+    {
+        $rows = $this->workerLossBaseQuery($company, $request)->get();
+        $format = fn($value) => number_format((float) $value, 3, '.', '');
+
+        $mapSummary = function ($groupedRows, string $labelField) use ($format) {
+            return $groupedRows->map(function ($group, $key) use ($format, $labelField) {
+                $first = $group->first();
+
+                return [
+                    'label' => $labelField === 'worker_name'
+                        ? ($first->worker_name ?: 'No Worker')
+                        : ($key ?: '-'),
+                    'rows' => $group->count(),
+                    'source_wt' => $format($group->sum(fn($row) => (float) ($row->source_wt ?? 0))),
+                    'receive_wt' => $format($group->sum(fn($row) => (float) ($row->receive_wt ?? 0))),
+                    'bhuko' => $format($group->sum(fn($row) => (float) ($row->bhuko ?? 0))),
+                    'loss' => $format($group->sum(fn($row) => (float) ($row->loss ?? 0))),
+                ];
+            })->values();
+        };
+
+        return [
+            'workers' => $mapSummary($rows->groupBy(fn($row) => $row->worker_id ?: 'no-worker'), 'worker_name'),
+            'stages' => $mapSummary($rows->groupBy(fn($row) => $row->stage ?: '-'), 'stage'),
+        ];
+    }
+
+    private function workerLossVoucherLink(Company $company, object $row, string $label): string
+    {
+        if (empty($row->voucher_id)) {
+            return e($label);
+        }
+
+        $url = route('company.vacuum-vouchers.show', [
+            $company->slug,
+            Crypt::encryptString((string) $row->voucher_id),
+        ]);
+
+        return '<a href="' . e($url) . '" target="_blank" class="worker-loss-link">' . e($label) . '</a>';
+    }
+
+    private function isTruthyRequestValue($value): bool
+    {
+        return in_array($value, [1, '1', true, 'true', 'on', 'yes'], true);
     }
 
     private function approvalOutstandingBaseQuery(Company $company, Request $request)

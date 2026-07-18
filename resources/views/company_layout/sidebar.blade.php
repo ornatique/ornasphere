@@ -66,12 +66,14 @@
     $canVacuumBuch = $canModule('vacuum-buch');
     $canVacuumProcess = $canModule('vacuum-process');
     $canVacuumVoucher = $canModule('vacuum-voucher');
+    $canVacuumLiveDashboard = $canModule('vacuum-live-dashboard');
     $canCastingHeating = $canModule('casting-heating');
     $canCastingMetalIssue = $canModule('casting-metal-issue');
     $canCastingRelease = $canModule('casting-release');
     $canTreeCuttingIssue = $canModule('tree-cutting-issue');
     $canTreeCuttingReceive = $canModule('tree-cutting-receive');
     $canCastingSorting = $canModule('casting-sorting');
+    $canVoucherHistory = $canModule('voucher-history');
 
     $canApproval = $canModule('approval');
     $canSales = $canModule('sale');
@@ -83,6 +85,7 @@
     $canReportApprovalOutstanding = $canModule('report-approval-outstanding');
     $canReportOutstandingAmount = $canModule('report-outstanding-amount');
     $canReportBarcodeHistory = $canModule('report-barcode-history');
+    $canReportWorkerLoss = $canModule('report-worker-loss');
     $canReportVisitingCards = $canModule('report-visiting-cards');
     $notificationModules = (array) data_get($companyNotificationSummary ?? [], 'modules', []);
     $notifyCount = fn (string $module): int => (int) ($notificationModules[$module] ?? 0);
@@ -131,6 +134,30 @@
                 <span class="menu-title">Dashboard</span>
             </a>
         </li>
+
+        @if($canVacuumLiveDashboard)
+        <li class="nav-item {{ request()->routeIs('company.vacuum-live-dashboard.*') ? 'active' : '' }}">
+            <a class="nav-link"
+                href="{{ route('company.vacuum-live-dashboard.index', auth()->user()->company->slug) }}">
+                <i class="typcn typcn-chart-line menu-icon"></i>
+                <span class="menu-title">Production Monitor</span>
+                @php
+                $productionMonitorNotifications = $notifySum([
+                    'vacuum_voucher',
+                    'casting_heating',
+                    'casting_metal_issue',
+                    'casting_release',
+                    'tree_cutting_issue',
+                    'tree_cutting_receive',
+                    'casting_sorting',
+                ]);
+                @endphp
+                @if($canNotifications && $productionMonitorNotifications > 0)
+                <span class="sidebar-notification-badge">{{ $productionMonitorNotifications > 99 ? '99+' : $productionMonitorNotifications }}</span>
+                @endif
+            </a>
+        </li>
+        @endif
 
         @if($canAppTheme)
         <li class="nav-item {{ request()->routeIs('company.app-themes.*') ? 'active' : '' }}">
@@ -334,14 +361,16 @@
         request()->routeIs('company.vacuum-buchs.*') ||
         request()->routeIs('company.vacuum-processes.*') ||
         request()->routeIs('company.vacuum-vouchers.*') ||
+        request()->routeIs('company.vacuum-live-dashboard.*') ||
         request()->routeIs('company.casting-heating.*') ||
         request()->routeIs('company.casting-metal-issue.*') ||
         request()->routeIs('company.casting-release.*') ||
         request()->routeIs('company.tree-cutting-issue.*') ||
         request()->routeIs('company.tree-cutting-receive.*') ||
-        request()->routeIs('company.casting-sorting.*');
+        request()->routeIs('company.casting-sorting.*') ||
+        request()->routeIs('company.voucher-history.*');
         @endphp
-        @if($canVacuumBuch || $canVacuumProcess || $canVacuumVoucher || $canCastingHeating || $canCastingMetalIssue || $canCastingRelease || $canTreeCuttingIssue || $canTreeCuttingReceive || $canCastingSorting)
+        @if($canVacuumBuch || $canVacuumProcess || $canVacuumVoucher || $canVacuumLiveDashboard || $canCastingHeating || $canCastingMetalIssue || $canCastingRelease || $canTreeCuttingIssue || $canTreeCuttingReceive || $canCastingSorting || $canVoucherHistory)
         <li class="nav-item {{ $vacuumActive ? 'active' : '' }}">
             <a class="nav-link"
                 data-bs-toggle="collapse"
@@ -349,6 +378,22 @@
                 aria-expanded="{{ $vacuumActive ? 'true' : 'false' }}">
                 <i class="typcn typcn-cog menu-icon"></i>
                 <span class="menu-title">Vacuum</span>
+                @php
+                $vacuumNotifications = $notifySum([
+                    'vacuum_buch',
+                    'vacuum_process',
+                    'vacuum_voucher',
+                    'casting_heating',
+                    'casting_metal_issue',
+                    'casting_release',
+                    'tree_cutting_issue',
+                    'tree_cutting_receive',
+                    'casting_sorting',
+                ]);
+                @endphp
+                @if($canNotifications && $vacuumNotifications > 0)
+                <span class="sidebar-notification-badge">{{ $vacuumNotifications > 99 ? '99+' : $vacuumNotifications }}</span>
+                @endif
                 <i class="typcn typcn-chevron-right menu-arrow"></i>
             </a>
 
@@ -359,6 +404,9 @@
                         <a class="nav-link {{ request()->routeIs('company.vacuum-buchs.*') ? 'active' : '' }}"
                             href="{{ route('company.vacuum-buchs.index', auth()->user()->company->slug) }}">
                             Buch
+                            @if($canNotifications && $notifyCount('vacuum_buch') > 0)
+                            <span class="sidebar-notification-badge">{{ $notifyCount('vacuum_buch') > 99 ? '99+' : $notifyCount('vacuum_buch') }}</span>
+                            @endif
                         </a>
                     </li>
                     @endif
@@ -368,6 +416,9 @@
                         <a class="nav-link {{ request()->routeIs('company.vacuum-processes.*') ? 'active' : '' }}"
                             href="{{ route('company.vacuum-processes.index', auth()->user()->company->slug) }}">
                             Process
+                            @if($canNotifications && $notifyCount('vacuum_process') > 0)
+                            <span class="sidebar-notification-badge">{{ $notifyCount('vacuum_process') > 99 ? '99+' : $notifyCount('vacuum_process') }}</span>
+                            @endif
                         </a>
                     </li>
                     @endif
@@ -377,6 +428,9 @@
                         <a class="nav-link {{ request()->routeIs('company.vacuum-vouchers.*') ? 'active' : '' }}"
                             href="{{ route('company.vacuum-vouchers.index', auth()->user()->company->slug) }}">
                             Voucher
+                            @if($canNotifications && $notifyCount('vacuum_voucher') > 0)
+                            <span class="sidebar-notification-badge">{{ $notifyCount('vacuum_voucher') > 99 ? '99+' : $notifyCount('vacuum_voucher') }}</span>
+                            @endif
                         </a>
                     </li>
                     @endif
@@ -386,6 +440,9 @@
                         <a class="nav-link {{ request()->routeIs('company.casting-heating.*') ? 'active' : '' }}"
                             href="{{ route('company.casting-heating.index', auth()->user()->company->slug) }}">
                             Casting Heating
+                            @if($canNotifications && $notifyCount('casting_heating') > 0)
+                            <span class="sidebar-notification-badge">{{ $notifyCount('casting_heating') > 99 ? '99+' : $notifyCount('casting_heating') }}</span>
+                            @endif
                         </a>
                     </li>
                     @endif
@@ -395,6 +452,9 @@
                         <a class="nav-link {{ request()->routeIs('company.casting-metal-issue.*') ? 'active' : '' }}"
                             href="{{ route('company.casting-metal-issue.index', auth()->user()->company->slug) }}">
                             Casting Metal Issue
+                            @if($canNotifications && $notifyCount('casting_metal_issue') > 0)
+                            <span class="sidebar-notification-badge">{{ $notifyCount('casting_metal_issue') > 99 ? '99+' : $notifyCount('casting_metal_issue') }}</span>
+                            @endif
                         </a>
                     </li>
                     @endif
@@ -404,6 +464,9 @@
                         <a class="nav-link {{ request()->routeIs('company.casting-release.*') ? 'active' : '' }}"
                             href="{{ route('company.casting-release.index', auth()->user()->company->slug) }}">
                             Casting Receive
+                            @if($canNotifications && $notifyCount('casting_release') > 0)
+                            <span class="sidebar-notification-badge">{{ $notifyCount('casting_release') > 99 ? '99+' : $notifyCount('casting_release') }}</span>
+                            @endif
                         </a>
                     </li>
                     @endif
@@ -413,6 +476,9 @@
                         <a class="nav-link {{ request()->routeIs('company.tree-cutting-issue.*') ? 'active' : '' }}"
                             href="{{ route('company.tree-cutting-issue.index', auth()->user()->company->slug) }}">
                             Tree Cutting Issue
+                            @if($canNotifications && $notifyCount('tree_cutting_issue') > 0)
+                            <span class="sidebar-notification-badge">{{ $notifyCount('tree_cutting_issue') > 99 ? '99+' : $notifyCount('tree_cutting_issue') }}</span>
+                            @endif
                         </a>
                     </li>
                     @endif
@@ -422,6 +488,9 @@
                         <a class="nav-link {{ request()->routeIs('company.tree-cutting-receive.*') ? 'active' : '' }}"
                             href="{{ route('company.tree-cutting-receive.index', auth()->user()->company->slug) }}">
                             Tree Cutting Receive
+                            @if($canNotifications && $notifyCount('tree_cutting_receive') > 0)
+                            <span class="sidebar-notification-badge">{{ $notifyCount('tree_cutting_receive') > 99 ? '99+' : $notifyCount('tree_cutting_receive') }}</span>
+                            @endif
                         </a>
                     </li>
                     @endif
@@ -431,6 +500,18 @@
                         <a class="nav-link {{ request()->routeIs('company.casting-sorting.*') ? 'active' : '' }}"
                             href="{{ route('company.casting-sorting.index', auth()->user()->company->slug) }}">
                             Casting Sorting
+                            @if($canNotifications && $notifyCount('casting_sorting') > 0)
+                            <span class="sidebar-notification-badge">{{ $notifyCount('casting_sorting') > 99 ? '99+' : $notifyCount('casting_sorting') }}</span>
+                            @endif
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canVoucherHistory)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.voucher-history.*') ? 'active' : '' }}"
+                            href="{{ route('company.voucher-history.index', auth()->user()->company->slug) }}">
+                            Voucher History
                         </a>
                     </li>
                     @endif
@@ -609,7 +690,7 @@
 
         {{-- ================= REPORTS ================= --}}
         @php $reportActive = $isReportRoute; @endphp
-        @if($canReportSalesSummary || $canReportPurchaseReceiverSummary || $canReportStockPosition || $canReportApprovalOutstanding || $canReportOutstandingAmount || $canReportBarcodeHistory)
+        @if($canReportSalesSummary || $canReportPurchaseReceiverSummary || $canReportStockPosition || $canReportApprovalOutstanding || $canReportOutstandingAmount || $canReportBarcodeHistory || $canReportWorkerLoss)
         <li class="nav-item {{ $reportActive ? 'active' : '' }}">
             <a class="nav-link"
                 data-bs-toggle="collapse"
@@ -672,6 +753,15 @@
                         <a class="nav-link {{ request()->routeIs('company.reports.barcode-history.*') ? 'active' : '' }}"
                             href="{{ route('company.reports.barcode-history.index', auth()->user()->company->slug) }}">
                             Barcode History
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canReportWorkerLoss)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.reports.worker-loss.*') ? 'active' : '' }}"
+                            href="{{ route('company.reports.worker-loss.index', auth()->user()->company->slug) }}">
+                            Worker Loss Report
                         </a>
                     </li>
                     @endif

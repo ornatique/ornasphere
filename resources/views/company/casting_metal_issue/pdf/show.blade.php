@@ -127,12 +127,11 @@
                 <th class="center" style="width: 11%;">Status</th>
                 <th class="num" style="width: 11%;">Silver Weight</th>
                 <th class="center" style="width: 5%;">I/F</th>
-                <th class="num" style="width: 11%;">Pure Fine</th>
-                <th class="num" style="width: 7%;">%</th>
+                <th class="num" style="width: 12%;">Pure Fine</th>
                 <th class="num" style="width: 10%;">O/M</th>
-                <th class="num" style="width: 11%;">Metal Weight</th>
-                <th class="num" style="width: 11%;">Issue Silver Wt</th>
-                <th style="width: 9%;">Remark</th>
+                <th class="num" style="width: 12%;">Metal Weight</th>
+                <th class="num" style="width: 12%;">Issue Silver Wt</th>
+                <th style="width: 10%;">Remark</th>
             </tr>
         </thead>
         <tbody>
@@ -144,7 +143,6 @@
                 $issueSilverWt = $issueItem?->issue_silver_wt;
                 $isIf = (bool) ($issueItem?->is_if);
                 $pureFine = $issueItem?->pure_fine;
-                $ifPercentage = $issueItem?->if_percentage;
                 $otherMetal = $issueItem?->other_metal;
                 $metalWeight = $issueItem?->metal_weight;
                 $silverWeightTotal += (float) $item->silver_wt;
@@ -164,7 +162,6 @@
                 <td class="num">{{ number_format((float) $item->silver_wt, 3, '.', '') }}</td>
                 <td class="center">{{ $isIf ? 'Yes' : 'No' }}</td>
                 <td class="num">{{ $isIf && $pureFine !== null ? number_format((float) $pureFine, 3, '.', '') : '-' }}</td>
-                <td class="num">{{ $isIf && $ifPercentage !== null ? number_format((float) $ifPercentage, 2, '.', '') : '-' }}</td>
                 <td class="num">{{ $isIf && $otherMetal !== null ? number_format((float) $otherMetal, 3, '.', '') : '-' }}</td>
                 <td class="num">{{ $isIf && $metalWeight !== null ? number_format((float) $metalWeight, 3, '.', '') : '-' }}</td>
                 <td class="num">{{ $issueSilverWt !== null ? number_format((float) $issueSilverWt, 3, '.', '') : '-' }}</td>
@@ -172,7 +169,7 @@
             </tr>
             @empty
             <tr>
-                <td colspan="11" class="center">No Buch rows found</td>
+                <td colspan="10" class="center">No Buch rows found</td>
             </tr>
             @endforelse
             @if($voucher->items->count() > 0)
@@ -181,7 +178,6 @@
                 <td class="num">{{ number_format($silverWeightTotal, 3, '.', '') }}</td>
                 <td></td>
                 <td class="num">{{ number_format($pureFineTotal, 3, '.', '') }}</td>
-                <td></td>
                 <td class="num">{{ number_format($otherMetalTotal, 3, '.', '') }}</td>
                 <td class="num">{{ number_format($metalWeightTotal, 3, '.', '') }}</td>
                 <td class="num">{{ number_format($issueSilverWtTotal, 3, '.', '') }}</td>

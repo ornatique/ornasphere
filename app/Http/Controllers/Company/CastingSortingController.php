@@ -92,13 +92,19 @@ class CastingSortingController extends Controller
                         ->whereColumn('casting_sorting_items.vacuum_voucher_id', 'vacuum_vouchers.id')
                         ->where('casting_sorting_items.company_id', $company->id);
                 }, 'sorting_quantity_total')
+                ->selectSub(function ($query) use ($company) {
+                    $query->from('casting_sorting_items')
+                        ->selectRaw('MAX(COALESCE(casting_sorting_items.sorted_at, casting_sorting_items.created_at))')
+                        ->whereColumn('casting_sorting_items.vacuum_voucher_id', 'vacuum_vouchers.id')
+                        ->where('casting_sorting_items.company_id', $company->id);
+                }, 'sorting_datetime')
                 ->orderByDesc('tree_receive_datetime')
                 ->orderByDesc('id');
 
             return DataTables::of($rows)
                 ->addIndexColumn()
                 ->addColumn('voucher_no_view', fn($row) => $row->voucher_no)
-                ->addColumn('date_time_view', fn($row) => $row->tree_receive_datetime ? \Carbon\Carbon::parse($row->tree_receive_datetime)->format('d-m-Y / h:i A') : '-')
+                ->addColumn('date_time_view', fn($row) => $row->sorting_datetime ? \Carbon\Carbon::parse($row->sorting_datetime)->format('d-m-Y / h:i A') : ($row->tree_receive_datetime ? \Carbon\Carbon::parse($row->tree_receive_datetime)->format('d-m-Y / h:i A') : '-'))
                 ->addColumn('process_name', fn($row) => $row->process?->name ?? '-')
                 ->addColumn('worker_name', fn($row) => $row->jobWorker?->name ?? '-')
                 ->addColumn('total_pcs_view', fn($row) => (int) ($row->tree_receive_count ?? 0))

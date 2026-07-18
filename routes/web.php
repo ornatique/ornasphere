@@ -22,6 +22,7 @@ use App\Http\Controllers\Company\ProductionCostController;
 use App\Http\Controllers\Company\LabourFormulaController;
 use App\Http\Controllers\Company\ProductionStepController;
 use App\Http\Controllers\Company\VacuumBuchController;
+use App\Http\Controllers\Company\VacuumLiveDashboardController;
 use App\Http\Controllers\Company\VacuumProcessController;
 use App\Http\Controllers\Company\VacuumVoucherController;
 use App\Http\Controllers\Company\CastingHeatingController;
@@ -30,6 +31,7 @@ use App\Http\Controllers\Company\CastingReleaseController;
 use App\Http\Controllers\Company\TreeCuttingIssueController;
 use App\Http\Controllers\Company\TreeCuttingReceiveController;
 use App\Http\Controllers\Company\CastingSortingController;
+use App\Http\Controllers\Company\VoucherHistoryController;
 use App\Http\Controllers\Company\ItemSetController;
 use Endroid\QrCode\QrCode; 
 use Endroid\QrCode\ErrorCorrectionLevel;
@@ -615,6 +617,9 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
         Route::delete('vacuum-vouchers/{id}', [VacuumVoucherController::class, 'destroy'])
             ->name('vacuum-vouchers.destroy');
 
+        Route::get('vacuum-live-dashboard', [VacuumLiveDashboardController::class, 'index'])
+            ->name('vacuum-live-dashboard.index');
+
         Route::get('casting-heating', [CastingHeatingController::class, 'index'])
             ->name('casting-heating.index');
 
@@ -694,6 +699,12 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
 
         Route::post('casting-sorting/{id}/update', [CastingSortingController::class, 'update'])
             ->name('casting-sorting.update');
+
+        Route::get('voucher-history/data/{voucher}', [VoucherHistoryController::class, 'data'])
+            ->name('voucher-history.data');
+
+        Route::get('voucher-history', [VoucherHistoryController::class, 'index'])
+            ->name('voucher-history.index');
 
         Route::get('/itemsets', [ItemSetController::class, 'list_data'])
             ->name('itemsets.list_data');
@@ -1009,6 +1020,14 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
                 ->name('outstanding-amount.export.ledger-pdf');
             Route::get('/barcode-history', [ReportController::class, 'barcodeHistory'])
                 ->name('barcode-history.index');
+            Route::get('/worker-loss/suggest', [ReportController::class, 'workerLossSuggest'])
+                ->name('worker-loss.suggest');
+            Route::get('/worker-loss', [ReportController::class, 'workerLoss'])
+                ->name('worker-loss.index');
+            Route::get('/worker-loss/export/excel', [ReportController::class, 'workerLossExcel'])
+                ->name('worker-loss.export.excel');
+            Route::get('/worker-loss/export/pdf', [ReportController::class, 'workerLossPdf'])
+                ->name('worker-loss.export.pdf');
             Route::get('/barcode-history/export/excel', [ReportController::class, 'barcodeHistoryExcel'])
                 ->name('barcode-history.export.excel');
             Route::get('/barcode-history/export/pdf', [ReportController::class, 'barcodeHistoryPdf'])

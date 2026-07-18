@@ -92,7 +92,7 @@ Artisan::command('erp:sync-company-rbac {--company_id=} {--slug=}', function () 
 
         $permissionByName = [];
         foreach ($modules as $module) {
-            $moduleActions = in_array($module, ['dashboard', 'notification'], true)
+            $moduleActions = in_array($module, ['dashboard', 'notification', 'vacuum-live-dashboard'], true)
                 ? ['view']
                 : $actions;
 
@@ -114,7 +114,7 @@ Artisan::command('erp:sync-company-rbac {--company_id=} {--slug=}', function () 
                 $totalPermissions++;
             }
 
-            if (in_array($module, ['dashboard', 'notification'], true)) {
+            if (in_array($module, ['dashboard', 'notification', 'vacuum-live-dashboard'], true)) {
                 continue;
             }
 
@@ -151,7 +151,7 @@ Artisan::command('erp:sync-company-rbac {--company_id=} {--slug=}', function () 
 
             if ($permissionNames === ['*']) {
                 $permissionModels = collect($modules)->map(function ($module) use ($permissionByName) {
-                    $permissionName = in_array($module, ['dashboard', 'notification'], true)
+                    $permissionName = in_array($module, ['dashboard', 'notification', 'vacuum-live-dashboard'], true)
                         ? "{$module}-view"
                         : "{$module}-manage";
 

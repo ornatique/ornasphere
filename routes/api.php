@@ -26,6 +26,15 @@ use App\Http\Controllers\Api\PermissionApiController;
 use App\Http\Controllers\Api\CustomerAdvanceApiController;
 use App\Http\Controllers\Api\AppThemeApiController;
 use App\Http\Controllers\Api\NotificationApiController;
+use App\Http\Controllers\Api\VacuumBuchApiController;
+use App\Http\Controllers\Api\CastingHeatingApiController;
+use App\Http\Controllers\Api\CastingMetalIssueApiController;
+use App\Http\Controllers\Api\CastingReceiveApiController;
+use App\Http\Controllers\Api\CastingSortingApiController;
+use App\Http\Controllers\Api\TreeCuttingIssueApiController;
+use App\Http\Controllers\Api\TreeCuttingReceiveApiController;
+use App\Http\Controllers\Api\VacuumProcessApiController;
+use App\Http\Controllers\Api\VacuumVoucherApiController;
 
 Route::post('/company/login', [AuthController::class, 'login']);
 Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
@@ -118,6 +127,107 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::put('/update-jobwork-issues/{id}', [JobworkIssueApiController::class, 'update']);
     Route::delete('/delete-jobwork-issues/{id}', [JobworkIssueApiController::class, 'destroy']);
 
+    Route::get('/vacuum-buchs', [VacuumBuchApiController::class, 'index']);
+    Route::get('/vacuum-buchs/options', [VacuumBuchApiController::class, 'options']);
+    Route::post('/vacuum-buchs', [VacuumBuchApiController::class, 'store']);
+    Route::get('/vacuum-buchs/{id}', [VacuumBuchApiController::class, 'show'])->whereNumber('id');
+    Route::put('/vacuum-buchs/{id}', [VacuumBuchApiController::class, 'update'])->whereNumber('id');
+    Route::delete('/vacuum-buchs/{id}', [VacuumBuchApiController::class, 'destroy'])->whereNumber('id');
+    Route::get('/vacuum_buchs_list', [VacuumBuchApiController::class, 'index']);
+    Route::post('/create_vacuum_buchs', [VacuumBuchApiController::class, 'store']);
+    Route::post('/update_vacuum_buchs/{id}', [VacuumBuchApiController::class, 'update'])->whereNumber('id');
+    Route::delete('/delete_vacuum_buchs/{id}', [VacuumBuchApiController::class, 'destroy'])->whereNumber('id');
+
+    Route::get('/vacuum-processes', [VacuumProcessApiController::class, 'index']);
+    Route::get('/vacuum-processes/options', [VacuumProcessApiController::class, 'options']);
+    Route::post('/vacuum-processes', [VacuumProcessApiController::class, 'store']);
+    Route::get('/vacuum-processes/{id}', [VacuumProcessApiController::class, 'show'])->whereNumber('id');
+    Route::put('/vacuum-processes/{id}', [VacuumProcessApiController::class, 'update'])->whereNumber('id');
+    Route::delete('/vacuum-processes/{id}', [VacuumProcessApiController::class, 'destroy'])->whereNumber('id');
+    Route::get('/vacuum_processes_list', [VacuumProcessApiController::class, 'index']);
+    Route::post('/create_vacuum_processes', [VacuumProcessApiController::class, 'store']);
+    Route::post('/update_vacuum_processes/{id}', [VacuumProcessApiController::class, 'update'])->whereNumber('id');
+    Route::delete('/delete_vacuum_processes/{id}', [VacuumProcessApiController::class, 'destroy'])->whereNumber('id');
+
+    Route::get('/vouchers', [VacuumVoucherApiController::class, 'index']);
+    Route::get('/vouchers/buch-options', [VacuumVoucherApiController::class, 'buchOptions']);
+    Route::post('/vouchers', [VacuumVoucherApiController::class, 'store']);
+    Route::get('/vouchers/{id}/pdf', [VacuumVoucherApiController::class, 'pdf'])->whereNumber('id');
+    Route::get('/vouchers/{id}', [VacuumVoucherApiController::class, 'show'])->whereNumber('id');
+    Route::put('/vouchers/{id}', [VacuumVoucherApiController::class, 'update'])->whereNumber('id');
+    Route::delete('/vouchers/{id}', [VacuumVoucherApiController::class, 'destroy'])->whereNumber('id');
+    Route::get('/vouchers_list', [VacuumVoucherApiController::class, 'index']);
+    Route::get('/vouchers_buch_options', [VacuumVoucherApiController::class, 'buchOptions']);
+    Route::get('/vouchers_pdf/{id}', [VacuumVoucherApiController::class, 'pdf'])->whereNumber('id');
+    Route::post('/create_vouchers', [VacuumVoucherApiController::class, 'store']);
+    Route::post('/update_vouchers/{id}', [VacuumVoucherApiController::class, 'update'])->whereNumber('id');
+    Route::delete('/delete_vouchers/{id}', [VacuumVoucherApiController::class, 'destroy'])->whereNumber('id');
+
+    Route::get('/casting-heating', [CastingHeatingApiController::class, 'index']);
+    Route::get('/casting-heating/{id}/pdf', [CastingHeatingApiController::class, 'pdf'])->whereNumber('id');
+    Route::get('/casting-heating/{id}', [CastingHeatingApiController::class, 'show'])->whereNumber('id');
+    Route::put('/casting-heating/{id}', [CastingHeatingApiController::class, 'update'])->whereNumber('id');
+    Route::post('/casting-heating/{id}', [CastingHeatingApiController::class, 'update'])->whereNumber('id');
+    Route::get('/casting_heating_list', [CastingHeatingApiController::class, 'index']);
+    Route::get('/casting_heating_show/{id}', [CastingHeatingApiController::class, 'show'])->whereNumber('id');
+    Route::get('/casting_heating_pdf/{id}', [CastingHeatingApiController::class, 'pdf'])->whereNumber('id');
+    Route::post('/update_casting_heating/{id}', [CastingHeatingApiController::class, 'update'])->whereNumber('id');
+
+    Route::get('/casting-metal-issue', [CastingMetalIssueApiController::class, 'index']);
+    Route::get('/casting-metal-issue/{id}/pdf', [CastingMetalIssueApiController::class, 'pdf'])->whereNumber('id');
+    Route::get('/casting-metal-issue/{id}', [CastingMetalIssueApiController::class, 'show'])->whereNumber('id');
+    Route::put('/casting-metal-issue/{id}', [CastingMetalIssueApiController::class, 'update'])->whereNumber('id');
+    Route::post('/casting-metal-issue/{id}', [CastingMetalIssueApiController::class, 'update'])->whereNumber('id');
+    Route::get('/casting_metal_issue_list', [CastingMetalIssueApiController::class, 'index']);
+    Route::get('/casting_metal_issue_show/{id}', [CastingMetalIssueApiController::class, 'show'])->whereNumber('id');
+    Route::get('/casting_metal_issue_pdf/{id}', [CastingMetalIssueApiController::class, 'pdf'])->whereNumber('id');
+    Route::post('/update_casting_metal_issue/{id}', [CastingMetalIssueApiController::class, 'update'])->whereNumber('id');
+
+    Route::get('/casting-receive', [CastingReceiveApiController::class, 'index']);
+    Route::get('/casting-receive/{id}/pdf', [CastingReceiveApiController::class, 'pdf'])->whereNumber('id');
+    Route::get('/casting-receive/{id}', [CastingReceiveApiController::class, 'show'])->whereNumber('id');
+    Route::put('/casting-receive/{id}', [CastingReceiveApiController::class, 'update'])->whereNumber('id');
+    Route::post('/casting-receive/{id}', [CastingReceiveApiController::class, 'update'])->whereNumber('id');
+    Route::get('/casting_receive_list', [CastingReceiveApiController::class, 'index']);
+    Route::get('/casting_receive_show/{id}', [CastingReceiveApiController::class, 'show'])->whereNumber('id');
+    Route::get('/casting_receive_pdf/{id}', [CastingReceiveApiController::class, 'pdf'])->whereNumber('id');
+    Route::post('/update_casting_receive/{id}', [CastingReceiveApiController::class, 'update'])->whereNumber('id');
+
+    Route::get('/casting-release', [CastingReceiveApiController::class, 'index']);
+    Route::get('/casting-release/pdf/{id}', [CastingReceiveApiController::class, 'pdf'])->whereNumber('id');
+    Route::get('/casting-release/{id}', [CastingReceiveApiController::class, 'show'])->whereNumber('id');
+    Route::put('/casting-release/{id}', [CastingReceiveApiController::class, 'update'])->whereNumber('id');
+    Route::post('/casting-release/{id}', [CastingReceiveApiController::class, 'update'])->whereNumber('id');
+
+    Route::get('/tree-cutting-issue', [TreeCuttingIssueApiController::class, 'index']);
+    Route::get('/tree-cutting-issue/{id}/pdf', [TreeCuttingIssueApiController::class, 'pdf'])->whereNumber('id');
+    Route::get('/tree-cutting-issue/{id}', [TreeCuttingIssueApiController::class, 'show'])->whereNumber('id');
+    Route::put('/tree-cutting-issue/{id}', [TreeCuttingIssueApiController::class, 'update'])->whereNumber('id');
+    Route::post('/tree-cutting-issue/{id}', [TreeCuttingIssueApiController::class, 'update'])->whereNumber('id');
+    Route::get('/tree_cutting_issue_list', [TreeCuttingIssueApiController::class, 'index']);
+    Route::get('/tree_cutting_issue_show/{id}', [TreeCuttingIssueApiController::class, 'show'])->whereNumber('id');
+    Route::get('/tree_cutting_issue_pdf/{id}', [TreeCuttingIssueApiController::class, 'pdf'])->whereNumber('id');
+    Route::post('/update_tree_cutting_issue/{id}', [TreeCuttingIssueApiController::class, 'update'])->whereNumber('id');
+
+    Route::get('/tree-cutting-receive', [TreeCuttingReceiveApiController::class, 'index']);
+    Route::get('/tree-cutting-receive/pdf/{id}', [TreeCuttingReceiveApiController::class, 'pdf'])->whereNumber('id');
+    Route::get('/tree-cutting-receive/{id}', [TreeCuttingReceiveApiController::class, 'show'])->whereNumber('id');
+    Route::put('/tree-cutting-receive/{id}', [TreeCuttingReceiveApiController::class, 'update'])->whereNumber('id');
+    Route::post('/tree-cutting-receive/{id}', [TreeCuttingReceiveApiController::class, 'update'])->whereNumber('id');
+    Route::get('/tree_cutting_receive_list', [TreeCuttingReceiveApiController::class, 'index']);
+    Route::get('/tree_cutting_receive_show/{id}', [TreeCuttingReceiveApiController::class, 'show'])->whereNumber('id');
+    Route::get('/tree_cutting_receive_pdf/{id}', [TreeCuttingReceiveApiController::class, 'pdf'])->whereNumber('id');
+    Route::post('/update_tree_cutting_receive/{id}', [TreeCuttingReceiveApiController::class, 'update'])->whereNumber('id');
+
+    Route::get('/casting-sorting', [CastingSortingApiController::class, 'index']);
+    Route::get('/casting-sorting/{id}/pdf', [CastingSortingApiController::class, 'pdf'])->whereNumber('id');
+    Route::get('/casting-sorting/{id}', [CastingSortingApiController::class, 'show'])->whereNumber('id');
+    Route::put('/casting-sorting/{id}', [CastingSortingApiController::class, 'update'])->whereNumber('id');
+    Route::post('/casting-sorting/{id}', [CastingSortingApiController::class, 'update'])->whereNumber('id');
+    Route::get('/casting_sorting_list', [CastingSortingApiController::class, 'index']);
+    Route::get('/casting_sorting_show/{id}', [CastingSortingApiController::class, 'show'])->whereNumber('id');
+    Route::get('/casting_sorting_pdf/{id}', [CastingSortingApiController::class, 'pdf'])->whereNumber('id');
+    Route::post('/update_casting_sorting/{id}', [CastingSortingApiController::class, 'update'])->whereNumber('id');
 
     Route::get('/items', [ItemController::class, 'index']);
     Route::post('/create_items', [ItemController::class, 'store']);

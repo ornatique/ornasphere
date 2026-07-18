@@ -48,6 +48,31 @@ class VacuumVoucher extends Model
         return $this->hasMany(CastingHeatingItem::class);
     }
 
+    public function metalIssueItems()
+    {
+        return $this->hasMany(CastingMetalIssueItem::class);
+    }
+
+    public function releaseItems()
+    {
+        return $this->hasMany(CastingReleaseItem::class);
+    }
+
+    public function treeCuttingIssueItems()
+    {
+        return $this->hasMany(TreeCuttingIssueItem::class);
+    }
+
+    public function treeCuttingReceiveItems()
+    {
+        return $this->hasMany(TreeCuttingReceiveItem::class);
+    }
+
+    public function sortingItems()
+    {
+        return $this->hasMany(CastingSortingItem::class);
+    }
+
     public function process()
     {
         return $this->belongsTo(VacuumProcess::class, 'vacuum_process_id');

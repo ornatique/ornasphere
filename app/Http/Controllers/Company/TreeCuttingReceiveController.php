@@ -96,13 +96,19 @@ class TreeCuttingReceiveController extends Controller
                         ->where('tree_cutting_issue_items.company_id', $company->id)
                         ->whereNotNull('tree_cutting_issue_items.receive_tree_wt');
                 }, 'tree_cutting_worker_names')
+                ->selectSub(function ($query) use ($company) {
+                    $query->from('tree_cutting_receive_items')
+                        ->selectRaw('MAX(COALESCE(tree_cutting_receive_items.received_at, tree_cutting_receive_items.created_at))')
+                        ->whereColumn('tree_cutting_receive_items.vacuum_voucher_id', 'vacuum_vouchers.id')
+                        ->where('tree_cutting_receive_items.company_id', $company->id);
+                }, 'tree_cutting_receive_datetime')
                 ->orderByDesc('tree_cutting_issue_datetime')
                 ->orderByDesc('id');
 
             return DataTables::of($rows)
                 ->addIndexColumn()
                 ->addColumn('voucher_no_view', fn($row) => $row->voucher_no)
-                ->addColumn('date_time_view', fn($row) => $row->tree_cutting_issue_datetime ? \Carbon\Carbon::parse($row->tree_cutting_issue_datetime)->format('d-m-Y  / h:i A') : '-')
+                ->addColumn('date_time_view', fn($row) => $row->tree_cutting_receive_datetime ? \Carbon\Carbon::parse($row->tree_cutting_receive_datetime)->format('d-m-Y / h:i A') : ($row->tree_cutting_issue_datetime ? \Carbon\Carbon::parse($row->tree_cutting_issue_datetime)->format('d-m-Y / h:i A') : '-'))
                 ->addColumn('process_name', fn($row) => $row->process?->name ?? '-')
                 ->addColumn('worker_name', fn($row) => $row->tree_cutting_worker_names ?: ($row->jobWorker?->name ?? '-'))
                 ->addColumn('assigned_receive_view', fn($row) => '<span class="count-badge count-assigned">' . (int) ($row->tree_cutting_receive_count ?? 0) . '</span>')

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Company;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\VacuumBuch;
+use App\Models\VacuumVoucherItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Validation\Rule;
@@ -31,10 +32,13 @@ class VacuumBuchController extends Controller
                     $encryptedId = Crypt::encryptString((string) $row->id);
                     $edit = route('company.vacuum-buchs.edit', [$company->slug, $encryptedId]);
                     $delete = route('company.vacuum-buchs.destroy', [$company->slug, $encryptedId]);
+                    $deleteButton = $this->isInUse($company->id, (int) $row->id)
+                        ? '<button type="button" class="btn btn-sm btn-secondary" disabled>In Use</button>'
+                        : '<button type="button" class="btn btn-sm btn-danger deleteBtn" data-url="' . e($delete) . '">Delete</button>';
 
                     return '
                         <a href="' . $edit . '" class="btn btn-sm btn-primary">Edit</a>
-                        <button type="button" class="btn btn-sm btn-danger deleteBtn" data-url="' . e($delete) . '">Delete</button>
+                        ' . $deleteButton . '
                     ';
                 })
                 ->rawColumns(['action'])
@@ -119,6 +123,14 @@ class VacuumBuchController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
         $id = Crypt::decryptString($encryptedId);
         $data = VacuumBuch::where('company_id', $company->id)->where('id', $id)->firstOrFail();
+
+        if ($this->isInUse($company->id, (int) $data->id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This Buch No is already used in a voucher and cannot be deleted.',
+            ], 422);
+        }
+
         $data->delete();
 
         return response()->json([
@@ -154,6 +166,13 @@ class VacuumBuchController extends Controller
         return VacuumBuch::where('company_id', $companyId)
             ->where('buch_no', $buchNo)
             ->when($ignoreId, fn($query) => $query->where('id', '!=', $ignoreId))
+            ->exists();
+    }
+
+    private function isInUse(int $companyId, int $buchId): bool
+    {
+        return VacuumVoucherItem::where('vacuum_buch_id', $buchId)
+            ->whereHas('voucher', fn($query) => $query->where('company_id', $companyId))
             ->exists();
     }
 }

@@ -18,6 +18,15 @@ use App\Models\ProductionStep;
 use App\Models\Sale;
 use App\Models\SaleReturn;
 use App\Models\User;
+use App\Models\CastingHeatingItem;
+use App\Models\CastingMetalIssueItem;
+use App\Models\CastingReleaseItem;
+use App\Models\CastingSortingItem;
+use App\Models\TreeCuttingIssueItem;
+use App\Models\TreeCuttingReceiveItem;
+use App\Models\VacuumBuch;
+use App\Models\VacuumProcess;
+use App\Models\VacuumVoucher;
 use App\Models\VisitingCard;
 use App\Services\CompanyNotificationService;
 use Illuminate\Database\Eloquent\Model;
@@ -118,17 +127,31 @@ class CompanyActivityObserver
             $model instanceof LabourFormula => ['labour_formula', 'Labour Formula', 'company.labour-formula.index'],
             $model instanceof ProductionStep => ['production_step', 'Production Step', 'company.production-step.index'],
             $model instanceof VisitingCard => ['visiting_card', 'Visiting Card', 'company.reports.visiting-cards.index'],
+            $model instanceof VacuumBuch => ['vacuum_buch', 'Vacuum Buch', 'company.vacuum-buchs.index'],
+            $model instanceof VacuumProcess => ['vacuum_process', 'Vacuum Process', 'company.vacuum-processes.index'],
+            $model instanceof VacuumVoucher => ['vacuum_voucher', 'Vacuum Voucher', 'company.vacuum-vouchers.index'],
+            $model instanceof CastingHeatingItem => ['casting_heating', 'Casting Heating', 'company.casting-heating.index'],
+            $model instanceof CastingMetalIssueItem => ['casting_metal_issue', 'Casting Metal Issue', 'company.casting-metal-issue.index'],
+            $model instanceof CastingReleaseItem => ['casting_release', 'Casting Receive', 'company.casting-release.index'],
+            $model instanceof TreeCuttingIssueItem => ['tree_cutting_issue', 'Tree Cutting Issue', 'company.tree-cutting-issue.index'],
+            $model instanceof TreeCuttingReceiveItem => ['tree_cutting_receive', 'Tree Cutting Receive', 'company.tree-cutting-receive.index'],
+            $model instanceof CastingSortingItem => ['casting_sorting', 'Casting Sorting', 'company.casting-sorting.index'],
             default => null,
         };
     }
 
     private function displayName(Model $model): string
     {
-        foreach (['name', 'item_name', 'other_charge', 'prefix', 'qr_code', 'barcode', 'approval_no', 'voucher_no', 'return_voucher_no', 'mobile_no', 'entry_type'] as $field) {
+        foreach (['name', 'item_name', 'buch_no', 'custom_buch_no', 'other_charge', 'prefix', 'qr_code', 'barcode', 'approval_no', 'voucher_no', 'return_voucher_no', 'mobile_no', 'entry_type'] as $field) {
             $value = $model->getAttribute($field);
             if ($value !== null && $value !== '') {
                 return (string) $value;
             }
+        }
+
+        $voucherId = $model->getAttribute('vacuum_voucher_id');
+        if ($voucherId) {
+            return 'Voucher ID ' . $voucherId;
         }
 
         return (string) $model->getKey();

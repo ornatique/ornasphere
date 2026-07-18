@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Company;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\VacuumProcess;
+use App\Models\VacuumVoucher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Validation\Rule;
@@ -31,10 +32,13 @@ class VacuumProcessController extends Controller
                     $encryptedId = Crypt::encryptString((string) $row->id);
                     $edit = route('company.vacuum-processes.edit', [$company->slug, $encryptedId]);
                     $delete = route('company.vacuum-processes.destroy', [$company->slug, $encryptedId]);
+                    $deleteButton = $this->isInUse($company->id, (int) $row->id)
+                        ? '<button type="button" class="btn btn-sm btn-secondary" disabled>In Use</button>'
+                        : '<button type="button" class="btn btn-sm btn-danger deleteBtn" data-url="' . e($delete) . '">Delete</button>';
 
                     return '
                         <a href="' . $edit . '" class="btn btn-sm btn-primary">Edit</a>
-                        <button type="button" class="btn btn-sm btn-danger deleteBtn" data-url="' . e($delete) . '">Delete</button>
+                        ' . $deleteButton . '
                     ';
                 })
                 ->rawColumns(['action'])
@@ -101,6 +105,14 @@ class VacuumProcessController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
         $id = Crypt::decryptString($encryptedId);
         $data = VacuumProcess::where('company_id', $company->id)->where('id', $id)->firstOrFail();
+
+        if ($this->isInUse($company->id, (int) $data->id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This process is already used in a voucher and cannot be deleted.',
+            ], 422);
+        }
+
         $data->delete();
 
         return response()->json([
@@ -121,5 +133,12 @@ class VacuumProcessController extends Controller
                     ->ignore($id),
             ],
         ]);
+    }
+
+    private function isInUse(int $companyId, int $processId): bool
+    {
+        return VacuumVoucher::where('company_id', $companyId)
+            ->where('vacuum_process_id', $processId)
+            ->exists();
     }
 }

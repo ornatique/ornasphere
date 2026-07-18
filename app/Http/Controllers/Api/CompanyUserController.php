@@ -13,6 +13,15 @@ use Illuminate\Validation\Rule;
 
 class CompanyUserController extends Controller
 {
+    private function isCompanyAdminUser(User $user): bool
+    {
+        if (strtolower((string) $user->role) === 'company_admin') {
+            return true;
+        }
+
+        return $user->hasRole('company_admin');
+    }
+
     private function storeProfileImageToUploads(Request $request): ?string
     {
         if (!$request->hasFile('profile_image')) {
@@ -308,6 +317,13 @@ public function update(Request $request, $id)
             return response()->json([
                 'success' => false,
                 'message' => 'You cannot change your own account status.'
+            ], 403);
+        }
+
+        if ($this->isCompanyAdminUser($user)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Company admin status can only be changed by superadmin.'
             ], 403);
         }
 

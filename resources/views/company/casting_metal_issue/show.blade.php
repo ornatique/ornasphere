@@ -1,6 +1,13 @@
 @extends('company_layout.admin')
 
 @section('content')
+@php
+    $savedMelting = $issueItems
+        ->first(fn($issueItem) => (bool) $issueItem->is_if && $issueItem->if_percentage !== null)
+        ?->if_percentage;
+    $meltingValue = old('melting', $savedMelting);
+@endphp
+
 <div class="content-wrapper">
     <div class="card">
         <div class="card-header casting-metal-header">
@@ -33,6 +40,19 @@
                     <div><span>Worker</span><strong>{{ $voucher->jobWorker?->name ?? '-' }}</strong></div>
                     <div><span>Total Pcs</span><strong>{{ (int) ($voucher->items_count ?? $voucher->items->count()) }}</strong></div>
                     <div><span>Created At</span><strong>{{ optional($voucher->created_at)->format('d-m-Y h:i A') }}</strong></div>
+                    <div class="melting-box">
+                        <label for="melting">Melting %</label>
+                        <input type="number"
+                            name="melting"
+                            id="melting"
+                            class="form-control"
+                            step="0.01"
+                            min="0"
+                            max="100"
+                            inputmode="decimal"
+                            value="{{ $meltingValue }}"
+                            placeholder="93">
+                    </div>
                 </div>
 
                 <div class="table-responsive casting-metal-scroll">
@@ -45,7 +65,6 @@
                                 <th style="width: 160px;">Silver Weight</th>
                                 <th class="text-center" style="width: 90px;">I/F</th>
                                 <th style="width: 160px;">Pure Fine</th>
-                                <th style="width: 120px;">%</th>
                                 <th style="width: 160px;">O/M</th>
                                 <th style="width: 160px;">Metal Weight</th>
                                 <th style="width: 180px;">Issue Silver Wt</th>
@@ -60,7 +79,7 @@
                                 $inBhati = (bool) ($heatingItem?->in_bhati);
                                 $isIf = (bool) old('items.' . $item->id . '.is_if', $issueItem?->is_if);
                             @endphp
-                            <tr data-if-row>
+                            <tr data-if-row data-silver-weight="{{ number_format((float) $item->silver_wt, 3, '.', '') }}">
                                 <td>{{ $loop->iteration }}</td>
                                 <td>{{ $item->buch_no }}</td>
                                 <td class="text-center">
@@ -79,6 +98,10 @@
                                         {{ $isIf ? 'checked' : '' }}>
                                 </td>
                                 <td>
+                                    <input type="hidden"
+                                        name="items[{{ $item->id }}][if_percentage]"
+                                        data-if-percentage
+                                        value="{{ old('items.' . $item->id . '.if_percentage', $issueItem?->if_percentage) }}">
                                     <input type="number"
                                         name="items[{{ $item->id }}][pure_fine]"
                                         class="form-control if-input"
@@ -90,21 +113,13 @@
                                 </td>
                                 <td>
                                     <input type="number"
-                                        name="items[{{ $item->id }}][if_percentage]"
-                                        class="form-control if-input"
-                                        data-if-percentage
-                                        step="0.01"
-                                        min="0.01"
-                                        max="100"
-                                        inputmode="decimal"
-                                        value="{{ old('items.' . $item->id . '.if_percentage', $issueItem?->if_percentage) }}">
-                                </td>
-                                <td>
-                                    <input type="number"
+                                        name="items[{{ $item->id }}][other_metal]"
                                         class="form-control if-input"
                                         data-other-metal
-                                        value="{{ $issueItem?->other_metal !== null ? number_format((float) $issueItem->other_metal, 3, '.', '') : '' }}"
-                                        readonly>
+                                        step="0.001"
+                                        inputmode="decimal"
+                                        value="{{ old('items.' . $item->id . '.other_metal', $issueItem?->other_metal !== null ? number_format((float) $issueItem->other_metal, 3, '.', '') : '') }}"
+                                        >
                                 </td>
                                 <td>
                                     <input type="number"
@@ -132,7 +147,7 @@
                             </tr>
                             @empty
                             <tr>
-                                <td colspan="11" class="text-center">No Buch rows found</td>
+                                <td colspan="10" class="text-center">No Buch rows found</td>
                             </tr>
                             @endforelse
                         </tbody>
@@ -166,7 +181,7 @@
 
     .casting-metal-summary {
         display: grid;
-        grid-template-columns: repeat(4, minmax(150px, 1fr));
+        grid-template-columns: repeat(5, minmax(150px, 1fr));
         gap: 10px;
     }
 
@@ -186,6 +201,13 @@
     .casting-metal-summary strong {
         color: #fff;
         font-size: 14px;
+    }
+
+    .melting-box label {
+        display: block;
+        color: #b8b8d4;
+        font-size: 12px;
+        margin-bottom: 5px;
     }
 
     .casting-metal-scroll {
@@ -278,20 +300,30 @@
 
     function recalcIfRow(row) {
         const enabled = row.querySelector('[data-if-toggle]')?.checked;
+        const melting = metalToNum(document.getElementById('melting')?.value);
+        const silverWeight = metalToNum(row.dataset.silverWeight);
         const pureFine = row.querySelector('[data-pure-fine]');
         const percentage = row.querySelector('[data-if-percentage]');
         const otherMetal = row.querySelector('[data-other-metal]');
         const metalWeight = row.querySelector('[data-metal-weight]');
-        const ifInputs = row.querySelectorAll('[data-pure-fine], [data-if-percentage], [data-other-metal], [data-metal-weight]');
+        const ifInputs = row.querySelectorAll('[data-pure-fine], [data-other-metal], [data-metal-weight]');
 
         ifInputs.forEach((input) => {
             input.classList.toggle('if-field-hidden', !enabled);
-            if (input !== otherMetal) {
+            if (input === metalWeight) {
+                input.disabled = false;
+            } else {
                 input.disabled = !enabled;
             }
         });
 
         if (!enabled) {
+            if (pureFine) {
+                pureFine.value = '';
+            }
+            if (percentage) {
+                percentage.value = '';
+            }
             if (otherMetal) {
                 otherMetal.value = '';
             }
@@ -301,34 +333,87 @@
             return;
         }
 
-        const pureFineValue = metalToNum(pureFine?.value);
-        const percentageValue = metalToNum(percentage?.value);
-        const calculatedMetalWeight = pureFineValue > 0 && percentageValue > 0
-            ? pureFineValue / (percentageValue / 100)
-            : null;
+        const currentPureFine = metalToNum(pureFine?.value);
+        const currentOtherMetal = metalToNum(otherMetal?.value);
+        const hasPureFine = pureFine && pureFine.value !== '';
+        const hasOtherMetal = otherMetal && otherMetal.value !== '';
+
+        const pureFineValue = hasPureFine
+            ? currentPureFine
+            : (silverWeight > 0 && melting > 0
+            ? silverWeight * (melting / 100)
+            : null);
+        const calculatedMetalWeight = hasOtherMetal
+            ? pureFineValue + currentOtherMetal
+            : (pureFineValue !== null && melting > 0
+                ? pureFineValue / (melting / 100)
+                : null);
+        const otherMetalValue = hasOtherMetal
+            ? currentOtherMetal
+            : (calculatedMetalWeight !== null && pureFineValue !== null
+                ? calculatedMetalWeight - pureFineValue
+                : null);
+
+        if (percentage) {
+            percentage.value = melting > 0 ? melting.toFixed(2) : '';
+        }
+
+        if (pureFine) {
+            pureFine.value = pureFineValue !== null ? metalNfix(pureFineValue) : '';
+        }
 
         if (metalWeight) {
             metalWeight.value = calculatedMetalWeight !== null ? metalNfix(calculatedMetalWeight) : '';
         }
 
         if (otherMetal) {
-            otherMetal.value = calculatedMetalWeight !== null
-                ? metalNfix(calculatedMetalWeight - pureFineValue)
-                : '';
+            otherMetal.value = otherMetalValue !== null ? metalNfix(otherMetalValue) : '';
         }
     }
 
-    document.querySelectorAll('[data-if-row]').forEach(recalcIfRow);
+    function resetIfRowFromMelting(row) {
+        const pureFine = row.querySelector('[data-pure-fine]');
+        const otherMetal = row.querySelector('[data-other-metal]');
+        if (pureFine) {
+            pureFine.value = '';
+        }
+        if (otherMetal) {
+            otherMetal.value = '';
+        }
+        recalcIfRow(row);
+    }
+
+    document.querySelectorAll('[data-if-row]').forEach((row) => {
+        const enabled = row.querySelector('[data-if-toggle]')?.checked;
+        if (enabled) {
+            recalcIfRow(row);
+        } else {
+            recalcIfRow(row);
+        }
+    });
 
     document.addEventListener('input', function (event) {
-        if (event.target.matches('[data-pure-fine], [data-if-percentage]')) {
+        if (event.target.matches('#melting')) {
+            document.querySelectorAll('[data-if-row]').forEach(resetIfRowFromMelting);
+        }
+
+        if (event.target.matches('[data-pure-fine]')) {
+            const row = event.target.closest('[data-if-row]');
+            const otherMetal = row?.querySelector('[data-other-metal]');
+            if (otherMetal) {
+                otherMetal.value = '';
+            }
+            recalcIfRow(row);
+        }
+
+        if (event.target.matches('[data-other-metal]')) {
             recalcIfRow(event.target.closest('[data-if-row]'));
         }
     });
 
     document.addEventListener('change', function (event) {
         if (event.target.matches('[data-if-toggle]')) {
-            recalcIfRow(event.target.closest('[data-if-row]'));
+            resetIfRowFromMelting(event.target.closest('[data-if-row]'));
         }
     });
 </script>

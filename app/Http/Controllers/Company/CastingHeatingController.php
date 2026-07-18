@@ -31,6 +31,12 @@ class CastingHeatingController extends Controller
                 ->when($workerId, fn($q) => $q->where('job_worker_id', $workerId))
                 ->with(['process:id,name', 'jobWorker:id,name'])
                 ->select('vacuum_vouchers.*')
+                ->selectSub(function ($query) use ($company) {
+                    $query->from('casting_heating_items')
+                        ->selectRaw('MAX(COALESCE(casting_heating_items.checked_at, casting_heating_items.created_at))')
+                        ->whereColumn('casting_heating_items.vacuum_voucher_id', 'vacuum_vouchers.id')
+                        ->where('casting_heating_items.company_id', $company->id);
+                }, 'heating_datetime')
                 ->orderByDesc('created_at')
                 ->orderByDesc('id')
                 ->withCount('items')
@@ -41,7 +47,7 @@ class CastingHeatingController extends Controller
             return DataTables::of($rows)
                 ->addIndexColumn()
                 ->addColumn('voucher_no_view', fn($row) => $row->voucher_no)
-                ->addColumn('date_time_view', fn($row) => optional($row->created_at)->format('d-m-Y / h:i A') ?? '-')
+                ->addColumn('date_time_view', fn($row) => $row->heating_datetime ? \Carbon\Carbon::parse($row->heating_datetime)->format('d-m-Y / h:i A') : (optional($row->created_at)->format('d-m-Y / h:i A') ?? '-'))
                 ->addColumn('process_name', fn($row) => $row->process?->name ?? '-')
                 ->addColumn('worker_name', fn($row) => $row->jobWorker?->name ?? '-')
                 ->addColumn('total_pcs', fn($row) => (int) ($row->items_count ?? 0))

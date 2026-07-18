@@ -18,6 +18,15 @@ use App\Models\ProductionStep;
 use App\Models\Sale;
 use App\Models\SaleReturn;
 use App\Models\User;
+use App\Models\CastingHeatingItem;
+use App\Models\CastingMetalIssueItem;
+use App\Models\CastingReleaseItem;
+use App\Models\CastingSortingItem;
+use App\Models\TreeCuttingIssueItem;
+use App\Models\TreeCuttingReceiveItem;
+use App\Models\VacuumBuch;
+use App\Models\VacuumProcess;
+use App\Models\VacuumVoucher;
 use App\Models\VisitingCard;
 use App\Observers\CompanyActivityObserver;
 use App\Services\CompanyNotificationService;
@@ -59,6 +68,15 @@ class AppServiceProvider extends ServiceProvider
         LabourFormula::observe(CompanyActivityObserver::class);
         ProductionStep::observe(CompanyActivityObserver::class);
         VisitingCard::observe(CompanyActivityObserver::class);
+        VacuumBuch::observe(CompanyActivityObserver::class);
+        VacuumProcess::observe(CompanyActivityObserver::class);
+        VacuumVoucher::observe(CompanyActivityObserver::class);
+        CastingHeatingItem::observe(CompanyActivityObserver::class);
+        CastingMetalIssueItem::observe(CompanyActivityObserver::class);
+        CastingReleaseItem::observe(CompanyActivityObserver::class);
+        TreeCuttingIssueItem::observe(CompanyActivityObserver::class);
+        TreeCuttingReceiveItem::observe(CompanyActivityObserver::class);
+        CastingSortingItem::observe(CompanyActivityObserver::class);
 
         View::composer(['company_layout.header', 'company_layout.sidebar'], function ($view) {
             $view->with('companyNotificationSummary', CompanyNotificationService::summary(auth()->user()));

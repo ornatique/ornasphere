@@ -295,7 +295,7 @@ class VacuumVoucherController extends Controller
             'items.*.buch_wt' => ['required', 'numeric'],
         ], [
             'items.*.vacuum_buch_id.distinct' => 'Each Buch No can be selected only one time in the voucher.',
-            'items.*.vacuum_buch_id.not_in' => 'Selected Buch No is already used in another voucher.',
+            'items.*.vacuum_buch_id.not_in' => 'Selected Buch No is already used in another pending voucher.',
         ]);
     }
 
@@ -305,6 +305,12 @@ class VacuumVoucherController extends Controller
             $query->where('company_id', $companyId)
                 ->when($ignoreVoucherId, fn($q) => $q->where('id', '!=', $ignoreVoucherId));
         })
+            ->whereNotExists(function ($query) {
+                $query->selectRaw('1')
+                    ->from('casting_heating_items')
+                    ->whereColumn('casting_heating_items.vacuum_voucher_item_id', 'vacuum_voucher_items.id')
+                    ->where('casting_heating_items.in_bhati', true);
+            })
             ->pluck('vacuum_buch_id')
             ->filter()
             ->map(fn($id) => (int) $id)

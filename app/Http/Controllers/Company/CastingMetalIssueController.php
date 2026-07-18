@@ -12,6 +12,7 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 use Yajra\DataTables\Facades\DataTables;
 
 class CastingMetalIssueController extends Controller
@@ -31,6 +32,12 @@ class CastingMetalIssueController extends Controller
                 ->when($workerId, fn($q) => $q->where('job_worker_id', $workerId))
                 ->with(['process:id,name', 'jobWorker:id,name'])
                 ->select('vacuum_vouchers.*')
+                ->selectSub(function ($query) use ($company) {
+                    $query->from('casting_metal_issue_items')
+                        ->selectRaw('MAX(COALESCE(casting_metal_issue_items.issued_at, casting_metal_issue_items.created_at))')
+                        ->whereColumn('casting_metal_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
+                        ->where('casting_metal_issue_items.company_id', $company->id);
+                }, 'metal_issue_datetime')
                 ->withCount('items')
                 ->selectSub(function ($query) use ($company) {
                     $query->from('casting_metal_issue_items')
@@ -47,7 +54,7 @@ class CastingMetalIssueController extends Controller
                 ->addColumn('voucher_no_view', fn($row) => $row->voucher_no)
                 ->addColumn('process_name', fn($row) => $row->process?->name ?? '-')
                 ->addColumn('worker_name', fn($row) => $row->jobWorker?->name ?? '-')
-                ->addColumn('date_time_view', fn($row) => optional($row->created_at)->format('d-m-Y  / h:i A') ?? '-')
+                ->addColumn('date_time_view', fn($row) => $row->metal_issue_datetime ? \Carbon\Carbon::parse($row->metal_issue_datetime)->format('d-m-Y / h:i A') : (optional($row->created_at)->format('d-m-Y / h:i A') ?? '-'))
                 ->addColumn('assigned_metal_view', function ($row) {
                     $assigned = (int) ($row->assigned_metal_count ?? 0);
 
@@ -135,21 +142,42 @@ class CastingMetalIssueController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
         $id = Crypt::decryptString($encryptedId);
         $voucher = VacuumVoucher::where('company_id', $company->id)
-            ->with('items:id,vacuum_voucher_id')
+            ->with('items:id,vacuum_voucher_id,silver_wt')
             ->findOrFail($id);
 
-        $validItemIds = $voucher->items->pluck('id')->map(fn($itemId) => (int) $itemId)->all();
+        $voucherItems = $voucher->items->keyBy('id');
+        $validItemIds = $voucherItems->keys()->map(fn($itemId) => (int) $itemId)->all();
 
-        $validated = $request->validate([
+        $validator = Validator::make($request->all(), [
+            'melting' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'items' => ['nullable', 'array'],
             'items.*.issue_silver_wt' => ['nullable', 'numeric', 'min:0'],
             'items.*.is_if' => ['nullable', 'boolean'],
             'items.*.pure_fine' => ['nullable', 'numeric', 'min:0'],
-            'items.*.if_percentage' => ['nullable', 'numeric', 'gt:0', 'max:100'],
+            'items.*.if_percentage' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'items.*.other_metal' => ['nullable', 'numeric'],
             'items.*.remarks' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        DB::transaction(function () use ($company, $voucher, $validItemIds, $validated) {
+        $validator->after(function ($validator) use ($request) {
+            $melting = $request->input('melting');
+            foreach ((array) $request->input('items', []) as $itemId => $row) {
+                $isIf = filter_var($row['is_if'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                $ifPercentage = $melting !== null && $melting !== '' ? $melting : ($row['if_percentage'] ?? null);
+
+                if ($isIf && ($ifPercentage === null || $ifPercentage === '' || (float) $ifPercentage <= 0)) {
+                    $validator->errors()->add(
+                        'melting',
+                        'The Melting field must be greater than 0 when I/F is checked.'
+                    );
+                }
+            }
+        });
+
+        $validated = $validator->validate();
+
+        DB::transaction(function () use ($company, $voucher, $voucherItems, $validItemIds, $validated) {
+            $melting = $validated['melting'] ?? null;
             foreach (($validated['items'] ?? []) as $itemId => $row) {
                 $itemId = (int) $itemId;
 
@@ -159,16 +187,29 @@ class CastingMetalIssueController extends Controller
 
                 $issueSilverWt = $row['issue_silver_wt'] ?? null;
                 $isIf = (bool) ($row['is_if'] ?? false);
-                $pureFine = $row['pure_fine'] ?? null;
-                $ifPercentage = $row['if_percentage'] ?? null;
-                $pureFineValue = $isIf && $pureFine !== null && $pureFine !== '' ? (float) $pureFine : null;
+                $voucherItem = $voucherItems->get($itemId);
+                $ifPercentage = $melting !== null && $melting !== '' ? $melting : ($row['if_percentage'] ?? null);
                 $ifPercentageValue = $isIf && $ifPercentage !== null && $ifPercentage !== '' ? (float) $ifPercentage : null;
-                $metalWeight = $isIf && $pureFineValue !== null && $ifPercentageValue !== null
-                    ? round($pureFineValue / ($ifPercentageValue / 100), 3)
+                $pureFine = $row['pure_fine'] ?? null;
+                $otherMetalInput = $row['other_metal'] ?? null;
+                $pureFineValue = $isIf && $pureFine !== null && $pureFine !== ''
+                    ? round((float) $pureFine, 3)
+                    : ($isIf && $ifPercentageValue !== null
+                        ? round(((float) ($voucherItem?->silver_wt ?? 0)) * ($ifPercentageValue / 100), 3)
+                        : null);
+                $otherMetal = $isIf && $otherMetalInput !== null && $otherMetalInput !== ''
+                    ? round((float) $otherMetalInput, 3)
                     : null;
-                $otherMetal = $metalWeight !== null && $pureFineValue !== null
-                    ? round($metalWeight - $pureFineValue, 3)
-                    : null;
+                $metalWeight = $isIf && $pureFineValue !== null && $otherMetal !== null
+                    ? round($pureFineValue + $otherMetal, 3)
+                    : ($isIf && $pureFineValue !== null && $ifPercentageValue > 0
+                        ? round($pureFineValue / ($ifPercentageValue / 100), 3)
+                        : null);
+                $otherMetal = $otherMetal !== null
+                    ? $otherMetal
+                    : ($metalWeight !== null && $pureFineValue !== null
+                        ? round($metalWeight - $pureFineValue, 3)
+                        : null);
                 $remarks = trim((string) ($row['remarks'] ?? ''));
 
                 CastingMetalIssueItem::updateOrCreate(

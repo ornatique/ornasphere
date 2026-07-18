@@ -197,12 +197,14 @@ class CompanyPermissionController extends Controller
             'vacuum-buch',
             'vacuum-process',
             'vacuum-voucher',
+            'vacuum-live-dashboard',
             'casting-heating',
             'casting-metal-issue',
             'casting-release',
             'tree-cutting-issue',
             'tree-cutting-receive',
             'casting-sorting',
+            'voucher-history',
             'sale',
             'sale-advance',
             'approval',
@@ -213,6 +215,7 @@ class CompanyPermissionController extends Controller
             'report-approval-outstanding',
             'report-outstanding-amount',
             'report-barcode-history',
+            'report-worker-loss',
             'report-visiting-cards',
         ];
 
@@ -269,7 +272,7 @@ class CompanyPermissionController extends Controller
 
     private function actionsForModule(string $module): array
     {
-        return in_array($module, ['dashboard', 'notification'], true)
+        return in_array($module, ['dashboard', 'notification', 'vacuum-live-dashboard'], true)
             ? ['view']
             : ['view', 'create', 'edit', 'delete', 'manage'];
     }

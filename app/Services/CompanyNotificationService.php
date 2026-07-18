@@ -28,6 +28,15 @@ class CompanyNotificationService
         'labour_formula' => 'Labour Formula',
         'production_step' => 'Production Step',
         'visiting_card' => 'Visiting Cards',
+        'vacuum_buch' => 'Vacuum Buch',
+        'vacuum_process' => 'Vacuum Process',
+        'vacuum_voucher' => 'Vacuum Voucher',
+        'casting_heating' => 'Casting Heating',
+        'casting_metal_issue' => 'Casting Metal Issue',
+        'casting_release' => 'Casting Receive',
+        'tree_cutting_issue' => 'Tree Cutting Issue',
+        'tree_cutting_receive' => 'Tree Cutting Receive',
+        'casting_sorting' => 'Casting Sorting',
     ];
 
     public static function record(
@@ -153,6 +162,24 @@ class CompanyNotificationService
             str_starts_with($routeName, 'company.returns.') => ['approval_return'],
             str_starts_with($routeName, 'company.sales.') => ['sale'],
             str_starts_with($routeName, 'company.reports.visiting-cards.') => ['visiting_card'],
+            str_starts_with($routeName, 'company.vacuum-buchs.') => ['vacuum_buch'],
+            str_starts_with($routeName, 'company.vacuum-processes.') => ['vacuum_process'],
+            str_starts_with($routeName, 'company.vacuum-vouchers.') => ['vacuum_voucher'],
+            str_starts_with($routeName, 'company.vacuum-live-dashboard.') => [
+                'vacuum_voucher',
+                'casting_heating',
+                'casting_metal_issue',
+                'casting_release',
+                'tree_cutting_issue',
+                'tree_cutting_receive',
+                'casting_sorting',
+            ],
+            str_starts_with($routeName, 'company.casting-heating.') => ['casting_heating'],
+            str_starts_with($routeName, 'company.casting-metal-issue.') => ['casting_metal_issue'],
+            str_starts_with($routeName, 'company.casting-release.') => ['casting_release'],
+            str_starts_with($routeName, 'company.tree-cutting-issue.') => ['tree_cutting_issue'],
+            str_starts_with($routeName, 'company.tree-cutting-receive.') => ['tree_cutting_receive'],
+            str_starts_with($routeName, 'company.casting-sorting.') => ['casting_sorting'],
             default => [],
         };
     }
