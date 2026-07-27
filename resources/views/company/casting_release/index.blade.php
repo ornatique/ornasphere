@@ -1,5 +1,10 @@
 @extends('company_layout.admin')
 
+@php
+    $fromDate = request()->filled('from_date') ? request('from_date') : now()->subDays(6)->toDateString();
+    $toDate = request()->filled('to_date') ? request('to_date') : now()->toDateString();
+@endphp
+
 @section('content')
 <div class="content-wrapper">
     <div class="card">
@@ -41,6 +46,9 @@
                             <th>Process</th>
                             <th>Worker Name</th>
                             <th>Assigned Receive</th>
+                            <th>Release Tree Wt</th>
+                            <th>Release Tree Bhuko</th>
+                            <th>Loss</th>
                             <th>Pending</th>
                             <th>Action</th>
                         </tr>
@@ -150,6 +158,9 @@
             { data: 'process_name', name: 'process.name', orderable: false },
             { data: 'worker_name', name: 'jobWorker.name', orderable: false },
             { data: 'assigned_receive_view', name: 'assigned_receive_count', orderable: false, searchable: false },
+            { data: 'release_tree_wt_view', name: 'release_tree_wt_total', orderable: false, searchable: false },
+            { data: 'release_tree_bhuko_view', name: 'release_tree_bhuko_total', orderable: false, searchable: false },
+            { data: 'loss_view', name: 'loss_total', orderable: false, searchable: false },
             { data: 'pending_receive_view', name: 'pending_receive_count', orderable: false, searchable: false },
             { data: 'action', name: 'action', orderable: false, searchable: false },
         ]

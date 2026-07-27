@@ -106,10 +106,14 @@ class User extends Authenticatable
             $path = substr($path, 7);
         }
 
-        if (str_starts_with($path, 'uploads/')) {
+        if (file_exists(public_path($path))) {
             return asset('public/' . $path);
         }
 
-        return asset('storage/' . $path);
+        if (file_exists(storage_path('app/public/' . $path))) {
+            return asset('storage/' . $path);
+        }
+
+        return null;
     }
 }

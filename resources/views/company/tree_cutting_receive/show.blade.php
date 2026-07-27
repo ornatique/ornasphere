@@ -48,11 +48,24 @@
                             </tr>
                         </thead>
                         <tbody>
+                            @php
+                                $issueTreeWtTotal = 0;
+                                $receivePcWtTotal = 0;
+                                $receiveTreeBhukoTotal = 0;
+                                $lossTotal = 0;
+                            @endphp
                             @forelse($issueItems as $issueItem)
                             @php
                                 $receiveItem = $receiveItems->get($issueItem->id);
                                 $issueTreeWt = (float) ($issueItem->receive_tree_wt ?? 0);
                                 $buchNo = $issueItem->is_custom ? $issueItem->custom_buch_no : ($issueItem->voucherItem?->buch_no ?? '-');
+                                $receivePcWtValue = old('items.' . $issueItem->id . '.receive_pc_wt', $receiveItem?->receive_pc_wt);
+                                $receiveTreeBhukoValue = old('items.' . $issueItem->id . '.receive_tree_bhuko', $receiveItem?->receive_tree_bhuko);
+                                $lossValue = $receiveItem?->loss;
+                                $issueTreeWtTotal += $issueTreeWt;
+                                $receivePcWtTotal += $receivePcWtValue !== null && $receivePcWtValue !== '' ? (float) $receivePcWtValue : 0;
+                                $receiveTreeBhukoTotal += $receiveTreeBhukoValue !== null && $receiveTreeBhukoValue !== '' ? (float) $receiveTreeBhukoValue : 0;
+                                $lossTotal += $lossValue !== null && $lossValue !== '' ? (float) $lossValue : 0;
                             @endphp
                             <tr data-receive-row>
                                 <td>{{ $loop->iteration }}</td>
@@ -67,7 +80,7 @@
                                         step="0.001"
                                         min="0"
                                         inputmode="decimal"
-                                        value="{{ old('items.' . $issueItem->id . '.receive_pc_wt', $receiveItem?->receive_pc_wt) }}">
+                                        value="{{ $receivePcWtValue }}">
                                 </td>
                                 <td>
                                     <input type="number"
@@ -77,13 +90,13 @@
                                         step="0.001"
                                         min="0"
                                         inputmode="decimal"
-                                        value="{{ old('items.' . $issueItem->id . '.receive_tree_bhuko', $receiveItem?->receive_tree_bhuko) }}">
+                                        value="{{ $receiveTreeBhukoValue }}">
                                 </td>
                                 <td>
                                     <input type="number"
                                         class="form-control"
                                         data-loss
-                                        value="{{ $receiveItem?->loss !== null ? number_format((float) $receiveItem->loss, 3, '.', '') : '' }}"
+                                        value="{{ $lossValue !== null ? number_format((float) $lossValue, 3, '.', '') : '' }}"
                                         readonly>
                                 </td>
                             </tr>
@@ -93,6 +106,15 @@
                             </tr>
                             @endforelse
                         </tbody>
+                        <tfoot>
+                            <tr>
+                                <td colspan="3">Total</td>
+                                <td><strong>{{ number_format($issueTreeWtTotal, 3, '.', '') }}</strong></td>
+                                <td><strong id="treeReceivePcWtTotal">{{ number_format($receivePcWtTotal, 3, '.', '') }}</strong></td>
+                                <td><strong id="treeReceiveBhukoTotal">{{ number_format($receiveTreeBhukoTotal, 3, '.', '') }}</strong></td>
+                                <td><strong id="treeReceiveLossTotal">{{ number_format($lossTotal, 3, '.', '') }}</strong></td>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
             </div>
@@ -117,6 +139,7 @@
     .tree-cutting-receive-scroll { max-height: calc(100vh - 430px); overflow-y: auto; border: 1px solid rgba(255, 255, 255, 0.08); }
     .tree-cutting-receive-table { margin-bottom: 0; table-layout: fixed; width: 100%; }
     .tree-cutting-receive-table thead th { position: sticky; top: 0; z-index: 2; background: #25263a; }
+    .tree-cutting-receive-table tfoot td { position: sticky; bottom: 0; z-index: 2; background: #25263a; color: #fff; font-weight: 700; }
     .tree-cutting-receive-table th, .tree-cutting-receive-table td { padding: 0.65rem 0.8rem; vertical-align: middle; }
     @media (max-width: 991px) { .tree-cutting-receive-summary { grid-template-columns: repeat(2, minmax(150px, 1fr)); } }
     @media (max-width: 575px) { .tree-cutting-receive-summary { grid-template-columns: 1fr; } }
@@ -141,11 +164,28 @@
         if (loss) {
             loss.value = receiveNfix(receivePcWt + bhuko - issueTreeWt);
         }
+        updateTreeReceiveTotals();
+    }
+    function updateTreeReceiveTotals() {
+        let receivePcWtTotal = 0;
+        let bhukoTotal = 0;
+        let lossTotal = 0;
+
+        document.querySelectorAll('.tree-cutting-receive-table tbody [data-receive-row]').forEach((row) => {
+            receivePcWtTotal += toReceiveNum(row.querySelector('[data-receive-pc-wt]')?.value);
+            bhukoTotal += toReceiveNum(row.querySelector('[data-receive-tree-bhuko]')?.value);
+            lossTotal += toReceiveNum(row.querySelector('[data-loss]')?.value);
+        });
+
+        document.getElementById('treeReceivePcWtTotal').textContent = receiveNfix(receivePcWtTotal);
+        document.getElementById('treeReceiveBhukoTotal').textContent = receiveNfix(bhukoTotal);
+        document.getElementById('treeReceiveLossTotal').textContent = receiveNfix(lossTotal);
     }
     document.addEventListener('input', function (event) {
         if (event.target.matches('[data-receive-pc-wt], [data-receive-tree-bhuko]')) {
             recalcReceiveRow(event.target.closest('[data-receive-row]'));
         }
     });
+    updateTreeReceiveTotals();
 </script>
 @endpush

@@ -72,12 +72,19 @@
                             </tr>
                         </thead>
                         <tbody>
+                            @php
+                                $silverWeightTotal = 0;
+                                $issueSilverWtTotal = 0;
+                            @endphp
                             @forelse($voucher->items as $item)
                             @php
                                 $heatingItem = $heatingItems->get($item->id);
                                 $issueItem = $issueItems->get($item->id);
                                 $inBhati = (bool) ($heatingItem?->in_bhati);
                                 $isIf = (bool) old('items.' . $item->id . '.is_if', $issueItem?->is_if);
+                                $issueSilverWtValue = old('items.' . $item->id . '.issue_silver_wt', $issueItem?->issue_silver_wt);
+                                $silverWeightTotal += (float) $item->silver_wt;
+                                $issueSilverWtTotal += $issueSilverWtValue !== null && $issueSilverWtValue !== '' ? (float) $issueSilverWtValue : 0;
                             @endphp
                             <tr data-if-row data-silver-weight="{{ number_format((float) $item->silver_wt, 3, '.', '') }}">
                                 <td>{{ $loop->iteration }}</td>
@@ -135,7 +142,7 @@
                                         step="0.001"
                                         min="0"
                                         inputmode="decimal"
-                                        value="{{ old('items.' . $item->id . '.issue_silver_wt', $issueItem?->issue_silver_wt) }}">
+                                        value="{{ $issueSilverWtValue }}">
                                 </td>
                                 <td>
                                     <input type="text"
@@ -151,6 +158,21 @@
                             </tr>
                             @endforelse
                         </tbody>
+                        @if($voucher->items->count() > 0)
+                        <tfoot>
+                            <tr class="casting-metal-total-row">
+                                <td colspan="3">Total</td>
+                                <td>
+                                    <strong>{{ number_format($silverWeightTotal, 3, '.', '') }}</strong>
+                                </td>
+                                <td colspan="4"></td>
+                                <td>
+                                    <strong id="issueSilverWtTotal">{{ number_format($issueSilverWtTotal, 3, '.', '') }}</strong>
+                                </td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                        @endif
                     </table>
                 </div>
             </div>
@@ -229,6 +251,14 @@
         background: #25263a;
     }
 
+    .casting-metal-table tfoot td {
+        position: sticky;
+        bottom: 0;
+        z-index: 2;
+        background: #25263a;
+        font-weight: 700;
+    }
+
     .casting-metal-table th,
     .casting-metal-table td {
         padding: 0.65rem 0.8rem;
@@ -272,6 +302,10 @@
         visibility: hidden;
     }
 
+    .casting-metal-total-row td {
+        border-top: 1px solid rgba(255, 255, 255, 0.18);
+    }
+
     @media (max-width: 991px) {
         .casting-metal-summary {
             grid-template-columns: repeat(2, minmax(150px, 1fr));
@@ -298,7 +332,22 @@
         return (Math.abs(number) < 0.0005 ? 0 : number).toFixed(3);
     };
 
-    function recalcIfRow(row) {
+    function updateIssueSilverWtTotal() {
+        const total = Array.from(document.querySelectorAll('.issue-silver-input'))
+            .reduce((sum, input) => sum + metalToNum(input.value), 0);
+        const totalEl = document.getElementById('issueSilverWtTotal');
+        if (totalEl) {
+            totalEl.textContent = metalNfix(total);
+        }
+    }
+
+    function recalcIfRow(row, options = {}) {
+        if (!row) {
+            return;
+        }
+
+        const preservePureFine = options.preservePureFine === true;
+        const preserveOtherMetal = options.preserveOtherMetal === true;
         const enabled = row.querySelector('[data-if-toggle]')?.checked;
         const melting = metalToNum(document.getElementById('melting')?.value);
         const silverWeight = metalToNum(row.dataset.silverWeight);
@@ -358,7 +407,7 @@
             percentage.value = melting > 0 ? melting.toFixed(2) : '';
         }
 
-        if (pureFine) {
+        if (pureFine && !preservePureFine) {
             pureFine.value = pureFineValue !== null ? metalNfix(pureFineValue) : '';
         }
 
@@ -366,7 +415,7 @@
             metalWeight.value = calculatedMetalWeight !== null ? metalNfix(calculatedMetalWeight) : '';
         }
 
-        if (otherMetal) {
+        if (otherMetal && !preserveOtherMetal) {
             otherMetal.value = otherMetalValue !== null ? metalNfix(otherMetalValue) : '';
         }
     }
@@ -403,11 +452,15 @@
             if (otherMetal) {
                 otherMetal.value = '';
             }
-            recalcIfRow(row);
+            recalcIfRow(row, { preservePureFine: true });
         }
 
         if (event.target.matches('[data-other-metal]')) {
-            recalcIfRow(event.target.closest('[data-if-row]'));
+            recalcIfRow(event.target.closest('[data-if-row]'), { preserveOtherMetal: true });
+        }
+
+        if (event.target.matches('.issue-silver-input')) {
+            updateIssueSilverWtTotal();
         }
     });
 
@@ -416,5 +469,29 @@
             resetIfRowFromMelting(event.target.closest('[data-if-row]'));
         }
     });
+
+    document.addEventListener('blur', function (event) {
+        if (event.target.matches('[data-pure-fine], [data-other-metal], .issue-silver-input, #melting')) {
+            if (event.target.value.trim() !== '') {
+                event.target.value = event.target.matches('#melting')
+                    ? metalToNum(event.target.value).toFixed(2)
+                    : metalNfix(event.target.value);
+            }
+        }
+
+        if (event.target.matches('[data-pure-fine]')) {
+            recalcIfRow(event.target.closest('[data-if-row]'), { preservePureFine: true });
+        }
+
+        if (event.target.matches('[data-other-metal]')) {
+            recalcIfRow(event.target.closest('[data-if-row]'), { preserveOtherMetal: true });
+        }
+
+        if (event.target.matches('.issue-silver-input')) {
+            updateIssueSilverWtTotal();
+        }
+    }, true);
+
+    updateIssueSilverWtTotal();
 </script>
 @endpush

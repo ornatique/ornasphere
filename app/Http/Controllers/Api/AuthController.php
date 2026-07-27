@@ -127,7 +127,44 @@ class AuthController extends Controller
 
     public function me(Request $request)
     {
-        $user = $request->user()->loadMissing('roles:id,name');
+        $user = $request->user()->loadMissing(['roles:id,name', 'company']);
+        $basePermissions = $this->basePermissionsForUser($user);
+        $expandedPermissions = $basePermissions->flatMap(function ($permissionName) {
+            $name = (string) $permissionName;
+
+            if (!str_ends_with($name, '-manage')) {
+                return [$name];
+            }
+
+            $module = substr($name, 0, -strlen('-manage'));
+
+            return [
+                $name,
+                $module . '-view',
+                $module . '-create',
+                $module . '-edit',
+                $module . '-delete',
+            ];
+        })->unique()->values();
+        $expandedPermissions = $expandedPermissions
+            ->reject(fn ($permissionName) => $this->isDeprecatedPermission((string) $permissionName))
+            ->values();
+
+        $profile = $this->profilePayload($user, $expandedPermissions);
+
+        return response()->json([
+            'success' => true,
+            'data' => $user->append('profile_image_url'),
+            'profile' => $profile,
+            'company' => $profile['company'],
+            'role_names' => $user->roles->pluck('name')->values(),
+            'permissions' => $expandedPermissions,
+        ]);
+    }
+
+    public function profile(Request $request)
+    {
+        $user = $request->user()->loadMissing(['roles:id,name', 'company']);
         $basePermissions = $this->basePermissionsForUser($user);
         $expandedPermissions = $basePermissions->flatMap(function ($permissionName) {
             $name = (string) $permissionName;
@@ -152,10 +189,147 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $user,
-            'role_names' => $user->roles->pluck('name')->values(),
-            'permissions' => $expandedPermissions,
+            'data' => $this->profilePayload($user, $expandedPermissions),
         ]);
+    }
+
+    private function profilePayload(User $user, $permissions): array
+    {
+        $company = $user->company;
+
+        return [
+            'id' => (int) $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'role' => $user->role,
+            'role_names' => $user->roles->pluck('name')->values(),
+            'permissions' => $permissions,
+            'is_active' => (bool) $user->is_active,
+            'status' => $user->is_active ? 'Active' : 'Inactive',
+            'profile_image' => $user->profile_image,
+            'profile_image_url' => $this->safeProfileImageUrl($user),
+            'avatar_initials' => $this->initials($user->name),
+            'person_code' => $user->person_code,
+            'mobile_no' => $user->mobile_no,
+            'phone_no' => $user->phone_no,
+            'city' => $user->city,
+            'address' => $user->address,
+            'area' => $user->area,
+            'landmark' => $user->landmark,
+            'pincode' => $user->pincode,
+            'contact_person1_name' => $user->contact_person1_name,
+            'contact_person1_phone' => $user->contact_person1_phone,
+            'contact_person2_name' => $user->contact_person2_name,
+            'contact_person2_phone' => $user->contact_person2_phone,
+            'gst_no' => $user->gst_no,
+            'pan_no' => $user->pan_no,
+            'aadhaar_no' => $user->aadhaar_no,
+            'hallmark_license_no' => $user->hallmark_license_no,
+            'birth_date' => $this->formatDate($user->birth_date),
+            'anniversary_date' => $this->formatDate($user->anniversary_date),
+            'reference' => $user->reference,
+            'remarks' => $user->remarks,
+            'created_at' => optional($user->created_at)->toDateTimeString(),
+            'created_at_view' => $this->formatDateTime($user->created_at),
+            'updated_at' => optional($user->updated_at)->toDateTimeString(),
+            'updated_at_view' => $this->formatDateTime($user->updated_at),
+            'company' => $company ? [
+                'id' => (int) $company->id,
+                'name' => $company->name,
+                'slug' => $company->slug,
+                'email' => $company->email,
+                'company_logo' => $company->company_logo,
+                'company_logo_url' => $this->companyLogoUrl($company->company_logo),
+                'max_users' => $company->max_users,
+                'plan' => $company->plan,
+                'address_1' => $company->address_1,
+                'address_2' => $company->address_2,
+                'city' => $company->city,
+                'state' => $company->state,
+                'postcode' => $company->postcode,
+                'country' => $company->country,
+                'status' => $company->status == 1 ? 'Active' : 'Inactive',
+            ] : null,
+        ];
+    }
+
+    private function safeProfileImageUrl(User $user): ?string
+    {
+        $rawPath = trim((string) ($user->profile_image ?? ''));
+        if ($rawPath === '') {
+            return null;
+        }
+
+        $path = ltrim($rawPath, '/');
+        if (str_starts_with($path, 'public/')) {
+            $path = substr($path, 7);
+        }
+
+        if (file_exists(public_path($path))) {
+            return asset('public/' . $path);
+        }
+
+        if (file_exists(storage_path('app/public/' . $path))) {
+            return asset('storage/' . $path);
+        }
+
+        return null;
+    }
+
+    private function companyLogoUrl(?string $rawPath): ?string
+    {
+        $rawPath = trim((string) $rawPath);
+        if ($rawPath === '') {
+            return null;
+        }
+
+        $path = ltrim($rawPath, '/');
+        if (str_starts_with($path, 'public/')) {
+            $path = substr($path, 7);
+        }
+
+        if (file_exists(public_path($path))) {
+            return asset('public/' . $path);
+        }
+
+        if (file_exists(storage_path('app/public/' . $path))) {
+            return asset('storage/' . $path);
+        }
+
+        return null;
+    }
+
+    private function initials(?string $name): string
+    {
+        $parts = preg_split('/\s+/', trim((string) $name));
+        $parts = array_values(array_filter($parts));
+
+        if (empty($parts)) {
+            return 'U';
+        }
+
+        $first = strtoupper(substr($parts[0], 0, 1));
+        $second = isset($parts[1]) ? strtoupper(substr($parts[1], 0, 1)) : '';
+
+        return $first . $second;
+    }
+
+    private function formatDate($value): ?string
+    {
+        if (empty($value)) {
+            return null;
+        }
+
+        return date('d-m-Y', strtotime((string) $value));
+    }
+
+    private function formatDateTime($value): ?string
+    {
+        if (empty($value)) {
+            return null;
+        }
+
+        return date('d-m-Y / h:i A', strtotime((string) $value));
     }
 
     private function basePermissionsForUser(User $user)

@@ -19,7 +19,7 @@ class CastingHeatingController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        $fromDate = $request->get('from_date', now()->toDateString());
+        $fromDate = $request->get('from_date', now()->subDays(6)->toDateString());
         $toDate = $request->get('to_date', now()->toDateString());
         $workerId = $request->get('worker_id');
 
@@ -35,13 +35,25 @@ class CastingHeatingController extends Controller
                     $query->from('casting_heating_items')
                         ->selectRaw('MAX(COALESCE(casting_heating_items.checked_at, casting_heating_items.created_at))')
                         ->whereColumn('casting_heating_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('casting_heating_items.company_id', $company->id);
+                        ->where('casting_heating_items.company_id', $company->id)
+                        ->whereExists(function ($exists) {
+                            $exists->selectRaw('1')
+                                ->from('vacuum_voucher_items')
+                                ->whereColumn('vacuum_voucher_items.id', 'casting_heating_items.vacuum_voucher_item_id')
+                                ->whereColumn('vacuum_voucher_items.vacuum_voucher_id', 'casting_heating_items.vacuum_voucher_id');
+                        });
                 }, 'heating_datetime')
                 ->orderByDesc('created_at')
                 ->orderByDesc('id')
                 ->withCount('items')
                 ->withCount([
-                    'heatingItems as in_bhati_count' => fn($q) => $q->where('in_bhati', true),
+                    'heatingItems as in_bhati_count' => fn($q) => $q->where('in_bhati', true)
+                        ->whereExists(function ($exists) {
+                            $exists->selectRaw('1')
+                                ->from('vacuum_voucher_items')
+                                ->whereColumn('vacuum_voucher_items.id', 'casting_heating_items.vacuum_voucher_item_id')
+                                ->whereColumn('vacuum_voucher_items.vacuum_voucher_id', 'casting_heating_items.vacuum_voucher_id');
+                        }),
                 ]);
 
             return DataTables::of($rows)
@@ -81,10 +93,7 @@ class CastingHeatingController extends Controller
             ->withCount('items')
             ->findOrFail($id);
 
-        $heatingItems = CastingHeatingItem::where('company_id', $company->id)
-            ->where('vacuum_voucher_id', $voucher->id)
-            ->get()
-            ->keyBy('vacuum_voucher_item_id');
+        $heatingItems = $this->currentHeatingItems($voucher, (int) $company->id);
 
         $checkedItemIds = $heatingItems
             ->filter(fn($item) => (bool) $item->in_bhati)
@@ -112,10 +121,7 @@ class CastingHeatingController extends Controller
             ->withCount('items')
             ->findOrFail($id);
 
-        $heatingItems = CastingHeatingItem::where('company_id', $company->id)
-            ->where('vacuum_voucher_id', $voucher->id)
-            ->get()
-            ->keyBy('vacuum_voucher_item_id');
+        $heatingItems = $this->currentHeatingItems($voucher, (int) $company->id);
 
         $inBhatiCount = $heatingItems->filter(fn($item) => (bool) $item->in_bhati)->count();
 
@@ -142,6 +148,8 @@ class CastingHeatingController extends Controller
         $checkedIds = collect($validated['items'] ?? [])->map(fn($itemId) => (int) $itemId)->all();
 
         DB::transaction(function () use ($company, $voucher, $validItemIds, $checkedIds) {
+            $this->pruneStaleHeatingItems($voucher, (int) $company->id);
+
             $existingRows = CastingHeatingItem::where('company_id', $company->id)
                 ->where('vacuum_voucher_id', $voucher->id)
                 ->whereIn('vacuum_voucher_item_id', $validItemIds)
@@ -174,5 +182,33 @@ class CastingHeatingController extends Controller
         });
 
         return redirect()->route('company.casting-heating.index', $company->slug);
+    }
+
+    private function currentHeatingItems(VacuumVoucher $voucher, int $companyId)
+    {
+        $this->pruneStaleHeatingItems($voucher, $companyId);
+        $validItemIds = $voucher->items->pluck('id')->map(fn($itemId) => (int) $itemId)->all();
+
+        return CastingHeatingItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucher->id)
+            ->when($validItemIds !== [], fn($query) => $query->whereIn('vacuum_voucher_item_id', $validItemIds))
+            ->when($validItemIds === [], fn($query) => $query->whereRaw('1 = 0'))
+            ->get()
+            ->keyBy('vacuum_voucher_item_id');
+    }
+
+    private function pruneStaleHeatingItems(VacuumVoucher $voucher, int $companyId): void
+    {
+        $validItemIds = $voucher->items->pluck('id')->map(fn($itemId) => (int) $itemId)->all();
+
+        $query = CastingHeatingItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucher->id);
+
+        if ($validItemIds === []) {
+            $query->delete();
+            return;
+        }
+
+        $query->whereNotIn('vacuum_voucher_item_id', $validItemIds)->delete();
     }
 }

@@ -51,6 +51,7 @@
                         <tbody id="tree-cutting-issue-rows">
                             @php
                                 $issueRowNo = 0;
+                                $receiveTreeWtTotal = 0;
                             @endphp
                             @foreach($voucher->items as $item)
                             @php
@@ -59,8 +60,10 @@
                                     continue;
                                 }
                                 $treeCuttingItem = $treeCuttingItems->get($item->id);
-                                $defaultReceiveTreeWt = $treeCuttingItem?->receive_tree_wt ?? $receiveItem?->release_tree_wt;
-                                $defaultWorkerId = $treeCuttingItem?->job_worker_id ?? $voucher->job_worker_id;
+                                $defaultReceiveTreeWt = $receiveItem?->release_tree_wt;
+                                $receiveTreeWtValue = old('items.' . $item->id . '.receive_tree_wt', $defaultReceiveTreeWt);
+                                $defaultWorkerId = $treeCuttingItem?->job_worker_id;
+                                $receiveTreeWtTotal += $receiveTreeWtValue !== null && $receiveTreeWtValue !== '' ? (float) $receiveTreeWtValue : 0;
                                 $issueRowNo++;
                             @endphp
                             <tr>
@@ -73,7 +76,7 @@
                                         step="0.001"
                                         min="0"
                                         inputmode="decimal"
-                                         value="{{ old('items.' . $item->id . '.receive_tree_wt', $defaultReceiveTreeWt) }}">
+                                         value="{{ $receiveTreeWtValue }}">
                                 </td>
                                 <td>
                                     <select name="items[{{ $item->id }}][job_worker_id]" class="form-control tree-cutting-worker-select">
@@ -88,6 +91,8 @@
 
                             @foreach($customTreeCuttingItems as $customItem)
                             @php
+                                $customReceiveTreeWtValue = old('custom_existing.' . $customItem->id . '.receive_tree_wt', $customItem->receive_tree_wt);
+                                $receiveTreeWtTotal += $customReceiveTreeWtValue !== null && $customReceiveTreeWtValue !== '' ? (float) $customReceiveTreeWtValue : 0;
                                 $issueRowNo++;
                             @endphp
                             <tr data-custom-existing-row>
@@ -106,7 +111,7 @@
                                         step="0.001"
                                         min="0"
                                         inputmode="decimal"
-                                        value="{{ old('custom_existing.' . $customItem->id . '.receive_tree_wt', $customItem->receive_tree_wt) }}">
+                                        value="{{ $customReceiveTreeWtValue }}">
                                 </td>
                                 <td>
                                     <select name="custom_existing[{{ $customItem->id }}][job_worker_id]" class="form-control tree-cutting-worker-select">
@@ -125,6 +130,13 @@
                             </tr>
                             @endif
                         </tbody>
+                        <tfoot>
+                            <tr>
+                                <td colspan="2">Total</td>
+                                <td><strong id="treeIssueReceiveTreeWtTotal">{{ number_format($receiveTreeWtTotal, 3, '.', '') }}</strong></td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
             </div>
@@ -149,6 +161,7 @@
     .tree-cutting-scroll { max-height: calc(100vh - 430px); overflow-y: auto; border: 1px solid rgba(255, 255, 255, 0.08); }
     .tree-cutting-table { margin-bottom: 0; table-layout: fixed; width: 100%; }
     .tree-cutting-table thead th { position: sticky; top: 0; z-index: 2; background: #25263a; }
+    .tree-cutting-table tfoot td { position: sticky; bottom: 0; z-index: 2; background: #25263a; color: #fff; font-weight: 700; }
     .tree-cutting-table th, .tree-cutting-table td { padding: 0.65rem 0.8rem; vertical-align: middle; }
     .tree-cutting-input { max-width: 220px; }
     .tree-cutting-worker-select { max-width: 240px; }
@@ -177,6 +190,28 @@
         }).join('');
     }
 
+    const toTreeIssueNum = (value) => {
+        const parsed = parseFloat(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    const treeIssueNfix = (value) => {
+        const number = toTreeIssueNum(value);
+        return (Math.abs(number) < 0.0005 ? 0 : number).toFixed(3);
+    };
+
+    function updateTreeIssueTotals() {
+        let total = 0;
+        document.querySelectorAll('#tree-cutting-issue-rows .tree-cutting-input').forEach((input) => {
+            total += toTreeIssueNum(input.value);
+        });
+
+        const totalEl = document.getElementById('treeIssueReceiveTreeWtTotal');
+        if (totalEl) {
+            totalEl.textContent = treeIssueNfix(total);
+        }
+    }
+
     document.getElementById('add-custom-tree-row')?.addEventListener('click', function () {
         const tbody = document.getElementById('tree-cutting-issue-rows');
         const index = customTreeRowIndex++;
@@ -197,6 +232,15 @@
         `;
         tbody.appendChild(row);
         refreshTreeIssueRowNumbers();
+        updateTreeIssueTotals();
     });
+
+    document.addEventListener('input', function (event) {
+        if (event.target.matches('#tree-cutting-issue-rows .tree-cutting-input')) {
+            updateTreeIssueTotals();
+        }
+    });
+
+    updateTreeIssueTotals();
 </script>
 @endpush

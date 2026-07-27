@@ -60,8 +60,8 @@
                     continue;
                 }
                 $treeCuttingItem = $treeCuttingItems->get($item->id);
-                $receiveTreeWt = $treeCuttingItem?->receive_tree_wt ?? $receiveItem?->release_tree_wt;
-                $workerName = $treeCuttingItem?->jobWorker?->name ?? $voucher->jobWorker?->name ?? '-';
+                $receiveTreeWt = $receiveItem?->release_tree_wt;
+                $workerName = $treeCuttingItem?->jobWorker?->name ?? '-';
                 $receiveTreeWtTotal += $receiveTreeWt !== null ? (float) $receiveTreeWt : 0;
                 $rowCount++;
             @endphp

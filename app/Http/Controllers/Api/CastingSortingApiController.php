@@ -39,7 +39,11 @@ class CastingSortingApiController extends Controller
                 $query->from('tree_cutting_receive_items')
                     ->selectRaw('MAX(COALESCE(tree_cutting_receive_items.received_at, tree_cutting_receive_items.created_at))')
                     ->whereColumn('tree_cutting_receive_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                    ->where('tree_cutting_receive_items.company_id', $companyId);
+                    ->where('tree_cutting_receive_items.company_id', $companyId)
+                    ->where(function ($q) {
+                        $q->where('tree_cutting_receive_items.receive_pc_wt', '>', 0)
+                            ->orWhere('tree_cutting_receive_items.receive_tree_bhuko', '>', 0);
+                    });
             }, 'tree_receive_datetime')
             ->selectSub(function ($query) use ($companyId) {
                 $query->from('tree_cutting_receive_items')
@@ -47,8 +51,8 @@ class CastingSortingApiController extends Controller
                     ->whereColumn('tree_cutting_receive_items.vacuum_voucher_id', 'vacuum_vouchers.id')
                     ->where('tree_cutting_receive_items.company_id', $companyId)
                     ->where(function ($q) {
-                        $q->whereNotNull('tree_cutting_receive_items.receive_pc_wt')
-                            ->orWhereNotNull('tree_cutting_receive_items.receive_tree_bhuko');
+                        $q->where('tree_cutting_receive_items.receive_pc_wt', '>', 0)
+                            ->orWhere('tree_cutting_receive_items.receive_tree_bhuko', '>', 0);
                     });
             }, 'tree_receive_count')
             ->selectSub(function ($query) use ($companyId) {
@@ -189,8 +193,8 @@ class CastingSortingApiController extends Controller
                     ->whereColumn('tree_cutting_receive_items.vacuum_voucher_id', 'vacuum_vouchers.id')
                     ->where('tree_cutting_receive_items.company_id', $companyId)
                     ->where(function ($q) {
-                        $q->whereNotNull('tree_cutting_receive_items.receive_pc_wt')
-                            ->orWhereNotNull('tree_cutting_receive_items.receive_tree_bhuko');
+                        $q->where('tree_cutting_receive_items.receive_pc_wt', '>', 0)
+                            ->orWhere('tree_cutting_receive_items.receive_tree_bhuko', '>', 0);
                     })
                     ->when($fromDate, fn($q) => $q->whereDate(DB::raw('COALESCE(tree_cutting_receive_items.received_at, tree_cutting_receive_items.created_at)'), '>=', $fromDate))
                     ->when($toDate, fn($q) => $q->whereDate(DB::raw('COALESCE(tree_cutting_receive_items.received_at, tree_cutting_receive_items.created_at)'), '<=', $toDate));
@@ -200,15 +204,15 @@ class CastingSortingApiController extends Controller
                     ->from('tree_cutting_issue_items')
                     ->whereColumn('tree_cutting_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
                     ->where('tree_cutting_issue_items.company_id', $companyId)
-                    ->whereNotNull('tree_cutting_issue_items.receive_tree_wt')
+                    ->where('tree_cutting_issue_items.receive_tree_wt', '>', 0)
                     ->whereNotExists(function ($subQuery) use ($companyId) {
                         $subQuery->selectRaw('1')
                             ->from('tree_cutting_receive_items')
                             ->whereColumn('tree_cutting_receive_items.tree_cutting_issue_item_id', 'tree_cutting_issue_items.id')
                             ->where('tree_cutting_receive_items.company_id', $companyId)
                             ->where(function ($q) {
-                                $q->whereNotNull('tree_cutting_receive_items.receive_pc_wt')
-                                    ->orWhereNotNull('tree_cutting_receive_items.receive_tree_bhuko');
+                                $q->where('tree_cutting_receive_items.receive_pc_wt', '>', 0)
+                                    ->orWhere('tree_cutting_receive_items.receive_tree_bhuko', '>', 0);
                             });
                     });
             });
@@ -227,14 +231,14 @@ class CastingSortingApiController extends Controller
 
         $issueCount = TreeCuttingIssueItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
-            ->whereNotNull('receive_tree_wt')
+            ->where('receive_tree_wt', '>', 0)
             ->count();
 
         $receiveCount = TreeCuttingReceiveItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
             ->where(function ($q) {
-                $q->whereNotNull('receive_pc_wt')
-                    ->orWhereNotNull('receive_tree_bhuko');
+                $q->where('receive_pc_wt', '>', 0)
+                    ->orWhere('receive_tree_bhuko', '>', 0);
             })
             ->count();
 

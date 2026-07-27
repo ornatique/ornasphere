@@ -69,11 +69,10 @@
                                         <small class="text-muted">Leave blank to keep current logo.</small>
                                         <div class="mt-2">
                                             @php
-                                                $previewLogo = !empty($company->company_logo)
-                                                    ? asset('public/' . ltrim($company->company_logo, '/'))
-                                                    : asset('celestial/assets/images/logo.svg');
+                                                $defaultLogo = asset('celestial/assets/images/logo.svg');
+                                                $previewLogo = $company->company_logo_url ?: $defaultLogo;
                                             @endphp
-                                            <img src="{{ $previewLogo }}" alt="Company Logo" style="height:52px;width:52px;object-fit:cover;border-radius:6px;">
+                                            <img src="{{ $previewLogo }}" alt="Company Logo" style="height:52px;width:52px;object-fit:cover;border-radius:6px;" onerror="this.onerror=null;this.src='{{ $defaultLogo }}';">
                                         </div>
                                     </div>
                                 </div>

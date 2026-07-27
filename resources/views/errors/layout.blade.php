@@ -91,13 +91,14 @@
 </head>
 <body>
 @php
-    $logo = asset('celestial/assets/images/logo.svg');
+    $defaultLogo = asset('celestial/assets/images/logo.svg');
+    $logo = $defaultLogo;
 
     $companyUser = auth()->user();
     $superAdminUser = auth('superadmin')->user();
 
-    if ($companyUser && !empty(optional($companyUser->company)->company_logo)) {
-        $logo = asset('public/' . ltrim(optional($companyUser->company)->company_logo, '/'));
+    if ($companyUser && optional($companyUser->company)->company_logo_url) {
+        $logo = optional($companyUser->company)->company_logo_url;
     }
 
     $homeUrl = url('/');
@@ -111,7 +112,7 @@
 
 <div class="error-wrap">
     <div class="error-card">
-        <img src="{{ $logo }}" alt="logo" class="error-logo">
+        <img src="{{ $logo }}" alt="logo" class="error-logo" onerror="this.onerror=null;this.src='{{ $defaultLogo }}';">
         <div class="error-code">{{ $code ?? '500' }}</div>
         <div class="error-title">{{ $title ?? 'Something went wrong' }}</div>
         <div class="error-message">{{ $message ?? 'An unexpected error occurred.' }}</div>

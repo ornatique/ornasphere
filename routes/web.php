@@ -6,6 +6,7 @@ use App\Http\Controllers\SuperAdmin\AuthController as SuperAdminAuthController;
 use App\Http\Controllers\SuperAdmin\CompanyController;
 use App\Http\Controllers\Company\CompanyAuthController;
 use App\Http\Controllers\Company\CompanyDashboardController;
+use App\Http\Controllers\Company\CompanyProfileController;
 use App\Http\Controllers\Company\PasswordSetController;
 use App\Http\Controllers\Company\CompanySecurityController;
 use App\Http\Controllers\Company\CompanyUserController;
@@ -291,6 +292,9 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
 
         Route::get('/dashboard', [CompanyDashboardController::class, 'index'])
             ->name('dashboard');
+
+        Route::get('/profile', [CompanyProfileController::class, 'show'])
+            ->name('profile.show');
 
         Route::get('/app-themes', [AppThemeController::class, 'index'])
             ->name('app-themes.index');
@@ -702,6 +706,9 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
 
         Route::get('voucher-history/data/{voucher}', [VoucherHistoryController::class, 'data'])
             ->name('voucher-history.data');
+
+        Route::get('voucher-history/{voucher}/pdf', [VoucherHistoryController::class, 'pdf'])
+            ->name('voucher-history.pdf');
 
         Route::get('voucher-history', [VoucherHistoryController::class, 'index'])
             ->name('voucher-history.index');

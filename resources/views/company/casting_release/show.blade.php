@@ -48,6 +48,12 @@
                             </tr>
                         </thead>
                         <tbody>
+                            @php
+                                $issueSilverWtTotal = 0;
+                                $releaseTreeWtTotal = 0;
+                                $releaseTreeBhukoTotal = 0;
+                                $lossTotal = 0;
+                            @endphp
                             @forelse($voucher->items as $item)
                             @php
                                 $issueItem = $issueItems->get($item->id);
@@ -56,6 +62,13 @@
                                 }
                                 $releaseItem = $releaseItems->get($item->id);
                                 $issueSilverWt = (float) ($issueItem->issue_silver_wt ?? 0);
+                                $releaseTreeWtValue = old('items.' . $item->id . '.release_tree_wt', $releaseItem?->release_tree_wt);
+                                $releaseTreeBhukoValue = old('items.' . $item->id . '.release_tree_bhuko', $releaseItem?->release_tree_bhuko);
+                                $lossValue = $releaseItem?->loss;
+                                $issueSilverWtTotal += $issueSilverWt;
+                                $releaseTreeWtTotal += $releaseTreeWtValue !== null && $releaseTreeWtValue !== '' ? (float) $releaseTreeWtValue : 0;
+                                $releaseTreeBhukoTotal += $releaseTreeBhukoValue !== null && $releaseTreeBhukoValue !== '' ? (float) $releaseTreeBhukoValue : 0;
+                                $lossTotal += $lossValue !== null && $lossValue !== '' ? (float) $lossValue : 0;
                             @endphp
                             <tr>
                                 <td>{{ $loop->iteration }}</td>
@@ -71,7 +84,7 @@
                                         step="0.001"
                                         min="0"
                                         inputmode="decimal"
-                                        value="{{ old('items.' . $item->id . '.release_tree_wt', $releaseItem?->release_tree_wt) }}">
+                                        value="{{ $releaseTreeWtValue }}">
                                 </td>
                                 <td>
                                     <input type="number"
@@ -81,13 +94,13 @@
                                         step="0.001"
                                         min="0"
                                         inputmode="decimal"
-                                        value="{{ old('items.' . $item->id . '.release_tree_bhuko', $releaseItem?->release_tree_bhuko) }}">
+                                        value="{{ $releaseTreeBhukoValue }}">
                                 </td>
                                 <td>
                                     <input type="number"
                                         class="form-control"
                                         data-loss
-                                        value="{{ $releaseItem?->loss !== null ? number_format((float) $releaseItem->loss, 3, '.', '') : '' }}"
+                                        value="{{ $lossValue !== null ? number_format((float) $lossValue, 3, '.', '') : '' }}"
                                         readonly>
                                 </td>
                             </tr>
@@ -96,6 +109,13 @@
                                 <td colspan="6" class="text-center">No casting metal issue rows found</td>
                             </tr>
                             @endforelse
+                            <tr class="casting-release-total-row">
+                                <td colspan="2">Total</td>
+                                <td><strong>{{ number_format($issueSilverWtTotal, 3, '.', '') }}</strong></td>
+                                <td><strong id="releaseTreeWtTotal">{{ number_format($releaseTreeWtTotal, 3, '.', '') }}</strong></td>
+                                <td><strong id="releaseTreeBhukoTotal">{{ number_format($releaseTreeBhukoTotal, 3, '.', '') }}</strong></td>
+                                <td><strong id="releaseLossTotal">{{ number_format($lossTotal, 3, '.', '') }}</strong></td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
@@ -168,6 +188,13 @@
         background: #25263a;
     }
 
+    .casting-release-total-row td {
+        background: #25263a;
+        color: #fff;
+        font-weight: 700;
+        border-top: 2px solid rgba(255, 255, 255, 0.18);
+    }
+
     .casting-release-table th,
     .casting-release-table td {
         padding: 0.65rem 0.8rem;
@@ -208,6 +235,27 @@
         if (loss) {
             loss.value = nfix(treeWt + bhuko - issueWt);
         }
+        updateReleaseTotals();
+    }
+
+    function updateReleaseTotals() {
+        let releaseTreeWtTotal = 0;
+        let releaseTreeBhukoTotal = 0;
+        let releaseLossTotal = 0;
+
+        document.querySelectorAll('.casting-release-table tbody tr').forEach((row) => {
+            if (!row.querySelector('[data-issue-wt]')) {
+                return;
+            }
+
+            releaseTreeWtTotal += toNum(row.querySelector('[data-release-tree-wt]')?.value);
+            releaseTreeBhukoTotal += toNum(row.querySelector('[data-release-tree-bhuko]')?.value);
+            releaseLossTotal += toNum(row.querySelector('[data-loss]')?.value);
+        });
+
+        document.getElementById('releaseTreeWtTotal').textContent = nfix(releaseTreeWtTotal);
+        document.getElementById('releaseTreeBhukoTotal').textContent = nfix(releaseTreeBhukoTotal);
+        document.getElementById('releaseLossTotal').textContent = nfix(releaseLossTotal);
     }
 
     document.addEventListener('input', function (event) {
@@ -215,5 +263,7 @@
             recalcReleaseRow(event.target.closest('tr'));
         }
     });
+
+    updateReleaseTotals();
 </script>
 @endpush

@@ -21,7 +21,7 @@
                 <div class="col-md-3 mt-2"><strong>Created By:</strong> {{ $data->createdByUser?->name ?? '-' }}</div>
             </div>
 
-            <div class="table-responsive">
+            <div class="table-responsive vacuum-voucher-detail-scroll">
                 <table class="table table-bordered">
                     <thead>
                         <tr>
@@ -60,3 +60,13 @@
     </div>
 </div>
 @endsection
+
+@push('styles')
+<style>
+    .vacuum-voucher-detail-scroll {
+        max-height: calc(100vh - 360px);
+        overflow: auto;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+</style>
+@endpush

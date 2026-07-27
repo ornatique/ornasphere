@@ -16,6 +16,16 @@ class MarkCompanyNotificationModuleRead
             if ($modules) {
                 CompanyNotificationService::markModuleRead($request->user(), $modules);
             }
+
+            $query = $request->query();
+            unset($query['mark_notifications_read']);
+
+            $url = $request->url();
+            if (!empty($query)) {
+                $url .= '?' . http_build_query($query);
+            }
+
+            return redirect()->to($url);
         }
 
         return $next($request);

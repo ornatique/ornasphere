@@ -8,6 +8,7 @@ use App\Models\VacuumBuch;
 use App\Models\VacuumVoucherItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Yajra\DataTables\Facades\DataTables;
 
@@ -16,10 +17,14 @@ class VacuumBuchController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $fromDate = $request->get('from_date', now()->subDays(6)->toDateString());
+        $toDate = $request->get('to_date', now()->toDateString());
 
         if ($request->ajax()) {
             $rows = VacuumBuch::query()
                 ->where('company_id', $company->id)
+                ->when($fromDate, fn($q) => $q->whereDate('created_at', '>=', $fromDate))
+                ->when($toDate, fn($q) => $q->whereDate('created_at', '<=', $toDate))
                 ->with(['createdByUser:id,name'])
                 ->select('vacuum_buchs.*');
 
@@ -45,7 +50,7 @@ class VacuumBuchController extends Controller
                 ->make(true);
         }
 
-        return view('company.vacuum_buchs.index', compact('company'));
+        return view('company.vacuum_buchs.index', compact('company', 'fromDate', 'toDate'));
     }
 
     public function create($slug)
@@ -58,6 +63,11 @@ class VacuumBuchController extends Controller
     public function store(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+
+        if ($request->has('rows')) {
+            return $this->storeRows($request, $company);
+        }
+
         if ($this->buchNoExists($company->id, (string) $request->input('buch_no'))) {
             return back()
                 ->withErrors(['buch_no' => 'This Buch No already exists.'])
@@ -76,6 +86,77 @@ class VacuumBuchController extends Controller
             'size_inch' => $validated['size_inch'] ?? null,
             'weight' => $validated['weight'] ?? null,
         ]);
+
+        return redirect()
+            ->route('company.vacuum-buchs.index', $company->slug)
+            ->with('success', 'Vacuum Buch created successfully');
+    }
+
+    private function storeRows(Request $request, Company $company)
+    {
+        $rows = collect($request->input('rows', []))
+            ->map(function ($row) {
+                return [
+                    'buch_no' => trim((string) ($row['buch_no'] ?? '')),
+                    'size_inch' => $row['size_inch'] ?? null,
+                    'weight' => $row['weight'] ?? null,
+                ];
+            })
+            ->filter(fn($row) => $row['buch_no'] !== '')
+            ->values()
+            ->all();
+
+        if (empty($rows)) {
+            return back()
+                ->withErrors(['rows' => 'Please enter at least one Buch No.'])
+                ->withInput();
+        }
+
+        $validator = validator(['rows' => $rows], [
+            'rows' => ['required', 'array', 'min:1'],
+            'rows.*.buch_no' => ['required', 'string', 'max:255'],
+            'rows.*.size_inch' => ['nullable', 'numeric', 'min:0'],
+            'rows.*.weight' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        $normalizedBuchNos = collect($rows)->pluck('buch_no')->map(fn($value) => strtolower(trim((string) $value)));
+        $duplicateInRequest = $normalizedBuchNos->duplicates()->first();
+        if ($duplicateInRequest) {
+            $validator->after(function ($validator) use ($duplicateInRequest) {
+                $validator->errors()->add('rows', 'Duplicate Buch No in form: ' . $duplicateInRequest);
+            });
+        }
+
+        $existingBuchNos = VacuumBuch::where('company_id', $company->id)
+            ->whereIn('buch_no', collect($rows)->pluck('buch_no')->all())
+            ->pluck('buch_no')
+            ->all();
+
+        if (!empty($existingBuchNos)) {
+            $validator->after(function ($validator) use ($existingBuchNos) {
+                $validator->errors()->add('rows', 'These Buch No already exist: ' . implode(', ', $existingBuchNos));
+            });
+        }
+
+        $validated = $validator->validate();
+        $now = now();
+        $userId = auth()->id();
+
+        DB::transaction(function () use ($validated, $company, $now, $userId) {
+            foreach ($validated['rows'] as $row) {
+                VacuumBuch::create([
+                    'company_id' => $company->id,
+                    'created_by' => $userId,
+                    'updated_by' => $userId,
+                    'modified_count' => 0,
+                    'buch_no' => $row['buch_no'],
+                    'size_inch' => $row['size_inch'] ?? null,
+                    'weight' => $row['weight'] ?? null,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            }
+        });
 
         return redirect()
             ->route('company.vacuum-buchs.index', $company->slug)

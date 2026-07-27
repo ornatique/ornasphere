@@ -1193,9 +1193,8 @@ class ReportController extends Controller
             ->leftJoin('job_workers as jw', 'jw.id', '=', 'vv.job_worker_id')
             ->where('cr.company_id', $company->id)
             ->where(function ($query) {
-                $query->whereNotNull('cr.release_tree_wt')
-                    ->orWhereNotNull('cr.release_tree_bhuko')
-                    ->orWhereNotNull('cr.loss');
+                $query->where('cr.release_tree_wt', '>', 0)
+                    ->orWhere('cr.release_tree_bhuko', '>', 0);
             })
             ->selectRaw("
                 'Casting Receive' as stage,
@@ -1222,9 +1221,8 @@ class ReportController extends Controller
             })
             ->where('tcr.company_id', $company->id)
             ->where(function ($query) {
-                $query->whereNotNull('tcr.receive_pc_wt')
-                    ->orWhereNotNull('tcr.receive_tree_bhuko')
-                    ->orWhereNotNull('tcr.loss');
+                $query->where('tcr.receive_pc_wt', '>', 0)
+                    ->orWhere('tcr.receive_tree_bhuko', '>', 0);
             })
             ->selectRaw("
                 'Tree Cutting Receive' as stage,

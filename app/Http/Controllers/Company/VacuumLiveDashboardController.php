@@ -103,8 +103,8 @@ class VacuumLiveDashboardController extends Controller
                 ->where('company_id', $companyId)
                 ->whereIn('vacuum_voucher_id', $voucherIds)
                 ->where(function ($q) {
-                    $q->whereNotNull('release_tree_wt')
-                        ->orWhereNotNull('release_tree_bhuko');
+                    $q->where('release_tree_wt', '>', 0)
+                        ->orWhere('release_tree_bhuko', '>', 0);
                 })
                 ->select('vacuum_voucher_id', DB::raw('COUNT(*) as total'))
                 ->groupBy('vacuum_voucher_id')
@@ -112,7 +112,7 @@ class VacuumLiveDashboardController extends Controller
             'tree_issue' => DB::table('tree_cutting_issue_items')
                 ->where('company_id', $companyId)
                 ->whereIn('vacuum_voucher_id', $voucherIds)
-                ->whereNotNull('receive_tree_wt')
+                ->where('receive_tree_wt', '>', 0)
                 ->select('vacuum_voucher_id', DB::raw('COUNT(*) as total'))
                 ->groupBy('vacuum_voucher_id')
                 ->pluck('total', 'vacuum_voucher_id'),
@@ -120,8 +120,8 @@ class VacuumLiveDashboardController extends Controller
                 ->where('company_id', $companyId)
                 ->whereIn('vacuum_voucher_id', $voucherIds)
                 ->where(function ($q) {
-                    $q->whereNotNull('receive_pc_wt')
-                        ->orWhereNotNull('receive_tree_bhuko');
+                    $q->where('receive_pc_wt', '>', 0)
+                        ->orWhere('receive_tree_bhuko', '>', 0);
                 })
                 ->select('vacuum_voucher_id', DB::raw('COUNT(*) as total'))
                 ->groupBy('vacuum_voucher_id')

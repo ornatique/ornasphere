@@ -22,6 +22,7 @@ class CastingMetalIssueApiController extends Controller
 
         $rows = VacuumVoucher::query()
             ->where('company_id', $companyId)
+            ->whereHas('heatingItems', fn($query) => $query->where('in_bhati', true))
             ->when($fromDate, fn($query) => $query->whereDate('voucher_date', '>=', $fromDate))
             ->when($toDate, fn($query) => $query->whereDate('voucher_date', '<=', $toDate))
             ->when($request->filled('worker_id'), fn($query) => $query->where('job_worker_id', (int) $request->input('worker_id')))
@@ -35,7 +36,9 @@ class CastingMetalIssueApiController extends Controller
                 });
             })
             ->with(['process:id,name', 'jobWorker:id,name'])
-            ->withCount('items')
+            ->withCount([
+                'heatingItems as in_bhati_count' => fn($query) => $query->where('in_bhati', true),
+            ])
             ->select('vacuum_vouchers.*')
             ->selectSub(function ($query) use ($companyId) {
                 $query->from('casting_metal_issue_items')
@@ -48,13 +51,46 @@ class CastingMetalIssueApiController extends Controller
                     ->selectRaw('COUNT(*)')
                     ->whereColumn('casting_metal_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
                     ->where('casting_metal_issue_items.company_id', $companyId)
+                    ->whereExists(function ($exists) use ($companyId) {
+                        $exists->from('casting_heating_items')
+                            ->whereColumn('casting_heating_items.vacuum_voucher_item_id', 'casting_metal_issue_items.vacuum_voucher_item_id')
+                            ->whereColumn('casting_heating_items.vacuum_voucher_id', 'casting_metal_issue_items.vacuum_voucher_id')
+                            ->where('casting_heating_items.company_id', $companyId)
+                            ->where('casting_heating_items.in_bhati', true);
+                    })
                     ->whereNotNull('casting_metal_issue_items.issue_silver_wt');
             }, 'assigned_metal_count')
+            ->selectSub(function ($query) use ($companyId) {
+                $query->from('casting_metal_issue_items')
+                    ->selectRaw('COALESCE(SUM(casting_metal_issue_items.metal_weight), 0)')
+                    ->whereColumn('casting_metal_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
+                    ->where('casting_metal_issue_items.company_id', $companyId)
+                    ->whereExists(function ($exists) use ($companyId) {
+                        $exists->from('casting_heating_items')
+                            ->whereColumn('casting_heating_items.vacuum_voucher_item_id', 'casting_metal_issue_items.vacuum_voucher_item_id')
+                            ->whereColumn('casting_heating_items.vacuum_voucher_id', 'casting_metal_issue_items.vacuum_voucher_id')
+                            ->where('casting_heating_items.company_id', $companyId)
+                            ->where('casting_heating_items.in_bhati', true);
+                    });
+            }, 'metal_weight_total')
+            ->selectSub(function ($query) use ($companyId) {
+                $query->from('casting_metal_issue_items')
+                    ->selectRaw('COALESCE(SUM(casting_metal_issue_items.issue_silver_wt), 0)')
+                    ->whereColumn('casting_metal_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
+                    ->where('casting_metal_issue_items.company_id', $companyId)
+                    ->whereExists(function ($exists) use ($companyId) {
+                        $exists->from('casting_heating_items')
+                            ->whereColumn('casting_heating_items.vacuum_voucher_item_id', 'casting_metal_issue_items.vacuum_voucher_item_id')
+                            ->whereColumn('casting_heating_items.vacuum_voucher_id', 'casting_metal_issue_items.vacuum_voucher_id')
+                            ->where('casting_heating_items.company_id', $companyId)
+                            ->where('casting_heating_items.in_bhati', true);
+                    });
+            }, 'issue_silver_wt_total')
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->get()
             ->map(function ($row) {
-                $total = (int) ($row->items_count ?? 0);
+                $total = (int) ($row->in_bhati_count ?? 0);
                 $assigned = (int) ($row->assigned_metal_count ?? 0);
 
                 return [
@@ -69,6 +105,8 @@ class CastingMetalIssueApiController extends Controller
                     'worker_name' => $row->jobWorker?->name,
                     'total_pcs' => $total,
                     'assigned_metal' => $assigned,
+                    'metal_weight_total' => $this->decimalValue($row->metal_weight_total ?? 0, 3),
+                    'issue_silver_wt_total' => $this->decimalValue($row->issue_silver_wt_total ?? 0, 3),
                     'pending_metal' => max($total - $assigned, 0),
                     'created_at' => optional($row->created_at)->format('Y-m-d H:i:s'),
                     'created_at_view' => optional($row->created_at)->format('d-m-Y / h:i A'),
@@ -103,7 +141,8 @@ class CastingMetalIssueApiController extends Controller
     {
         $companyId = (int) $request->user()->company_id;
         $voucher = VacuumVoucher::where('company_id', $companyId)
-            ->with('items:id,vacuum_voucher_id,silver_wt')
+            ->with(['items' => fn($query) => $this->inBhatiVoucherItemsQuery($query, $companyId)
+                ->select('id', 'vacuum_voucher_id', 'silver_wt')])
             ->find((int) $id);
 
         if (!$voucher) {
@@ -231,8 +270,16 @@ class CastingMetalIssueApiController extends Controller
     {
         return VacuumVoucher::where('company_id', (int) $request->user()->company_id)
             ->where('id', $id)
-            ->with(['process:id,name', 'jobWorker:id,name', 'items', 'heatingItems', 'metalIssueItems'])
-            ->withCount('items')
+            ->with([
+                'process:id,name',
+                'jobWorker:id,name',
+                'items' => fn($query) => $this->inBhatiVoucherItemsQuery($query, (int) $request->user()->company_id),
+                'heatingItems',
+                'metalIssueItems',
+            ])
+            ->withCount([
+                'heatingItems as items_count' => fn($query) => $query->where('in_bhati', true),
+            ])
             ->first();
     }
 
@@ -242,6 +289,14 @@ class CastingMetalIssueApiController extends Controller
         $issueItems = $voucher->metalIssueItems->keyBy('vacuum_voucher_item_id');
         $assigned = $issueItems->filter(fn($item) => $item->issue_silver_wt !== null)->count();
         $total = (int) ($voucher->items_count ?? $voucher->items->count());
+        $validItemIds = $voucher->items->pluck('id')->map(fn($id) => (int) $id)->all();
+        $silverWtTotal = $voucher->items->sum(fn($item) => (float) ($item->silver_wt ?? 0));
+        $metalWeightTotal = $voucher->metalIssueItems
+            ->filter(fn($item) => in_array((int) $item->vacuum_voucher_item_id, $validItemIds, true))
+            ->sum(fn($item) => (float) ($item->metal_weight ?? 0));
+        $issueSilverWtTotal = $voucher->metalIssueItems
+            ->filter(fn($item) => in_array((int) $item->vacuum_voucher_item_id, $validItemIds, true))
+            ->sum(fn($item) => (float) ($item->issue_silver_wt ?? 0));
         $processDateTime = $this->latestProcessDateTime($voucher->metalIssueItems, 'issued_at') ?: $voucher->created_at;
 
         return [
@@ -256,6 +311,9 @@ class CastingMetalIssueApiController extends Controller
             'worker_name' => $voucher->jobWorker?->name,
             'total_pcs' => $total,
             'assigned_metal' => $assigned,
+            'silver_wt_total' => $this->decimalValue($silverWtTotal, 3),
+            'metal_weight_total' => $this->decimalValue($metalWeightTotal, 3),
+            'issue_silver_wt_total' => $this->decimalValue($issueSilverWtTotal, 3),
             'pending_metal' => max($total - $assigned, 0),
             'created_at' => optional($voucher->created_at)->format('Y-m-d H:i:s'),
             'created_at_view' => optional($voucher->created_at)->format('d-m-Y / h:i A'),
@@ -298,5 +356,16 @@ class CastingMetalIssueApiController extends Controller
             ->filter()
             ->sortDesc()
             ->first();
+    }
+
+    private function inBhatiVoucherItemsQuery($query, int $companyId)
+    {
+        return $query->whereExists(function ($exists) use ($companyId) {
+            $exists->from('casting_heating_items')
+                ->whereColumn('casting_heating_items.vacuum_voucher_item_id', 'vacuum_voucher_items.id')
+                ->whereColumn('casting_heating_items.vacuum_voucher_id', 'vacuum_voucher_items.vacuum_voucher_id')
+                ->where('casting_heating_items.company_id', $companyId)
+                ->where('casting_heating_items.in_bhati', true);
+        });
     }
 }

@@ -27,6 +27,29 @@ class Company extends Model
         return $this->hasMany(User::class);
     }
 
+    public function getCompanyLogoUrlAttribute(): ?string
+    {
+        $rawPath = trim((string) ($this->attributes['company_logo'] ?? ''));
+        if ($rawPath === '') {
+            return null;
+        }
+
+        $path = ltrim($rawPath, '/');
+        if (str_starts_with($path, 'public/')) {
+            $path = substr($path, 7);
+        }
+
+        if (file_exists(public_path($path))) {
+            return asset('public/' . $path);
+        }
+
+        if (file_exists(storage_path('app/public/' . $path))) {
+            return asset('storage/' . $path);
+        }
+
+        return null;
+    }
+
     public function customers()
     {
         return $this->hasMany(Customer::class);

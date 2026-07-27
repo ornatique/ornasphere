@@ -11,6 +11,7 @@ use App\Models\Company;
 use App\Models\TreeCuttingIssueItem;
 use App\Models\TreeCuttingReceiveItem;
 use App\Models\VacuumVoucher;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 
 class VoucherHistoryController extends Controller
@@ -64,32 +65,59 @@ class VoucherHistoryController extends Controller
                 'process' => $voucher->process?->name ?? '',
                 'worker' => $voucher->jobWorker?->name ?? '',
             ],
+            'pdf_url' => route('company.voucher-history.pdf', [$company->slug, $voucher->id]),
             'html' => view('company.voucher_history.partials.history', compact('voucher', 'history'))->render(),
         ]);
     }
 
+    public function pdf($slug, $voucherId)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $voucher = VacuumVoucher::where('company_id', $company->id)
+            ->with(['process:id,name', 'jobWorker:id,name', 'createdByUser:id,name', 'items'])
+            ->findOrFail((int) $voucherId);
+
+        $history = $this->historyForVoucher($company->id, $voucher);
+
+        return Pdf::loadView('company.voucher_history.pdf.show', compact('company', 'voucher', 'history'))
+            ->setPaper('a4', 'landscape')
+            ->download('voucher_process_history_' . $voucher->voucher_no . '.pdf');
+    }
+
     private function historyForVoucher(int $companyId, VacuumVoucher $voucher): array
     {
+        $validItemIds = $voucher->items->pluck('id')->map(fn($id) => (int) $id)->all();
+
         $heatingItems = CastingHeatingItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
-            ->with('voucherItem:id,buch_no')
+            ->when($validItemIds !== [], fn($query) => $query->whereIn('vacuum_voucher_item_id', $validItemIds))
+            ->with('voucherItem:id,buch_no,silver_wt')
             ->orderBy('id')
             ->get();
 
         $metalIssueItems = CastingMetalIssueItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
+            ->when($validItemIds !== [], fn($query) => $query->whereIn('vacuum_voucher_item_id', $validItemIds))
             ->with('voucherItem:id,buch_no')
             ->orderBy('id')
             ->get();
 
         $releaseItems = CastingReleaseItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
+            ->when($validItemIds !== [], fn($query) => $query->whereIn('vacuum_voucher_item_id', $validItemIds))
             ->with('voucherItem:id,buch_no')
             ->orderBy('id')
             ->get();
 
         $treeIssueItems = TreeCuttingIssueItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
+            ->where(function ($query) use ($validItemIds) {
+                $query->where('is_custom', true);
+
+                if ($validItemIds !== []) {
+                    $query->orWhereIn('vacuum_voucher_item_id', $validItemIds);
+                }
+            })
             ->with(['voucherItem:id,buch_no', 'jobWorker:id,name'])
             ->orderBy('is_custom')
             ->orderBy('id')
@@ -97,6 +125,13 @@ class VoucherHistoryController extends Controller
 
         $treeReceiveItems = TreeCuttingReceiveItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
+            ->where(function ($query) use ($validItemIds) {
+                $query->where('is_custom', true);
+
+                if ($validItemIds !== []) {
+                    $query->orWhereIn('vacuum_voucher_item_id', $validItemIds);
+                }
+            })
             ->with(['voucherItem:id,buch_no', 'jobWorker:id,name'])
             ->orderBy('is_custom')
             ->orderBy('id')
@@ -126,13 +161,23 @@ class VoucherHistoryController extends Controller
                 ]),
             ],
             'casting_metal_issue' => [
+                'totals' => [
+                    'silver_wt' => $this->decimal($metalIssueItems->sum(fn($item) => (float) ($item->voucherItem?->silver_wt ?? 0))),
+                    'issue_silver_wt' => $this->decimal($metalIssueItems->sum(fn($item) => (float) ($item->issue_silver_wt ?? 0))),
+                ],
                 'rows' => $metalIssueItems->map(fn($item) => [
                     'buch_no' => $item->voucherItem?->buch_no ?? '-',
-                    'silver_wt' => $this->decimal($item->issue_silver_wt),
+                    'silver_wt' => $this->decimal($item->voucherItem?->silver_wt),
+                    'issue_silver_wt' => $this->decimal($item->issue_silver_wt),
                     'issued_at' => $this->dateTime($item->issued_at ?: $item->created_at),
                 ]),
             ],
             'casting_receive' => [
+                'totals' => [
+                    'release_tree_wt' => $this->decimal($releaseItems->sum(fn($item) => (float) ($item->release_tree_wt ?? 0))),
+                    'release_tree_bhuko' => $this->decimal($releaseItems->sum(fn($item) => (float) ($item->release_tree_bhuko ?? 0))),
+                    'loss' => $this->decimal($releaseItems->sum(fn($item) => (float) ($item->loss ?? 0))),
+                ],
                 'rows' => $releaseItems->map(fn($item) => [
                     'buch_no' => $item->voucherItem?->buch_no ?? '-',
                     'release_tree_wt' => $this->decimal($item->release_tree_wt),
@@ -142,6 +187,9 @@ class VoucherHistoryController extends Controller
                 ]),
             ],
             'tree_cutting_issue' => [
+                'totals' => [
+                    'receive_tree_wt' => $this->decimal($treeIssueItems->sum(fn($item) => (float) ($item->receive_tree_wt ?? 0))),
+                ],
                 'rows' => $treeIssueItems->map(fn($item) => [
                     'buch_no' => $this->buchNo($item),
                     'worker' => $item->jobWorker?->name ?? '-',
@@ -150,6 +198,11 @@ class VoucherHistoryController extends Controller
                 ]),
             ],
             'tree_cutting_receive' => [
+                'totals' => [
+                    'receive_pc_wt' => $this->decimal($treeReceiveItems->sum(fn($item) => (float) ($item->receive_pc_wt ?? 0))),
+                    'receive_tree_bhuko' => $this->decimal($treeReceiveItems->sum(fn($item) => (float) ($item->receive_tree_bhuko ?? 0))),
+                    'loss' => $this->decimal($treeReceiveItems->sum(fn($item) => (float) ($item->loss ?? 0))),
+                ],
                 'rows' => $treeReceiveItems->map(fn($item) => [
                     'buch_no' => $this->buchNo($item),
                     'worker' => $item->jobWorker?->name ?? '-',

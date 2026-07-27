@@ -35,6 +35,7 @@ use App\Http\Controllers\Api\TreeCuttingIssueApiController;
 use App\Http\Controllers\Api\TreeCuttingReceiveApiController;
 use App\Http\Controllers\Api\VacuumProcessApiController;
 use App\Http\Controllers\Api\VacuumVoucherApiController;
+use App\Http\Controllers\Api\VoucherHistoryApiController;
 
 Route::post('/company/login', [AuthController::class, 'login']);
 Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
@@ -42,6 +43,7 @@ Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
 Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/company/logout', [AuthController::class, 'logout']);
     Route::get('/company/me', [AuthController::class, 'me']);
+    Route::get('/company/profile', [AuthController::class, 'profile']);
 });
 
 
@@ -228,6 +230,13 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/casting_sorting_show/{id}', [CastingSortingApiController::class, 'show'])->whereNumber('id');
     Route::get('/casting_sorting_pdf/{id}', [CastingSortingApiController::class, 'pdf'])->whereNumber('id');
     Route::post('/update_casting_sorting/{id}', [CastingSortingApiController::class, 'update'])->whereNumber('id');
+
+    Route::get('/voucher-history', [VoucherHistoryApiController::class, 'index']);
+    Route::get('/voucher-history/vouchers', [VoucherHistoryApiController::class, 'vouchers']);
+    Route::get('/voucher-history/{id}', [VoucherHistoryApiController::class, 'show'])->whereNumber('id');
+    Route::get('/voucher_history_list', [VoucherHistoryApiController::class, 'index']);
+    Route::get('/voucher_history_vouchers', [VoucherHistoryApiController::class, 'vouchers']);
+    Route::get('/voucher_history_show/{id}', [VoucherHistoryApiController::class, 'show'])->whereNumber('id');
 
     Route::get('/items', [ItemController::class, 'index']);
     Route::post('/create_items', [ItemController::class, 'store']);

@@ -7,6 +7,8 @@ use App\Models\CastingMetalIssueItem;
 use App\Models\CastingReleaseItem;
 use App\Models\Company;
 use App\Models\JobWorker;
+use App\Models\TreeCuttingIssueItem;
+use App\Models\TreeCuttingReceiveItem;
 use App\Models\VacuumVoucher;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
@@ -19,7 +21,7 @@ class CastingReleaseController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        $fromDate = $request->get('from_date', now()->toDateString());
+        $fromDate = $request->get('from_date', now()->subDays(6)->toDateString());
         $toDate = $request->get('to_date', now()->toDateString());
         $workerId = $request->get('worker_id');
 
@@ -55,15 +57,49 @@ class CastingReleaseController extends Controller
                         ->whereColumn('casting_release_items.vacuum_voucher_id', 'vacuum_vouchers.id')
                         ->where('casting_release_items.company_id', $company->id)
                         ->where(function ($q) {
-                            $q->whereNotNull('casting_release_items.release_tree_wt')
-                                ->orWhereNotNull('casting_release_items.release_tree_bhuko');
+                            $q->where('casting_release_items.release_tree_wt', '>', 0)
+                                ->orWhere('casting_release_items.release_tree_bhuko', '>', 0);
                         });
                 }, 'assigned_receive_count')
                 ->selectSub(function ($query) use ($company) {
                     $query->from('casting_release_items')
+                        ->selectRaw('COALESCE(SUM(casting_release_items.release_tree_wt), 0)')
+                        ->whereColumn('casting_release_items.vacuum_voucher_id', 'vacuum_vouchers.id')
+                        ->where('casting_release_items.company_id', $company->id)
+                        ->where(function ($q) {
+                            $q->where('casting_release_items.release_tree_wt', '>', 0)
+                                ->orWhere('casting_release_items.release_tree_bhuko', '>', 0);
+                        });
+                }, 'release_tree_wt_total')
+                ->selectSub(function ($query) use ($company) {
+                    $query->from('casting_release_items')
+                        ->selectRaw('COALESCE(SUM(casting_release_items.release_tree_bhuko), 0)')
+                        ->whereColumn('casting_release_items.vacuum_voucher_id', 'vacuum_vouchers.id')
+                        ->where('casting_release_items.company_id', $company->id)
+                        ->where(function ($q) {
+                            $q->where('casting_release_items.release_tree_wt', '>', 0)
+                                ->orWhere('casting_release_items.release_tree_bhuko', '>', 0);
+                        });
+                }, 'release_tree_bhuko_total')
+                ->selectSub(function ($query) use ($company) {
+                    $query->from('casting_release_items')
+                        ->selectRaw('COALESCE(SUM(casting_release_items.loss), 0)')
+                        ->whereColumn('casting_release_items.vacuum_voucher_id', 'vacuum_vouchers.id')
+                        ->where('casting_release_items.company_id', $company->id)
+                        ->where(function ($q) {
+                            $q->where('casting_release_items.release_tree_wt', '>', 0)
+                                ->orWhere('casting_release_items.release_tree_bhuko', '>', 0);
+                        });
+                }, 'loss_total')
+                ->selectSub(function ($query) use ($company) {
+                    $query->from('casting_release_items')
                         ->selectRaw('MAX(COALESCE(casting_release_items.released_at, casting_release_items.created_at))')
                         ->whereColumn('casting_release_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('casting_release_items.company_id', $company->id);
+                        ->where('casting_release_items.company_id', $company->id)
+                        ->where(function ($q) {
+                            $q->where('casting_release_items.release_tree_wt', '>', 0)
+                                ->orWhere('casting_release_items.release_tree_bhuko', '>', 0);
+                        });
                 }, 'release_datetime')
                 ->orderByDesc('metal_issue_datetime')
                 ->orderByDesc('id');
@@ -74,6 +110,9 @@ class CastingReleaseController extends Controller
                 ->addColumn('process_name', fn($row) => $row->process?->name ?? '-')
                 ->addColumn('worker_name', fn($row) => $row->jobWorker?->name ?? '-')
                 ->addColumn('date_time_view', fn($row) => $row->release_datetime ? \Carbon\Carbon::parse($row->release_datetime)->format('d-m-Y / h:i A') : ($row->metal_issue_datetime ? \Carbon\Carbon::parse($row->metal_issue_datetime)->format('d-m-Y / h:i A') : '-'))
+                ->addColumn('release_tree_wt_view', fn($row) => number_format((float) ($row->release_tree_wt_total ?? 0), 3, '.', ''))
+                ->addColumn('release_tree_bhuko_view', fn($row) => number_format((float) ($row->release_tree_bhuko_total ?? 0), 3, '.', ''))
+                ->addColumn('loss_view', fn($row) => number_format((float) ($row->loss_total ?? 0), 3, '.', ''))
                 ->addColumn('assigned_receive_view', function ($row) {
                     $assigned = (int) ($row->assigned_receive_count ?? 0);
 
@@ -162,6 +201,26 @@ class CastingReleaseController extends Controller
                 $releaseTreeBhuko = $row['release_tree_bhuko'] ?? null;
                 $releaseTreeWtValue = $releaseTreeWt !== null && $releaseTreeWt !== '' ? (float) $releaseTreeWt : null;
                 $releaseTreeBhukoValue = $releaseTreeBhuko !== null && $releaseTreeBhuko !== '' ? (float) $releaseTreeBhuko : null;
+
+                if (($releaseTreeWtValue === null || $releaseTreeWtValue <= 0) && ($releaseTreeBhukoValue === null || $releaseTreeBhukoValue <= 0)) {
+                    $treeIssueIds = TreeCuttingIssueItem::where('company_id', $company->id)
+                        ->where('vacuum_voucher_item_id', $itemId)
+                        ->pluck('id');
+
+                    if ($treeIssueIds->isNotEmpty()) {
+                        TreeCuttingReceiveItem::where('company_id', $company->id)
+                            ->whereIn('tree_cutting_issue_item_id', $treeIssueIds)
+                            ->delete();
+
+                        TreeCuttingIssueItem::whereIn('id', $treeIssueIds)->delete();
+                    }
+
+                    CastingReleaseItem::where('company_id', $company->id)
+                        ->where('vacuum_voucher_item_id', $itemId)
+                        ->delete();
+                    continue;
+                }
+
                 $loss = $releaseTreeWtValue !== null || $releaseTreeBhukoValue !== null
                     ? round(($releaseTreeWtValue ?? 0) + ($releaseTreeBhukoValue ?? 0) - $issueSilverWt, 3)
                     : null;
@@ -180,6 +239,14 @@ class CastingReleaseController extends Controller
                         'released_at' => now(),
                     ]
                 );
+
+                TreeCuttingIssueItem::where('company_id', $company->id)
+                    ->where('vacuum_voucher_id', $voucher->id)
+                    ->where('vacuum_voucher_item_id', $itemId)
+                    ->where('is_custom', false)
+                    ->update([
+                        'receive_tree_wt' => $releaseTreeWtValue,
+                    ]);
             }
         });
 
@@ -207,6 +274,10 @@ class CastingReleaseController extends Controller
 
         $releaseItems = CastingReleaseItem::where('company_id', $company->id)
             ->where('vacuum_voucher_id', $voucher->id)
+            ->where(function ($q) {
+                $q->where('release_tree_wt', '>', 0)
+                    ->orWhere('release_tree_bhuko', '>', 0);
+            })
             ->get()
             ->keyBy('vacuum_voucher_item_id');
 

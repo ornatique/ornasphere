@@ -7,6 +7,7 @@ use App\Models\CastingReleaseItem;
 use App\Models\Company;
 use App\Models\JobWorker;
 use App\Models\TreeCuttingIssueItem;
+use App\Models\TreeCuttingReceiveItem;
 use App\Models\VacuumVoucher;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
@@ -20,7 +21,7 @@ class TreeCuttingIssueController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        $fromDate = $request->get('from_date', now()->toDateString());
+        $fromDate = $request->get('from_date', now()->subDays(6)->toDateString());
         $toDate = $request->get('to_date', now()->toDateString());
         $workerId = $request->get('worker_id');
 
@@ -28,8 +29,8 @@ class TreeCuttingIssueController extends Controller
             $receivedRows = function ($query) use ($company) {
                 $query->where('casting_release_items.company_id', $company->id)
                     ->where(function ($q) {
-                        $q->whereNotNull('casting_release_items.release_tree_wt')
-                            ->orWhereNotNull('casting_release_items.release_tree_bhuko');
+                        $q->where('casting_release_items.release_tree_wt', '>', 0)
+                            ->orWhere('casting_release_items.release_tree_bhuko', '>', 0);
                     });
             };
 
@@ -41,8 +42,8 @@ class TreeCuttingIssueController extends Controller
                         ->whereColumn('casting_release_items.vacuum_voucher_id', 'vacuum_vouchers.id')
                         ->where('casting_release_items.company_id', $company->id)
                         ->where(function ($q) {
-                            $q->whereNotNull('casting_release_items.release_tree_wt')
-                                ->orWhereNotNull('casting_release_items.release_tree_bhuko');
+                            $q->where('casting_release_items.release_tree_wt', '>', 0)
+                                ->orWhere('casting_release_items.release_tree_bhuko', '>', 0);
                         })
                         ->when($fromDate, fn($q) => $q->whereDate(DB::raw('COALESCE(casting_release_items.released_at, casting_release_items.created_at)'), '>=', $fromDate))
                         ->when($toDate, fn($q) => $q->whereDate(DB::raw('COALESCE(casting_release_items.released_at, casting_release_items.created_at)'), '<=', $toDate));
@@ -78,26 +79,29 @@ class TreeCuttingIssueController extends Controller
                         ->selectRaw('COUNT(*)')
                         ->whereColumn('tree_cutting_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
                         ->where('tree_cutting_issue_items.company_id', $company->id)
-                        ->whereNotNull('tree_cutting_issue_items.receive_tree_wt');
+                        ->where('tree_cutting_issue_items.receive_tree_wt', '>', 0);
                 }, 'tree_cutting_count')
                 ->selectSub(function ($query) use ($company) {
                     $query->from('tree_cutting_issue_items')
                         ->selectRaw('COALESCE(SUM(tree_cutting_issue_items.receive_tree_wt), 0)')
                         ->whereColumn('tree_cutting_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('tree_cutting_issue_items.company_id', $company->id);
+                        ->where('tree_cutting_issue_items.company_id', $company->id)
+                        ->where('tree_cutting_issue_items.receive_tree_wt', '>', 0);
                 }, 'receive_tree_wt_total')
                 ->selectSub(function ($query) use ($company) {
                     $query->from('tree_cutting_issue_items')
                         ->leftJoin('job_workers', 'job_workers.id', '=', 'tree_cutting_issue_items.job_worker_id')
                         ->selectRaw("GROUP_CONCAT(DISTINCT job_workers.name ORDER BY job_workers.name SEPARATOR ', ')")
                         ->whereColumn('tree_cutting_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('tree_cutting_issue_items.company_id', $company->id);
+                        ->where('tree_cutting_issue_items.company_id', $company->id)
+                        ->where('tree_cutting_issue_items.receive_tree_wt', '>', 0);
                 }, 'tree_cutting_worker_names')
                 ->selectSub(function ($query) use ($company) {
                     $query->from('tree_cutting_issue_items')
                         ->selectRaw('MAX(COALESCE(tree_cutting_issue_items.issued_at, tree_cutting_issue_items.created_at))')
                         ->whereColumn('tree_cutting_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('tree_cutting_issue_items.company_id', $company->id);
+                        ->where('tree_cutting_issue_items.company_id', $company->id)
+                        ->where('tree_cutting_issue_items.receive_tree_wt', '>', 0);
                 }, 'tree_cutting_issue_datetime')
                 ->orderByDesc('casting_receive_datetime')
                 ->orderByDesc('id');
@@ -166,8 +170,8 @@ class TreeCuttingIssueController extends Controller
         $validItemIds = CastingReleaseItem::where('company_id', $company->id)
             ->where('vacuum_voucher_id', $voucher->id)
             ->where(function ($q) {
-                $q->whereNotNull('release_tree_wt')
-                    ->orWhereNotNull('release_tree_bhuko');
+                $q->where('release_tree_wt', '>', 0)
+                    ->orWhere('release_tree_bhuko', '>', 0);
             })
             ->pluck('vacuum_voucher_item_id')
             ->map(fn($itemId) => (int) $itemId)
@@ -209,6 +213,29 @@ class TreeCuttingIssueController extends Controller
 
                 $receiveTreeWt = $row['receive_tree_wt'] ?? null;
                 $jobWorkerId = $row['job_worker_id'] ?? null;
+                $receiveTreeWtValue = $receiveTreeWt !== null && $receiveTreeWt !== '' ? (float) $receiveTreeWt : null;
+
+                if ($receiveTreeWtValue === null || $receiveTreeWtValue <= 0) {
+                    $treeIssueIds = TreeCuttingIssueItem::where('company_id', $company->id)
+                        ->where('vacuum_voucher_item_id', $itemId)
+                        ->where('is_custom', false)
+                        ->pluck('id');
+
+                    if ($treeIssueIds->isNotEmpty()) {
+                        TreeCuttingReceiveItem::where('company_id', $company->id)
+                            ->whereIn('tree_cutting_issue_item_id', $treeIssueIds)
+                            ->delete();
+
+                        TreeCuttingIssueItem::whereIn('id', $treeIssueIds)
+                            ->delete();
+                    }
+
+                    TreeCuttingIssueItem::where('company_id', $company->id)
+                        ->where('vacuum_voucher_item_id', $itemId)
+                        ->where('is_custom', false)
+                        ->delete();
+                    continue;
+                }
 
                 TreeCuttingIssueItem::updateOrCreate(
                     [
@@ -220,7 +247,7 @@ class TreeCuttingIssueController extends Controller
                         'job_worker_id' => $jobWorkerId !== null && $jobWorkerId !== '' ? (int) $jobWorkerId : null,
                         'is_custom' => false,
                         'custom_buch_no' => null,
-                        'receive_tree_wt' => $receiveTreeWt !== null && $receiveTreeWt !== '' ? (float) $receiveTreeWt : null,
+                        'receive_tree_wt' => $receiveTreeWtValue,
                         'issued_by' => auth()->id(),
                         'issued_at' => now(),
                     ]
@@ -241,11 +268,21 @@ class TreeCuttingIssueController extends Controller
                 $customBuchNo = trim((string) ($row['custom_buch_no'] ?? ''));
                 $receiveTreeWt = $row['receive_tree_wt'] ?? null;
                 $jobWorkerId = $row['job_worker_id'] ?? null;
+                $receiveTreeWtValue = $receiveTreeWt !== null && $receiveTreeWt !== '' ? (float) $receiveTreeWt : null;
+
+                if (($customBuchNo === '') && ($receiveTreeWtValue === null || $receiveTreeWtValue <= 0) && ($jobWorkerId === null || $jobWorkerId === '')) {
+                    TreeCuttingReceiveItem::where('company_id', $company->id)
+                        ->where('tree_cutting_issue_item_id', $issueItem->id)
+                        ->delete();
+
+                    $issueItem->delete();
+                    continue;
+                }
 
                 $issueItem->update([
                     'job_worker_id' => $jobWorkerId !== null && $jobWorkerId !== '' ? (int) $jobWorkerId : null,
                     'custom_buch_no' => $customBuchNo,
-                    'receive_tree_wt' => $receiveTreeWt !== null && $receiveTreeWt !== '' ? (float) $receiveTreeWt : null,
+                    'receive_tree_wt' => $receiveTreeWtValue,
                     'issued_by' => auth()->id(),
                     'issued_at' => now(),
                 ]);
@@ -255,8 +292,9 @@ class TreeCuttingIssueController extends Controller
                 $customBuchNo = trim((string) ($row['custom_buch_no'] ?? ''));
                 $receiveTreeWt = $row['receive_tree_wt'] ?? null;
                 $jobWorkerId = $row['job_worker_id'] ?? null;
+                $receiveTreeWtValue = $receiveTreeWt !== null && $receiveTreeWt !== '' ? (float) $receiveTreeWt : null;
 
-                if ($customBuchNo === '' && ($receiveTreeWt === null || $receiveTreeWt === '') && ($jobWorkerId === null || $jobWorkerId === '')) {
+                if ($customBuchNo === '' && ($receiveTreeWtValue === null || $receiveTreeWtValue <= 0) && ($jobWorkerId === null || $jobWorkerId === '')) {
                     continue;
                 }
 
@@ -267,7 +305,7 @@ class TreeCuttingIssueController extends Controller
                     'job_worker_id' => $jobWorkerId !== null && $jobWorkerId !== '' ? (int) $jobWorkerId : null,
                     'custom_buch_no' => $customBuchNo,
                     'is_custom' => true,
-                    'receive_tree_wt' => $receiveTreeWt !== null && $receiveTreeWt !== '' ? (float) $receiveTreeWt : null,
+                    'receive_tree_wt' => $receiveTreeWtValue,
                     'issued_by' => auth()->id(),
                     'issued_at' => now(),
                 ]);
@@ -292,8 +330,8 @@ class TreeCuttingIssueController extends Controller
         $receiveItems = CastingReleaseItem::where('company_id', $company->id)
             ->where('vacuum_voucher_id', $voucher->id)
             ->where(function ($q) {
-                $q->whereNotNull('release_tree_wt')
-                    ->orWhereNotNull('release_tree_bhuko');
+                $q->where('release_tree_wt', '>', 0)
+                    ->orWhere('release_tree_bhuko', '>', 0);
             })
             ->get()
             ->keyBy('vacuum_voucher_item_id');
@@ -303,6 +341,7 @@ class TreeCuttingIssueController extends Controller
         $treeCuttingItems = TreeCuttingIssueItem::where('company_id', $company->id)
             ->where('vacuum_voucher_id', $voucher->id)
             ->where('is_custom', false)
+            ->where('receive_tree_wt', '>', 0)
             ->with('jobWorker:id,name')
             ->get()
             ->keyBy('vacuum_voucher_item_id');

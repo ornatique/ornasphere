@@ -3,9 +3,7 @@
     $authUser = auth()->user();
     $company = optional($authUser)->company;
     $defaultCompanyAvatar = asset('celestial/assets/images/faces/face29.png');
-    $companyLogo = !empty(optional($company)->company_logo)
-        ? asset('public/' . ltrim($company->company_logo, '/'))
-        : $defaultCompanyAvatar;
+    $companyLogo = optional($company)->company_logo_url ?: $defaultCompanyAvatar;
     $isCompanyAdmin = $authUser && $authUser->hasRole('company_admin');
     $canNotifications = $authUser && ($isCompanyAdmin || $authUser->can('notification-view'));
     $routeName = (string) optional(request()->route())->getName();
@@ -361,7 +359,6 @@
         request()->routeIs('company.vacuum-buchs.*') ||
         request()->routeIs('company.vacuum-processes.*') ||
         request()->routeIs('company.vacuum-vouchers.*') ||
-        request()->routeIs('company.vacuum-live-dashboard.*') ||
         request()->routeIs('company.casting-heating.*') ||
         request()->routeIs('company.casting-metal-issue.*') ||
         request()->routeIs('company.casting-release.*') ||
@@ -370,7 +367,7 @@
         request()->routeIs('company.casting-sorting.*') ||
         request()->routeIs('company.voucher-history.*');
         @endphp
-        @if($canVacuumBuch || $canVacuumProcess || $canVacuumVoucher || $canVacuumLiveDashboard || $canCastingHeating || $canCastingMetalIssue || $canCastingRelease || $canTreeCuttingIssue || $canTreeCuttingReceive || $canCastingSorting || $canVoucherHistory)
+        @if($canVacuumBuch || $canVacuumProcess || $canVacuumVoucher || $canCastingHeating || $canCastingMetalIssue || $canCastingRelease || $canTreeCuttingIssue || $canTreeCuttingReceive || $canCastingSorting || $canVoucherHistory)
         <li class="nav-item {{ $vacuumActive ? 'active' : '' }}">
             <a class="nav-link"
                 data-bs-toggle="collapse"

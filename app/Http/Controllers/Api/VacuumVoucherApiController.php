@@ -3,7 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\CastingHeatingItem;
+use App\Models\CastingMetalIssueItem;
+use App\Models\CastingReleaseItem;
 use App\Models\Company;
+use App\Models\TreeCuttingIssueItem;
+use App\Models\TreeCuttingReceiveItem;
 use App\Models\VacuumBuch;
 use App\Models\VacuumVoucher;
 use App\Models\VacuumVoucherItem;
@@ -202,10 +207,7 @@ class VacuumVoucherApiController extends Controller
                 'modified_count' => ((int) $voucher->modified_count) + 1,
             ]);
 
-            $voucher->items()->delete();
-            foreach ($totals['rows'] as $row) {
-                $voucher->items()->create($row);
-            }
+            $this->syncVoucherItems($voucher, $totals['rows']);
         });
 
         return response()->json([
@@ -461,5 +463,78 @@ class VacuumVoucherApiController extends Controller
         }
 
         return $prefix . $next;
+    }
+
+    private function syncVoucherItems(VacuumVoucher $voucher, array $rows): void
+    {
+        $existingItems = $voucher->items()->get()->keyBy(fn($item) => (int) $item->vacuum_buch_id);
+        $keptIds = [];
+
+        foreach ($rows as $row) {
+            $buchId = (int) $row['vacuum_buch_id'];
+            $existing = $existingItems->get($buchId);
+
+            if ($existing) {
+                $existing->update($row);
+                $keptIds[] = (int) $existing->id;
+                continue;
+            }
+
+            $created = $voucher->items()->create($row);
+            $keptIds[] = (int) $created->id;
+        }
+
+        $removeQuery = $voucher->items();
+        if ($keptIds !== []) {
+            $removeQuery->whereNotIn('id', $keptIds);
+        }
+
+        $removeIds = $removeQuery->pluck('id')->map(fn($id) => (int) $id)->all();
+        if ($removeIds === []) {
+            return;
+        }
+
+        $this->deleteProductionRowsForVoucherItems((int) $voucher->company_id, (int) $voucher->id, $removeIds);
+        $voucher->items()->whereIn('id', $removeIds)->delete();
+    }
+
+    private function deleteProductionRowsForVoucherItems(int $companyId, int $voucherId, array $itemIds): void
+    {
+        $issueIds = TreeCuttingIssueItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->whereIn('vacuum_voucher_item_id', $itemIds)
+            ->pluck('id')
+            ->map(fn($id) => (int) $id)
+            ->all();
+
+        TreeCuttingReceiveItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->where(function ($query) use ($itemIds, $issueIds) {
+                $query->whereIn('vacuum_voucher_item_id', $itemIds);
+                if ($issueIds !== []) {
+                    $query->orWhereIn('tree_cutting_issue_item_id', $issueIds);
+                }
+            })
+            ->delete();
+
+        TreeCuttingIssueItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->whereIn('vacuum_voucher_item_id', $itemIds)
+            ->delete();
+
+        CastingReleaseItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->whereIn('vacuum_voucher_item_id', $itemIds)
+            ->delete();
+
+        CastingMetalIssueItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->whereIn('vacuum_voucher_item_id', $itemIds)
+            ->delete();
+
+        CastingHeatingItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->whereIn('vacuum_voucher_item_id', $itemIds)
+            ->delete();
     }
 }

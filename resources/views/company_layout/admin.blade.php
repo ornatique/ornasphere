@@ -28,6 +28,135 @@
   .content-wrapper form > .alert.alert-danger {
     display: none !important;
   }
+
+  .content-wrapper .dataTables_scrollBody,
+  .content-wrapper .table-responsive,
+  .content-wrapper .sales-list-grid-wrap,
+  .content-wrapper .sale-grid-wrap,
+  .content-wrapper .tree-cutting-list-scroll,
+  .content-wrapper .tree-cutting-receive-list-scroll,
+  .content-wrapper .tree-cutting-scroll,
+  .content-wrapper .tree-cutting-receive-scroll,
+  .content-wrapper .casting-heating-scroll,
+  .content-wrapper .casting-metal-scroll,
+  .content-wrapper .casting-release-scroll,
+  .content-wrapper .casting-sorting-scroll,
+  .content-wrapper .vacuum-voucher-detail-scroll,
+  .content-wrapper .voucher-history-timeline,
+  .content-wrapper .history-table-wrap {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+
+  .content-wrapper .dataTables_scrollBody:hover,
+  .content-wrapper .table-responsive:hover,
+  .content-wrapper .sales-list-grid-wrap:hover,
+  .content-wrapper .sale-grid-wrap:hover,
+  .content-wrapper .tree-cutting-list-scroll:hover,
+  .content-wrapper .tree-cutting-receive-list-scroll:hover,
+  .content-wrapper .tree-cutting-scroll:hover,
+  .content-wrapper .tree-cutting-receive-scroll:hover,
+  .content-wrapper .casting-heating-scroll:hover,
+  .content-wrapper .casting-metal-scroll:hover,
+  .content-wrapper .casting-release-scroll:hover,
+  .content-wrapper .casting-sorting-scroll:hover,
+  .content-wrapper .vacuum-voucher-detail-scroll:hover,
+  .content-wrapper .voucher-history-timeline:hover,
+  .content-wrapper .history-table-wrap:hover {
+    scrollbar-color: rgba(125, 145, 255, 0.7) rgba(255, 255, 255, 0.08);
+  }
+
+  .content-wrapper .dataTables_scrollBody::-webkit-scrollbar,
+  .content-wrapper .table-responsive::-webkit-scrollbar,
+  .content-wrapper .sales-list-grid-wrap::-webkit-scrollbar,
+  .content-wrapper .sale-grid-wrap::-webkit-scrollbar,
+  .content-wrapper .tree-cutting-list-scroll::-webkit-scrollbar,
+  .content-wrapper .tree-cutting-receive-list-scroll::-webkit-scrollbar,
+  .content-wrapper .tree-cutting-scroll::-webkit-scrollbar,
+  .content-wrapper .tree-cutting-receive-scroll::-webkit-scrollbar,
+  .content-wrapper .casting-heating-scroll::-webkit-scrollbar,
+  .content-wrapper .casting-metal-scroll::-webkit-scrollbar,
+  .content-wrapper .casting-release-scroll::-webkit-scrollbar,
+  .content-wrapper .casting-sorting-scroll::-webkit-scrollbar,
+  .content-wrapper .vacuum-voucher-detail-scroll::-webkit-scrollbar,
+  .content-wrapper .voucher-history-timeline::-webkit-scrollbar,
+  .content-wrapper .history-table-wrap::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .content-wrapper .dataTables_scrollBody::-webkit-scrollbar-track,
+  .content-wrapper .table-responsive::-webkit-scrollbar-track,
+  .content-wrapper .sales-list-grid-wrap::-webkit-scrollbar-track,
+  .content-wrapper .sale-grid-wrap::-webkit-scrollbar-track,
+  .content-wrapper .tree-cutting-list-scroll::-webkit-scrollbar-track,
+  .content-wrapper .tree-cutting-receive-list-scroll::-webkit-scrollbar-track,
+  .content-wrapper .tree-cutting-scroll::-webkit-scrollbar-track,
+  .content-wrapper .tree-cutting-receive-scroll::-webkit-scrollbar-track,
+  .content-wrapper .casting-heating-scroll::-webkit-scrollbar-track,
+  .content-wrapper .casting-metal-scroll::-webkit-scrollbar-track,
+  .content-wrapper .casting-release-scroll::-webkit-scrollbar-track,
+  .content-wrapper .casting-sorting-scroll::-webkit-scrollbar-track,
+  .content-wrapper .vacuum-voucher-detail-scroll::-webkit-scrollbar-track,
+  .content-wrapper .voucher-history-timeline::-webkit-scrollbar-track,
+  .content-wrapper .history-table-wrap::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .content-wrapper .dataTables_scrollBody::-webkit-scrollbar-thumb,
+  .content-wrapper .table-responsive::-webkit-scrollbar-thumb,
+  .content-wrapper .sales-list-grid-wrap::-webkit-scrollbar-thumb,
+  .content-wrapper .sale-grid-wrap::-webkit-scrollbar-thumb,
+  .content-wrapper .tree-cutting-list-scroll::-webkit-scrollbar-thumb,
+  .content-wrapper .tree-cutting-receive-list-scroll::-webkit-scrollbar-thumb,
+  .content-wrapper .tree-cutting-scroll::-webkit-scrollbar-thumb,
+  .content-wrapper .tree-cutting-receive-scroll::-webkit-scrollbar-thumb,
+  .content-wrapper .casting-heating-scroll::-webkit-scrollbar-thumb,
+  .content-wrapper .casting-metal-scroll::-webkit-scrollbar-thumb,
+  .content-wrapper .casting-release-scroll::-webkit-scrollbar-thumb,
+  .content-wrapper .casting-sorting-scroll::-webkit-scrollbar-thumb,
+  .content-wrapper .vacuum-voucher-detail-scroll::-webkit-scrollbar-thumb,
+  .content-wrapper .voucher-history-timeline::-webkit-scrollbar-thumb,
+  .content-wrapper .history-table-wrap::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 10px;
+  }
+
+  .content-wrapper .dataTables_scrollBody:hover::-webkit-scrollbar-track,
+  .content-wrapper .table-responsive:hover::-webkit-scrollbar-track,
+  .content-wrapper .sales-list-grid-wrap:hover::-webkit-scrollbar-track,
+  .content-wrapper .sale-grid-wrap:hover::-webkit-scrollbar-track,
+  .content-wrapper .tree-cutting-list-scroll:hover::-webkit-scrollbar-track,
+  .content-wrapper .tree-cutting-receive-list-scroll:hover::-webkit-scrollbar-track,
+  .content-wrapper .tree-cutting-scroll:hover::-webkit-scrollbar-track,
+  .content-wrapper .tree-cutting-receive-scroll:hover::-webkit-scrollbar-track,
+  .content-wrapper .casting-heating-scroll:hover::-webkit-scrollbar-track,
+  .content-wrapper .casting-metal-scroll:hover::-webkit-scrollbar-track,
+  .content-wrapper .casting-release-scroll:hover::-webkit-scrollbar-track,
+  .content-wrapper .casting-sorting-scroll:hover::-webkit-scrollbar-track,
+  .content-wrapper .vacuum-voucher-detail-scroll:hover::-webkit-scrollbar-track,
+  .content-wrapper .voucher-history-timeline:hover::-webkit-scrollbar-track,
+  .content-wrapper .history-table-wrap:hover::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .content-wrapper .dataTables_scrollBody:hover::-webkit-scrollbar-thumb,
+  .content-wrapper .table-responsive:hover::-webkit-scrollbar-thumb,
+  .content-wrapper .sales-list-grid-wrap:hover::-webkit-scrollbar-thumb,
+  .content-wrapper .sale-grid-wrap:hover::-webkit-scrollbar-thumb,
+  .content-wrapper .tree-cutting-list-scroll:hover::-webkit-scrollbar-thumb,
+  .content-wrapper .tree-cutting-receive-list-scroll:hover::-webkit-scrollbar-thumb,
+  .content-wrapper .tree-cutting-scroll:hover::-webkit-scrollbar-thumb,
+  .content-wrapper .tree-cutting-receive-scroll:hover::-webkit-scrollbar-thumb,
+  .content-wrapper .casting-heating-scroll:hover::-webkit-scrollbar-thumb,
+  .content-wrapper .casting-metal-scroll:hover::-webkit-scrollbar-thumb,
+  .content-wrapper .casting-release-scroll:hover::-webkit-scrollbar-thumb,
+  .content-wrapper .casting-sorting-scroll:hover::-webkit-scrollbar-thumb,
+  .content-wrapper .vacuum-voucher-detail-scroll:hover::-webkit-scrollbar-thumb,
+  .content-wrapper .voucher-history-timeline:hover::-webkit-scrollbar-thumb,
+  .content-wrapper .history-table-wrap:hover::-webkit-scrollbar-thumb {
+    background: rgba(125, 145, 255, 0.7);
+  }
 </style>
 
   @stack('styles')
@@ -129,6 +258,39 @@
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script> -->
 <script src="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/js/select2.min.js"></script>
+<script>
+document.addEventListener('blur', function (event) {
+    const input = event.target;
+
+    if (!(input instanceof HTMLInputElement) || input.dataset.skipDecimalFormat === '1') {
+        return;
+    }
+
+    const step = String(input.getAttribute('step') || '').trim();
+    const explicitPlaces = input.dataset.decimalPlaces ? parseInt(input.dataset.decimalPlaces, 10) : null;
+    let decimalPlaces = Number.isInteger(explicitPlaces) ? explicitPlaces : null;
+
+    if (decimalPlaces === null) {
+        if (step === '0.001' || step === '.001') {
+            decimalPlaces = 3;
+        } else if (step === '0.01' || step === '.01') {
+            decimalPlaces = 2;
+        }
+    }
+
+    if (decimalPlaces === null || input.value.trim() === '') {
+        return;
+    }
+
+    const number = parseFloat(input.value);
+    if (!Number.isFinite(number)) {
+        return;
+    }
+
+    const zeroThreshold = Math.pow(10, -(decimalPlaces + 1)) / 2;
+    input.value = (Math.abs(number) < zeroThreshold ? 0 : number).toFixed(decimalPlaces);
+}, true);
+</script>
 
   <!-- End custom js for this page-->
   @stack('scripts')

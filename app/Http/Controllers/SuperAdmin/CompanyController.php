@@ -62,11 +62,8 @@ class CompanyController extends Controller
                 })
                 ->addColumn('logo', function ($row) {
                     $defaultLogo = asset('celestial/assets/images/logo.svg');
-                    if (!empty($row->company_logo)) {
-                        $src = asset('public/' . ltrim($row->company_logo, '/'));
-                        return '<img src="' . $src . '" alt="logo" style="height:40px;width:40px;object-fit:cover;border-radius:6px;">';
-                    }
-                    return '<img src="' . $defaultLogo . '" alt="default-logo" style="height:40px;width:40px;object-fit:cover;border-radius:6px;">';
+                    $src = $row->company_logo_url ?: $defaultLogo;
+                    return '<img src="' . e($src) . '" alt="logo" style="height:40px;width:40px;object-fit:cover;border-radius:6px;" onerror="this.onerror=null;this.src=\'' . e($defaultLogo) . '\';">';
                 })
 
                 ->filterColumn('users_count', function ($query, $keyword) {

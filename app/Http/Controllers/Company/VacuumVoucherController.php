@@ -3,8 +3,13 @@
 namespace App\Http\Controllers\Company;
 
 use App\Http\Controllers\Controller;
+use App\Models\CastingHeatingItem;
+use App\Models\CastingMetalIssueItem;
+use App\Models\CastingReleaseItem;
 use App\Models\Company;
 use App\Models\JobWorker;
+use App\Models\TreeCuttingIssueItem;
+use App\Models\TreeCuttingReceiveItem;
 use App\Models\VacuumBuch;
 use App\Models\VacuumProcess;
 use App\Models\VacuumVoucher;
@@ -22,7 +27,7 @@ class VacuumVoucherController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        $fromDate = $request->get('from_date', now()->toDateString());
+        $fromDate = $request->get('from_date', now()->subDays(6)->toDateString());
         $toDate = $request->get('to_date', now()->toDateString());
         $workerId = $request->get('worker_id');
 
@@ -195,10 +200,7 @@ class VacuumVoucherController extends Controller
                 'modified_count' => ((int) $voucher->modified_count) + 1,
             ]);
 
-            $voucher->items()->delete();
-            foreach ($totals['rows'] as $row) {
-                $voucher->items()->create($row);
-            }
+            $this->syncVoucherItems($voucher, $totals['rows']);
         });
 
         return redirect()
@@ -405,5 +407,78 @@ class VacuumVoucherController extends Controller
     private function fmt($value, int $decimals): string
     {
         return number_format((float) ($value ?? 0), $decimals, '.', '');
+    }
+
+    private function syncVoucherItems(VacuumVoucher $voucher, array $rows): void
+    {
+        $existingItems = $voucher->items()->get()->keyBy(fn($item) => (int) $item->vacuum_buch_id);
+        $keptIds = [];
+
+        foreach ($rows as $row) {
+            $buchId = (int) $row['vacuum_buch_id'];
+            $existing = $existingItems->get($buchId);
+
+            if ($existing) {
+                $existing->update($row);
+                $keptIds[] = (int) $existing->id;
+                continue;
+            }
+
+            $created = $voucher->items()->create($row);
+            $keptIds[] = (int) $created->id;
+        }
+
+        $removeQuery = $voucher->items();
+        if ($keptIds !== []) {
+            $removeQuery->whereNotIn('id', $keptIds);
+        }
+
+        $removeIds = $removeQuery->pluck('id')->map(fn($id) => (int) $id)->all();
+        if ($removeIds === []) {
+            return;
+        }
+
+        $this->deleteProductionRowsForVoucherItems((int) $voucher->company_id, (int) $voucher->id, $removeIds);
+        $voucher->items()->whereIn('id', $removeIds)->delete();
+    }
+
+    private function deleteProductionRowsForVoucherItems(int $companyId, int $voucherId, array $itemIds): void
+    {
+        $issueIds = TreeCuttingIssueItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->whereIn('vacuum_voucher_item_id', $itemIds)
+            ->pluck('id')
+            ->map(fn($id) => (int) $id)
+            ->all();
+
+        TreeCuttingReceiveItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->where(function ($query) use ($itemIds, $issueIds) {
+                $query->whereIn('vacuum_voucher_item_id', $itemIds);
+                if ($issueIds !== []) {
+                    $query->orWhereIn('tree_cutting_issue_item_id', $issueIds);
+                }
+            })
+            ->delete();
+
+        TreeCuttingIssueItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->whereIn('vacuum_voucher_item_id', $itemIds)
+            ->delete();
+
+        CastingReleaseItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->whereIn('vacuum_voucher_item_id', $itemIds)
+            ->delete();
+
+        CastingMetalIssueItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->whereIn('vacuum_voucher_item_id', $itemIds)
+            ->delete();
+
+        CastingHeatingItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->whereIn('vacuum_voucher_item_id', $itemIds)
+            ->delete();
     }
 }

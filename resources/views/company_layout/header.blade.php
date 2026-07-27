@@ -3,12 +3,10 @@
      $company = optional(auth()->user())->company;
      $companyName = optional($company)->name ?: config('app.name', 'Company');
      $companyShortName = \Illuminate\Support\Str::limit($companyName, 20, '...');
-     $companyLogo = !empty(optional($company)->company_logo)
-     ? asset('public/' . ltrim($company->company_logo, '/'))
-     : asset('celestial/assets/images/logo.svg');
-     $miniLogo = !empty(optional($company)->company_logo)
-     ? asset('public/' . ltrim($company->company_logo, '/'))
-     : asset('celestial/assets/images/logo-mini.svg');
+     $defaultCompanyLogo = asset('celestial/assets/images/logo.svg');
+     $defaultMiniLogo = asset('celestial/assets/images/logo-mini.svg');
+     $companyLogo = optional($company)->company_logo_url ?: $defaultCompanyLogo;
+     $miniLogo = optional($company)->company_logo_url ?: $defaultMiniLogo;
      $notificationSummary = $companyNotificationSummary ?? ['total' => 0, 'latest' => collect()];
      $notificationTotal = (int) ($notificationSummary['total'] ?? 0);
      $notificationItems = collect($notificationSummary['latest'] ?? []);
@@ -195,7 +193,7 @@
          <a class="navbar-brand brand-logo d-flex align-items-center justify-content-center company-top-brand" href="{{ route('company.dashboard',auth()->user()->company->slug) }}">
              <span class="company-top-brand-name" title="{{ $companyName }}">{{ $companyShortName }}</span>
          </a>
-         <a class="navbar-brand brand-logo-mini" href="{{ route('company.dashboard',auth()->user()->company->slug) }}"><img src="{{ $miniLogo }}" alt="logo" style="height:34px; width:34px; object-fit:cover; border-radius:6px;" /></a>
+         <a class="navbar-brand brand-logo-mini" href="{{ route('company.dashboard',auth()->user()->company->slug) }}"><img src="{{ $miniLogo }}" alt="logo" style="height:34px; width:34px; object-fit:cover; border-radius:6px;" onerror="this.onerror=null;this.src='{{ $defaultMiniLogo }}';" /></a>
          <button class="navbar-toggler navbar-toggler align-self-center d-none d-lg-flex" type="button" data-bs-toggle="minimize">
              <span class="typcn typcn-th-menu"></span>
          </button>
@@ -401,9 +399,9 @@
                      <span class="nav-profile-name"> {{ auth()->user()->name }}</span>
                  </a>
                  <div class="dropdown-menu dropdown-menu-right navbar-dropdown" aria-labelledby="profileDropdown">
-                     <a class="dropdown-item">
-                         <i class="typcn typcn-cog text-primary"></i>
-                         Settings
+                     <a class="dropdown-item" href="{{ route('company.profile.show', auth()->user()->company->slug) }}">
+                         <i class="typcn typcn-user-outline text-primary"></i>
+                         Profile
                      </a>
                      <form method="POST" action="{{ route('company.logout', auth()->user()->company->slug) }}">
                          @csrf

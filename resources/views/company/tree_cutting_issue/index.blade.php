@@ -1,5 +1,10 @@
 @extends('company_layout.admin')
 
+@php
+    $fromDate = request()->filled('from_date') ? request('from_date') : now()->subDays(6)->toDateString();
+    $toDate = request()->filled('to_date') ? request('to_date') : now()->toDateString();
+@endphp
+
 @section('content')
 <div class="content-wrapper">
     <div class="card">

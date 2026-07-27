@@ -20,13 +20,14 @@
                         <div class="auth-form-transparent py-5 px-4">
                             @php
                                 $companyName = optional($company)->name ?? optional(auth()->user()->company)->name ?? config('app.name');
-                                $companyLogo = !empty(optional($company)->company_logo)
-                                    ? asset('public/' . ltrim(optional($company)->company_logo, '/'))
-                                    : asset('celestial/assets/images/logo.svg');
+                                $defaultCompanyLogo = asset('celestial/assets/images/logo.svg');
+                                $companyLogo = optional($company)->company_logo_url
+                                    ?: optional(auth()->user()->company)->company_logo_url
+                                    ?: $defaultCompanyLogo;
                             @endphp
 
                             <div class="brand-logo text-center mb-4">
-                                <img src="{{ $companyLogo }}" alt="company-logo" style="max-height:60px; width:auto; border-radius:6px;">
+                                <img src="{{ $companyLogo }}" alt="company-logo" style="max-height:60px; width:auto; border-radius:6px;" onerror="this.onerror=null;this.src='{{ $defaultCompanyLogo }}';">
                             </div>
 
                             <h4 class="text-center mb-2">{{ $companyName }}</h4>

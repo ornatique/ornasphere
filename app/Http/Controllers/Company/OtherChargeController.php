@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use App\Models\Company;
 use App\Models\OtherCharge;
 use App\Models\Item;
+use App\Models\User;
 use Yajra\DataTables\Facades\DataTables;
 use Illuminate\Support\Facades\Crypt;
 
@@ -30,9 +31,68 @@ class OtherChargeController extends Controller
         return in_array($v, ['1', 'true', 'yes', 'on', 'y'], true);
     }
 
+    private function isCompanyAdminUser(User $user): bool
+    {
+        if (strtolower((string) $user->role) === 'company_admin') {
+            return true;
+        }
+
+        return $user->hasRole('company_admin');
+    }
+
+    private function canOtherChargeAction(?User $authUser, string $action): bool
+    {
+        if (!$authUser) {
+            return false;
+        }
+
+        if ($this->isCompanyAdminUser($authUser)) {
+            return true;
+        }
+
+        $moduleVariants = [
+            'other-charge',
+            'othercharge',
+            'other_charge',
+            'other.charge',
+            'other charge',
+        ];
+
+        $candidates = [];
+        foreach ($moduleVariants as $module) {
+            $candidates[] = "{$module}-{$action}";
+            $candidates[] = "{$module}.{$action}";
+            $candidates[] = "{$module}_{$action}";
+            $candidates[] = "{$module} {$action}";
+            $candidates[] = "{$action}-{$module}";
+            $candidates[] = "{$action}.{$module}";
+            $candidates[] = "{$action}_{$module}";
+            $candidates[] = "{$action} {$module}";
+        }
+
+        if ($action !== 'view') {
+            foreach ($moduleVariants as $module) {
+                $candidates[] = "{$module}-manage";
+                $candidates[] = "{$module}.manage";
+                $candidates[] = "{$module}_manage";
+                $candidates[] = "{$module} manage";
+                $candidates[] = "manage-{$module}";
+                $candidates[] = "manage.{$module}";
+                $candidates[] = "manage_{$module}";
+                $candidates[] = "manage {$module}";
+            }
+        }
+
+        return $authUser->hasAnyPermission(array_values(array_unique($candidates)));
+    }
+
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $authUser = $request->user();
+        $canCreate = $this->canOtherChargeAction($authUser, 'create');
+        $canEdit = $this->canOtherChargeAction($authUser, 'edit');
+        $canDelete = $this->canOtherChargeAction($authUser, 'delete');
 
         if ($request->ajax()) {
 
@@ -42,23 +102,28 @@ class OtherChargeController extends Controller
 
                 ->addIndexColumn()
 
-                ->addColumn('action', function ($row) use ($company) {
+                ->addColumn('action', function ($row) use ($company, $canEdit, $canDelete) {
 
                     $id = Crypt::encryptString($row->id);
 
                     $edit = route('company.other-charge.edit', [$company->slug, $id]);
 
                     $delete = route('company.other-charge.destroy', [$company->slug, $id]);
+                    $html = '';
 
-                    return '
-                        <a href="' . $edit . '" class="btn btn-sm btn-primary">Edit</a>
+                    if ($canEdit) {
+                        $html .= '<a href="' . $edit . '" class="btn btn-sm btn-primary">Edit</a> ';
+                    }
 
-                        <button type="button"
+                    if ($canDelete) {
+                        $html .= '<button type="button"
                             class="btn btn-sm btn-danger deleteBtn"
                             data-url="' . $delete . '">
                             Delete
-                        </button>
-                    ';
+                        </button>';
+                    }
+
+                    return $html !== '' ? $html : '-';
                 })
 
 
@@ -66,7 +131,7 @@ class OtherChargeController extends Controller
                 ->make(true);
         }
 
-        return view('company.other_charge.index', compact('company'));
+        return view('company.other_charge.index', compact('company', 'canCreate'));
     }
 
     public function create($slug)

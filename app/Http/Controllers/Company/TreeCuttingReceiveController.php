@@ -19,7 +19,7 @@ class TreeCuttingReceiveController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        $fromDate = $request->get('from_date', now()->toDateString());
+        $fromDate = $request->get('from_date', now()->subDays(6)->toDateString());
         $toDate = $request->get('to_date', now()->toDateString());
         $workerId = $request->get('worker_id');
 
@@ -31,7 +31,7 @@ class TreeCuttingReceiveController extends Controller
                         ->from('tree_cutting_issue_items')
                         ->whereColumn('tree_cutting_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
                         ->where('tree_cutting_issue_items.company_id', $company->id)
-                        ->whereNotNull('tree_cutting_issue_items.receive_tree_wt')
+                        ->where('tree_cutting_issue_items.receive_tree_wt', '>', 0)
                         ->when($fromDate, fn($q) => $q->whereDate(DB::raw('COALESCE(tree_cutting_issue_items.issued_at, tree_cutting_issue_items.created_at)'), '>=', $fromDate))
                         ->when($toDate, fn($q) => $q->whereDate(DB::raw('COALESCE(tree_cutting_issue_items.issued_at, tree_cutting_issue_items.created_at)'), '<=', $toDate));
                 })
@@ -42,7 +42,7 @@ class TreeCuttingReceiveController extends Controller
                             ->whereColumn('tree_cutting_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
                             ->where('tree_cutting_issue_items.company_id', $company->id)
                             ->where('tree_cutting_issue_items.job_worker_id', $workerId)
-                            ->whereNotNull('tree_cutting_issue_items.receive_tree_wt');
+                            ->where('tree_cutting_issue_items.receive_tree_wt', '>', 0);
                     });
                 })
                 ->with(['process:id,name', 'jobWorker:id,name'])
@@ -51,14 +51,15 @@ class TreeCuttingReceiveController extends Controller
                     $query->from('tree_cutting_issue_items')
                         ->selectRaw('MAX(COALESCE(tree_cutting_issue_items.issued_at, tree_cutting_issue_items.created_at))')
                         ->whereColumn('tree_cutting_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('tree_cutting_issue_items.company_id', $company->id);
+                        ->where('tree_cutting_issue_items.company_id', $company->id)
+                        ->where('tree_cutting_issue_items.receive_tree_wt', '>', 0);
                 }, 'tree_cutting_issue_datetime')
                 ->selectSub(function ($query) use ($company) {
                     $query->from('tree_cutting_issue_items')
                         ->selectRaw('COUNT(*)')
                         ->whereColumn('tree_cutting_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
                         ->where('tree_cutting_issue_items.company_id', $company->id)
-                        ->whereNotNull('tree_cutting_issue_items.receive_tree_wt');
+                        ->where('tree_cutting_issue_items.receive_tree_wt', '>', 0);
                 }, 'tree_cutting_issue_count')
                 ->selectSub(function ($query) use ($company) {
                     $query->from('tree_cutting_receive_items')
@@ -66,27 +67,39 @@ class TreeCuttingReceiveController extends Controller
                         ->whereColumn('tree_cutting_receive_items.vacuum_voucher_id', 'vacuum_vouchers.id')
                         ->where('tree_cutting_receive_items.company_id', $company->id)
                         ->where(function ($q) {
-                            $q->whereNotNull('tree_cutting_receive_items.receive_pc_wt')
-                                ->orWhereNotNull('tree_cutting_receive_items.receive_tree_bhuko');
+                            $q->where('tree_cutting_receive_items.receive_pc_wt', '>', 0)
+                                ->orWhere('tree_cutting_receive_items.receive_tree_bhuko', '>', 0);
                         });
                 }, 'tree_cutting_receive_count')
                 ->selectSub(function ($query) use ($company) {
                     $query->from('tree_cutting_receive_items')
                         ->selectRaw('COALESCE(SUM(tree_cutting_receive_items.receive_pc_wt), 0)')
                         ->whereColumn('tree_cutting_receive_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('tree_cutting_receive_items.company_id', $company->id);
+                        ->where('tree_cutting_receive_items.company_id', $company->id)
+                        ->where(function ($q) {
+                            $q->where('tree_cutting_receive_items.receive_pc_wt', '>', 0)
+                                ->orWhere('tree_cutting_receive_items.receive_tree_bhuko', '>', 0);
+                        });
                 }, 'receive_pc_wt_total')
                 ->selectSub(function ($query) use ($company) {
                     $query->from('tree_cutting_receive_items')
                         ->selectRaw('COALESCE(SUM(tree_cutting_receive_items.receive_tree_bhuko), 0)')
                         ->whereColumn('tree_cutting_receive_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('tree_cutting_receive_items.company_id', $company->id);
+                        ->where('tree_cutting_receive_items.company_id', $company->id)
+                        ->where(function ($q) {
+                            $q->where('tree_cutting_receive_items.receive_pc_wt', '>', 0)
+                                ->orWhere('tree_cutting_receive_items.receive_tree_bhuko', '>', 0);
+                        });
                 }, 'receive_tree_bhuko_total')
                 ->selectSub(function ($query) use ($company) {
                     $query->from('tree_cutting_receive_items')
                         ->selectRaw('COALESCE(SUM(tree_cutting_receive_items.loss), 0)')
                         ->whereColumn('tree_cutting_receive_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('tree_cutting_receive_items.company_id', $company->id);
+                        ->where('tree_cutting_receive_items.company_id', $company->id)
+                        ->where(function ($q) {
+                            $q->where('tree_cutting_receive_items.receive_pc_wt', '>', 0)
+                                ->orWhere('tree_cutting_receive_items.receive_tree_bhuko', '>', 0);
+                        });
                 }, 'loss_total')
                 ->selectSub(function ($query) use ($company) {
                     $query->from('tree_cutting_issue_items')
@@ -94,13 +107,17 @@ class TreeCuttingReceiveController extends Controller
                         ->selectRaw("GROUP_CONCAT(DISTINCT job_workers.name ORDER BY job_workers.name SEPARATOR ', ')")
                         ->whereColumn('tree_cutting_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
                         ->where('tree_cutting_issue_items.company_id', $company->id)
-                        ->whereNotNull('tree_cutting_issue_items.receive_tree_wt');
+                        ->where('tree_cutting_issue_items.receive_tree_wt', '>', 0);
                 }, 'tree_cutting_worker_names')
                 ->selectSub(function ($query) use ($company) {
                     $query->from('tree_cutting_receive_items')
                         ->selectRaw('MAX(COALESCE(tree_cutting_receive_items.received_at, tree_cutting_receive_items.created_at))')
                         ->whereColumn('tree_cutting_receive_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('tree_cutting_receive_items.company_id', $company->id);
+                        ->where('tree_cutting_receive_items.company_id', $company->id)
+                        ->where(function ($q) {
+                            $q->where('tree_cutting_receive_items.receive_pc_wt', '>', 0)
+                                ->orWhere('tree_cutting_receive_items.receive_tree_bhuko', '>', 0);
+                        });
                 }, 'tree_cutting_receive_datetime')
                 ->orderByDesc('tree_cutting_issue_datetime')
                 ->orderByDesc('id');
@@ -168,7 +185,7 @@ class TreeCuttingReceiveController extends Controller
 
         $issueItems = TreeCuttingIssueItem::where('company_id', $company->id)
             ->where('vacuum_voucher_id', $voucher->id)
-            ->whereNotNull('receive_tree_wt')
+            ->where('receive_tree_wt', '>', 0)
             ->get()
             ->keyBy('id');
 
@@ -194,6 +211,14 @@ class TreeCuttingReceiveController extends Controller
                 $receiveTreeBhuko = $row['receive_tree_bhuko'] ?? null;
                 $receivePcWtValue = $receivePcWt !== null && $receivePcWt !== '' ? (float) $receivePcWt : null;
                 $receiveTreeBhukoValue = $receiveTreeBhuko !== null && $receiveTreeBhuko !== '' ? (float) $receiveTreeBhuko : null;
+
+                if (($receivePcWtValue === null || $receivePcWtValue <= 0) && ($receiveTreeBhukoValue === null || $receiveTreeBhukoValue <= 0)) {
+                    TreeCuttingReceiveItem::where('company_id', $company->id)
+                        ->where('tree_cutting_issue_item_id', $issueItemId)
+                        ->delete();
+                    continue;
+                }
+
                 $loss = $receivePcWtValue !== null || $receiveTreeBhukoValue !== null
                     ? round(($receivePcWtValue ?? 0) + ($receiveTreeBhukoValue ?? 0) - $issueTreeWt, 3)
                     : null;
@@ -236,7 +261,7 @@ class TreeCuttingReceiveController extends Controller
 
         $issueItems = TreeCuttingIssueItem::where('company_id', $company->id)
             ->where('vacuum_voucher_id', $voucher->id)
-            ->whereNotNull('receive_tree_wt')
+            ->where('receive_tree_wt', '>', 0)
             ->with(['voucherItem:id,buch_no', 'jobWorker:id,name'])
             ->orderBy('is_custom')
             ->orderBy('id')
@@ -247,6 +272,10 @@ class TreeCuttingReceiveController extends Controller
 
         $receiveItems = TreeCuttingReceiveItem::where('company_id', $company->id)
             ->where('vacuum_voucher_id', $voucher->id)
+            ->where(function ($q) {
+                $q->where('receive_pc_wt', '>', 0)
+                    ->orWhere('receive_tree_bhuko', '>', 0);
+            })
             ->get()
             ->keyBy('tree_cutting_issue_item_id');
 
