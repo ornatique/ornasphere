@@ -396,6 +396,9 @@
 
     `);
 
+        const $row = $('#setsBody tr').last();
+        updateSrNumbers();
+        return $row;
     }
 
 
@@ -606,6 +609,18 @@
         }
     }
 
+    function ensureEmptyRowAfterFilledLastRow() {
+        const $rows = $('#setsBody tr');
+        if (!$rows.length) {
+            addEmptyRow();
+            return;
+        }
+
+        if (rowHasAnyValue($rows.last())) {
+            addEmptyRow();
+        }
+    }
+
     function applyFormulaToAllRows() {
         $('#setsBody tr').each(function() {
             const $row = $(this);
@@ -694,10 +709,21 @@
 
     $(document).on('input', '.cell[data-column="sale_other"]', function() {
         updateTotals();
+        ensureEmptyRowAfterFilledLastRow();
     });
 
     $(document).on('input', '.cell[data-column="sale_labour_rate"]', function() {
         recalcLabourAmount($(this).closest('tr'), false);
+        ensureEmptyRowAfterFilledLastRow();
+    });
+
+    $(document).on('input', '.cell[data-column="gross_weight"], .cell[data-column="supplier_person"], .cell[data-column="size"], .cell[data-column="HUID"]', function() {
+        ensureEmptyRowAfterFilledLastRow();
+    });
+
+    $(document).on('click', '.content-wrapper', function(e) {
+        if ($(e.target).closest('.modal, .dropdown-menu').length) return;
+        ensureEmptyRowAfterFilledLastRow();
     });
 
     $(document).on('blur', '.cell[data-column="sale_labour_rate"]', function() {
@@ -1063,6 +1089,7 @@
         recalcRowWeightsFromCharges(modalTargetRow);
         saveCell($cell);
         updateTotals();
+        ensureEmptyRowAfterFilledLastRow();
 
         $('#itemSetOtherChargeModal').modal('hide');
     });
@@ -1087,6 +1114,7 @@
     $(document).on('input blur', '.cell[data-column="gross_weight"]', function() {
         const $row = $(this).closest('tr');
         recalcRowWeightsFromCharges($row);
+        ensureEmptyRowAfterFilledLastRow();
     });
 </script>
 

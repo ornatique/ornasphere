@@ -4,14 +4,12 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class JobworkIssue extends Model
+class JobworkReceive extends Model
 {
     protected $fillable = [
         'company_id',
-        'voucher_no',
-        'jobwork_date',
-        'job_worker_id',
-        'production_step_id',
+        'jobwork_issue_id',
+        'receive_date',
         'remarks',
         'created_by',
         'updated_by',
@@ -19,9 +17,9 @@ class JobworkIssue extends Model
     ];
 
     protected $casts = [
-        'jobwork_date' => 'date',
-        'job_worker_id' => 'integer',
-        'production_step_id' => 'integer',
+        'company_id' => 'integer',
+        'jobwork_issue_id' => 'integer',
+        'receive_date' => 'date',
         'created_by' => 'integer',
         'updated_by' => 'integer',
         'modified_count' => 'integer',
@@ -32,24 +30,14 @@ class JobworkIssue extends Model
         return $this->belongsTo(Company::class);
     }
 
-    public function jobWorker()
+    public function jobworkIssue()
     {
-        return $this->belongsTo(JobWorker::class);
-    }
-
-    public function productionStep()
-    {
-        return $this->belongsTo(ProductionStep::class);
+        return $this->belongsTo(JobworkIssue::class);
     }
 
     public function items()
     {
-        return $this->hasMany(JobworkIssueItem::class);
-    }
-
-    public function receive()
-    {
-        return $this->hasOne(JobworkReceive::class);
+        return $this->hasMany(JobworkReceiveItem::class);
     }
 
     public function createdByUser()

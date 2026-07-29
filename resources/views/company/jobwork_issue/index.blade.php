@@ -2,34 +2,91 @@
 
 @section('content')
 <div class="content-wrapper">
+    <style>
+        .jobwork-page-header {
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .jobwork-page-header .card-title {
+            margin-bottom: 0;
+        }
+
+        .jobwork-header-actions,
+        .jobwork-filter-actions {
+            display: flex;
+            align-items: end;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .jobwork-filter-panel {
+            padding: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.02);
+            margin-bottom: 16px;
+        }
+
+        .jobwork-filter-panel .form-control {
+            min-height: 48px;
+        }
+
+        .jobwork-action-btn {
+            min-height: 48px;
+            min-width: 120px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            white-space: nowrap;
+            padding-left: 18px;
+            padding-right: 18px;
+        }
+
+        .jobwork-add-btn {
+            min-width: 178px;
+        }
+
+        @media (max-width: 767.98px) {
+            .jobwork-filter-actions,
+            .jobwork-header-actions {
+                width: 100%;
+            }
+
+            .jobwork-action-btn,
+            .jobwork-add-btn {
+                width: 100%;
+            }
+        }
+    </style>
+
     <div class="card">
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-header d-flex justify-content-between align-items-center jobwork-page-header">
             <h4 class="card-title">Jobwork Issue List</h4>
-            <a href="{{ route('company.jobwork-issue.create', $company->slug) }}" class="btn btn-primary">
+            <div class="jobwork-header-actions">
+                <a href="{{ route('company.jobwork-issue.create', $company->slug) }}" class="btn btn-primary jobwork-action-btn jobwork-add-btn">
                 + Add Jobwork Issue
-            </a>
+                </a>
+            </div>
         </div>
         <div class="card-body">
-            <form class="row g-2 mb-3 align-items-end">
-                <div class="col-md-3">
+            <form class="jobwork-filter-panel">
+                <div class="row g-3 align-items-end">
+                <div class="col-lg-3 col-md-6">
                     <label class="form-label mb-1">From Date</label>
                     <input type="date" id="from_date" class="form-control" value="{{ now()->toDateString() }}">
                 </div>
-                <div class="col-md-3">
+                <div class="col-lg-3 col-md-6">
                     <label class="form-label mb-1">To Date</label>
                     <input type="date" id="to_date" class="form-control" value="{{ now()->toDateString() }}">
                 </div>
-                <div class="col-md-1 d-grid">
-                    <button type="button" id="filterBtn" class="btn btn-info">Apply Filter</button>
+                <div class="col-lg-6">
+                    <div class="jobwork-filter-actions">
+                        <button type="button" id="filterBtn" class="btn btn-info jobwork-action-btn">Apply Filter</button>
+                        <button type="button" id="resetBtn" class="btn btn-secondary jobwork-action-btn">Reset</button>
+                        <a href="#" id="exportExcelBtn" class="btn btn-success jobwork-action-btn">Export Excel</a>
+                        <a href="#" id="exportPdfBtn" class="btn btn-danger jobwork-action-btn">Export PDF</a>
+                    </div>
                 </div>
-                <div class="col-md-1 d-grid">
-                    <button type="button" id="resetBtn" class="btn btn-secondary">Reset</button>
-                </div>
-                <div class="col-md-2 d-grid">
-                    <a href="#" id="exportExcelBtn" class="btn btn-success">Export Excel</a>
-                </div>
-                <div class="col-md-2 d-grid">
-                    <a href="#" id="exportPdfBtn" class="btn btn-danger">Export PDF</a>
                 </div>
             </form>
 

@@ -58,14 +58,16 @@ class VacuumVoucherController extends Controller
                     $encryptedId = Crypt::encryptString((string) $row->id);
                     $view = route('company.vacuum-vouchers.show', [$company->slug, $encryptedId]);
                     $pdf = route('company.vacuum-vouchers.pdf', [$company->slug, $encryptedId]);
+                    $printLabels = route('company.vacuum-vouchers.print-labels', [$company->slug, $encryptedId]);
                     $edit = route('company.vacuum-vouchers.edit', [$company->slug, $encryptedId]);
                     $delete = route('company.vacuum-vouchers.destroy', [$company->slug, $encryptedId]);
 
-                    return '<div class="d-flex gap-1">
-                        <a href="' . $view . '" class="btn btn-sm btn-info">View</a>
-                        <a href="' . $pdf . '" class="btn btn-sm btn-success">PDF</a>
-                        <a href="' . $edit . '" class="btn btn-sm btn-primary">Edit</a>
-                        <button type="button" class="btn btn-sm btn-danger deleteBtn" data-url="' . e($delete) . '">Delete</button>
+                    return '<div class="voucher-action-group">
+                        <a href="' . $view . '" class="btn btn-sm btn-info voucher-action-btn">View</a>
+                        <a href="' . $pdf . '" class="btn btn-sm btn-success voucher-action-btn">PDF</a>
+                        <a href="' . $printLabels . '" target="_blank" class="btn btn-sm btn-warning voucher-action-btn voucher-action-btn-wide">Print Label</a>
+                        <a href="' . $edit . '" class="btn btn-sm btn-primary voucher-action-btn">Edit</a>
+                        <button type="button" class="btn btn-sm btn-danger deleteBtn voucher-action-btn" data-url="' . e($delete) . '">Delete</button>
                     </div>';
                 })
                 ->rawColumns(['action'])
@@ -155,6 +157,27 @@ class VacuumVoucherController extends Controller
         return Pdf::loadView('company.vacuum_vouchers.pdf.show', compact('company', 'data'))
             ->setPaper('a4', 'portrait')
             ->download('vacuum_voucher_' . $data->voucher_no . '.pdf');
+    }
+
+    public function printLabels($slug, $encryptedId)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $id = Crypt::decryptString($encryptedId);
+        $data = VacuumVoucher::where('company_id', $company->id)
+            ->with(['items.buch:id,size_inch'])
+            ->findOrFail($id);
+
+        $labels = $data->items
+            ->values()
+            ->map(function ($item, int $index) {
+                return [
+                    'serial' => $index + 1,
+                    'buch_no' => $item->buch_no ?: '-',
+                    'size' => $item->buch ? $this->fmt($item->buch->size_inch, 2) : '-',
+                ];
+            });
+
+        return view('company.vacuum_vouchers.print_labels', compact('company', 'data', 'labels'));
     }
 
     public function edit($slug, $encryptedId)

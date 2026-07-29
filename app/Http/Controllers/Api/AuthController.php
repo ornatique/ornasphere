@@ -376,6 +376,7 @@ class AuthController extends Controller
             'customer',
             'job-worker',
             'jobwork-issue',
+            'jobwork-receive',
             'item',
             'item-set',
             'label-config',

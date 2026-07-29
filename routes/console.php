@@ -49,6 +49,7 @@ Artisan::command('erp:sync-company-rbac {--company_id=} {--slug=}', function () 
         'app-theme',
         'job-worker',
         'jobwork-issue',
+        'jobwork-receive',
         'production-cost',
         'labour-formula',
         'production-step',

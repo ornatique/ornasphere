@@ -10,6 +10,7 @@ use App\Models\Item;
 use App\Models\ItemSet;
 use App\Models\JobWorker;
 use App\Models\JobworkIssue;
+use App\Models\JobworkReceive;
 use App\Models\LabelConfig;
 use App\Models\LabourFormula;
 use App\Models\OtherCharge;
@@ -64,6 +65,7 @@ class AppServiceProvider extends ServiceProvider
         CustomerAdvanceLedger::observe(CompanyActivityObserver::class);
         JobWorker::observe(CompanyActivityObserver::class);
         JobworkIssue::observe(CompanyActivityObserver::class);
+        JobworkReceive::observe(CompanyActivityObserver::class);
         ProductionCost::observe(CompanyActivityObserver::class);
         LabourFormula::observe(CompanyActivityObserver::class);
         ProductionStep::observe(CompanyActivityObserver::class);

@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\CustomerApiController;
 use App\Http\Controllers\Api\ReportApiController;
 use App\Http\Controllers\Api\ProductionCostApiController;
 use App\Http\Controllers\Api\LabourFormulaApiController;
+use App\Http\Controllers\Api\MetalRateApiController;
 use App\Http\Controllers\Api\ProductionStepApiController;
 use App\Http\Controllers\Api\JobWorkerApiController;
 use App\Http\Controllers\Api\JobworkIssueApiController;
@@ -58,6 +59,8 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
 
     Route::get('/app-theme', [AppThemeApiController::class, 'active']);
     Route::get('/app/themes/active', [AppThemeApiController::class, 'active']);
+    Route::get('/metal-rates', [MetalRateApiController::class, 'index']);
+    Route::get('/live-metal-rates', [MetalRateApiController::class, 'index']);
 
     Route::get('/users', [CompanyUserController::class, 'index']);
     Route::post('/create_users', [CompanyUserController::class, 'store']);
@@ -155,12 +158,16 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/vouchers/buch-options', [VacuumVoucherApiController::class, 'buchOptions']);
     Route::post('/vouchers', [VacuumVoucherApiController::class, 'store']);
     Route::get('/vouchers/{id}/pdf', [VacuumVoucherApiController::class, 'pdf'])->whereNumber('id');
+    Route::get('/vouchers/{id}/print-labels', [VacuumVoucherApiController::class, 'printLabels'])->whereNumber('id');
+    Route::get('/vouchers/{id}/print-labels/pdf', [VacuumVoucherApiController::class, 'printLabelsPdf'])->whereNumber('id');
     Route::get('/vouchers/{id}', [VacuumVoucherApiController::class, 'show'])->whereNumber('id');
     Route::put('/vouchers/{id}', [VacuumVoucherApiController::class, 'update'])->whereNumber('id');
     Route::delete('/vouchers/{id}', [VacuumVoucherApiController::class, 'destroy'])->whereNumber('id');
     Route::get('/vouchers_list', [VacuumVoucherApiController::class, 'index']);
     Route::get('/vouchers_buch_options', [VacuumVoucherApiController::class, 'buchOptions']);
     Route::get('/vouchers_pdf/{id}', [VacuumVoucherApiController::class, 'pdf'])->whereNumber('id');
+    Route::get('/vouchers_print_labels/{id}', [VacuumVoucherApiController::class, 'printLabels'])->whereNumber('id');
+    Route::get('/vouchers_print_labels_pdf/{id}', [VacuumVoucherApiController::class, 'printLabelsPdf'])->whereNumber('id');
     Route::post('/create_vouchers', [VacuumVoucherApiController::class, 'store']);
     Route::post('/update_vouchers/{id}', [VacuumVoucherApiController::class, 'update'])->whereNumber('id');
     Route::delete('/delete_vouchers/{id}', [VacuumVoucherApiController::class, 'destroy'])->whereNumber('id');
@@ -233,9 +240,13 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
 
     Route::get('/voucher-history', [VoucherHistoryApiController::class, 'index']);
     Route::get('/voucher-history/vouchers', [VoucherHistoryApiController::class, 'vouchers']);
+    Route::get('/voucher-history/{id}/pdf', [VoucherHistoryApiController::class, 'pdf'])->whereNumber('id');
+    Route::get('/voucher-history/{id}/excel', [VoucherHistoryApiController::class, 'excel'])->whereNumber('id');
     Route::get('/voucher-history/{id}', [VoucherHistoryApiController::class, 'show'])->whereNumber('id');
     Route::get('/voucher_history_list', [VoucherHistoryApiController::class, 'index']);
     Route::get('/voucher_history_vouchers', [VoucherHistoryApiController::class, 'vouchers']);
+    Route::get('/voucher_history_pdf/{id}', [VoucherHistoryApiController::class, 'pdf'])->whereNumber('id');
+    Route::get('/voucher_history_excel/{id}', [VoucherHistoryApiController::class, 'excel'])->whereNumber('id');
     Route::get('/voucher_history_show/{id}', [VoucherHistoryApiController::class, 'show'])->whereNumber('id');
 
     Route::get('/items', [ItemController::class, 'index']);

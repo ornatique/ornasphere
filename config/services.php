@@ -42,4 +42,8 @@ return [
         'maps_autofill_enabled' => env('GOOGLE_MAPS_AUTOFILL', true),
     ],
 
+    'metals_dev' => [
+        'key' => env('METALS_DEV_API_KEY'),
+    ],
+
 ];

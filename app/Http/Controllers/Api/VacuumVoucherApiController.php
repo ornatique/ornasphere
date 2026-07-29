@@ -117,6 +117,96 @@ class VacuumVoucherApiController extends Controller
             ->download('vacuum_voucher_' . $data->voucher_no . '.pdf');
     }
 
+    public function printLabels(Request $request, $id)
+    {
+        $data = $this->findVoucher($request, (int) $id);
+
+        if (!$data) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vacuum Voucher not found',
+            ], 404);
+        }
+
+        $labels = $data->items
+            ->values()
+            ->map(function ($item, int $index) {
+                $size = $item->buch ? $this->decimalValue($item->buch->size_inch ?? 0, 2) : null;
+
+                return [
+                    'serial' => $index + 1,
+                    'buch_no' => $item->buch_no ?: ($item->buch?->buch_no ?? '-'),
+                    'size' => $size,
+                    'label_text' => ($index + 1) . '. ' . ($item->buch_no ?: ($item->buch?->buch_no ?? '-')) . ' - ' . ($size ?? '-'),
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'voucher' => [
+                    'id' => (int) $data->id,
+                    'voucher_no' => $data->voucher_no,
+                    'voucher_date' => optional($data->voucher_date)->format('Y-m-d'),
+                    'voucher_date_view' => optional($data->voucher_date)->format('d-m-Y'),
+                    'company_id' => (int) $data->company_id,
+                    'process' => $data->process ? [
+                        'id' => (int) $data->process->id,
+                        'name' => $data->process->name,
+                    ] : null,
+                    'job_worker' => $data->jobWorker ? [
+                        'id' => (int) $data->jobWorker->id,
+                        'name' => $data->jobWorker->name,
+                    ] : null,
+                ],
+                'layout' => [
+                    'paper' => 'A4',
+                    'columns' => 3,
+                    'rows_per_column' => 28,
+                    'labels_per_page' => 84,
+                ],
+                'labels' => $labels,
+                'pages' => $labels
+                    ->chunk(84)
+                    ->map(function ($pageLabels) {
+                        return $pageLabels
+                            ->chunk(28)
+                            ->map(fn($columnLabels) => $columnLabels->values())
+                            ->values();
+                    })
+                    ->values(),
+            ],
+        ]);
+    }
+
+    public function printLabelsPdf(Request $request, $id)
+    {
+        $data = $this->findVoucher($request, (int) $id);
+
+        if (!$data) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vacuum Voucher not found',
+            ], 404);
+        }
+
+        $company = Company::findOrFail((int) $request->user()->company_id);
+        $labels = $data->items
+            ->values()
+            ->map(function ($item, int $index) {
+                return [
+                    'serial' => $index + 1,
+                    'buch_no' => $item->buch_no ?: ($item->buch?->buch_no ?? '-'),
+                    'size' => $item->buch ? $this->decimalValue($item->buch->size_inch ?? 0, 2) : '-',
+                ];
+            });
+
+        return Pdf::loadView('company.vacuum_vouchers.pdf.print_labels', compact('company', 'data', 'labels'))
+            ->setPaper('a4', 'portrait')
+            ->download('vacuum_labels_' . $data->voucher_no . '.pdf');
+    }
+
     public function store(Request $request)
     {
         $companyId = (int) $request->user()->company_id;
@@ -282,13 +372,13 @@ class VacuumVoucherApiController extends Controller
     {
         return VacuumVoucher::where('company_id', (int) $request->user()->company_id)
             ->where('id', $id)
-            ->with(['process:id,name', 'jobWorker:id,name', 'createdByUser:id,name', 'updatedByUser:id,name', 'items.buch:id,buch_no,weight'])
+            ->with(['process:id,name', 'jobWorker:id,name', 'createdByUser:id,name', 'updatedByUser:id,name', 'items.buch:id,buch_no,size_inch,weight'])
             ->first();
     }
 
     private function loadVoucher(VacuumVoucher $voucher): VacuumVoucher
     {
-        return $voucher->fresh(['process:id,name', 'jobWorker:id,name', 'createdByUser:id,name', 'updatedByUser:id,name', 'items.buch:id,buch_no,weight']);
+        return $voucher->fresh(['process:id,name', 'jobWorker:id,name', 'createdByUser:id,name', 'updatedByUser:id,name', 'items.buch:id,buch_no,size_inch,weight']);
     }
 
     private function formatVoucher(VacuumVoucher $voucher, bool $includeItems = true): array
@@ -344,6 +434,7 @@ class VacuumVoucherApiController extends Controller
                 'buch' => $item->relationLoaded('buch') && $item->buch ? [
                     'id' => (int) $item->buch->id,
                     'buch_no' => $item->buch->buch_no,
+                    'size_inch' => $this->decimalValue($item->buch->size_inch, 2),
                     'weight' => $this->decimalValue($item->buch->weight, 3),
                 ] : null,
             ])->values();

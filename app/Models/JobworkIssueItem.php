@@ -51,4 +51,9 @@ class JobworkIssueItem extends Model
     {
         return $this->belongsTo(OtherCharge::class);
     }
+
+    public function receiveItem()
+    {
+        return $this->hasOne(JobworkReceiveItem::class);
+    }
 }

@@ -15,6 +15,7 @@ use App\Http\Controllers\Company\CompanyPermissionController;
 use App\Http\Controllers\Company\CustomerController;
 use App\Http\Controllers\Company\JobWorkerController;
 use App\Http\Controllers\Company\JobworkIssueController;
+use App\Http\Controllers\Company\JobworkReceiveController;
 use App\Http\Controllers\Company\ItemController;
 use App\Http\Controllers\Company\LabelConfigController;
 use App\Http\Controllers\Company\LabelPrintController;
@@ -292,6 +293,8 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
 
         Route::get('/dashboard', [CompanyDashboardController::class, 'index'])
             ->name('dashboard');
+        Route::get('/dashboard/metal-rates', [CompanyDashboardController::class, 'metalRatesJson'])
+            ->name('dashboard.metal-rates');
 
         Route::get('/profile', [CompanyProfileController::class, 'show'])
             ->name('profile.show');
@@ -371,6 +374,17 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
             ->name('jobwork-issue.update');
         Route::delete('/jobwork-issue/{encryptedId}', [JobworkIssueController::class, 'destroy'])
             ->name('jobwork-issue.destroy');
+
+        Route::get('/jobwork-receive', [JobworkReceiveController::class, 'index'])
+            ->name('jobwork-receive.index');
+        Route::get('/jobwork-receive/create', [JobworkReceiveController::class, 'create'])
+            ->name('jobwork-receive.create');
+        Route::get('/jobwork-receive/{encryptedId}/view', [JobworkReceiveController::class, 'show'])
+            ->name('jobwork-receive.show');
+        Route::put('/jobwork-receive/{encryptedId}', [JobworkReceiveController::class, 'update'])
+            ->name('jobwork-receive.update');
+        Route::get('/jobwork-receive/{encryptedId}/pdf', [JobworkReceiveController::class, 'pdf'])
+            ->name('jobwork-receive.pdf');
 
         Route::get('/users/create', [CompanyUserController::class, 'create'])
             ->name('users.create')
@@ -611,6 +625,9 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
 
         Route::get('vacuum-vouchers/{id}/pdf', [VacuumVoucherController::class, 'pdf'])
             ->name('vacuum-vouchers.pdf');
+
+        Route::get('vacuum-vouchers/{id}/print-labels', [VacuumVoucherController::class, 'printLabels'])
+            ->name('vacuum-vouchers.print-labels');
 
         Route::get('vacuum-vouchers/edit/{id}', [VacuumVoucherController::class, 'edit'])
             ->name('vacuum-vouchers.edit');

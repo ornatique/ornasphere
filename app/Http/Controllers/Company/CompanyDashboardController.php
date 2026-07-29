@@ -10,6 +10,7 @@ use App\Models\ItemSet;
 use App\Models\Sale;
 use App\Models\SaleReturn;
 use App\Models\User;
+use App\Services\LiveMetalRateService;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 
@@ -148,6 +149,34 @@ class CompanyDashboardController extends Controller
             'monthlySales' => $monthlySales,
             'monthlyReturns' => $monthlyReturns,
             'recentActivity' => $recentActivity,
+            'metalRates' => $this->metalRates(),
         ]);
+    }
+
+    public function metalRatesJson()
+    {
+        $user = auth()->user();
+        $canViewDashboardData = $user->hasRole('company_admin') || $user->can('dashboard-view');
+
+        abort_unless($canViewDashboardData, 403);
+
+        return response()
+            ->json($this->metalRates())
+            ->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+            ->header('Pragma', 'no-cache')
+            ->header('Expires', '0');
+    }
+
+    private function metalRates(): array
+    {
+        $serviceClass = LiveMetalRateService::class;
+        if (!class_exists($serviceClass)) {
+            $servicePath = app_path('Services/LiveMetalRateService.php');
+            if (is_file($servicePath)) {
+                require_once $servicePath;
+            }
+        }
+
+        return app($serviceClass)->rates();
     }
 }

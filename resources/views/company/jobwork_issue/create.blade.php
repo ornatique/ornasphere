@@ -215,6 +215,85 @@
 
 @push('styles')
 <style>
+    #itemsTable {
+        min-width: 1680px;
+        table-layout: fixed;
+    }
+
+    #itemsTable th,
+    #itemsTable td {
+        vertical-align: middle;
+    }
+
+    #itemsTable th:nth-child(1),
+    #itemsTable td:nth-child(1) {
+        width: 360px;
+    }
+
+    #itemsTable th:nth-child(2),
+    #itemsTable td:nth-child(2),
+    #itemsTable th:nth-child(3),
+    #itemsTable td:nth-child(3),
+    #itemsTable th:nth-child(5),
+    #itemsTable td:nth-child(5),
+    #itemsTable th:nth-child(6),
+    #itemsTable td:nth-child(6),
+    #itemsTable th:nth-child(7),
+    #itemsTable td:nth-child(7),
+    #itemsTable th:nth-child(8),
+    #itemsTable td:nth-child(8),
+    #itemsTable th:nth-child(10),
+    #itemsTable td:nth-child(10) {
+        width: 140px;
+    }
+
+    #itemsTable th:nth-child(4),
+    #itemsTable td:nth-child(4) {
+        width: 115px;
+    }
+
+    #itemsTable th:nth-child(9),
+    #itemsTable td:nth-child(9) {
+        width: 170px;
+    }
+
+    #itemsTable .form-control,
+    #itemsTable .form-select,
+    #itemsTable .select2-container {
+        width: 100% !important;
+        min-width: 0;
+    }
+
+    #itemsTable input.form-control {
+        height: 46px;
+        padding-left: 12px;
+        padding-right: 12px;
+        overflow: visible;
+        text-overflow: clip;
+    }
+
+    #itemsTable input[type="number"] {
+        -moz-appearance: textfield;
+    }
+
+    #itemsTable input[type="number"]::-webkit-outer-spin-button,
+    #itemsTable input[type="number"]::-webkit-inner-spin-button {
+        margin: 0;
+        -webkit-appearance: none;
+    }
+
+    #itemsTable .otherChargeBtn {
+        width: 80px;
+        min-height: 50px;
+        white-space: normal;
+        line-height: 1.1;
+    }
+
+    #itemsTable .other-summary {
+        white-space: nowrap;
+        line-height: 1.2;
+    }
+
     #otherChargeTable {
         min-width: 1300px;
     }

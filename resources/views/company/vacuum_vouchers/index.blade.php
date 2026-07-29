@@ -96,6 +96,38 @@
         min-width: 86px;
     }
 
+    #vacuumVoucherTable th:last-child,
+    #vacuumVoucherTable td:last-child {
+        min-width: 190px;
+        text-align: center;
+        vertical-align: middle;
+    }
+
+    .voucher-action-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+        justify-content: center;
+        max-width: 188px;
+        margin: 0 auto;
+    }
+
+    .voucher-action-btn {
+        min-width: 58px;
+        height: 26px;
+        padding: 4px 8px;
+        line-height: 1.1;
+        border-radius: 4px;
+        font-size: 13px;
+        font-weight: 500;
+        white-space: nowrap;
+    }
+
+    .voucher-action-btn-wide {
+        min-width: 96px;
+    }
+
     @media (max-width: 767px) {
         .vacuum-voucher-filters {
             grid-template-columns: 1fr;

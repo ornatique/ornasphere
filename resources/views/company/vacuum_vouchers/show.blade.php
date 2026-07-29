@@ -7,6 +7,7 @@
             <h4 class="card-title">Vacuum Voucher Details</h4>
             <div>
                 <a href="{{ route('company.vacuum-vouchers.pdf', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $data->id)]) }}" class="btn btn-success">PDF</a>
+                <a href="{{ route('company.vacuum-vouchers.print-labels', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $data->id)]) }}" target="_blank" class="btn btn-warning">Print Label</a>
                 <a href="{{ route('company.vacuum-vouchers.edit', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $data->id)]) }}" class="btn btn-primary">Edit</a>
                 <a href="{{ route('company.vacuum-vouchers.index', $company->slug) }}" class="btn btn-info">Back</a>
             </div>

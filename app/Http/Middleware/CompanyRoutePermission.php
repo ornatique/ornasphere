@@ -65,11 +65,14 @@ class CompanyRoutePermission
     private function moduleFromRouteName(string $routeName): ?string
     {
         $map = [
+            'company.dashboard.' => 'dashboard',
+            'company.dashboard' => 'dashboard',
             'company.users.' => 'user',
             'company.app-themes.' => 'app-theme',
             'company.customers.' => 'customer',
             'company.job-workers.' => 'job-worker',
             'company.jobwork-issue.' => 'jobwork-issue',
+            'company.jobwork-receive.' => 'jobwork-receive',
             'company.items.' => 'item',
             'company.label_config.' => 'label-config',
             'company.label.print' => 'label-print',

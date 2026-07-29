@@ -49,6 +49,7 @@
     $canCustomers = $canModule('customer');
     $canJobWorker = $canModule('job-worker');
     $canJobworkIssueEntry = $canModule('jobwork-issue');
+    $canJobworkReceive = $canModule('jobwork-receive');
     $canRoles = $canModule('role');
     $canPermissions = $canModule('permission');
     $canAppTheme = $canModule('app-theme');
@@ -139,7 +140,7 @@
                 href="{{ route('company.vacuum-live-dashboard.index', auth()->user()->company->slug) }}">
                 <i class="typcn typcn-chart-line menu-icon"></i>
                 <span class="menu-title">Production Monitor</span>
-                @php
+                <!-- @php
                 $productionMonitorNotifications = $notifySum([
                     'vacuum_voucher',
                     'casting_heating',
@@ -152,7 +153,7 @@
                 @endphp
                 @if($canNotifications && $productionMonitorNotifications > 0)
                 <span class="sidebar-notification-badge">{{ $productionMonitorNotifications > 99 ? '99+' : $productionMonitorNotifications }}</span>
-                @endif
+                @endif -->
             </a>
         </li>
         @endif
@@ -521,12 +522,13 @@
         @php
         $jobworkIssueActive =
         request()->routeIs('company.jobwork-issue.*') ||
+        request()->routeIs('company.jobwork-receive.*') ||
         request()->routeIs('company.job-workers.*') ||
         request()->routeIs('company.production-cost.*') ||
         request()->routeIs('company.labour-formula.*') ||
         request()->routeIs('company.production-step.*');
         @endphp
-        @if($canJobworkIssueEntry || $canJobWorker || $canProductionCost || $canLabourFormula || $canProductionStep)
+        @if($canJobworkIssueEntry || $canJobworkReceive || $canJobWorker || $canProductionCost || $canLabourFormula || $canProductionStep)
         <li class="nav-item {{ $jobworkIssueActive ? 'active' : '' }}">
             <a class="nav-link"
                 data-bs-toggle="collapse"
@@ -534,7 +536,7 @@
                 aria-expanded="{{ $jobworkIssueActive ? 'true' : 'false' }}">
                 <i class="typcn typcn-briefcase menu-icon"></i>
                 <span class="menu-title">Jobwork Issue</span>
-                @php $jobworkNotifications = $notifySum(['labour_formula', 'production_cost', 'production_step', 'job_worker', 'jobwork_issue']); @endphp
+                @php $jobworkNotifications = $notifySum(['labour_formula', 'production_cost', 'production_step', 'job_worker', 'jobwork_issue', 'jobwork_receive']); @endphp
                 @if($canNotifications && $jobworkNotifications > 0)
                 <span class="sidebar-notification-badge">{{ $jobworkNotifications > 99 ? '99+' : $jobworkNotifications }}</span>
                 @endif
@@ -599,6 +601,18 @@
                             Jobwork Issue
                             @if($canNotifications && $notifyCount('jobwork_issue') > 0)
                             <span class="sidebar-notification-badge">{{ $notifyCount('jobwork_issue') > 99 ? '99+' : $notifyCount('jobwork_issue') }}</span>
+                            @endif
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canJobworkReceive)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.jobwork-receive.*') ? 'active' : '' }}"
+                            href="{{ route('company.jobwork-receive.index', auth()->user()->company->slug) }}">
+                            Jobwork Receive
+                            @if($canNotifications && $notifyCount('jobwork_receive') > 0)
+                            <span class="sidebar-notification-badge">{{ $notifyCount('jobwork_receive') > 99 ? '99+' : $notifyCount('jobwork_receive') }}</span>
                             @endif
                         </a>
                     </li>

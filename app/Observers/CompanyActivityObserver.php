@@ -10,6 +10,7 @@ use App\Models\Item;
 use App\Models\ItemSet;
 use App\Models\JobWorker;
 use App\Models\JobworkIssue;
+use App\Models\JobworkReceive;
 use App\Models\LabelConfig;
 use App\Models\LabourFormula;
 use App\Models\OtherCharge;
@@ -123,6 +124,7 @@ class CompanyActivityObserver
             $model instanceof CustomerAdvanceLedger => ['sale_advance', 'Receive / Return / Purchase', 'company.sales.advance.index'],
             $model instanceof JobWorker => ['job_worker', 'Job Worker', 'company.job-workers.index'],
             $model instanceof JobworkIssue => ['jobwork_issue', 'Jobwork Issue', 'company.jobwork-issue.index'],
+            $model instanceof JobworkReceive => ['jobwork_receive', 'Jobwork Receive', 'company.jobwork-receive.index'],
             $model instanceof ProductionCost => ['production_cost', 'Production Cost', 'company.production-cost.index'],
             $model instanceof LabourFormula => ['labour_formula', 'Labour Formula', 'company.labour-formula.index'],
             $model instanceof ProductionStep => ['production_step', 'Production Step', 'company.production-step.index'],

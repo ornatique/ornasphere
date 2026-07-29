@@ -59,7 +59,7 @@ $(function () {
         },
         columns: [
             { data: 'DT_RowIndex', orderable: false, searchable: false },
-            { data: 'item_name' },
+            { data: 'item_name', name: 'items.item_name' },
             { data: 'qty_pcs', orderable: false, searchable: false },
             { data: 'gross_weight', orderable: false, searchable: false },
             { data: 'net_weight', orderable: false, searchable: false },

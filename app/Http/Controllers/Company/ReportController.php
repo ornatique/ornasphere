@@ -381,6 +381,9 @@ class ReportController extends Controller
         if ($request->ajax()) {
             return DataTables::of($this->stockPositionBaseQuery($company, $request))
                 ->addIndexColumn()
+                ->filterColumn('item_name', function ($query, $keyword) {
+                    $query->where('items.item_name', 'like', '%' . $keyword . '%');
+                })
                 ->editColumn('qty_pcs', fn($row) => (int) ($row->qty_pcs ?? 0))
                 ->editColumn('gross_weight', fn($row) => number_format((float) ($row->gross_weight ?? 0), 3))
                 ->editColumn('net_weight', fn($row) => number_format((float) ($row->net_weight ?? 0), 3))
