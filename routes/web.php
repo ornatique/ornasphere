@@ -12,6 +12,7 @@ use App\Http\Controllers\Company\CompanySecurityController;
 use App\Http\Controllers\Company\CompanyUserController;
 use App\Http\Controllers\Company\CompanyRoleController;
 use App\Http\Controllers\Company\CompanyPermissionController;
+use App\Http\Controllers\Company\CategoryPersonController;
 use App\Http\Controllers\Company\CustomerController;
 use App\Http\Controllers\Company\JobWorkerController;
 use App\Http\Controllers\Company\JobworkIssueController;
@@ -954,6 +955,24 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
 
         Route::delete('permissions/{permission}', [CompanyPermissionController::class, 'destroy'])
             ->name('permissions.destroy');
+
+        Route::get('category-persons', [CategoryPersonController::class, 'index'])
+            ->name('category-persons.index');
+
+        Route::get('category-persons/create', [CategoryPersonController::class, 'create'])
+            ->name('category-persons.create');
+
+        Route::post('category-persons', [CategoryPersonController::class, 'store'])
+            ->name('category-persons.store');
+
+        Route::get('category-persons/{encryptedId}/edit', [CategoryPersonController::class, 'edit'])
+            ->name('category-persons.edit');
+
+        Route::put('category-persons/{encryptedId}', [CategoryPersonController::class, 'update'])
+            ->name('category-persons.update');
+
+        Route::delete('category-persons/{encryptedId}', [CategoryPersonController::class, 'destroy'])
+            ->name('category-persons.destroy');
 
         Route::get('approval', [ApprovalController::class, 'index'])
             ->name('approval.index');

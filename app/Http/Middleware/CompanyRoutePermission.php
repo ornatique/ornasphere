@@ -68,6 +68,7 @@ class CompanyRoutePermission
             'company.dashboard.' => 'dashboard',
             'company.dashboard' => 'dashboard',
             'company.users.' => 'user',
+            'company.category-persons.' => 'category-person',
             'company.app-themes.' => 'app-theme',
             'company.customers.' => 'customer',
             'company.job-workers.' => 'job-worker',

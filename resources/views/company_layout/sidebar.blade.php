@@ -46,6 +46,7 @@
     };
 
     $canUsers = $canModule('user');
+    $canCategoryPerson = $canModule('category-person');
     $canCustomers = $canModule('customer');
     $canJobWorker = $canModule('job-worker');
     $canJobworkIssueEntry = $canModule('jobwork-issue');
@@ -176,10 +177,11 @@
         $userManagementActive =
         request()->routeIs('company.roles.*') ||
         request()->routeIs('company.permissions.*') ||
+        request()->routeIs('company.category-persons.*') ||
         request()->routeIs('company.customers.*') ||
         request()->routeIs('company.users.*');
         @endphp
-        @if($canUsers || $canCustomers || $canRoles || $canPermissions)
+        @if($canUsers || $canCategoryPerson || $canCustomers || $canRoles || $canPermissions)
         <li class="nav-item {{ $userManagementActive ? 'active' : '' }}">
             <a class="nav-link"
                 data-bs-toggle="collapse"
@@ -201,6 +203,15 @@
                         <a class="nav-link {{ request()->routeIs('company.users.*') ? 'active' : '' }}"
                             href="{{ route('company.users.index', auth()->user()->company->slug) }}">
                             Users
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canCategoryPerson)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.category-persons.*') ? 'active' : '' }}"
+                            href="{{ route('company.category-persons.index', auth()->user()->company->slug) }}">
+                            Category Person
                         </a>
                     </li>
                     @endif

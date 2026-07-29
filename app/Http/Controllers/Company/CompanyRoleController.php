@@ -222,6 +222,7 @@ class CompanyRoleController extends Controller
         $defaultModules = [
             'dashboard',
             'user',
+            'category-person',
             'role',
             'permission',
             'notification',
