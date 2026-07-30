@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\ApprovalHeader;
 use App\Models\Customer;
 use App\Models\Sale;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class CustomerApiController extends Controller
 {
@@ -64,7 +66,9 @@ class CustomerApiController extends Controller
     {
         $companyId = $request->user()->company_id;
 
+        $this->normalizePayload($request);
         $validated = $this->validatePayload($request, $companyId);
+        $this->ensureEmailIsUnique($validated['email'] ?? null, (int) $companyId);
 
         $customer = Customer::create(array_merge($validated, [
             'company_id' => $companyId,
@@ -93,7 +97,14 @@ class CustomerApiController extends Controller
             ], 404);
         }
 
+        $this->normalizePayload($request);
         $validated = $this->validatePayload($request, $companyId, $customer->id);
+        $this->ensureEmailIsUnique(
+            $validated['email'] ?? null,
+            (int) $companyId,
+            (int) $customer->id,
+            $customer->legacy_user_id ? (int) $customer->legacy_user_id : null
+        );
 
         $customer->update(array_merge($validated, [
             'is_active' => $request->boolean('is_active', (bool) $customer->is_active) ? 1 : 0,
@@ -170,7 +181,71 @@ class CustomerApiController extends Controller
             'anniversary_date' => 'nullable|date',
             'reference' => 'nullable|string|max:191',
             'remarks' => 'nullable|string',
+        ], [
+            'email.email' => 'Please enter a valid email id.',
+            'email.unique' => 'This email id is already used for another person.',
+            'category_person_id.exists' => 'Please select a valid category person.',
         ]);
+    }
+
+    private function normalizePayload(Request $request): void
+    {
+        foreach ([
+            'name',
+            'email',
+            'mobile_no',
+            'address',
+            'city',
+            'area',
+            'landmark',
+            'pincode',
+            'contact_person1_name',
+            'contact_person1_phone',
+            'contact_person2_name',
+            'contact_person2_phone',
+            'gst_no',
+            'pan_no',
+            'aadhaar_no',
+            'reference',
+            'remarks',
+        ] as $field) {
+            if ($request->has($field) && is_string($request->input($field))) {
+                $request->merge([$field => trim($request->input($field))]);
+            }
+        }
+
+        if ($request->filled('email')) {
+            $request->merge(['email' => strtolower((string) $request->input('email'))]);
+        }
+    }
+
+    private function ensureEmailIsUnique(?string $email, int $companyId, ?int $ignoreCustomerId = null, ?int $ignoreUserId = null): void
+    {
+        $email = strtolower(trim((string) $email));
+
+        if ($email === '') {
+            return;
+        }
+
+        $exists = Customer::query()
+            ->where('company_id', $companyId)
+            ->whereRaw('TRIM(LOWER(email)) = ?', [$email])
+            ->when($ignoreCustomerId, fn ($query) => $query->where('id', '!=', $ignoreCustomerId))
+            ->exists();
+
+        if (!$exists) {
+            $exists = User::query()
+                ->where('company_id', $companyId)
+                ->whereRaw('TRIM(LOWER(email)) = ?', [$email])
+                ->when($ignoreUserId, fn ($query) => $query->where('id', '!=', $ignoreUserId))
+                ->exists();
+        }
+
+        if ($exists) {
+            throw ValidationException::withMessages([
+                'email' => ['This email id is already used for another person.'],
+            ]);
+        }
     }
 
     private function isCustomerUsed(int $companyId, int $customerId): bool

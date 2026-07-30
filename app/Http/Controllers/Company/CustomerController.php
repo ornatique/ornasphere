@@ -69,7 +69,7 @@ class CustomerController extends Controller
 
         $this->normalizeCustomerRequest($request);
         $validated = $this->validateCustomer($request, $company->id);
-        $this->ensureEmailIsUnique($validated['email'] ?? null);
+        $this->ensureEmailIsUnique($validated['email'] ?? null, (int) $company->id);
 
         try {
             $customer = Customer::create(array_merge($validated, [
@@ -113,7 +113,12 @@ class CustomerController extends Controller
 
         $this->normalizeCustomerRequest($request);
         $validated = $this->validateCustomer($request, $company->id, $customer->id);
-        $this->ensureEmailIsUnique($validated['email'] ?? null, (int) $customer->id, $customer->legacy_user_id ? (int) $customer->legacy_user_id : null);
+        $this->ensureEmailIsUnique(
+            $validated['email'] ?? null,
+            (int) $company->id,
+            (int) $customer->id,
+            $customer->legacy_user_id ? (int) $customer->legacy_user_id : null
+        );
 
         try {
             $customer->update(array_merge($validated, [
@@ -294,7 +299,7 @@ class CustomerController extends Controller
         }
     }
 
-    private function ensureEmailIsUnique(?string $email, ?int $ignoreCustomerId = null, ?int $ignoreUserId = null): void
+    private function ensureEmailIsUnique(?string $email, int $companyId, ?int $ignoreCustomerId = null, ?int $ignoreUserId = null): void
     {
         $email = strtolower(trim((string) $email));
 
@@ -303,12 +308,14 @@ class CustomerController extends Controller
         }
 
         $exists = Customer::query()
+            ->where('company_id', $companyId)
             ->whereRaw('TRIM(LOWER(email)) = ?', [$email])
             ->when($ignoreCustomerId, fn($query) => $query->where('id', '!=', $ignoreCustomerId))
             ->exists();
 
         if (!$exists) {
             $exists = User::query()
+                ->where('company_id', $companyId)
                 ->whereRaw('TRIM(LOWER(email)) = ?', [$email])
                 ->when($ignoreUserId, fn($query) => $query->where('id', '!=', $ignoreUserId))
                 ->exists();

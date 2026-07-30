@@ -41,6 +41,7 @@ class VacuumVoucherApiController extends Controller
                 });
             })
             ->with(['process:id,name', 'jobWorker:id,name', 'createdByUser:id,name'])
+            ->withCount('metalIssueItems')
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->get()
@@ -320,6 +321,13 @@ class VacuumVoucherApiController extends Controller
             ], 404);
         }
 
+        if ($voucher->metalIssueItems()->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cannot delete voucher because Casting Metal Issue is already added.',
+            ], 422);
+        }
+
         $voucher->delete();
 
         return response()->json([
@@ -373,16 +381,23 @@ class VacuumVoucherApiController extends Controller
         return VacuumVoucher::where('company_id', (int) $request->user()->company_id)
             ->where('id', $id)
             ->with(['process:id,name', 'jobWorker:id,name', 'createdByUser:id,name', 'updatedByUser:id,name', 'items.buch:id,buch_no,size_inch,weight'])
+            ->withCount('metalIssueItems')
             ->first();
     }
 
     private function loadVoucher(VacuumVoucher $voucher): VacuumVoucher
     {
-        return $voucher->fresh(['process:id,name', 'jobWorker:id,name', 'createdByUser:id,name', 'updatedByUser:id,name', 'items.buch:id,buch_no,size_inch,weight']);
+        return $voucher
+            ->fresh(['process:id,name', 'jobWorker:id,name', 'createdByUser:id,name', 'updatedByUser:id,name', 'items.buch:id,buch_no,size_inch,weight'])
+            ->loadCount('metalIssueItems');
     }
 
     private function formatVoucher(VacuumVoucher $voucher, bool $includeItems = true): array
     {
+        $metalIssueItemsCount = array_key_exists('metal_issue_items_count', $voucher->getAttributes())
+            ? (int) $voucher->metal_issue_items_count
+            : (int) $voucher->metalIssueItems()->count();
+
         $data = [
             'id' => (int) $voucher->id,
             'company_id' => (int) $voucher->company_id,
@@ -399,6 +414,9 @@ class VacuumVoucherApiController extends Controller
             'created_by' => $voucher->created_by ? (int) $voucher->created_by : null,
             'updated_by' => $voucher->updated_by ? (int) $voucher->updated_by : null,
             'modified_count' => (int) $voucher->modified_count,
+            'metal_issue_items_count' => $metalIssueItemsCount,
+            'has_casting_metal_issue' => $metalIssueItemsCount > 0,
+            'can_delete' => $metalIssueItemsCount === 0,
             'created_at' => optional($voucher->created_at)->format('Y-m-d H:i:s'),
             'updated_at' => optional($voucher->updated_at)->format('Y-m-d H:i:s'),
             'created_at_view' => optional($voucher->created_at)->format('d-m-Y h:i A'),

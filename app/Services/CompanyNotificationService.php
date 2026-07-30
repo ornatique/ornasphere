@@ -12,6 +12,7 @@ class CompanyNotificationService
 {
     public const MODULES = [
         'user' => 'Users',
+        'person' => 'Persons',
         'customer' => 'Persons',
         'app_theme' => 'App Theme',
         'item' => 'Items',
@@ -38,6 +39,11 @@ class CompanyNotificationService
         'tree_cutting_issue' => 'Tree Cutting Issue',
         'tree_cutting_receive' => 'Tree Cutting Receive',
         'casting_sorting' => 'Casting Sorting',
+    ];
+
+    private const MODULE_ALIASES = [
+        'person' => ['person', 'customer'],
+        'customer' => ['person', 'customer'],
     ];
 
     public static function record(
@@ -129,7 +135,7 @@ class CompanyNotificationService
             return 0;
         }
 
-        $modules = array_values(array_filter((array) $modules));
+        $modules = self::expandModules($modules);
         if (!$modules) {
             return 0;
         }
@@ -145,7 +151,7 @@ class CompanyNotificationService
         $routeName = (string) $routeName;
 
         return match (true) {
-            str_starts_with($routeName, 'company.customers.') => ['customer'],
+            str_starts_with($routeName, 'company.customers.') => ['person', 'customer'],
             str_starts_with($routeName, 'company.users.') => ['user'],
             str_starts_with($routeName, 'company.app-themes.') => ['app_theme'],
             str_starts_with($routeName, 'company.items.') => ['item'],
@@ -184,6 +190,21 @@ class CompanyNotificationService
             str_starts_with($routeName, 'company.casting-sorting.') => ['casting_sorting'],
             default => [],
         };
+    }
+
+    private static function expandModules(string|array|null $modules): array
+    {
+        $expanded = [];
+
+        foreach (array_filter((array) $modules) as $module) {
+            $module = (string) $module;
+
+            foreach (self::MODULE_ALIASES[$module] ?? [$module] as $alias) {
+                $expanded[] = $alias;
+            }
+        }
+
+        return array_values(array_unique($expanded));
     }
 
     public static function isReady(): bool

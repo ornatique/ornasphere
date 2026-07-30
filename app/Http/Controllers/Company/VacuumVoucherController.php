@@ -38,6 +38,7 @@ class VacuumVoucherController extends Controller
                 ->when($toDate, fn($q) => $q->whereDate('voucher_date', '<=', $toDate))
                 ->when($workerId, fn($q) => $q->where('job_worker_id', $workerId))
                 ->with(['process:id,name', 'jobWorker:id,name', 'createdByUser:id,name'])
+                ->withCount('metalIssueItems')
                 ->select('vacuum_vouchers.*')
                 ->orderByDesc('created_at')
                 ->orderByDesc('id');
@@ -61,13 +62,18 @@ class VacuumVoucherController extends Controller
                     $printLabels = route('company.vacuum-vouchers.print-labels', [$company->slug, $encryptedId]);
                     $edit = route('company.vacuum-vouchers.edit', [$company->slug, $encryptedId]);
                     $delete = route('company.vacuum-vouchers.destroy', [$company->slug, $encryptedId]);
+                    $deleteButton = '';
+
+                    if ((int) ($row->metal_issue_items_count ?? 0) === 0) {
+                        $deleteButton = '<button type="button" class="btn btn-sm btn-danger deleteBtn voucher-action-btn" data-url="' . e($delete) . '">Delete</button>';
+                    }
 
                     return '<div class="voucher-action-group">
                         <a href="' . $view . '" class="btn btn-sm btn-info voucher-action-btn">View</a>
                         <a href="' . $pdf . '" class="btn btn-sm btn-success voucher-action-btn">PDF</a>
                         <a href="' . $printLabels . '" target="_blank" class="btn btn-sm btn-warning voucher-action-btn voucher-action-btn-wide">Print Label</a>
                         <a href="' . $edit . '" class="btn btn-sm btn-primary voucher-action-btn">Edit</a>
-                        <button type="button" class="btn btn-sm btn-danger deleteBtn voucher-action-btn" data-url="' . e($delete) . '">Delete</button>
+                        ' . $deleteButton . '
                     </div>';
                 })
                 ->rawColumns(['action'])
@@ -232,7 +238,20 @@ class VacuumVoucherController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
         $id = Crypt::decryptString($encryptedId);
-        VacuumVoucher::where('company_id', $company->id)->findOrFail($id)->delete();
+        $voucher = VacuumVoucher::where('company_id', $company->id)->findOrFail($id);
+
+        if ($voucher->metalIssueItems()->exists()) {
+            $message = 'Cannot delete voucher because Casting Metal Issue is already added.';
+
+            if ($request->ajax()) {
+                return response()->json(['success' => false, 'message' => $message], 422);
+            }
+
+            return redirect()->route('company.vacuum-vouchers.index', $company->slug)
+                ->with('error', $message);
+        }
+
+        $voucher->delete();
 
         if ($request->ajax()) {
             return response()->json(['success' => true, 'message' => 'Vacuum Voucher deleted successfully']);
