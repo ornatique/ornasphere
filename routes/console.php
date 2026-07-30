@@ -33,7 +33,7 @@ Artisan::command('erp:sync-company-rbac {--company_id=} {--slug=}', function () 
     $modules = [
         'dashboard',
         'user',
-        'customer',
+        'person',
         'item',
         'item-set',
         'label-config',
@@ -71,7 +71,7 @@ Artisan::command('erp:sync-company-rbac {--company_id=} {--slug=}', function () 
             'sale-advance-view', 'sale-advance-create', 'sale-advance-edit',
             'approval-view', 'approval-create', 'approval-edit',
             'approval-return-view', 'approval-return-create', 'approval-return-edit',
-            'customer-view', 'customer-create', 'customer-edit',
+            'person-view', 'person-create', 'person-edit',
             'label-print-view',
         ],
         'inventory_user' => [

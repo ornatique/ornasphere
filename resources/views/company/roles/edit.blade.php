@@ -44,6 +44,9 @@
                     ];
                     $moduleLabels = [
                         'vacuum-live-dashboard' => 'Production Monitor',
+                        'vacuum-voucher' => 'Vacuum',
+                        'approval' => 'Sale on Approval',
+                        'jobwork-issue' => 'Jobwork',
                     ];
                 @endphp
 

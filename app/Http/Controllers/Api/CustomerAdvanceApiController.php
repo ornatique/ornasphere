@@ -28,7 +28,7 @@ class CustomerAdvanceApiController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Active customers fetched successfully.',
+            'message' => 'Active persons fetched successfully.',
             'count' => $rows->count(),
             'data' => $rows,
         ]);

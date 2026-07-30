@@ -15,7 +15,8 @@ class CustomerApiController extends Controller
     {
         $companyId = $request->user()->company_id;
 
-        $customers = Customer::where('company_id', $companyId)
+        $customers = Customer::with('categoryPerson:id,category_name')
+            ->where('company_id', $companyId)
             ->when($request->filled('search'), function ($q) use ($request) {
                 $search = trim((string) $request->search);
                 $q->where(function ($q2) use ($search) {
@@ -41,14 +42,15 @@ class CustomerApiController extends Controller
     {
         $companyId = $request->user()->company_id;
 
-        $customer = Customer::where('company_id', $companyId)
+        $customer = Customer::with('categoryPerson:id,category_name')
+            ->where('company_id', $companyId)
             ->where('id', $id)
             ->first();
 
         if (!$customer) {
             return response()->json([
                 'success' => false,
-                'message' => 'Customer not found.'
+                'message' => 'Person not found.'
             ], 404);
         }
 
@@ -71,8 +73,8 @@ class CustomerApiController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Customer created successfully.',
-            'data' => $customer,
+            'message' => 'Person created successfully.',
+            'data' => $customer->load('categoryPerson:id,category_name'),
         ], 200);
     }
 
@@ -87,7 +89,7 @@ class CustomerApiController extends Controller
         if (!$customer) {
             return response()->json([
                 'success' => false,
-                'message' => 'Customer not found.'
+                'message' => 'Person not found.'
             ], 404);
         }
 
@@ -99,8 +101,8 @@ class CustomerApiController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Customer updated successfully.',
-            'data' => $customer,
+            'message' => 'Person updated successfully.',
+            'data' => $customer->load('categoryPerson:id,category_name'),
         ]);
     }
 
@@ -114,17 +116,17 @@ class CustomerApiController extends Controller
         if (!$customer) {
             return response()->json([
                 'success' => false,
-                'message' => 'Customer not found.'
+                'message' => 'Person not found.'
             ], 404);
         }
 
         if ((int) $customer->is_active === 0) {
-            $message = 'Customer is already inactive.';
+            $message = 'Person is already inactive.';
         } else {
             $customer->update(['is_active' => 0]);
             $message = $this->isCustomerUsed((int) $companyId, (int) $customer->id)
-                ? 'Customer is used in transactions, so deleted not allowed. Customer set to inactive.'
-                : 'Customer set to inactive successfully.';
+                ? 'Person is used in transactions, so deleted not allowed. Person set to inactive.'
+                : 'Person set to inactive successfully.';
         }
 
         return response()->json([
@@ -139,6 +141,10 @@ class CustomerApiController extends Controller
 
         return $request->validate([
             'name' => [$nameRule, 'string', 'max:255'],
+            'category_person_id' => [
+                'nullable',
+                Rule::exists('category_people', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
+            ],
             'email' => [
                 'nullable',
                 'email',

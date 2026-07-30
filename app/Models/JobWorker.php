@@ -8,6 +8,7 @@ class JobWorker extends Model
 {
     protected $fillable = [
         'company_id',
+        'person_id',
         'name',
         'email',
         'mobile_no',
@@ -35,5 +36,9 @@ class JobWorker extends Model
         'anniversary_date' => 'date',
         'is_active' => 'boolean',
     ];
-}
 
+    public function person()
+    {
+        return $this->belongsTo(Customer::class, 'person_id');
+    }
+}

@@ -227,7 +227,7 @@ class CompanyRoleController extends Controller
             'permission',
             'notification',
             'app-theme',
-            'customer',
+            'person',
             'job-worker',
             'jobwork-issue',
             'jobwork-receive',
@@ -312,7 +312,7 @@ class CompanyRoleController extends Controller
 
     private function deprecatedPermissionModules(): array
     {
-        return ['return'];
+        return ['return', 'customer'];
     }
 
     private function actionsForModule(string $module): array

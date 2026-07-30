@@ -6,7 +6,7 @@
         <div class="col-12 grid-margin">
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
-                    <h3 class="mb-0">Create Customer</h3>
+                    <h3 class="mb-0">Create Person</h3>
                 </div>
 
                 <div class="card-body">
@@ -26,6 +26,27 @@
                                     <div class="col-sm-9">
                                         <input type="email" name="email" value="{{ old('email') }}" class="form-control @error('email') is-invalid @enderror">
                                         @error('email')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group row">
+                                    <label class="col-sm-3 col-form-label">Category Person</label>
+                                    <div class="col-sm-9">
+                                        <select name="category_person_id" class="form-control @error('category_person_id') is-invalid @enderror">
+                                            <option value="">Select Category Person</option>
+                                            @foreach($categoryPeople as $categoryPerson)
+                                                <option value="{{ $categoryPerson->id }}" {{ (string) old('category_person_id') === (string) $categoryPerson->id ? 'selected' : '' }}>
+                                                    {{ $categoryPerson->category_name }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                        @error('category_person_id')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                         @enderror
                                     </div>

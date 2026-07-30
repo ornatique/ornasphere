@@ -5,10 +5,10 @@ namespace App\Http\Controllers\Company;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\Item;
-use App\Models\JobWorker;
 use App\Models\JobworkIssue;
 use App\Models\OtherCharge;
 use App\Models\ProductionStep;
+use App\Services\WorkerPersonService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -84,7 +84,7 @@ class JobworkIssueController extends Controller
     public function create($slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        $jobWorkers = JobWorker::where('company_id', $company->id)->where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $jobWorkers = WorkerPersonService::activeWorkers((int) $company->id);
         $productionSteps = ProductionStep::where('company_id', $company->id)->where('status', true)->orderBy('name')->get(['id', 'name']);
         $items = Item::where('company_id', $company->id)
             ->orderBy('item_name')
@@ -153,7 +153,7 @@ class JobworkIssueController extends Controller
         $id = Crypt::decryptString($encryptedId);
 
         $data = JobworkIssue::where('company_id', $company->id)->with('items')->findOrFail($id);
-        $jobWorkers = JobWorker::where('company_id', $company->id)->where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $jobWorkers = WorkerPersonService::activeWorkers((int) $company->id);
         $productionSteps = ProductionStep::where('company_id', $company->id)->where('status', true)->orderBy('name')->get(['id', 'name']);
         $items = Item::where('company_id', $company->id)
             ->orderBy('item_name')

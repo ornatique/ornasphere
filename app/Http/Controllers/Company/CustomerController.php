@@ -8,6 +8,7 @@ use App\Models\Company;
 use App\Models\Customer;
 use App\Models\Sale;
 use App\Models\User;
+use App\Services\WorkerPersonService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -23,13 +24,17 @@ class CustomerController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $categoryPeople = $this->categoryPeopleForCompany((int) $company->id);
 
         if ($request->ajax()) {
-            $customers = Customer::where('company_id', $company->id)
+            $customers = $this->personQuery($request, (int) $company->id)
                 ->select('customers.*');
 
             return DataTables::of($customers)
                 ->addIndexColumn()
+                ->addColumn('category_person', function ($customer) {
+                    return optional($customer->categoryPerson)->category_name ?: '-';
+                })
                 ->addColumn('status', function ($customer) {
                     return (int) $customer->is_active === 1
                         ? '<span class="badge bg-success">Active</span>'
@@ -47,13 +52,15 @@ class CustomerController extends Controller
                 ->make(true);
         }
 
-        return view('company.customers.index', compact('company'));
+        return view('company.customers.index', compact('company', 'categoryPeople'));
     }
 
     public function create($slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        return view('company.customers.create', compact('company'));
+        $categoryPeople = $this->categoryPeopleForCompany((int) $company->id);
+
+        return view('company.customers.create', compact('company', 'categoryPeople'));
     }
 
     public function store(Request $request, $slug)
@@ -65,10 +72,12 @@ class CustomerController extends Controller
         $this->ensureEmailIsUnique($validated['email'] ?? null);
 
         try {
-            Customer::create(array_merge($validated, [
+            $customer = Customer::create(array_merge($validated, [
                 'company_id' => $company->id,
                 'is_active' => $request->boolean('is_active', true),
             ]));
+
+            WorkerPersonService::syncPersonToWorker($customer);
         } catch (Throwable $e) {
             $this->throwDuplicateEmailValidation($e);
             throw $e;
@@ -76,7 +85,7 @@ class CustomerController extends Controller
 
         return redirect()
             ->route('company.customers.index', $company->slug)
-            ->with('success', 'Customer created successfully');
+            ->with('success', 'Person created successfully');
     }
 
     public function edit($slug, $encryptedId)
@@ -88,7 +97,9 @@ class CustomerController extends Controller
             ->where('id', $customerId)
             ->firstOrFail();
 
-        return view('company.customers.edit', compact('company', 'customer'));
+        $categoryPeople = $this->categoryPeopleForCompany((int) $company->id);
+
+        return view('company.customers.edit', compact('company', 'customer', 'categoryPeople'));
     }
 
     public function update(Request $request, $slug, $encryptedId)
@@ -108,6 +119,8 @@ class CustomerController extends Controller
             $customer->update(array_merge($validated, [
                 'is_active' => $request->boolean('is_active', false),
             ]));
+
+            WorkerPersonService::syncPersonToWorker($customer->refresh());
         } catch (Throwable $e) {
             $this->throwDuplicateEmailValidation($e);
             throw $e;
@@ -115,7 +128,7 @@ class CustomerController extends Controller
 
         return redirect()
             ->route('company.customers.index', $company->slug)
-            ->with('success', 'Customer updated successfully');
+            ->with('success', 'Person updated successfully');
     }
 
     public function destroy(Request $request, $slug, $encryptedId)
@@ -128,12 +141,13 @@ class CustomerController extends Controller
             ->firstOrFail();
 
         if ((int) $customer->is_active === 0) {
-            $message = 'Customer is already inactive.';
+            $message = 'Person is already inactive.';
         } else {
             $customer->update(['is_active' => 0]);
+            WorkerPersonService::syncPersonToWorker($customer->refresh());
             $message = $this->isCustomerUsed($company->id, (int) $customer->id)
-                ? 'Customer is used in transactions, so deleted not allowed. Customer set to inactive.'
-                : 'Customer set to inactive successfully.';
+                ? 'Person is used in transactions, so deleted not allowed. Person set to inactive.'
+                : 'Person set to inactive successfully.';
         }
 
         if ($request->ajax()) {
@@ -148,17 +162,20 @@ class CustomerController extends Controller
             ->with('success', $message);
     }
 
-    public function exportExcel($slug): StreamedResponse
+    public function exportExcel(Request $request, $slug): StreamedResponse
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        $rows = Customer::where('company_id', $company->id)->orderBy('name')->get();
+        $rows = $this->personQuery($request, (int) $company->id)
+            ->orderBy('name')
+            ->get();
 
         return response()->streamDownload(function () use ($rows) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Name', 'Email', 'Mobile', 'City', 'Area', 'Landmark', 'Created Date', 'Status']);
+            fputcsv($out, ['Name', 'Category Person', 'Email', 'Mobile', 'City', 'Area', 'Landmark', 'Created Date', 'Status']);
             foreach ($rows as $r) {
                 fputcsv($out, [
                     $r->name,
+                    optional($r->categoryPerson)->category_name,
                     $r->email,
                     $r->mobile_no,
                     $r->city,
@@ -169,25 +186,33 @@ class CustomerController extends Controller
                 ]);
             }
             fclose($out);
-        }, 'customers_report.csv', [
+        }, 'persons_report.csv', [
             'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
     }
 
-    public function exportPdf($slug)
+    public function exportPdf(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        $rows = Customer::where('company_id', $company->id)->orderBy('name')->get();
+        $rows = $this->personQuery($request, (int) $company->id)
+            ->orderBy('name')
+            ->get();
 
         return Pdf::loadView('company.customers.pdf.index', compact('company', 'rows'))
             ->setPaper('a4', 'portrait')
-            ->download('customers_report.pdf');
+            ->download('persons_report.pdf');
     }
 
     private function validateCustomer(Request $request, int $companyId, ?int $customerId = null): array
     {
         return $request->validate([
             'name' => 'required|string|max:255',
+            'category_person_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('category_people', 'id')
+                    ->where(fn ($q) => $q->where('company_id', $companyId)),
+            ],
             'email' => [
                 'nullable',
                 'email',
@@ -214,8 +239,9 @@ class CustomerController extends Controller
             'reference' => 'nullable|string|max:191',
             'remarks' => 'nullable|string',
         ], [
-            'email.unique' => 'This email id is already used for another customer.',
+            'email.unique' => 'This email id is already used for another person.',
             'email.email' => 'Please enter a valid email id.',
+            'category_person_id.exists' => 'Please select a valid category person.',
         ]);
     }
 
@@ -263,7 +289,7 @@ class CustomerController extends Controller
             || ((string) $e->getCode() === '23000' && (str_contains($normalizedMessage, 'email') || str_contains($normalizedMessage, 'customers') || str_contains($normalizedMessage, 'users')))
         ) {
             throw ValidationException::withMessages([
-                'email' => 'This email id is already used for another customer.',
+                'email' => 'This email id is already used for another person.',
             ]);
         }
     }
@@ -290,9 +316,24 @@ class CustomerController extends Controller
 
         if ($exists) {
             throw ValidationException::withMessages([
-                'email' => 'This email id is already used for another customer.',
+                'email' => 'This email id is already used for another person.',
             ]);
         }
+    }
+
+    private function categoryPeopleForCompany(int $companyId)
+    {
+        return WorkerPersonService::categoryPeopleForCompany($companyId);
+    }
+
+    private function personQuery(Request $request, int $companyId)
+    {
+        return Customer::query()
+            ->with('categoryPerson:id,category_name')
+            ->where('company_id', $companyId)
+            ->when($request->filled('category_person_id'), function ($query) use ($request) {
+                $query->where('category_person_id', $request->integer('category_person_id'));
+            });
     }
 
     private function isCustomerUsed(int $companyId, int $customerId): bool

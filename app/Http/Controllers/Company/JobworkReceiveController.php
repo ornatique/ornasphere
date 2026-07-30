@@ -5,9 +5,9 @@ namespace App\Http\Controllers\Company;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\Item;
-use App\Models\JobWorker;
 use App\Models\JobworkIssue;
 use App\Models\JobworkReceive;
+use App\Services\WorkerPersonService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -213,9 +213,7 @@ class JobworkReceiveController extends Controller
 
     private function jobWorkers(Company $company)
     {
-        return JobWorker::where('company_id', $company->id)
-            ->orderBy('name')
-            ->get(['id', 'name']);
+        return WorkerPersonService::activeWorkers((int) $company->id);
     }
 
     private function findIssue(Company $company, int $id): JobworkIssue

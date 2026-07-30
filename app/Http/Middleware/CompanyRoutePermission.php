@@ -34,13 +34,18 @@ class CompanyRoutePermission
         }
 
         $action = $this->actionFromRouteName($routeName, $request);
-        $moduleVariants = array_unique([
-            $module,
-            str_replace('-', '', $module),
-            str_replace('-', '_', $module),
-            str_replace('-', '.', $module),
-            str_replace('-', ' ', $module),
-        ]);
+        $baseModules = array_unique(array_merge([$module], $this->modulePermissionAliases($module)));
+        $moduleVariants = [];
+        foreach ($baseModules as $baseModule) {
+            $moduleVariants = array_merge($moduleVariants, [
+                $baseModule,
+                str_replace('-', '', $baseModule),
+                str_replace('-', '_', $baseModule),
+                str_replace('-', '.', $baseModule),
+                str_replace('-', ' ', $baseModule),
+            ]);
+        }
+        $moduleVariants = array_unique($moduleVariants);
 
         $candidates = [];
         foreach ($moduleVariants as $m) {
@@ -70,7 +75,7 @@ class CompanyRoutePermission
             'company.users.' => 'user',
             'company.category-persons.' => 'category-person',
             'company.app-themes.' => 'app-theme',
-            'company.customers.' => 'customer',
+            'company.customers.' => 'person',
             'company.job-workers.' => 'job-worker',
             'company.jobwork-issue.' => 'jobwork-issue',
             'company.jobwork-receive.' => 'jobwork-receive',
@@ -123,6 +128,15 @@ class CompanyRoutePermission
         }
 
         return null;
+    }
+
+    private function modulePermissionAliases(string $module): array
+    {
+        return match ($module) {
+            'person' => ['customer'],
+            'customer' => ['person'],
+            default => [],
+        };
     }
 
     private function actionFromRouteName(string $routeName, Request $request): string

@@ -47,8 +47,7 @@
 
     $canUsers = $canModule('user');
     $canCategoryPerson = $canModule('category-person');
-    $canCustomers = $canModule('customer');
-    $canJobWorker = $canModule('job-worker');
+    $canPerson = $canModule('person') || $canModule('customer');
     $canJobworkIssueEntry = $canModule('jobwork-issue');
     $canJobworkReceive = $canModule('jobwork-receive');
     $canRoles = $canModule('role');
@@ -181,7 +180,7 @@
         request()->routeIs('company.customers.*') ||
         request()->routeIs('company.users.*');
         @endphp
-        @if($canUsers || $canCategoryPerson || $canCustomers || $canRoles || $canPermissions)
+        @if($canUsers || $canCategoryPerson || $canPerson || $canRoles || $canPermissions)
         <li class="nav-item {{ $userManagementActive ? 'active' : '' }}">
             <a class="nav-link"
                 data-bs-toggle="collapse"
@@ -189,7 +188,7 @@
                 aria-expanded="{{ $userManagementActive ? 'true' : 'false' }}">
                 <i class="typcn typcn-user menu-icon"></i>
                 <span class="menu-title">User Management</span>
-                @php $userManagementNotifications = $notifySum(['user', 'customer']); @endphp
+                @php $userManagementNotifications = $notifySum(['user', 'person', 'customer']); @endphp
                 @if($canNotifications && $userManagementNotifications > 0)
                 <span class="sidebar-notification-badge">{{ $userManagementNotifications > 99 ? '99+' : $userManagementNotifications }}</span>
                 @endif
@@ -216,13 +215,14 @@
                     </li>
                     @endif
 
-                    @if($canCustomers)
+                    @if($canPerson)
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('company.customers.*') ? 'active' : '' }}"
                             href="{{ route('company.customers.index', auth()->user()->company->slug) }}">
-                            Customers
-                            @if($canNotifications && $notifyCount('customer') > 0)
-                            <span class="sidebar-notification-badge">{{ $notifyCount('customer') > 99 ? '99+' : $notifyCount('customer') }}</span>
+                            Person
+                            @php $personNotifications = $notifyCount('person') + $notifyCount('customer'); @endphp
+                            @if($canNotifications && $personNotifications > 0)
+                            <span class="sidebar-notification-badge">{{ $personNotifications > 99 ? '99+' : $personNotifications }}</span>
                             @endif
                         </a>
                     </li>
@@ -386,7 +386,7 @@
                 href="#vacuum-menu"
                 aria-expanded="{{ $vacuumActive ? 'true' : 'false' }}">
                 <i class="typcn typcn-cog menu-icon"></i>
-                <span class="menu-title">Vacuum</span>
+                <span class="menu-title">Casting</span>
                 @php
                 $vacuumNotifications = $notifySum([
                     'vacuum_buch',
@@ -436,7 +436,7 @@
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('company.vacuum-vouchers.*') ? 'active' : '' }}"
                             href="{{ route('company.vacuum-vouchers.index', auth()->user()->company->slug) }}">
-                            Voucher
+                            Vacuum
                             @if($canNotifications && $notifyCount('vacuum_voucher') > 0)
                             <span class="sidebar-notification-badge">{{ $notifyCount('vacuum_voucher') > 99 ? '99+' : $notifyCount('vacuum_voucher') }}</span>
                             @endif
@@ -529,25 +529,24 @@
         </li>
         @endif
 
-        {{-- ================= JOBWORK ISSUE ================= --}}
+        {{-- ================= JOBWORK ================= --}}
         @php
         $jobworkIssueActive =
         request()->routeIs('company.jobwork-issue.*') ||
         request()->routeIs('company.jobwork-receive.*') ||
-        request()->routeIs('company.job-workers.*') ||
         request()->routeIs('company.production-cost.*') ||
         request()->routeIs('company.labour-formula.*') ||
         request()->routeIs('company.production-step.*');
         @endphp
-        @if($canJobworkIssueEntry || $canJobworkReceive || $canJobWorker || $canProductionCost || $canLabourFormula || $canProductionStep)
+        @if($canJobworkIssueEntry || $canJobworkReceive || $canProductionCost || $canLabourFormula || $canProductionStep)
         <li class="nav-item {{ $jobworkIssueActive ? 'active' : '' }}">
             <a class="nav-link"
                 data-bs-toggle="collapse"
                 href="#jobwork-issue-menu"
                 aria-expanded="{{ $jobworkIssueActive ? 'true' : 'false' }}">
                 <i class="typcn typcn-briefcase menu-icon"></i>
-                <span class="menu-title">Jobwork Issue</span>
-                @php $jobworkNotifications = $notifySum(['labour_formula', 'production_cost', 'production_step', 'job_worker', 'jobwork_issue', 'jobwork_receive']); @endphp
+                <span class="menu-title">Jobwork</span>
+                @php $jobworkNotifications = $notifySum(['labour_formula', 'production_cost', 'production_step', 'jobwork_issue', 'jobwork_receive']); @endphp
                 @if($canNotifications && $jobworkNotifications > 0)
                 <span class="sidebar-notification-badge">{{ $jobworkNotifications > 99 ? '99+' : $jobworkNotifications }}</span>
                 @endif
@@ -588,18 +587,6 @@
                             Production Step
                             @if($canNotifications && $notifyCount('production_step') > 0)
                             <span class="sidebar-notification-badge">{{ $notifyCount('production_step') > 99 ? '99+' : $notifyCount('production_step') }}</span>
-                            @endif
-                        </a>
-                    </li>
-                    @endif
-
-                    @if($canJobWorker)
-                    <li class="nav-item">
-                        <a class="nav-link {{ request()->routeIs('company.job-workers.*') ? 'active' : '' }}"
-                            href="{{ route('company.job-workers.index', auth()->user()->company->slug) }}">
-                            Job Worker
-                            @if($canNotifications && $notifyCount('job_worker') > 0)
-                            <span class="sidebar-notification-badge">{{ $notifyCount('job_worker') > 99 ? '99+' : $notifyCount('job_worker') }}</span>
                             @endif
                         </a>
                     </li>
@@ -662,7 +649,7 @@
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('company.approval.*') ? 'active' : '' }}"
                             href="{{ route('company.approval.index', auth()->user()->company->slug) }}">
-                            Approval
+                            Sale on Approval
                             @if($canNotifications && $notifyCount('approval') > 0)
                             <span class="sidebar-notification-badge">{{ $notifyCount('approval') > 99 ? '99+' : $notifyCount('approval') }}</span>
                             @endif

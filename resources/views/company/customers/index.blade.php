@@ -3,22 +3,43 @@
 <div class="content-wrapper">
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <h4 class="card-title">Customers List</h4>
+            <h4 class="card-title">Persons List</h4>
             <div class="d-flex gap-2">
-                <a href="{{ route('company.customers.export.excel', $company->slug) }}" class="btn btn-success">Export Excel</a>
-                <a href="{{ route('company.customers.export.pdf', $company->slug) }}" class="btn btn-danger">Export PDF</a>
+                <button type="button" id="exportExcelBtn" class="btn btn-success">Export Excel</button>
+                <button type="button" id="exportPdfBtn" class="btn btn-danger">Export PDF</button>
                 <a href="{{ route('company.customers.create', $company->slug) }}" class="btn btn-primary">
                     <i class="typcn typcn-plus-outline"></i>
-                    Create Customer
+                    Create Person
                 </a>
             </div>
         </div>
         <div class="card-body">
+            <div class="filter-panel mb-3">
+                <div class="row align-items-end">
+                    <div class="col-md-4">
+                        <label for="category_person_id" class="form-label">Category Person</label>
+                        <select id="category_person_id" class="form-control">
+                            <option value="">All Category Persons</option>
+                            @foreach($categoryPeople as $categoryPerson)
+                                <option value="{{ $categoryPerson->id }}">{{ $categoryPerson->category_name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <button type="button" id="filterBtn" class="btn btn-primary w-100">Filter</button>
+                    </div>
+                    <div class="col-md-2">
+                        <button type="button" id="resetBtn" class="btn btn-secondary w-100">Reset</button>
+                    </div>
+                </div>
+            </div>
+
             <table class="table table-bordered" id="customers-table">
                 <thead>
                     <tr>
                         <th>#</th>
                         <th>Name</th>
+                        <th>Category Person</th>
                         <th>Email</th>
                         <th>Mobile</th>
                         <th>City</th>
@@ -38,10 +59,16 @@ $(function () {
     const table = $('#customers-table').DataTable({
         processing: true,
         serverSide: true,
-        ajax: "{{ route('company.customers.index', $company->slug) }}",
+        ajax: {
+            url: "{{ route('company.customers.index', $company->slug) }}",
+            data: function (data) {
+                data.category_person_id = $('#category_person_id').val();
+            }
+        },
         columns: [
             { data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false },
             { data: 'name', name: 'name' },
+            { data: 'category_person', name: 'category_person', orderable: false, searchable: false },
             { data: 'email', name: 'email' },
             { data: 'mobile_no', name: 'mobile_no' },
             { data: 'city', name: 'city' },
@@ -50,8 +77,37 @@ $(function () {
         ]
     });
 
+    function filterQueryString() {
+        const params = new URLSearchParams();
+        const categoryPersonId = $('#category_person_id').val();
+
+        if (categoryPersonId) {
+            params.set('category_person_id', categoryPersonId);
+        }
+
+        const queryString = params.toString();
+        return queryString ? '?' + queryString : '';
+    }
+
+    $('#filterBtn').on('click', function () {
+        table.ajax.reload();
+    });
+
+    $('#resetBtn').on('click', function () {
+        $('#category_person_id').val('');
+        table.ajax.reload();
+    });
+
+    $('#exportExcelBtn').on('click', function () {
+        window.location.href = "{{ route('company.customers.export.excel', $company->slug) }}" + filterQueryString();
+    });
+
+    $('#exportPdfBtn').on('click', function () {
+        window.location.href = "{{ route('company.customers.export.pdf', $company->slug) }}" + filterQueryString();
+    });
+
     $(document).on('click', '.deleteBtn', function () {
-        if (!confirm('Are you sure? Customer will be set inactive (not deleted).')) return;
+        if (!confirm('Are you sure? Person will be set inactive (not deleted).')) return;
 
         $.ajax({
             url: $(this).data('url'),
@@ -59,7 +115,7 @@ $(function () {
             data: { _token: "{{ csrf_token() }}" },
             success: function (resp) {
                 table.ajax.reload();
-                alert(resp.message || 'Customer updated successfully');
+                alert(resp.message || 'Person updated successfully');
             },
             error: function (xhr) {
                 const msg = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Action failed';

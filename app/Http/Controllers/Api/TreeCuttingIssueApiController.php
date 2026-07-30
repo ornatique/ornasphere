@@ -5,10 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\CastingReleaseItem;
 use App\Models\Company;
-use App\Models\JobWorker;
 use App\Models\TreeCuttingIssueItem;
 use App\Models\TreeCuttingReceiveItem;
 use App\Models\VacuumVoucher;
+use App\Services\WorkerPersonService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -463,10 +463,7 @@ class TreeCuttingIssueApiController extends Controller
             'created_at' => optional($voucher->created_at)->format('Y-m-d H:i:s'),
             'created_at_view' => optional($voucher->created_at)->format('d-m-Y / h:i A'),
             'items' => array_values($rows),
-            'job_workers' => JobWorker::where('company_id', (int) $voucher->company_id)
-                ->where('is_active', true)
-                ->orderBy('name')
-                ->get(['id', 'name'])
+            'job_workers' => WorkerPersonService::activeWorkers((int) $voucher->company_id)
                 ->map(fn($worker) => [
                     'id' => (int) $worker->id,
                     'name' => $worker->name,

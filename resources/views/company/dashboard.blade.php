@@ -245,9 +245,9 @@
         <div class="col-xl-3 col-md-6 grid-margin stretch-card">
             <div class="card">
                 <div class="card-body">
-                    <h6 class="text-muted mb-2">Users / Customers</h6>
+                    <h6 class="text-muted mb-2">Users / Persons</h6>
                     <h3 class="mb-0">{{ $users }} / {{ $customersCount }}</h3>
-                    <small class="text-muted">Active customers: {{ $activeCustomersCount }}</small>
+                    <small class="text-muted">Active persons: {{ $activeCustomersCount }}</small>
                 </div>
             </div>
         </div>

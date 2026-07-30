@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\VacuumProcess;
 use App\Models\VacuumVoucher;
+use App\Services\WorkerPersonService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -33,10 +34,7 @@ class VacuumLiveDashboardController extends Controller
         $summary = $this->summary($rows);
         $inBhatiRows = $this->inBhatiRows($company->id, $voucherIds);
 
-        $workers = DB::table('job_workers')
-            ->where('company_id', $company->id)
-            ->orderBy('name')
-            ->get(['id', 'name']);
+        $workers = WorkerPersonService::activeWorkers((int) $company->id);
 
         $processes = VacuumProcess::where('company_id', $company->id)
             ->orderBy('name')

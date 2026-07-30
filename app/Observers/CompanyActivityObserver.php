@@ -112,7 +112,7 @@ class CompanyActivityObserver
     {
         return match (true) {
             $model instanceof User => ['user', 'User', 'company.users.index'],
-            $model instanceof Customer => ['customer', 'Customer', 'company.customers.index'],
+            $model instanceof Customer => ['customer', 'Person', 'company.customers.index'],
             $model instanceof CompanyAppTheme => ['app_theme', 'App Theme', 'company.app-themes.index'],
             $model instanceof Item => ['item', 'Item', 'company.items.index'],
             $model instanceof LabelConfig => ['label_config', 'Label Config', 'company.label_config.index'],

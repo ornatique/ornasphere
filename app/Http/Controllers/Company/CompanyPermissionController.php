@@ -31,6 +31,10 @@ class CompanyPermissionController extends Controller
             return DataTables::of($permissions)
                 ->addIndexColumn()
 
+                ->editColumn('name', function ($permission) {
+                    return $this->displayPermissionName((string) $permission->name);
+                })
+
                 ->addColumn('roles_count', function ($permission) {
                     return $permission->roles_count;
                 })
@@ -179,11 +183,12 @@ class CompanyPermissionController extends Controller
         $defaultModules = [
             'dashboard',
             'user',
+            'category-person',
             'role',
             'permission',
             'notification',
             'app-theme',
-            'customer',
+            'person',
             'job-worker',
             'jobwork-issue',
             'jobwork-receive',
@@ -268,7 +273,7 @@ class CompanyPermissionController extends Controller
 
     private function deprecatedPermissionModules(): array
     {
-        return ['return'];
+        return ['return', 'customer'];
     }
 
     private function actionsForModule(string $module): array
@@ -286,5 +291,40 @@ class CompanyPermissionController extends Controller
         $name = preg_replace('/-+/', '-', $name);
 
         return $name;
+    }
+
+    private function displayPermissionName(string $name): string
+    {
+        $actionLabels = [
+            'view' => 'View',
+            'create' => 'Create',
+            'edit' => 'Edit',
+            'delete' => 'Delete',
+            'manage' => 'Manage',
+        ];
+
+        $moduleLabels = [
+            'vacuum-live-dashboard' => 'Production Monitor',
+            'vacuum-voucher' => 'Vacuum',
+            'approval' => 'Sale on Approval',
+            'jobwork-issue' => 'Jobwork',
+        ];
+
+        $normalized = $this->normalizePermissionName($name);
+        $action = null;
+        $module = $normalized;
+
+        foreach (array_keys($actionLabels) as $knownAction) {
+            $suffix = '-' . $knownAction;
+            if (str_ends_with($normalized, $suffix)) {
+                $action = $knownAction;
+                $module = substr($normalized, 0, -strlen($suffix));
+                break;
+            }
+        }
+
+        $moduleLabel = $moduleLabels[$module] ?? ucwords(str_replace('-', ' ', $module));
+
+        return trim($moduleLabel . ' ' . ($actionLabels[$action] ?? ''));
     }
 }

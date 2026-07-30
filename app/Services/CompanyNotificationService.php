@@ -12,7 +12,7 @@ class CompanyNotificationService
 {
     public const MODULES = [
         'user' => 'Users',
-        'customer' => 'Customers',
+        'customer' => 'Persons',
         'app_theme' => 'App Theme',
         'item' => 'Items',
         'label_config' => 'Label Config',

@@ -369,11 +369,12 @@ class AuthController extends Controller
         return [
             'dashboard',
             'user',
+            'category-person',
             'role',
             'permission',
             'notification',
             'app-theme',
-            'customer',
+            'person',
             'job-worker',
             'jobwork-issue',
             'jobwork-receive',
@@ -413,7 +414,8 @@ class AuthController extends Controller
 
     private function isDeprecatedPermission(string $permissionName): bool
     {
-        return str_starts_with($permissionName, 'return-');
+        return str_starts_with($permissionName, 'return-')
+            || str_starts_with($permissionName, 'customer-');
     }
 
     private function actionsForModule(string $module): array

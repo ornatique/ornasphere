@@ -67,7 +67,7 @@
                 <div class="col-md-3">
                     <label>Customer</label>
                     <select id="customer_id" class="form-select">
-                        <option value="">All Customers</option>
+                        <option value="">All Persons</option>
                         @foreach($customers as $customer)
                             <option value="{{ $customer->id }}">{{ $customer->name }}</option>
                         @endforeach

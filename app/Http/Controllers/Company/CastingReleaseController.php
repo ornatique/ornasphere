@@ -6,10 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\CastingMetalIssueItem;
 use App\Models\CastingReleaseItem;
 use App\Models\Company;
-use App\Models\JobWorker;
 use App\Models\TreeCuttingIssueItem;
 use App\Models\TreeCuttingReceiveItem;
 use App\Models\VacuumVoucher;
+use App\Services\WorkerPersonService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -139,10 +139,7 @@ class CastingReleaseController extends Controller
                 ->make(true);
         }
 
-        $jobWorkers = JobWorker::where('company_id', $company->id)
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->get(['id', 'name']);
+        $jobWorkers = WorkerPersonService::activeWorkers((int) $company->id);
 
         return view('company.casting_release.index', compact('company', 'fromDate', 'toDate', 'jobWorkers'));
     }

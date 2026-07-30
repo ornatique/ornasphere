@@ -9,6 +9,7 @@ use App\Models\Customer;
 use App\Models\ItemSet;
 use App\Models\Sale;
 use App\Models\VisitingCard;
+use App\Services\WorkerPersonService;
 use Carbon\Carbon;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
@@ -467,10 +468,7 @@ class ReportController extends Controller
                 ->make(true);
         }
 
-        $workers = DB::table('job_workers')
-            ->where('company_id', $company->id)
-            ->orderBy('name')
-            ->get(['id', 'name']);
+        $workers = WorkerPersonService::activeWorkers((int) $company->id);
 
         $defaultFromDate = now()->subDays(6)->toDateString();
         $defaultToDate = now()->toDateString();

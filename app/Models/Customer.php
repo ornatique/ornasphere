@@ -8,6 +8,7 @@ class Customer extends Model
 {
     protected $fillable = [
         'company_id',
+        'category_person_id',
         'legacy_user_id',
         'name',
         'email',
@@ -34,6 +35,16 @@ class Customer extends Model
     public function company()
     {
         return $this->belongsTo(Company::class);
+    }
+
+    public function categoryPerson()
+    {
+        return $this->belongsTo(CategoryPerson::class, 'category_person_id');
+    }
+
+    public function jobWorker()
+    {
+        return $this->hasOne(JobWorker::class, 'person_id');
     }
 
     public function advanceLedgers()

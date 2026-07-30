@@ -200,6 +200,6 @@ class PermissionApiController extends Controller
 
     private function deprecatedPermissionModules(): array
     {
-        return ['return'];
+        return ['return', 'customer'];
     }
 }

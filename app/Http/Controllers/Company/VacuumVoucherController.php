@@ -7,13 +7,13 @@ use App\Models\CastingHeatingItem;
 use App\Models\CastingMetalIssueItem;
 use App\Models\CastingReleaseItem;
 use App\Models\Company;
-use App\Models\JobWorker;
 use App\Models\TreeCuttingIssueItem;
 use App\Models\TreeCuttingReceiveItem;
 use App\Models\VacuumBuch;
 use App\Models\VacuumProcess;
 use App\Models\VacuumVoucher;
 use App\Models\VacuumVoucherItem;
+use App\Services\WorkerPersonService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -74,10 +74,7 @@ class VacuumVoucherController extends Controller
                 ->make(true);
         }
 
-        $jobWorkers = JobWorker::where('company_id', $company->id)
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->get(['id', 'name']);
+        $jobWorkers = WorkerPersonService::activeWorkers((int) $company->id);
 
         return view('company.vacuum_vouchers.index', compact('company', 'fromDate', 'toDate', 'jobWorkers'));
     }
@@ -276,7 +273,7 @@ class VacuumVoucherController extends Controller
             'company' => $company,
             'data' => $data,
             'processes' => VacuumProcess::where('company_id', $company->id)->orderBy('name')->get(['id', 'name']),
-            'jobWorkers' => JobWorker::where('company_id', $company->id)->where('is_active', true)->orderBy('name')->get(['id', 'name']),
+            'jobWorkers' => WorkerPersonService::activeWorkers((int) $company->id),
             'buchs' => VacuumBuch::where('company_id', $company->id)
                 ->when($usedBuchIds !== [], fn($q) => $q->whereNotIn('id', $usedBuchIds))
                 ->orderBy('buch_no')
