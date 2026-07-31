@@ -13,6 +13,10 @@
 
         <form method="POST" action="{{ route('company.tree-cutting-issue.update', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $voucher->id)]) }}">
             @csrf
+            <div id="tree-bulk-assignment-fields"></div>
+            <input type="hidden" name="bulk_action_worker_id" id="tree-bulk-action-worker-id">
+            <input type="hidden" name="bulk_action_group_key" id="tree-bulk-action-group-key">
+            <input type="hidden" name="bulk_action_item_ids" id="tree-bulk-action-item-ids">
             <div class="card-body">
                 @if(session('success'))
                 <div class="alert alert-success">{{ session('success') }}</div>
@@ -34,7 +38,16 @@
                     <div><span>Created At</span><strong>{{ optional($voucher->created_at)->format('d-m-Y h:i A') }}</strong></div>
                 </div>
 
-                <div class="mb-2 text-end">
+                <div class="tree-cutting-actions mb-2">
+                    <div class="tree-cutting-bulk">
+                        <select name="bulk_worker_id" id="bulk-tree-worker" class="form-control tree-cutting-worker-select">
+                            <option value="">Select Worker</option>
+                            @foreach($jobWorkers as $worker)
+                            <option value="{{ $worker->id }}">{{ $worker->name }}</option>
+                            @endforeach
+                        </select>
+                        <button type="button" class="btn btn-secondary btn-sm" id="apply-bulk-tree-worker">Apply To Checked</button>
+                    </div>
                     <button type="button" class="btn btn-info btn-sm" id="add-custom-tree-row">+ Custom</button>
                 </div>
 
@@ -43,6 +56,9 @@
                         <thead>
                             <tr>
                                 <th style="width: 90px;">Sr. No</th>
+                                <th style="width: 70px;">
+                                    <input type="checkbox" id="check-all-tree-issue" aria-label="Check all tree rows">
+                                </th>
                                 <th style="width: 220px;">B. No</th>
                                 <th style="width: 240px;">Receive Tree Wt</th>
                                 <th style="width: 260px;">Assign Worker</th>
@@ -63,11 +79,33 @@
                                 $defaultReceiveTreeWt = $receiveItem?->release_tree_wt;
                                 $receiveTreeWtValue = old('items.' . $item->id . '.receive_tree_wt', $defaultReceiveTreeWt);
                                 $defaultWorkerId = $treeCuttingItem?->job_worker_id;
+                                $issueGroupKey = old('items.' . $item->id . '.issue_group_key', $treeCuttingItem?->issue_group_key);
                                 $receiveTreeWtTotal += $receiveTreeWtValue !== null && $receiveTreeWtValue !== '' ? (float) $receiveTreeWtValue : 0;
                                 $issueRowNo++;
                             @endphp
                             <tr>
                                 <td data-row-no>{{ $issueRowNo }}</td>
+                                <td>
+                                    <input type="hidden"
+                                        name="items[{{ $item->id }}][group_checked]"
+                                        class="tree-issue-group-checked"
+                                        value="0">
+                                    <input type="checkbox"
+                                        name="items[{{ $item->id }}][keep_group]"
+                                        value="1"
+                                        class="tree-issue-checkbox"
+                                        @checked((bool) $issueGroupKey)
+                                        @if($issueGroupKey) data-saved-group="1" @endif
+                                        aria-label="Select {{ $item->buch_no }}">
+                                    <input type="hidden"
+                                        name="items[{{ $item->id }}][issue_group_key]"
+                                        class="tree-issue-group-key"
+                                        value="{{ $issueGroupKey }}">
+                                    <input type="hidden"
+                                        name="items[{{ $item->id }}][bulk_batch_key]"
+                                        class="tree-issue-batch-key"
+                                        value="{{ $issueGroupKey }}">
+                                </td>
                                 <td>{{ $item->buch_no }}</td>
                                 <td>
                                     <input type="number"
@@ -97,6 +135,7 @@
                             @endphp
                             <tr data-custom-existing-row>
                                 <td data-row-no>{{ $issueRowNo }}</td>
+                                <td></td>
                                 <td>
                                     <input type="text"
                                         name="custom_existing[{{ $customItem->id }}][custom_buch_no]"
@@ -126,13 +165,13 @@
 
                             @if($issueRowNo === 0)
                             <tr>
-                                <td colspan="4" class="text-center">No casting receive rows found</td>
+                                <td colspan="5" class="text-center">No casting receive rows found</td>
                             </tr>
                             @endif
                         </tbody>
                         <tfoot>
                             <tr>
-                                <td colspan="2">Total</td>
+                                <td colspan="3">Total</td>
                                 <td><strong id="treeIssueReceiveTreeWtTotal">{{ number_format($receiveTreeWtTotal, 3, '.', '') }}</strong></td>
                                 <td></td>
                             </tr>
@@ -158,6 +197,8 @@
     .tree-cutting-summary > div { border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.035); padding: 10px 12px; }
     .tree-cutting-summary span { display: block; color: #b8b8d4; font-size: 12px; margin-bottom: 3px; }
     .tree-cutting-summary strong { color: #fff; font-size: 14px; }
+    .tree-cutting-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .tree-cutting-bulk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .tree-cutting-scroll { max-height: calc(100vh - 430px); overflow-y: auto; border: 1px solid rgba(255, 255, 255, 0.08); }
     .tree-cutting-table { margin-bottom: 0; table-layout: fixed; width: 100%; }
     .tree-cutting-table thead th { position: sticky; top: 0; z-index: 2; background: #25263a; }
@@ -174,6 +215,7 @@
 <script>
     const workerOptionsHtml = @json($jobWorkers->map(fn($worker) => ['id' => $worker->id, 'name' => $worker->name])->values());
     let customTreeRowIndex = 0;
+    let bulkAssignmentIndex = 0;
 
     function refreshTreeIssueRowNumbers() {
         document.querySelectorAll('#tree-cutting-issue-rows [data-row-no]').forEach((cell, index) => {
@@ -212,12 +254,33 @@
         }
     }
 
+    function clearTreeIssueGroup(checkbox) {
+        const row = checkbox.closest('tr');
+        const rowGroupKey = row?.querySelector('.tree-issue-group-key');
+        const rowBatchKey = row?.querySelector('.tree-issue-batch-key');
+        const rowGroupChecked = row?.querySelector('.tree-issue-group-checked');
+
+        if (rowGroupKey) {
+            rowGroupKey.value = '';
+        }
+        if (rowBatchKey) {
+            rowBatchKey.value = '';
+        }
+        if (rowGroupChecked) {
+            rowGroupChecked.value = '0';
+        }
+
+        delete checkbox.dataset.savedGroup;
+        delete checkbox.dataset.activeSelection;
+    }
+
     document.getElementById('add-custom-tree-row')?.addEventListener('click', function () {
         const tbody = document.getElementById('tree-cutting-issue-rows');
         const index = customTreeRowIndex++;
         const row = document.createElement('tr');
         row.innerHTML = `
             <td data-row-no></td>
+            <td></td>
             <td>
                 <input type="text" name="custom_items[${index}][custom_buch_no]" class="form-control" placeholder="Custom B No">
             </td>
@@ -233,6 +296,139 @@
         tbody.appendChild(row);
         refreshTreeIssueRowNumbers();
         updateTreeIssueTotals();
+    });
+
+    document.getElementById('check-all-tree-issue')?.addEventListener('change', function () {
+        document.querySelectorAll('.tree-issue-checkbox').forEach((checkbox) => {
+            checkbox.checked = this.checked;
+            if (this.checked) {
+                const rowGroupChecked = checkbox.closest('tr')?.querySelector('.tree-issue-group-checked');
+                if (rowGroupChecked) {
+                    rowGroupChecked.value = '1';
+                }
+                checkbox.dataset.activeSelection = '1';
+                delete checkbox.dataset.savedGroup;
+            } else {
+                clearTreeIssueGroup(checkbox);
+            }
+        });
+    });
+
+    document.getElementById('apply-bulk-tree-worker')?.addEventListener('click', function () {
+        const workerSelect = document.getElementById('bulk-tree-worker');
+        const workerId = workerSelect?.value || '';
+        if (!workerId) {
+            workerSelect?.focus();
+            return;
+        }
+
+        const checkedBoxes = document.querySelectorAll('.tree-issue-checkbox:checked[data-active-selection="1"], .tree-issue-checkbox:checked:not([data-saved-group="1"])');
+        if (checkedBoxes.length === 0) {
+            return;
+        }
+
+        const groupKey = checkedBoxes.length > 1
+            ? `issue_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`
+            : '';
+        const itemIds = [];
+
+        checkedBoxes.forEach((checkbox) => {
+            const row = checkbox.closest('tr');
+            const rowWorker = row?.querySelector('.tree-cutting-worker-select');
+            const rowGroupKey = row?.querySelector('.tree-issue-group-key');
+            const rowBatchKey = row?.querySelector('.tree-issue-batch-key');
+            const rowGroupChecked = row?.querySelector('.tree-issue-group-checked');
+            const itemMatch = rowWorker?.name.match(/^items\[(\d+)\]\[job_worker_id\]$/);
+            if (rowWorker) {
+                rowWorker.value = workerId;
+            }
+            if (rowGroupKey) {
+                rowGroupKey.value = groupKey;
+            }
+            if (rowBatchKey) {
+                rowBatchKey.value = groupKey;
+            }
+            if (rowGroupChecked) {
+                rowGroupChecked.value = groupKey ? '1' : '0';
+            }
+            checkbox.checked = true;
+            checkbox.dataset.savedGroup = '1';
+            delete checkbox.dataset.activeSelection;
+            if (itemMatch) {
+                itemIds.push(itemMatch[1]);
+            }
+        });
+
+        if (groupKey && itemIds.length > 1) {
+            const fields = document.getElementById('tree-bulk-assignment-fields');
+            if (fields) {
+                const index = bulkAssignmentIndex++;
+                fields.insertAdjacentHTML('beforeend', `
+                    <input type="hidden" name="bulk_assignments[${index}][group_key]" value="${groupKey}">
+                    <input type="hidden" name="bulk_assignments[${index}][item_ids]" value="${itemIds.join(',')}">
+                `);
+            }
+        }
+
+        document.getElementById('tree-bulk-action-worker-id').value = workerId;
+        document.getElementById('tree-bulk-action-group-key').value = groupKey;
+        document.getElementById('tree-bulk-action-item-ids').value = itemIds.join(',');
+
+        const checkAll = document.getElementById('check-all-tree-issue');
+        if (checkAll) {
+            checkAll.checked = false;
+        }
+
+        this.closest('form')?.requestSubmit();
+    });
+
+    document.addEventListener('change', function (event) {
+        if (event.target.matches('.tree-issue-checkbox')) {
+            if (event.target.checked) {
+                const rowGroupChecked = event.target.closest('tr')?.querySelector('.tree-issue-group-checked');
+                if (rowGroupChecked) {
+                    rowGroupChecked.value = '1';
+                }
+                event.target.dataset.activeSelection = '1';
+                delete event.target.dataset.savedGroup;
+            } else {
+                clearTreeIssueGroup(event.target);
+            }
+        }
+
+        if (event.target.matches('#tree-cutting-issue-rows .tree-cutting-worker-select')) {
+            const rowGroupKey = event.target.closest('tr')?.querySelector('.tree-issue-group-key');
+            const rowBatchKey = event.target.closest('tr')?.querySelector('.tree-issue-batch-key');
+            const rowGroupChecked = event.target.closest('tr')?.querySelector('.tree-issue-group-checked');
+            const rowCheckbox = event.target.closest('tr')?.querySelector('.tree-issue-checkbox');
+            if (rowGroupKey) {
+                rowGroupKey.value = '';
+            }
+            if (rowBatchKey) {
+                rowBatchKey.value = '';
+            }
+            if (rowGroupChecked) {
+                rowGroupChecked.value = '0';
+            }
+            if (rowCheckbox) {
+                rowCheckbox.checked = false;
+                delete rowCheckbox.dataset.savedGroup;
+                delete rowCheckbox.dataset.activeSelection;
+            }
+        }
+    });
+
+    document.querySelector('form')?.addEventListener('submit', function () {
+        document.querySelectorAll('.tree-issue-checkbox').forEach((checkbox) => {
+            const rowGroupChecked = checkbox.closest('tr')?.querySelector('.tree-issue-group-checked');
+            if (checkbox.checked) {
+                if (rowGroupChecked) {
+                    rowGroupChecked.value = '1';
+                }
+            } else {
+                clearTreeIssueGroup(checkbox);
+            }
+        });
     });
 
     document.addEventListener('input', function (event) {

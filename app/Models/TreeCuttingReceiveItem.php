@@ -11,6 +11,7 @@ class TreeCuttingReceiveItem extends Model
         'vacuum_voucher_id',
         'vacuum_voucher_item_id',
         'tree_cutting_issue_item_id',
+        'issue_group_key',
         'job_worker_id',
         'custom_buch_no',
         'is_custom',

@@ -11,6 +11,7 @@ class TreeCuttingIssueItem extends Model
         'vacuum_voucher_id',
         'vacuum_voucher_item_id',
         'job_worker_id',
+        'issue_group_key',
         'custom_buch_no',
         'is_custom',
         'receive_tree_wt',

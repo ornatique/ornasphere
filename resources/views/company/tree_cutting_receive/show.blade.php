@@ -58,7 +58,6 @@
                             @php
                                 $receiveItem = $receiveItems->get($issueItem->id);
                                 $issueTreeWt = (float) ($issueItem->receive_tree_wt ?? 0);
-                                $buchNo = $issueItem->is_custom ? $issueItem->custom_buch_no : ($issueItem->voucherItem?->buch_no ?? '-');
                                 $receivePcWtValue = old('items.' . $issueItem->id . '.receive_pc_wt', $receiveItem?->receive_pc_wt);
                                 $receiveTreeBhukoValue = old('items.' . $issueItem->id . '.receive_tree_bhuko', $receiveItem?->receive_tree_bhuko);
                                 $lossValue = $receiveItem?->loss;
@@ -69,7 +68,7 @@
                             @endphp
                             <tr data-receive-row>
                                 <td>{{ $loop->iteration }}</td>
-                                <td>{{ $buchNo }}</td>
+                                <td>{{ $issueItem->buch_no }}</td>
                                 <td>{{ $issueItem->jobWorker?->name ?? '-' }}</td>
                                 <td><span data-issue-tree-wt>{{ number_format($issueTreeWt, 3, '.', '') }}</span></td>
                                 <td>

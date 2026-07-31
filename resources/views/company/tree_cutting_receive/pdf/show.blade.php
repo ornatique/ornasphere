@@ -62,7 +62,6 @@
             @forelse($issueItems as $issueItem)
             @php
                 $receiveItem = $receiveItems->get($issueItem->id);
-                $buchNo = $issueItem->is_custom ? $issueItem->custom_buch_no : ($issueItem->voucherItem?->buch_no ?? '-');
                 $issueTreeWt = (float) ($issueItem->receive_tree_wt ?? 0);
                 $receivePcWt = $receiveItem?->receive_pc_wt;
                 $receiveTreeBhuko = $receiveItem?->receive_tree_bhuko;
@@ -75,7 +74,7 @@
             @endphp
             <tr>
                 <td>{{ $loop->iteration }}</td>
-                <td>{{ $buchNo }}</td>
+                <td>{{ $issueItem->buch_no }}</td>
                 <td>{{ $issueItem->jobWorker?->name ?? '-' }}</td>
                 <td class="num">{{ number_format($issueTreeWt, 3, '.', '') }}</td>
                 <td class="num">{{ $receivePcWt !== null ? number_format((float) $receivePcWt, 3, '.', '') : '-' }}</td>

@@ -37,6 +37,7 @@ use App\Http\Controllers\Api\TreeCuttingReceiveApiController;
 use App\Http\Controllers\Api\VacuumProcessApiController;
 use App\Http\Controllers\Api\VacuumVoucherApiController;
 use App\Http\Controllers\Api\VoucherHistoryApiController;
+use App\Http\Controllers\Api\CategoryPersonController;
 
 Route::post('/company/login', [AuthController::class, 'login']);
 Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
@@ -417,6 +418,14 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::put('/visiting-cards/{id}', [VisitingCardApiController::class, 'update'])->whereNumber('id');
     Route::post('/visiting-cards/{id}', [VisitingCardApiController::class, 'update'])->whereNumber('id');
     Route::delete('/visiting-cards/{id}', [VisitingCardApiController::class, 'destroy'])->whereNumber('id');
+
+
+    Route::get('/category-persons', [CategoryPersonController::class, 'index']);
+    Route::post('/category-persons', [CategoryPersonController::class, 'store']);
+    Route::get('/category-persons/{id}', [CategoryPersonController::class, 'show']);
+    Route::put('/category-persons/{id}', [CategoryPersonController::class, 'update']);
+    Route::delete('/category-persons/{id}', [CategoryPersonController::class, 'destroy']);
+
 
     Route::prefix('background-remove')->group(function () {
         Route::get('list', [ProductBackgroundRemoveApiController::class, 'index']);
