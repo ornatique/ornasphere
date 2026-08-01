@@ -163,6 +163,97 @@ class TreeCuttingIssueController extends Controller
             ->download('tree_cutting_issue_' . $voucher->voucher_no . '.pdf');
     }
 
+    public function applyGroup(Request $request, $slug, $encryptedId)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $id = Crypt::decryptString($encryptedId);
+        $voucher = VacuumVoucher::where('company_id', $company->id)->findOrFail($id);
+
+        $validItemIds = CastingReleaseItem::where('company_id', $company->id)
+            ->where('vacuum_voucher_id', $voucher->id)
+            ->where(function ($q) {
+                $q->where('release_tree_wt', '>', 0)
+                    ->orWhere('release_tree_bhuko', '>', 0);
+            })
+            ->pluck('vacuum_voucher_item_id')
+            ->map(fn($itemId) => (int) $itemId)
+            ->all();
+
+        $validated = $request->validate([
+            'item_ids' => ['required', 'array', 'min:1'],
+            'item_ids.*' => ['required', 'integer'],
+            'worker_id' => [
+                'required',
+                'integer',
+                Rule::exists('job_workers', 'id')->where(fn($q) => $q->where('company_id', $company->id)),
+            ],
+            'receive_tree_wt' => ['nullable', 'array'],
+            'receive_tree_wt.*' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        $itemIds = collect($validated['item_ids'])
+            ->map(fn($itemId) => (int) $itemId)
+            ->filter(fn($itemId) => in_array($itemId, $validItemIds, true))
+            ->unique()
+            ->values();
+
+        if ($itemIds->isEmpty()) {
+            return response()->json(['message' => 'No valid rows selected'], 422);
+        }
+
+        $workerId = (int) $validated['worker_id'];
+        $groupKey = $itemIds->count() > 1 ? (string) Str::uuid() : null;
+        $receiveTreeWeights = collect($validated['receive_tree_wt'] ?? []);
+
+        DB::transaction(function () use ($company, $voucher, $itemIds, $workerId, $groupKey, $receiveTreeWeights) {
+            foreach ($itemIds as $itemId) {
+                $receiveTreeWt = $receiveTreeWeights->get((string) $itemId);
+                $receiveTreeWtValue = $receiveTreeWt !== null && $receiveTreeWt !== '' ? (float) $receiveTreeWt : null;
+
+                $issueItem = TreeCuttingIssueItem::firstOrNew([
+                    'company_id' => $company->id,
+                    'vacuum_voucher_item_id' => $itemId,
+                ]);
+
+                $oldGroupKey = $issueItem->exists ? $issueItem->issue_group_key : null;
+
+                $issueItem->fill([
+                    'vacuum_voucher_id' => $voucher->id,
+                    'job_worker_id' => $workerId,
+                    'issue_group_key' => $groupKey,
+                    'is_custom' => false,
+                    'custom_buch_no' => null,
+                    'receive_tree_wt' => $receiveTreeWtValue,
+                    'issued_by' => auth()->id(),
+                    'issued_at' => now(),
+                ])->save();
+
+                TreeCuttingIssueItem::where('id', $issueItem->id)
+                    ->update(['issue_group_key' => $groupKey]);
+                $issueItem->issue_group_key = $groupKey;
+
+                TreeCuttingReceiveItem::where('company_id', $company->id)
+                    ->where(function ($query) use ($issueItem, $oldGroupKey, $groupKey) {
+                        $query->where('tree_cutting_issue_item_id', $issueItem->id);
+                        if ($oldGroupKey) {
+                            $query->orWhere('issue_group_key', $oldGroupKey);
+                        }
+                        if ($groupKey) {
+                            $query->orWhere('issue_group_key', $groupKey);
+                        }
+                    })
+                    ->delete();
+            }
+        });
+
+        return response()->json([
+            'message' => 'Group applied successfully',
+            'group_key' => $groupKey,
+            'item_ids' => $itemIds,
+            'worker_id' => $workerId,
+        ]);
+    }
+
     public function update(Request $request, $slug, $encryptedId)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
@@ -183,6 +274,7 @@ class TreeCuttingIssueController extends Controller
             'items' => ['nullable', 'array'],
             'items.*.receive_tree_wt' => ['nullable', 'numeric', 'min:0'],
             'items.*.group_checked' => ['nullable'],
+            'items.*.selected_for_group' => ['nullable'],
             'items.*.keep_group' => ['nullable'],
             'items.*.issue_group_key' => ['nullable', 'string', 'max:64'],
             'items.*.bulk_batch_key' => ['nullable', 'string', 'max:64'],
@@ -191,21 +283,12 @@ class TreeCuttingIssueController extends Controller
                 'integer',
                 Rule::exists('job_workers', 'id')->where(fn($q) => $q->where('company_id', $company->id)),
             ],
-            'bulk_worker_id' => [
+            'group_action_worker_id' => [
                 'nullable',
                 'integer',
                 Rule::exists('job_workers', 'id')->where(fn($q) => $q->where('company_id', $company->id)),
             ],
-            'bulk_assignments' => ['nullable', 'array'],
-            'bulk_assignments.*.group_key' => ['nullable', 'string', 'max:64'],
-            'bulk_assignments.*.item_ids' => ['nullable', 'string'],
-            'bulk_action_worker_id' => [
-                'nullable',
-                'integer',
-                Rule::exists('job_workers', 'id')->where(fn($q) => $q->where('company_id', $company->id)),
-            ],
-            'bulk_action_group_key' => ['nullable', 'string', 'max:64'],
-            'bulk_action_item_ids' => ['nullable', 'string'],
+            'group_action_item_ids' => ['nullable', 'string'],
             'custom_items' => ['nullable', 'array'],
             'custom_items.*.custom_buch_no' => ['nullable', 'string', 'max:255'],
             'custom_items.*.receive_tree_wt' => ['nullable', 'numeric', 'min:0'],
@@ -233,79 +316,63 @@ class TreeCuttingIssueController extends Controller
                 return filter_var($value, FILTER_VALIDATE_BOOLEAN);
             };
             $rowKeepsGroup = function ($row) use ($isGroupChecked): bool {
-                return array_key_exists('keep_group', $row)
-                    && $isGroupChecked($row['keep_group']);
+                return (array_key_exists('group_checked', $row) && $isGroupChecked($row['group_checked']))
+                    || (array_key_exists('selected_for_group', $row) && $isGroupChecked($row['selected_for_group']))
+                    || (array_key_exists('keep_group', $row) && $isGroupChecked($row['keep_group']));
             };
 
-            $checkedGroupItemIds = collect($validated['items'] ?? [])
-                ->filter(fn($row) => $rowKeepsGroup($row))
-                ->keys()
-                ->map(fn($itemId) => (int) $itemId)
-                ->all();
-            $bulkActionWorkerId = $validated['bulk_action_worker_id'] ?? null;
-            $bulkActionWorkerId = $bulkActionWorkerId !== null && $bulkActionWorkerId !== '' ? (int) $bulkActionWorkerId : null;
-            $bulkActionGroupKey = trim((string) ($validated['bulk_action_group_key'] ?? ''));
-            $bulkActionItemIds = collect(explode(',', (string) ($validated['bulk_action_item_ids'] ?? '')))
+            $groupActionWorkerId = $validated['group_action_worker_id'] ?? null;
+            $groupActionWorkerId = $groupActionWorkerId !== null && $groupActionWorkerId !== '' ? (int) $groupActionWorkerId : null;
+            $groupActionItemIds = collect(explode(',', (string) ($validated['group_action_item_ids'] ?? '')))
                 ->map(fn($itemId) => (int) trim($itemId))
                 ->filter(fn($itemId) => $itemId > 0 && in_array($itemId, $validItemIds, true))
+                ->unique()
                 ->values();
-            if (!$bulkActionWorkerId) {
-                $bulkWorkerId = $validated['bulk_worker_id'] ?? null;
-                $bulkWorkerId = $bulkWorkerId !== null && $bulkWorkerId !== '' ? (int) $bulkWorkerId : null;
-                $newCheckedItemIds = collect($validated['items'] ?? [])
-                    ->filter(function ($row) use ($rowKeepsGroup) {
-                        $existingGroupKey = trim((string) (($row['bulk_batch_key'] ?? '') ?: ($row['issue_group_key'] ?? '')));
 
-                        return $rowKeepsGroup($row) && $existingGroupKey === '';
-                    })
-                    ->keys()
-                    ->map(fn($itemId) => (int) $itemId)
-                    ->filter(fn($itemId) => in_array($itemId, $validItemIds, true))
-                    ->values();
-
-                if ($bulkWorkerId && $newCheckedItemIds->count() > 1) {
-                    $bulkActionWorkerId = $bulkWorkerId;
-                    $bulkActionItemIds = $newCheckedItemIds;
+            if ($groupActionWorkerId && $groupActionItemIds->count() > 1) {
+                foreach ($groupActionItemIds as $itemId) {
+                    if (isset($validated['items'][$itemId])) {
+                        $validated['items'][$itemId]['job_worker_id'] = $groupActionWorkerId;
+                        $validated['items'][$itemId]['group_checked'] = '1';
+                        $validated['items'][$itemId]['selected_for_group'] = '1';
+                    }
                 }
             }
-            if ($bulkActionWorkerId && $bulkActionItemIds->count() > 1 && $bulkActionGroupKey === '') {
-                $bulkActionGroupKey = (string) Str::uuid();
-            }
 
-            if ($bulkActionWorkerId && $bulkActionItemIds->count() > 1 && $bulkActionGroupKey !== '') {
-                $checkedGroupItemIds = collect($checkedGroupItemIds)
-                    ->merge($bulkActionItemIds)
-                    ->unique()
-                    ->values()
-                    ->all();
-            }
             $uncheckedGroupItemIds = collect($validated['items'] ?? [])
-                ->reject(fn($row, $itemId) => $rowKeepsGroup($row) || $bulkActionItemIds->contains((int) $itemId))
+                ->reject(fn($row) => $rowKeepsGroup($row))
                 ->keys()
                 ->map(fn($itemId) => (int) $itemId)
                 ->filter(fn($itemId) => in_array($itemId, $validItemIds, true))
                 ->values();
 
-            $submittedBulkGroupKeys = collect($validated['bulk_assignments'] ?? [])
-                ->flatMap(function ($assignment) use ($validItemIds, $checkedGroupItemIds) {
-                    $groupKey = trim((string) ($assignment['group_key'] ?? ''));
-                    $itemIds = collect(explode(',', (string) ($assignment['item_ids'] ?? '')))
-                        ->map(fn($itemId) => (int) trim($itemId))
-                        ->filter(fn($itemId) => $itemId > 0
-                            && in_array($itemId, $validItemIds, true)
-                            && in_array($itemId, $checkedGroupItemIds, true))
-                        ->values();
+            $selectedRowsByWorker = [];
+            foreach (($validated['items'] ?? []) as $itemId => $row) {
+                $itemId = (int) $itemId;
+                $workerId = $row['job_worker_id'] ?? null;
 
-                    if ($groupKey === '' || $itemIds->count() <= 1) {
-                        return [];
-                    }
+                if (!in_array($itemId, $validItemIds, true) || !$rowKeepsGroup($row) || $workerId === null || $workerId === '') {
+                    continue;
+                }
 
-                    return $itemIds->mapWithKeys(fn($itemId) => [$itemId => $groupKey]);
-                });
+                $selectedRowsByWorker[(int) $workerId][$itemId] = $row;
+            }
 
-            if ($bulkActionWorkerId && $bulkActionItemIds->count() > 1 && $bulkActionGroupKey !== '') {
-                $submittedBulkGroupKeys = $submittedBulkGroupKeys
-                    ->merge($bulkActionItemIds->mapWithKeys(fn($itemId) => [(int) $itemId => $bulkActionGroupKey]));
+            $submittedGroupKeys = collect();
+            foreach ($selectedRowsByWorker as $rows) {
+                if (count($rows) <= 1) {
+                    continue;
+                }
+
+                $firstRow = reset($rows);
+                $groupKey = trim((string) (($firstRow['bulk_batch_key'] ?? '') ?: ($firstRow['issue_group_key'] ?? '')));
+                if ($groupKey === '') {
+                    $groupKey = (string) Str::uuid();
+                }
+
+                foreach (array_keys($rows) as $itemId) {
+                    $submittedGroupKeys->put((int) $itemId, $groupKey);
+                }
             }
 
             foreach (($validated['items'] ?? []) as $itemId => $row) {
@@ -321,13 +388,8 @@ class TreeCuttingIssueController extends Controller
                 $submittedGroupKey = $rowGroupChecked
                     ? trim((string) (($row['bulk_batch_key'] ?? '') ?: ($row['issue_group_key'] ?? '')))
                     : '';
-                if ($bulkActionWorkerId && $bulkActionItemIds->contains($itemId)) {
-                    $jobWorkerId = $bulkActionWorkerId;
-                    $rowGroupChecked = $bulkActionItemIds->count() > 1;
-                    $submittedGroupKey = $rowGroupChecked ? $bulkActionGroupKey : '';
-                }
-                if ($rowGroupChecked && $submittedBulkGroupKeys->has($itemId)) {
-                    $submittedGroupKey = $submittedBulkGroupKeys->get($itemId);
+                if ($rowGroupChecked && $submittedGroupKeys->has($itemId)) {
+                    $submittedGroupKey = $submittedGroupKeys->get($itemId);
                 }
                 $receiveTreeWtValue = $receiveTreeWt !== null && $receiveTreeWt !== '' ? (float) $receiveTreeWt : null;
                 $newWorkerId = $jobWorkerId !== null && $jobWorkerId !== '' ? (int) $jobWorkerId : null;
@@ -377,11 +439,15 @@ class TreeCuttingIssueController extends Controller
                     'issued_at' => $shouldRefreshIssuedAt ? now() : $issueItem->issued_at,
                 ])->save();
 
+                TreeCuttingIssueItem::where('id', $issueItem->id)
+                    ->update(['issue_group_key' => $submittedGroupKey !== '' ? $submittedGroupKey : null]);
+                $issueItem->issue_group_key = $submittedGroupKey !== '' ? $submittedGroupKey : null;
+
                 if ($oldGroupKey !== $issueItem->issue_group_key || $oldWorkerId !== $newWorkerId || $oldReceiveTreeWt !== $receiveTreeWtValue) {
                     TreeCuttingReceiveItem::where('company_id', $company->id)
                         ->where(function ($query) use ($issueItem, $oldGroupKey) {
                             $query->where('tree_cutting_issue_item_id', $issueItem->id);
-                            if ($oldGroupKey) {
+                            if ($oldGroupKey && $issueItem->issue_group_key) {
                                 $query->orWhere('issue_group_key', $oldGroupKey);
                             }
                             if ($issueItem->issue_group_key) {
@@ -392,7 +458,7 @@ class TreeCuttingIssueController extends Controller
                 }
             }
 
-            $submittedBulkGroupKeys
+            $submittedGroupKeys
                 ->filter()
                 ->groupBy(fn($groupKey) => $groupKey)
                 ->each(function ($groupItemKeys, $groupKey) use ($company, $voucher) {
@@ -438,15 +504,8 @@ class TreeCuttingIssueController extends Controller
 
                 if ($ungroupedIssueItems->isNotEmpty()) {
                     $ungroupedIssueItemIds = $ungroupedIssueItems->pluck('id');
-                    $ungroupedIssueGroupKeys = $ungroupedIssueItems->pluck('issue_group_key')->filter()->unique()->values();
-
                     TreeCuttingReceiveItem::where('company_id', $company->id)
-                        ->where(function ($query) use ($ungroupedIssueItemIds, $ungroupedIssueGroupKeys) {
-                            $query->whereIn('tree_cutting_issue_item_id', $ungroupedIssueItemIds);
-                            if ($ungroupedIssueGroupKeys->isNotEmpty()) {
-                                $query->orWhereIn('issue_group_key', $ungroupedIssueGroupKeys);
-                            }
-                        })
+                        ->whereIn('tree_cutting_issue_item_id', $ungroupedIssueItemIds)
                         ->delete();
 
                     TreeCuttingIssueItem::whereIn('id', $ungroupedIssueItemIds)

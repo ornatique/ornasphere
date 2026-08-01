@@ -698,6 +698,9 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
         Route::post('tree-cutting-issue/{id}/update', [TreeCuttingIssueController::class, 'update'])
             ->name('tree-cutting-issue.update');
 
+        Route::post('tree-cutting-issue/{id}/apply-group', [TreeCuttingIssueController::class, 'applyGroup'])
+            ->name('tree-cutting-issue.apply-group');
+
         Route::get('tree-cutting-receive', [TreeCuttingReceiveController::class, 'index'])
             ->name('tree-cutting-receive.index');
 
