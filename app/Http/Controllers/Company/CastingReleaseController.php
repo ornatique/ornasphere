@@ -7,6 +7,7 @@ use App\Models\CastingMetalIssueItem;
 use App\Models\CastingReleaseItem;
 use App\Models\Company;
 use App\Models\TreeCuttingIssueItem;
+use App\Models\TreeCuttingOfficeItem;
 use App\Models\TreeCuttingReceiveItem;
 use App\Models\VacuumVoucher;
 use App\Services\WorkerPersonService;
@@ -215,6 +216,10 @@ class CastingReleaseController extends Controller
                     CastingReleaseItem::where('company_id', $company->id)
                         ->where('vacuum_voucher_item_id', $itemId)
                         ->delete();
+
+                    TreeCuttingOfficeItem::where('company_id', $company->id)
+                        ->where('vacuum_voucher_item_id', $itemId)
+                        ->delete();
                     continue;
                 }
 
@@ -237,12 +242,26 @@ class CastingReleaseController extends Controller
                     ]
                 );
 
+                $officeItem = TreeCuttingOfficeItem::where('company_id', $company->id)
+                    ->where('vacuum_voucher_item_id', $itemId)
+                    ->first();
+                $officeCutWt = (float) ($officeItem?->office_cut_wt ?? 0);
+                $remainingTreeWt = round(max((float) ($releaseTreeWtValue ?? 0) - $officeCutWt, 0), 3);
+
+                if ($officeItem) {
+                    $officeItem->update([
+                        'tree_wt' => $releaseTreeWtValue,
+                        'remaining_tree_wt' => $remainingTreeWt,
+                        'updated_by' => auth()->id(),
+                    ]);
+                }
+
                 TreeCuttingIssueItem::where('company_id', $company->id)
                     ->where('vacuum_voucher_id', $voucher->id)
                     ->where('vacuum_voucher_item_id', $itemId)
                     ->where('is_custom', false)
                     ->update([
-                        'receive_tree_wt' => $releaseTreeWtValue,
+                        'receive_tree_wt' => $remainingTreeWt,
                     ]);
             }
         });

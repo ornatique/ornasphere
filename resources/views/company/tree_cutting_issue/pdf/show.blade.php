@@ -21,8 +21,44 @@
 <body>
     @php
         $totalPcs = (int) ($voucher->items_count ?? $voucher->items->count());
+        $officeCutWtTotal = 0;
         $receiveTreeWtTotal = 0;
-        $rowCount = 0;
+        $issuePdfRows = [];
+
+        foreach ($voucher->items as $item) {
+            $receiveItem = $receiveItems->get($item->id);
+            if (!$receiveItem) {
+                continue;
+            }
+
+            $treeCuttingItem = $treeCuttingItems->get($item->id);
+            $groupKey = $treeCuttingItem?->issue_group_key;
+            $rowKey = $groupKey ? 'group_' . $groupKey : 'item_' . $item->id;
+            $officeCutWt = (float) ($receiveItem->office_cut_wt ?? 0);
+            $receiveTreeWt = (float) ($receiveItem->remaining_tree_wt ?? $receiveItem->release_tree_wt ?? 0);
+
+            if (!isset($issuePdfRows[$rowKey])) {
+                $issuePdfRows[$rowKey] = [
+                    'buch_nos' => [],
+                    'office_cut_wt' => 0,
+                    'receive_tree_wt' => 0,
+                    'worker_name' => $treeCuttingItem?->jobWorker?->name ?? '-',
+                ];
+            }
+
+            $issuePdfRows[$rowKey]['buch_nos'][] = $item->buch_no;
+            $issuePdfRows[$rowKey]['office_cut_wt'] += $officeCutWt;
+            $issuePdfRows[$rowKey]['receive_tree_wt'] += $receiveTreeWt;
+        }
+
+        foreach ($customTreeCuttingItems as $customItem) {
+            $issuePdfRows['custom_' . $customItem->id] = [
+                'buch_nos' => [$customItem->custom_buch_no ?: '-'],
+                'office_cut_wt' => 0,
+                'receive_tree_wt' => (float) ($customItem->receive_tree_wt ?? 0),
+                'worker_name' => $customItem->jobWorker?->name ?? '-',
+            ];
+        }
     @endphp
 
     <div class="title">Tree Cutting Issue</div>
@@ -38,8 +74,8 @@
         <tr>
             <td><span class="label">Total Pcs:</span><br>{{ $totalPcs }}</td>
             <td><span class="label">Created At:</span><br>{{ optional($voucher->created_at)->format('d-m-Y h:i A') }}</td>
-            <td><span class="label">Printed At:</span><br>{{ now()->format('d-m-Y h:i A') }}</td>
-            <td><span class="label">Printed By:</span><br>{{ auth()->user()->name ?? '-' }}</td>
+            <td><span class="label">Office Cut Tree Wt:</span><br>{{ number_format(array_sum(array_column($issuePdfRows, 'office_cut_wt')), 3, '.', '') }}</td>
+            <td><span class="label">Issue Tree Wt:</span><br>{{ number_format(array_sum(array_column($issuePdfRows, 'receive_tree_wt')), 3, '.', '') }}</td>
         </tr>
     </table>
 
@@ -47,52 +83,35 @@
         <thead>
             <tr>
                 <th style="width: 10%;">Sr. No</th>
-                <th style="width: 30%;">B. No</th>
-                <th class="num" style="width: 25%;">Receive Tree Wt</th>
-                <th style="width: 35%;">Worker</th>
+                <th style="width: 28%;">B. No</th>
+                <th class="num" style="width: 20%;">Office Cut Wt</th>
+                <th class="num" style="width: 22%;">Receive Tree Wt</th>
+                <th style="width: 20%;">Worker</th>
             </tr>
         </thead>
         <tbody>
-            @foreach($voucher->items as $item)
+            @foreach($issuePdfRows as $row)
             @php
-                $receiveItem = $receiveItems->get($item->id);
-                if (!$receiveItem) {
-                    continue;
-                }
-                $treeCuttingItem = $treeCuttingItems->get($item->id);
-                $receiveTreeWt = $receiveItem?->release_tree_wt;
-                $workerName = $treeCuttingItem?->jobWorker?->name ?? '-';
-                $receiveTreeWtTotal += $receiveTreeWt !== null ? (float) $receiveTreeWt : 0;
-                $rowCount++;
+                $officeCutWtTotal += (float) ($row['office_cut_wt'] ?? 0);
+                $receiveTreeWtTotal += (float) ($row['receive_tree_wt'] ?? 0);
             @endphp
             <tr>
-                <td>{{ $rowCount }}</td>
-                <td>{{ $item->buch_no }}</td>
-                <td class="num">{{ $receiveTreeWt !== null ? number_format((float) $receiveTreeWt, 3, '.', '') : '-' }}</td>
-                <td>{{ $workerName }}</td>
+                <td>{{ $loop->iteration }}</td>
+                <td>{{ implode(', ', $row['buch_nos']) }}</td>
+                <td class="num">{{ number_format((float) ($row['office_cut_wt'] ?? 0), 3, '.', '') }}</td>
+                <td class="num">{{ number_format((float) ($row['receive_tree_wt'] ?? 0), 3, '.', '') }}</td>
+                <td>{{ $row['worker_name'] }}</td>
             </tr>
             @endforeach
-            @foreach($customTreeCuttingItems as $customItem)
-            @php
-                $receiveTreeWt = $customItem->receive_tree_wt;
-                $receiveTreeWtTotal += $receiveTreeWt !== null ? (float) $receiveTreeWt : 0;
-                $rowCount++;
-            @endphp
+            @if(count($issuePdfRows) === 0)
             <tr>
-                <td>{{ $rowCount }}</td>
-                <td>{{ $customItem->custom_buch_no ?: '-' }}</td>
-                <td class="num">{{ $receiveTreeWt !== null ? number_format((float) $receiveTreeWt, 3, '.', '') : '-' }}</td>
-                <td>{{ $customItem->jobWorker?->name ?? '-' }}</td>
-            </tr>
-            @endforeach
-            @if($rowCount === 0)
-            <tr>
-                <td colspan="4" class="center">No tree cutting issue rows found</td>
+                <td colspan="5" class="center">No tree cutting issue rows found</td>
             </tr>
             @endif
-            @if($rowCount > 0)
+            @if(count($issuePdfRows) > 0)
             <tr class="total-row">
                 <td colspan="2">Total</td>
+                <td class="num">{{ number_format($officeCutWtTotal, 3, '.', '') }}</td>
                 <td class="num">{{ number_format($receiveTreeWtTotal, 3, '.', '') }}</td>
                 <td></td>
             </tr>

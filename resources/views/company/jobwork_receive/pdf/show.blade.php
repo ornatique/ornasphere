@@ -41,31 +41,11 @@
     </tr>
 </table>
 
-<h4>Issue Jobwork List</h4>
-<table class="mb">
-    <thead>
-        <tr>
-            <th>Sr. No</th>
-            <th>Item</th>
-            <th class="right">Issue Net Wt</th>
-            <th class="right">Issue Qty</th>
-        </tr>
-    </thead>
-    <tbody>
-        @foreach($row->items as $index => $item)
-            <tr>
-                <td>{{ $index + 1 }}</td>
-                <td>{{ $item->item?->item_name ?? '-' }}</td>
-                <td class="right">{{ number_format((float) ($item->net_wt ?? 0), 3, '.', '') }}</td>
-                <td class="right">{{ (int) ($item->qty_pcs ?? 0) }}</td>
-            </tr>
-        @endforeach
-        <tr class="total">
-            <td colspan="2" class="right">Total</td>
-            <td class="right">{{ number_format((float) ($row->net_wt_sum ?? 0), 3, '.', '') }}</td>
-            <td class="right">{{ (int) $row->items->sum('qty_pcs') }}</td>
-        </tr>
-    </tbody>
+<table class="meta mb">
+    <tr>
+        <td><strong>Voucher Name:</strong><br>{{ $row->voucher_no }}</td>
+        <td colspan="3"><strong>Worker Vouchers:</strong><br>{{ $workerIssueVouchers->pluck('voucher_no')->implode(', ') ?: '-' }}</td>
+    </tr>
 </table>
 
 <h4>Jobwork Receive</h4>

@@ -24,6 +24,7 @@ use App\Models\CastingMetalIssueItem;
 use App\Models\CastingReleaseItem;
 use App\Models\CastingSortingItem;
 use App\Models\TreeCuttingIssueItem;
+use App\Models\TreeCuttingOfficeItem;
 use App\Models\TreeCuttingReceiveItem;
 use App\Models\VacuumBuch;
 use App\Models\VacuumProcess;
@@ -76,6 +77,7 @@ class AppServiceProvider extends ServiceProvider
         CastingHeatingItem::observe(CompanyActivityObserver::class);
         CastingMetalIssueItem::observe(CompanyActivityObserver::class);
         CastingReleaseItem::observe(CompanyActivityObserver::class);
+        TreeCuttingOfficeItem::observe(CompanyActivityObserver::class);
         TreeCuttingIssueItem::observe(CompanyActivityObserver::class);
         TreeCuttingReceiveItem::observe(CompanyActivityObserver::class);
         CastingSortingItem::observe(CompanyActivityObserver::class);

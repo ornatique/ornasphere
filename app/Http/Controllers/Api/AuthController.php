@@ -393,6 +393,7 @@ class AuthController extends Controller
             'casting-heating',
             'casting-metal-issue',
             'casting-release',
+            'tree-cutting-office',
             'tree-cutting-issue',
             'tree-cutting-receive',
             'casting-sorting',

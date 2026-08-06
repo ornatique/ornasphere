@@ -87,6 +87,34 @@
 
     <div class="history-section">
         <div class="history-step"><span>4</span></div>
+        <div class="history-title"><h5>Tree Cutting Issue Office</h5></div>
+        <div class="history-table-wrap">
+            <table class="table table-bordered table-sm history-table">
+                <thead><tr><th>Sr No</th><th>Buch No</th><th>Tree Wt</th><th>Tree Bhuko</th><th>Remaining Tree Wt</th><th>Office At</th></tr></thead>
+                <tbody>
+                    @forelse($history['tree_cutting_office']['rows'] as $row)
+                    <tr><td>{{ $loop->iteration }}</td><td>{{ $row['buch_no'] }}</td><td>{{ $row['tree_wt'] }}</td><td>{{ $row['tree_bhuko'] }}</td><td>{{ $row['remaining_tree_wt'] }}</td><td>{{ $row['office_at'] }}</td></tr>
+                    @empty
+                    <tr><td colspan="6" class="text-center">No data found</td></tr>
+                    @endforelse
+                </tbody>
+                @if($history['tree_cutting_office']['rows']->isNotEmpty())
+                <tfoot>
+                    <tr class="history-total-row">
+                        <td colspan="2"><strong>Total</strong></td>
+                        <td><strong>{{ $history['tree_cutting_office']['totals']['tree_wt'] }}</strong></td>
+                        <td><strong>{{ $history['tree_cutting_office']['totals']['tree_bhuko'] }}</strong></td>
+                        <td><strong>{{ $history['tree_cutting_office']['totals']['remaining_tree_wt'] }}</strong></td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+                @endif
+            </table>
+        </div>
+    </div>
+
+    <div class="history-section">
+        <div class="history-step"><span>5</span></div>
         <div class="history-title"><h5>Tree Cutting Issue</h5></div>
         <div class="history-table-wrap">
             <table class="table table-bordered table-sm history-table">
@@ -112,7 +140,7 @@
     </div>
 
     <div class="history-section">
-        <div class="history-step"><span>5</span></div>
+        <div class="history-step"><span>6</span></div>
         <div class="history-title"><h5>Tree Cutting Receive</h5></div>
         <div class="history-table-wrap">
             <table class="table table-bordered table-sm history-table">
@@ -140,7 +168,7 @@
     </div>
 
     <div class="history-section">
-        <div class="history-step"><span>6</span></div>
+        <div class="history-step"><span>7</span></div>
         <div class="history-title"><h5>Casting Sorting</h5></div>
         <div class="history-table-wrap">
             <table class="table table-bordered table-sm history-table">

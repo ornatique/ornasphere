@@ -47,6 +47,7 @@
                             <th>Worker Name</th>
                             <th>Assigned Issue</th>
                             <th>Pending</th>
+                            <th>Office Cut Wt</th>
                             <th>Receive Tree Wt</th>
                             <th>Action</th>
                         </tr>
@@ -119,6 +120,7 @@
             { data: 'worker_name', name: 'jobWorker.name', orderable: false },
             { data: 'assigned_tree_cutting_view', name: 'tree_cutting_count', orderable: false, searchable: false },
             { data: 'pending_tree_cutting_view', name: 'pending_tree_cutting_count', orderable: false, searchable: false },
+            { data: 'office_cut_wt_view', name: 'office_cut_wt_total', orderable: false, searchable: false },
             { data: 'receive_tree_wt_view', name: 'receive_tree_wt_total', orderable: false, searchable: false },
             { data: 'action', name: 'action', orderable: false, searchable: false },
         ]

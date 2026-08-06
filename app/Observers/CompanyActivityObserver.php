@@ -24,6 +24,7 @@ use App\Models\CastingMetalIssueItem;
 use App\Models\CastingReleaseItem;
 use App\Models\CastingSortingItem;
 use App\Models\TreeCuttingIssueItem;
+use App\Models\TreeCuttingOfficeItem;
 use App\Models\TreeCuttingReceiveItem;
 use App\Models\VacuumBuch;
 use App\Models\VacuumProcess;
@@ -135,6 +136,7 @@ class CompanyActivityObserver
             $model instanceof CastingHeatingItem => ['casting_heating', 'Casting Heating', 'company.casting-heating.index'],
             $model instanceof CastingMetalIssueItem => ['casting_metal_issue', 'Casting Metal Issue', 'company.casting-metal-issue.index'],
             $model instanceof CastingReleaseItem => ['casting_release', 'Casting Receive', 'company.casting-release.index'],
+            $model instanceof TreeCuttingOfficeItem => ['tree_cutting_office', 'Tree Cutting Issue Office', 'company.tree-cutting-office.index'],
             $model instanceof TreeCuttingIssueItem => ['tree_cutting_issue', 'Tree Cutting Issue', 'company.tree-cutting-issue.index'],
             $model instanceof TreeCuttingReceiveItem => ['tree_cutting_receive', 'Tree Cutting Receive', 'company.tree-cutting-receive.index'],
             $model instanceof CastingSortingItem => ['casting_sorting', 'Casting Sorting', 'company.casting-sorting.index'],

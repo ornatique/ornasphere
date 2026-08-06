@@ -11,6 +11,8 @@
 
         * {
             box-sizing: border-box;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
         }
 
         body {
@@ -83,19 +85,61 @@
 
         .label-table td {
             width: 33.333%;
-            height: 9.15mm;
-            padding: 0 3mm;
-            border: 1px solid #000;
+            height: 12.85mm;
+            padding: 0;
+            border: 1px solid #202020;
             vertical-align: middle;
-            font-size: 13px;
+            font-size: 22px;
             font-weight: 700;
             white-space: nowrap;
             text-align: left;
         }
 
+        .label-line {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+        }
+
         .serial {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 38px;
+            height: 100%;
+            border-right: 1px solid #202020;
+            box-shadow: inset 0 -1px 0 #202020;
+            background-color: #c8d0cc !important;
+            color: #000 !important;
+            flex: 0 0 38px;
+            font-size: 22px;
+            font-weight: 800;
+        }
+
+        .label-value {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            padding: 0 8px;
+            background-color: #6f7f7c !important;
+            color: #fff !important;
+            min-width: 0;
+            flex: 1 1 auto;
+            font-size: 22px;
+            font-weight: 800;
+            box-shadow: inset 0 -1px 0 #202020;
+        }
+
+        .buch-no {
             display: inline-block;
-            min-width: 28px;
+            min-width: 0;
+        }
+
+        .buch-weight {
+            display: inline-block;
+            min-width: 0;
         }
 
         .empty-label {
@@ -103,6 +147,11 @@
         }
 
         @media print {
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+
             .toolbar {
                 display: none;
             }
@@ -132,7 +181,7 @@
         </div>
     </div>
 
-    @foreach($labels->chunk(84) as $pageLabels)
+    @foreach($labels->chunk(60) as $pageLabels)
         @php
             $pageLabels = $pageLabels->values();
         @endphp
@@ -145,33 +194,48 @@
 
             <table class="label-table">
                 <tbody>
-                    @for($row = 0; $row < 28; $row++)
+                    @for($row = 0; $row < 20; $row++)
                         @php
                             $left = $pageLabels->get($row);
-                            $middle = $pageLabels->get($row + 28);
-                            $right = $pageLabels->get($row + 56);
+                            $middle = $pageLabels->get($row + 20);
+                            $right = $pageLabels->get($row + 40);
                         @endphp
                         <tr>
                             <td>
                                 @if($left)
-                                    <span class="serial">{{ $left['serial'] }}.</span>
-                                    {{ $left['buch_no'] }} - {{ $left['size'] }}
+                                    <div class="label-line">
+                                        <span class="serial">{{ $left['serial'] }}</span>
+                                        <span class="label-value">
+                                            <span class="buch-no">{{ $left['buch_no'] }}</span>
+                                            <span class="buch-weight">-{{ $left['size'] }}</span>
+                                        </span>
+                                    </div>
                                 @else
                                     <span class="empty-label">.</span>
                                 @endif
                             </td>
                             <td>
                                 @if($middle)
-                                    <span class="serial">{{ $middle['serial'] }}.</span>
-                                    {{ $middle['buch_no'] }} - {{ $middle['size'] }}
+                                    <div class="label-line">
+                                        <span class="serial">{{ $middle['serial'] }}</span>
+                                        <span class="label-value">
+                                            <span class="buch-no">{{ $middle['buch_no'] }}</span>
+                                            <span class="buch-weight">-{{ $middle['size'] }}</span>
+                                        </span>
+                                    </div>
                                 @else
                                     <span class="empty-label">.</span>
                                 @endif
                             </td>
                             <td>
                                 @if($right)
-                                    <span class="serial">{{ $right['serial'] }}.</span>
-                                    {{ $right['buch_no'] }} - {{ $right['size'] }}
+                                    <div class="label-line">
+                                        <span class="serial">{{ $right['serial'] }}</span>
+                                        <span class="label-value">
+                                            <span class="buch-no">{{ $right['buch_no'] }}</span>
+                                            <span class="buch-weight">-{{ $right['size'] }}</span>
+                                        </span>
+                                    </div>
                                 @else
                                     <span class="empty-label">.</span>
                                 @endif

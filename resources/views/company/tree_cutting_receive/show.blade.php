@@ -41,6 +41,7 @@
                                 <th style="width: 80px;">Sr. No</th>
                                 <th style="width: 160px;">B. No</th>
                                 <th style="width: 190px;">Worker</th>
+                                <th style="width: 160px;">Office Cut Wt</th>
                                 <th style="width: 170px;">Issue Tree Wt</th>
                                 <th style="width: 180px;">Receive Pc Wt</th>
                                 <th style="width: 190px;">Receive Tree Bhuko</th>
@@ -49,6 +50,7 @@
                         </thead>
                         <tbody>
                             @php
+                                $officeCutWtTotal = 0;
                                 $issueTreeWtTotal = 0;
                                 $receivePcWtTotal = 0;
                                 $receiveTreeBhukoTotal = 0;
@@ -57,10 +59,12 @@
                             @forelse($issueItems as $issueItem)
                             @php
                                 $receiveItem = $receiveItems->get($issueItem->id);
+                                $officeCutWt = (float) ($issueItem->office_cut_wt ?? 0);
                                 $issueTreeWt = (float) ($issueItem->receive_tree_wt ?? 0);
                                 $receivePcWtValue = old('items.' . $issueItem->id . '.receive_pc_wt', $receiveItem?->receive_pc_wt);
                                 $receiveTreeBhukoValue = old('items.' . $issueItem->id . '.receive_tree_bhuko', $receiveItem?->receive_tree_bhuko);
                                 $lossValue = $receiveItem?->loss;
+                                $officeCutWtTotal += $officeCutWt;
                                 $issueTreeWtTotal += $issueTreeWt;
                                 $receivePcWtTotal += $receivePcWtValue !== null && $receivePcWtValue !== '' ? (float) $receivePcWtValue : 0;
                                 $receiveTreeBhukoTotal += $receiveTreeBhukoValue !== null && $receiveTreeBhukoValue !== '' ? (float) $receiveTreeBhukoValue : 0;
@@ -70,6 +74,7 @@
                                 <td>{{ $loop->iteration }}</td>
                                 <td>{{ $issueItem->buch_no }}</td>
                                 <td>{{ $issueItem->jobWorker?->name ?? '-' }}</td>
+                                <td><span>{{ number_format($officeCutWt, 3, '.', '') }}</span></td>
                                 <td><span data-issue-tree-wt>{{ number_format($issueTreeWt, 3, '.', '') }}</span></td>
                                 <td>
                                     <input type="number"
@@ -101,13 +106,14 @@
                             </tr>
                             @empty
                             <tr>
-                                <td colspan="7" class="text-center">No tree cutting issue rows found</td>
+                                <td colspan="8" class="text-center">No tree cutting issue rows found</td>
                             </tr>
                             @endforelse
                         </tbody>
                         <tfoot>
                             <tr>
                                 <td colspan="3">Total</td>
+                                <td><strong>{{ number_format($officeCutWtTotal, 3, '.', '') }}</strong></td>
                                 <td><strong>{{ number_format($issueTreeWtTotal, 3, '.', '') }}</strong></td>
                                 <td><strong id="treeReceivePcWtTotal">{{ number_format($receivePcWtTotal, 3, '.', '') }}</strong></td>
                                 <td><strong id="treeReceiveBhukoTotal">{{ number_format($receiveTreeBhukoTotal, 3, '.', '') }}</strong></td>

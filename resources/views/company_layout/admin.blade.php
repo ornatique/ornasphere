@@ -25,6 +25,18 @@
 <link href="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/css/select2.min.css" rel="stylesheet" />
 <link href="https://cdn.jsdelivr.net/npm/@ttskch/select2-bootstrap4-theme@1.5.2/dist/select2-bootstrap4.min.css" rel="stylesheet" />
 <style>
+  html,
+  body,
+  .container-scroller,
+  .page-body-wrapper,
+  .main-panel {
+    background: #1e1e2f;
+  }
+
+  .container-scroller {
+    min-height: 100vh;
+  }
+
   .content-wrapper form > .alert.alert-danger {
     display: none !important;
   }

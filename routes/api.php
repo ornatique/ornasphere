@@ -32,6 +32,7 @@ use App\Http\Controllers\Api\CastingHeatingApiController;
 use App\Http\Controllers\Api\CastingMetalIssueApiController;
 use App\Http\Controllers\Api\CastingReceiveApiController;
 use App\Http\Controllers\Api\CastingSortingApiController;
+use App\Http\Controllers\Api\TreeCuttingOfficeApiController;
 use App\Http\Controllers\Api\TreeCuttingIssueApiController;
 use App\Http\Controllers\Api\TreeCuttingReceiveApiController;
 use App\Http\Controllers\Api\VacuumProcessApiController;
@@ -208,6 +209,16 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/casting-release/{id}', [CastingReceiveApiController::class, 'show'])->whereNumber('id');
     Route::put('/casting-release/{id}', [CastingReceiveApiController::class, 'update'])->whereNumber('id');
     Route::post('/casting-release/{id}', [CastingReceiveApiController::class, 'update'])->whereNumber('id');
+
+    Route::get('/tree-cutting-office', [TreeCuttingOfficeApiController::class, 'index']);
+    Route::get('/tree-cutting-office/{id}/pdf', [TreeCuttingOfficeApiController::class, 'pdf'])->whereNumber('id');
+    Route::get('/tree-cutting-office/{id}', [TreeCuttingOfficeApiController::class, 'show'])->whereNumber('id');
+    Route::put('/tree-cutting-office/{id}', [TreeCuttingOfficeApiController::class, 'update'])->whereNumber('id');
+    Route::post('/tree-cutting-office/{id}', [TreeCuttingOfficeApiController::class, 'update'])->whereNumber('id');
+    Route::get('/tree_cutting_office_list', [TreeCuttingOfficeApiController::class, 'index']);
+    Route::get('/tree_cutting_office_show/{id}', [TreeCuttingOfficeApiController::class, 'show'])->whereNumber('id');
+    Route::get('/tree_cutting_office_pdf/{id}', [TreeCuttingOfficeApiController::class, 'pdf'])->whereNumber('id');
+    Route::post('/update_tree_cutting_office/{id}', [TreeCuttingOfficeApiController::class, 'update'])->whereNumber('id');
 
     Route::get('/tree-cutting-issue', [TreeCuttingIssueApiController::class, 'index']);
     Route::get('/tree-cutting-issue/{id}/pdf', [TreeCuttingIssueApiController::class, 'pdf'])->whereNumber('id');

@@ -31,6 +31,7 @@ use App\Http\Controllers\Company\VacuumVoucherController;
 use App\Http\Controllers\Company\CastingHeatingController;
 use App\Http\Controllers\Company\CastingMetalIssueController;
 use App\Http\Controllers\Company\CastingReleaseController;
+use App\Http\Controllers\Company\TreeCuttingOfficeController;
 use App\Http\Controllers\Company\TreeCuttingIssueController;
 use App\Http\Controllers\Company\TreeCuttingReceiveController;
 use App\Http\Controllers\Company\CastingSortingController;
@@ -685,6 +686,18 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
 
         Route::post('casting-receive/{id}/update', [CastingReleaseController::class, 'update'])
             ->name('casting-release.update');
+
+        Route::get('tree-cutting-office', [TreeCuttingOfficeController::class, 'index'])
+            ->name('tree-cutting-office.index');
+
+        Route::get('tree-cutting-office/{id}/view', [TreeCuttingOfficeController::class, 'show'])
+            ->name('tree-cutting-office.show');
+
+        Route::get('tree-cutting-office/{id}/pdf', [TreeCuttingOfficeController::class, 'pdf'])
+            ->name('tree-cutting-office.pdf');
+
+        Route::post('tree-cutting-office/{id}/update', [TreeCuttingOfficeController::class, 'update'])
+            ->name('tree-cutting-office.update');
 
         Route::get('tree-cutting-issue', [TreeCuttingIssueController::class, 'index'])
             ->name('tree-cutting-issue.index');

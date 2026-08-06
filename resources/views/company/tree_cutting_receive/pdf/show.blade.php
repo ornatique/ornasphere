@@ -4,23 +4,25 @@
     <meta charset="utf-8">
     <title>Tree Cutting Receive {{ $voucher->voucher_no }}</title>
     <style>
-        body { font-family: DejaVu Sans, sans-serif; font-size: 11px; color: #111; margin: 18px; }
+        body { font-family: DejaVu Sans, sans-serif; font-size: 10px; color: #111; margin: 16px; }
         .title { text-align: center; font-size: 18px; font-weight: 700; margin-bottom: 4px; }
         .company { text-align: center; font-size: 13px; font-weight: 700; margin-bottom: 16px; }
         .meta { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
         .meta td { width: 25%; padding: 4px 6px; border: 1px solid #444; vertical-align: top; }
         .label { font-weight: 700; }
         .items { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        .items th, .items td { border: 1px solid #444; padding: 6px; vertical-align: top; word-wrap: break-word; }
-        .items th { background: #f0f0f0; font-weight: 700; text-align: left; }
+        .items th, .items td { border: 1px solid #444; padding: 5px; vertical-align: top; word-wrap: break-word; }
+        .items th { background: #f0f0f0; font-size: 9px; font-weight: 700; line-height: 1.15; text-align: left; }
         .center { text-align: center; }
         .num { text-align: right; white-space: nowrap; }
+        .items th.num { text-align: right; white-space: normal; }
         .total-row td { font-weight: 700; background: #f7f7f7; }
     </style>
 </head>
 <body>
     @php
         $totalPcs = (int) ($voucher->items_count ?? $voucher->items->count());
+        $officeCutWtTotal = 0;
         $issueTreeWtTotal = 0;
         $receivePcWtTotal = 0;
         $receiveTreeBhukoTotal = 0;
@@ -49,23 +51,26 @@
     <table class="items">
         <thead>
             <tr>
-                <th style="width: 8%;">Sr. No</th>
-                <th style="width: 15%;">B. No</th>
-                <th style="width: 19%;">Worker</th>
-                <th class="num" style="width: 15%;">Issue Tree Wt</th>
-                <th class="num" style="width: 15%;">Receive Pc Wt</th>
-                <th class="num" style="width: 16%;">Receive Tree Bhuko</th>
-                <th class="num" style="width: 12%;">Loss</th>
+                <th style="width: 7%;">Sr. No</th>
+                <th style="width: 14%;">B. No</th>
+                <th style="width: 16%;">Worker</th>
+                <th class="num" style="width: 13%;">Office Cut</th>
+                <th class="num" style="width: 13%;">Issue Tree</th>
+                <th class="num" style="width: 13%;">Receive Pc</th>
+                <th class="num" style="width: 14%;">Tree Bhuko</th>
+                <th class="num" style="width: 10%;">Loss</th>
             </tr>
         </thead>
         <tbody>
             @forelse($issueItems as $issueItem)
             @php
                 $receiveItem = $receiveItems->get($issueItem->id);
+                $officeCutWt = (float) ($issueItem->office_cut_wt ?? 0);
                 $issueTreeWt = (float) ($issueItem->receive_tree_wt ?? 0);
                 $receivePcWt = $receiveItem?->receive_pc_wt;
                 $receiveTreeBhuko = $receiveItem?->receive_tree_bhuko;
                 $loss = $receiveItem?->loss;
+                $officeCutWtTotal += $officeCutWt;
                 $issueTreeWtTotal += $issueTreeWt;
                 $receivePcWtTotal += $receivePcWt !== null ? (float) $receivePcWt : 0;
                 $receiveTreeBhukoTotal += $receiveTreeBhuko !== null ? (float) $receiveTreeBhuko : 0;
@@ -76,6 +81,7 @@
                 <td>{{ $loop->iteration }}</td>
                 <td>{{ $issueItem->buch_no }}</td>
                 <td>{{ $issueItem->jobWorker?->name ?? '-' }}</td>
+                <td class="num">{{ number_format($officeCutWt, 3, '.', '') }}</td>
                 <td class="num">{{ number_format($issueTreeWt, 3, '.', '') }}</td>
                 <td class="num">{{ $receivePcWt !== null ? number_format((float) $receivePcWt, 3, '.', '') : '-' }}</td>
                 <td class="num">{{ $receiveTreeBhuko !== null ? number_format((float) $receiveTreeBhuko, 3, '.', '') : '-' }}</td>
@@ -83,12 +89,13 @@
             </tr>
             @empty
             <tr>
-                <td colspan="7" class="center">No tree cutting issue rows found</td>
+                <td colspan="8" class="center">No tree cutting issue rows found</td>
             </tr>
             @endforelse
             @if($rowCount > 0)
             <tr class="total-row">
                 <td colspan="3">Total</td>
+                <td class="num">{{ number_format($officeCutWtTotal, 3, '.', '') }}</td>
                 <td class="num">{{ number_format($issueTreeWtTotal, 3, '.', '') }}</td>
                 <td class="num">{{ number_format($receivePcWtTotal, 3, '.', '') }}</td>
                 <td class="num">{{ number_format($receiveTreeBhukoTotal, 3, '.', '') }}</td>

@@ -94,6 +94,7 @@ class CompanyRoutePermission
             'company.casting-heating.' => 'casting-heating',
             'company.casting-metal-issue.' => 'casting-metal-issue',
             'company.casting-release.' => 'casting-release',
+            'company.tree-cutting-office.' => 'tree-cutting-office',
             'company.tree-cutting-issue.' => 'tree-cutting-issue',
             'company.tree-cutting-receive.' => 'tree-cutting-receive',
             'company.casting-sorting.' => 'casting-sorting',

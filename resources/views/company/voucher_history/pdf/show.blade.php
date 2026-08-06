@@ -101,7 +101,30 @@
         @endif
     </table>
 
-    <div class="section-title">4. Tree Cutting Issue</div>
+    <div class="section-title">4. Tree Cutting Issue Office</div>
+    <table>
+        <thead><tr><th style="width:8%;">Sr No</th><th>Buch No</th><th class="num">Tree Wt</th><th class="num">Tree Bhuko</th><th class="num">Remaining Tree Wt</th><th>Office At</th></tr></thead>
+        <tbody>
+            @forelse($history['tree_cutting_office']['rows'] as $row)
+            <tr><td>{{ $loop->iteration }}</td><td>{{ $row['buch_no'] }}</td><td class="num">{{ $row['tree_wt'] }}</td><td class="num">{{ $row['tree_bhuko'] }}</td><td class="num">{{ $row['remaining_tree_wt'] }}</td><td>{{ $row['office_at'] }}</td></tr>
+            @empty
+            <tr><td colspan="6" class="center">No data found</td></tr>
+            @endforelse
+        </tbody>
+        @if($history['tree_cutting_office']['rows']->isNotEmpty())
+        <tfoot>
+            <tr>
+                <td colspan="2">Total</td>
+                <td class="num">{{ $history['tree_cutting_office']['totals']['tree_wt'] }}</td>
+                <td class="num">{{ $history['tree_cutting_office']['totals']['tree_bhuko'] }}</td>
+                <td class="num">{{ $history['tree_cutting_office']['totals']['remaining_tree_wt'] }}</td>
+                <td></td>
+            </tr>
+        </tfoot>
+        @endif
+    </table>
+
+    <div class="section-title">5. Tree Cutting Issue</div>
     <table>
         <thead><tr><th style="width:8%;">Sr No</th><th>Buch No</th><th>Worker</th><th class="num">Receive Tree Wt</th><th>Issued At</th></tr></thead>
         <tbody>
@@ -122,7 +145,7 @@
         @endif
     </table>
 
-    <div class="section-title">5. Tree Cutting Receive</div>
+    <div class="section-title">6. Tree Cutting Receive</div>
     <table>
         <thead><tr><th style="width:8%;">Sr No</th><th>Buch No</th><th>Worker</th><th class="num">Receive Pc Wt</th><th class="num">Tree Bhuko</th><th class="num">Loss</th><th>Received At</th></tr></thead>
         <tbody>
@@ -145,7 +168,7 @@
         @endif
     </table>
 
-    <div class="section-title">6. Casting Sorting</div>
+    <div class="section-title">7. Casting Sorting</div>
     <table>
         <thead><tr><th style="width:8%;">Sr No</th><th>Item</th><th class="num">Weight</th><th class="num">Quantity</th><th>Sorted At</th></tr></thead>
         <tbody>

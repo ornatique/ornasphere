@@ -63,6 +63,11 @@ class VacuumVoucher extends Model
         return $this->hasMany(TreeCuttingIssueItem::class);
     }
 
+    public function treeCuttingOfficeItems()
+    {
+        return $this->hasMany(TreeCuttingOfficeItem::class);
+    }
+
     public function treeCuttingReceiveItems()
     {
         return $this->hasMany(TreeCuttingReceiveItem::class);

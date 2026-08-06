@@ -69,6 +69,7 @@
     $canCastingHeating = $canModule('casting-heating');
     $canCastingMetalIssue = $canModule('casting-metal-issue');
     $canCastingRelease = $canModule('casting-release');
+    $canTreeCuttingOffice = $canModule('tree-cutting-office');
     $canTreeCuttingIssue = $canModule('tree-cutting-issue');
     $canTreeCuttingReceive = $canModule('tree-cutting-receive');
     $canCastingSorting = $canModule('casting-sorting');
@@ -106,6 +107,42 @@
             font-size: 10px;
             font-weight: 700;
             line-height: 1;
+        }
+
+        #sidebar-accordion > .nav-item {
+            order: 90;
+        }
+
+        #sidebar-accordion > .nav-item:has(.sidebar-profile) {
+            order: 1;
+        }
+
+        #sidebar-accordion > .nav-item:has(a[href*="dashboard"]) {
+            order: 2;
+        }
+
+        #sidebar-accordion > .nav-item:has(a[href*="vacuum-live-dashboard"]) {
+            order: 3;
+        }
+
+        #sidebar-accordion > .nav-item:has(a[href*="app-themes"]) {
+            order: 4;
+        }
+
+        #sidebar-accordion > .nav-item:has(a[href="#user-management"]) {
+            order: 5;
+        }
+
+        #sidebar-accordion > .nav-item:has(a[href="#vacuum-menu"]) {
+            order: 6;
+        }
+
+        #sidebar-accordion > .nav-item:has(a[href="#jobwork-issue-menu"]) {
+            order: 7;
+        }
+
+        #sidebar-accordion > .nav-item:has(a[href="#item-management"]) {
+            order: 8;
         }
     </style>
 
@@ -374,12 +411,13 @@
         request()->routeIs('company.casting-heating.*') ||
         request()->routeIs('company.casting-metal-issue.*') ||
         request()->routeIs('company.casting-release.*') ||
+        request()->routeIs('company.tree-cutting-office.*') ||
         request()->routeIs('company.tree-cutting-issue.*') ||
         request()->routeIs('company.tree-cutting-receive.*') ||
         request()->routeIs('company.casting-sorting.*') ||
         request()->routeIs('company.voucher-history.*');
         @endphp
-        @if($canVacuumBuch || $canVacuumProcess || $canVacuumVoucher || $canCastingHeating || $canCastingMetalIssue || $canCastingRelease || $canTreeCuttingIssue || $canTreeCuttingReceive || $canCastingSorting || $canVoucherHistory)
+        @if($canVacuumBuch || $canVacuumProcess || $canVacuumVoucher || $canCastingHeating || $canCastingMetalIssue || $canCastingRelease || $canTreeCuttingOffice || $canTreeCuttingIssue || $canTreeCuttingReceive || $canCastingSorting || $canVoucherHistory)
         <li class="nav-item {{ $vacuumActive ? 'active' : '' }}">
             <a class="nav-link"
                 data-bs-toggle="collapse"
@@ -395,6 +433,7 @@
                     'casting_heating',
                     'casting_metal_issue',
                     'casting_release',
+                    'tree_cutting_office',
                     'tree_cutting_issue',
                     'tree_cutting_receive',
                     'casting_sorting',
@@ -475,6 +514,18 @@
                             Casting Receive
                             @if($canNotifications && $notifyCount('casting_release') > 0)
                             <span class="sidebar-notification-badge">{{ $notifyCount('casting_release') > 99 ? '99+' : $notifyCount('casting_release') }}</span>
+                            @endif
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canTreeCuttingOffice)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.tree-cutting-office.*') ? 'active' : '' }}"
+                            href="{{ route('company.tree-cutting-office.index', auth()->user()->company->slug) }}">
+                            Tree Cutting Issue Office
+                            @if($canNotifications && $notifyCount('tree_cutting_office') > 0)
+                            <span class="sidebar-notification-badge">{{ $notifyCount('tree_cutting_office') > 99 ? '99+' : $notifyCount('tree_cutting_office') }}</span>
                             @endif
                         </a>
                     </li>

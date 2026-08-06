@@ -36,7 +36,19 @@
             'remarks' => '',
         ]];
     }
+    $jobworkReceivePageData = [
+        'issueItemOptions' => $receiveItemOptions,
+        'totalIssueNet' => number_format($totalIssueNet, 3, '.', ''),
+    ];
 @endphp
+<div id="jobworkReceiveAjaxContent">
+<script type="application/json" id="jobworkReceivePageData">{!! json_encode($jobworkReceivePageData) !!}</script>
+<div id="jobworkReceiveLoader" class="jobwork-receive-loader d-none">
+    <div class="jobwork-receive-loader-box">
+        <span class="jobwork-receive-spinner"></span>
+        <span>Loading...</span>
+    </div>
+</div>
 <div class="content-wrapper">
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
@@ -82,35 +94,16 @@
                     <div class="col-md-3"><strong>Total Amt:</strong><br>{{ number_format((float) ($row->total_amt_sum ?? 0), 2, '.', '') }}</div>
                 </div>
 
-                <h5 class="section-title">Issue Jobwork List</h5>
-                <div class="table-responsive mb-4 issue-list-scroll">
-                    <table class="table table-bordered jobwork-issue-summary-table">
-                        <thead>
-                            <tr>
-                                <th>Sr. No</th>
-                                <th>Item</th>
-                                <th>Issue Net Wt</th>
-                                <th>Issue Qty</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach($row->items as $index => $item)
-                                <tr>
-                                    <td>{{ $index + 1 }}</td>
-                                    <td>{{ $item->item?->item_name ?? '-' }}</td>
-                                    <td>{{ number_format((float) ($item->net_wt ?? 0), 3, '.', '') }}</td>
-                                    <td>{{ (int) ($item->qty_pcs ?? 0) }}</td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                        <tfoot>
-                            <tr>
-                                <th colspan="2">Total</th>
-                                <th>{{ number_format($totalIssueNet, 3, '.', '') }}</th>
-                                <th>{{ (int) $row->items->sum('qty_pcs') }}</th>
-                            </tr>
-                        </tfoot>
-                    </table>
+                <div class="worker-voucher-select-wrap mb-4">
+                    <label class="form-label mb-1">Voucher Name</label>
+                    <select class="form-control worker-voucher-select" id="workerVoucherSelect">
+                        @foreach($workerIssueVouchers as $voucherRow)
+                            <option value="{{ route('company.jobwork-receive.show', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $voucherRow->id)]) }}"
+                                @selected((int) $voucherRow->id === (int) $row->id)>
+                                {{ $voucherRow->voucher_no }}
+                            </option>
+                        @endforeach
+                    </select>
                 </div>
 
                 <h5 class="section-title">Jobwork Receive</h5>
@@ -243,6 +236,7 @@
         </div>
     </div>
 </div>
+</div>
 @endsection
 
 @push('styles')
@@ -254,41 +248,15 @@
         font-weight: 700;
     }
 
-    .jobwork-issue-summary-table {
-        min-width: 760px;
-        margin-bottom: 0;
-    }
-
     .jobwork-receive-table {
         min-width: 1500px;
         margin-bottom: 0;
-    }
-
-    .issue-list-scroll {
-        max-width: 860px;
-        max-height: 520px;
-        overflow: auto;
-        border: 1px solid rgba(255, 255, 255, 0.08);
     }
 
     .receive-list-scroll {
         max-height: 560px;
         overflow: auto;
         border: 1px solid rgba(255, 255, 255, 0.08);
-    }
-
-    .issue-list-scroll .jobwork-issue-summary-table thead th {
-        position: sticky;
-        top: 0;
-        z-index: 2;
-        background: #25263b;
-    }
-
-    .issue-list-scroll .jobwork-issue-summary-table tfoot th {
-        position: sticky;
-        bottom: 0;
-        z-index: 2;
-        background: #25263b;
     }
 
     .receive-list-scroll .jobwork-receive-table thead th {
@@ -305,18 +273,57 @@
         background: #25263b;
     }
 
-    .jobwork-issue-summary-table th,
-    .jobwork-issue-summary-table td,
     .jobwork-receive-table th,
     .jobwork-receive-table td {
         vertical-align: middle;
         white-space: nowrap;
     }
 
-    .jobwork-issue-summary-table th:first-child,
-    .jobwork-issue-summary-table td:first-child {
-        width: 90px;
-        text-align: center;
+    .worker-voucher-select-wrap {
+        max-width: 360px;
+    }
+
+    .worker-voucher-select-wrap .select2-container {
+        width: 100% !important;
+    }
+
+    .jobwork-receive-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 2000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(18, 19, 31, 0.62);
+        backdrop-filter: blur(2px);
+    }
+
+    .jobwork-receive-loader.d-none {
+        display: none !important;
+    }
+
+    .jobwork-receive-loader-box {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 18px;
+        background: #25263b;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: #fff;
+        font-weight: 700;
+    }
+
+    .jobwork-receive-spinner {
+        width: 18px;
+        height: 18px;
+        border: 3px solid rgba(255, 255, 255, 0.25);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: jobworkReceiveSpin 0.75s linear infinite;
+    }
+
+    @keyframes jobworkReceiveSpin {
+        to { transform: rotate(360deg); }
     }
 
     .jobwork-receive-table th:first-child,
@@ -359,15 +366,57 @@
 
 @push('scripts')
 <script>
-document.addEventListener('DOMContentLoaded', function () {
+(function () {
+window.initJobworkReceivePage = function () {
     let activeReceiveRow = null;
     let receiveRowIndex = document.querySelectorAll('.receive-row').length;
-    const issueItemOptions = @json($receiveItemOptions);
-    const totalIssueNet = {{ number_format($totalIssueNet, 3, '.', '') }};
+    const pageData = JSON.parse(document.getElementById('jobworkReceivePageData')?.textContent || '{}');
+    const issueItemOptions = pageData.issueItemOptions || [];
+    const totalIssueNet = numberValue(pageData.totalIssueNet || 0);
     const receiveOtherModalEl = document.getElementById('receiveOtherModal');
     const receiveOtherModal = window.bootstrap && bootstrap.Modal
         ? bootstrap.Modal.getOrCreateInstance(receiveOtherModalEl)
         : null;
+
+    function showJobworkReceiveLoader(show = true) {
+        document.getElementById('jobworkReceiveLoader')?.classList.toggle('d-none', !show);
+    }
+
+    async function loadJobworkReceiveVoucher(url) {
+        showJobworkReceiveLoader(true);
+
+        try {
+            const response = await fetch(url, {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'text/html',
+                },
+                credentials: 'same-origin',
+            });
+
+            if (!response.ok) {
+                throw new Error('Unable to load voucher');
+            }
+
+            const html = await response.text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const nextContent = doc.getElementById('jobworkReceiveAjaxContent');
+            const currentContent = document.getElementById('jobworkReceiveAjaxContent');
+
+            if (!nextContent || !currentContent) {
+                window.location.href = url;
+                return;
+            }
+
+            currentContent.replaceWith(nextContent);
+            window.history.pushState({}, '', url);
+            window.initJobworkReceivePage();
+        } catch (error) {
+            window.location.href = url;
+        } finally {
+            showJobworkReceiveLoader(false);
+        }
+    }
 
     function numberValue(value) {
         const parsed = parseFloat(value);
@@ -414,6 +463,41 @@ document.addEventListener('DOMContentLoaded', function () {
                 placeholder: 'Select Item',
                 allowClear: true
             });
+        });
+    }
+
+    function initWorkerVoucherSelect() {
+        const select = document.getElementById('workerVoucherSelect');
+
+        if (!select) {
+            return;
+        }
+
+        if (window.jQuery && $.fn.select2) {
+            const $select = $(select);
+
+            if (!$select.hasClass('select2-hidden-accessible')) {
+                $select.select2({
+                    theme: 'bootstrap4',
+                    width: '100%',
+                    placeholder: 'Select Voucher',
+                    minimumResultsForSearch: 0
+                });
+            }
+
+            $select.off('change.jobworkVoucher').on('change.jobworkVoucher', function () {
+                if (this.value && this.value !== window.location.href) {
+                    loadJobworkReceiveVoucher(this.value);
+                }
+            });
+
+            return;
+        }
+
+        select.addEventListener('change', function () {
+            if (this.value && this.value !== window.location.href) {
+                loadJobworkReceiveVoucher(this.value);
+            }
         });
     }
 
@@ -592,6 +676,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
     initReceiveItemSelect(document);
+    initWorkerVoucherSelect();
 
     document.querySelectorAll('.receive-row td:first-child').forEach(function (cell) {
         cell.classList.add('receive-sr');
@@ -606,6 +691,9 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     recalculateTotals();
-});
+};
+
+document.addEventListener('DOMContentLoaded', window.initJobworkReceivePage);
+})();
 </script>
 @endpush

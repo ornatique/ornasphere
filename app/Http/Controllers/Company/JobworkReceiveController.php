@@ -49,8 +49,9 @@ class JobworkReceiveController extends Controller
         $receive = $this->ensureReceive($company, $row);
         $issueItemOptions = $this->issueItemOptions($row);
         $receiveItemOptions = $this->receiveItemOptions($company, $issueItemOptions);
+        $workerIssueVouchers = $this->workerIssueVouchers($company, $row);
 
-        return view('company.jobwork_receive.show', compact('company', 'row', 'receive', 'issueItemOptions', 'receiveItemOptions'));
+        return view('company.jobwork_receive.show', compact('company', 'row', 'receive', 'issueItemOptions', 'receiveItemOptions', 'workerIssueVouchers'));
     }
 
     public function update(Request $request, string $slug, string $encryptedId)
@@ -142,8 +143,9 @@ class JobworkReceiveController extends Controller
         $id = Crypt::decryptString($encryptedId);
         $row = $this->findIssue($company, (int) $id);
         $receive = $this->ensureReceive($company, $row);
+        $workerIssueVouchers = $this->workerIssueVouchers($company, $row);
 
-        return Pdf::loadView('company.jobwork_receive.pdf.show', compact('company', 'row', 'receive'))
+        return Pdf::loadView('company.jobwork_receive.pdf.show', compact('company', 'row', 'receive', 'workerIssueVouchers'))
             ->setPaper('a4', 'landscape')
             ->download('jobwork_receive_' . $row->voucher_no . '.pdf');
     }
@@ -302,5 +304,22 @@ class JobworkReceiveController extends Controller
                 ];
             })
             ->values();
+    }
+
+    private function workerIssueVouchers(Company $company, JobworkIssue $row)
+    {
+        return JobworkIssue::query()
+            ->where('company_id', $company->id)
+            ->where('job_worker_id', $row->job_worker_id)
+            ->whereHas('items')
+            ->with([
+                'productionStep:id,name',
+                'receive' => fn($query) => $query
+                    ->withSum('items as receive_net_wt_sum', 'receive_net_wt'),
+            ])
+            ->withSum('items as issue_net_wt_sum', 'net_wt')
+            ->orderByDesc('jobwork_date')
+            ->orderByDesc('id')
+            ->get();
     }
 }

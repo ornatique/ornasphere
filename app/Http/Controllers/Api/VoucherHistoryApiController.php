@@ -9,6 +9,7 @@ use App\Models\CastingReleaseItem;
 use App\Models\CastingSortingItem;
 use App\Models\Company;
 use App\Models\TreeCuttingIssueItem;
+use App\Models\TreeCuttingOfficeItem;
 use App\Models\TreeCuttingReceiveItem;
 use App\Models\VacuumVoucher;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -160,7 +161,15 @@ class VoucherHistoryApiController extends Controller
             fputcsv($handle, ['Total', '', $history['casting_receive']['totals']['release_tree_wt'], $history['casting_receive']['totals']['release_tree_bhuko'], $history['casting_receive']['totals']['loss'], '']);
             fputcsv($handle, []);
 
-            fputcsv($handle, ['4. Tree Cutting Issue']);
+            fputcsv($handle, ['4. Tree Cutting Issue Office']);
+            fputcsv($handle, ['Sr No', 'Buch No', 'Tree Wt', 'Tree Bhuko', 'Remaining Tree Wt', 'Office At']);
+            foreach ($history['tree_cutting_office']['rows'] as $index => $row) {
+                fputcsv($handle, [$index + 1, $row['buch_no'], $row['tree_wt'], $row['tree_bhuko'], $row['remaining_tree_wt'], $row['office_at']]);
+            }
+            fputcsv($handle, ['Total', '', $history['tree_cutting_office']['totals']['tree_wt'], $history['tree_cutting_office']['totals']['tree_bhuko'], $history['tree_cutting_office']['totals']['remaining_tree_wt'], '']);
+            fputcsv($handle, []);
+
+            fputcsv($handle, ['5. Tree Cutting Issue']);
             fputcsv($handle, ['Sr No', 'Buch No', 'Worker', 'Receive Tree Wt', 'Issued At']);
             foreach ($history['tree_cutting_issue']['rows'] as $index => $row) {
                 fputcsv($handle, [$index + 1, $row['buch_no'], $row['worker'], $row['receive_tree_wt'], $row['issued_at']]);
@@ -168,7 +177,7 @@ class VoucherHistoryApiController extends Controller
             fputcsv($handle, ['Total', '', '', $history['tree_cutting_issue']['totals']['receive_tree_wt'], '']);
             fputcsv($handle, []);
 
-            fputcsv($handle, ['5. Tree Cutting Receive']);
+            fputcsv($handle, ['6. Tree Cutting Receive']);
             fputcsv($handle, ['Sr No', 'Buch No', 'Worker', 'Receive Pc Wt', 'Tree Bhuko', 'Loss', 'Received At']);
             foreach ($history['tree_cutting_receive']['rows'] as $index => $row) {
                 fputcsv($handle, [$index + 1, $row['buch_no'], $row['worker'], $row['receive_pc_wt'], $row['receive_tree_bhuko'], $row['loss'], $row['received_at']]);
@@ -176,7 +185,7 @@ class VoucherHistoryApiController extends Controller
             fputcsv($handle, ['Total', '', '', $history['tree_cutting_receive']['totals']['receive_pc_wt'], $history['tree_cutting_receive']['totals']['receive_tree_bhuko'], $history['tree_cutting_receive']['totals']['loss'], '']);
             fputcsv($handle, []);
 
-            fputcsv($handle, ['6. Casting Sorting']);
+            fputcsv($handle, ['7. Casting Sorting']);
             fputcsv($handle, ['Sr No', 'Item', 'Weight', 'Quantity', 'Sorted At']);
             foreach ($history['casting_sorting']['rows'] as $index => $row) {
                 fputcsv($handle, [$index + 1, $row['item'], $row['weight'], $row['quantity'], $row['sorted_at']]);
@@ -230,6 +239,13 @@ class VoucherHistoryApiController extends Controller
             ->get();
 
         $releaseItems = CastingReleaseItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucher->id)
+            ->when($validItemIds !== [], fn($query) => $query->whereIn('vacuum_voucher_item_id', $validItemIds))
+            ->with('voucherItem:id,buch_no')
+            ->orderBy('id')
+            ->get();
+
+        $officeItems = TreeCuttingOfficeItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
             ->when($validItemIds !== [], fn($query) => $query->whereIn('vacuum_voucher_item_id', $validItemIds))
             ->with('voucherItem:id,buch_no')
@@ -328,6 +344,22 @@ class VoucherHistoryApiController extends Controller
                     'released_at_view' => $this->dateTime($item->released_at ?: $item->created_at),
                 ])->values(),
             ],
+            'tree_cutting_office' => [
+                'office_count' => $officeItems->count(),
+                'tree_wt_total' => $this->decimal($officeItems->sum(fn($item) => (float) ($item->tree_wt ?? 0))),
+                'tree_bhuko_total' => $this->decimal($officeItems->sum(fn($item) => (float) ($item->office_cut_wt ?? 0))),
+                'remaining_tree_wt_total' => $this->decimal($officeItems->sum(fn($item) => (float) ($item->remaining_tree_wt ?? 0))),
+                'rows' => $officeItems->map(fn($item) => [
+                    'id' => (int) $item->id,
+                    'vacuum_voucher_item_id' => (int) $item->vacuum_voucher_item_id,
+                    'buch_no' => $item->voucherItem?->buch_no ?? '-',
+                    'tree_wt' => $this->decimal($item->tree_wt),
+                    'tree_bhuko' => $this->decimal($item->office_cut_wt),
+                    'remaining_tree_wt' => $this->decimal($item->remaining_tree_wt),
+                    'office_at' => $this->dateTimeValue($item->office_cut_at ?: $item->created_at),
+                    'office_at_view' => $this->dateTime($item->office_cut_at ?: $item->created_at),
+                ])->values(),
+            ],
             'tree_cutting_issue' => [
                 'issued_count' => $treeIssueItems->count(),
                 'receive_tree_wt_total' => $this->decimal($treeIssueItems->sum(fn($item) => (float) ($item->receive_tree_wt ?? 0))),
@@ -421,6 +453,20 @@ class VoucherHistoryApiController extends Controller
                     'release_tree_bhuko' => $row['release_tree_bhuko'],
                     'loss' => $row['loss'],
                     'received_at' => $row['released_at_view'] ?? '-',
+                ]),
+            ],
+            'tree_cutting_office' => [
+                'totals' => [
+                    'tree_wt' => $history['tree_cutting_office']['tree_wt_total'],
+                    'tree_bhuko' => $history['tree_cutting_office']['tree_bhuko_total'],
+                    'remaining_tree_wt' => $history['tree_cutting_office']['remaining_tree_wt_total'],
+                ],
+                'rows' => $history['tree_cutting_office']['rows']->map(fn($row) => [
+                    'buch_no' => $row['buch_no'],
+                    'tree_wt' => $row['tree_wt'],
+                    'tree_bhuko' => $row['tree_bhuko'],
+                    'remaining_tree_wt' => $row['remaining_tree_wt'],
+                    'office_at' => $row['office_at_view'] ?? '-',
                 ]),
             ],
             'tree_cutting_issue' => [

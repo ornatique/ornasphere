@@ -58,6 +58,7 @@
                                     <input type="checkbox" id="check-all-tree-issue" aria-label="Check all tree rows">
                                 </th>
                                 <th style="width: 220px;">B. No</th>
+                                <th style="width: 200px;">Office Cut Wt</th>
                                 <th style="width: 240px;">Receive Tree Wt</th>
                                 <th style="width: 260px;">Assign Worker</th>
                             </tr>
@@ -74,14 +75,17 @@
                                     continue;
                                 }
                                 $treeCuttingItem = $treeCuttingItems->get($item->id);
-                                $defaultReceiveTreeWt = $receiveItem?->release_tree_wt;
+                                $officeCutWt = (float) ($receiveItem->office_cut_wt ?? 0);
+                                $officeIssueGroupKey = $receiveItem->office_issue_group_key ?? null;
+                                $defaultReceiveTreeWt = $receiveItem?->remaining_tree_wt ?? $receiveItem?->release_tree_wt;
                                 $receiveTreeWtValue = old('items.' . $item->id . '.receive_tree_wt', $defaultReceiveTreeWt);
                                 $defaultWorkerId = $treeCuttingItem?->job_worker_id;
-                                $issueGroupKey = old('items.' . $item->id . '.issue_group_key', $treeCuttingItem?->issue_group_key);
+                                $savedIssueGroupKey = $treeCuttingItem?->issue_group_key ?: $officeIssueGroupKey;
+                                $issueGroupKey = old('items.' . $item->id . '.issue_group_key', $savedIssueGroupKey);
                                 $receiveTreeWtTotal += $receiveTreeWtValue !== null && $receiveTreeWtValue !== '' ? (float) $receiveTreeWtValue : 0;
                                 $issueRowNo++;
                             @endphp
-                            <tr data-tree-issue-row data-group-key="{{ $issueGroupKey }}">
+                            <tr data-tree-issue-row data-group-key="{{ $issueGroupKey }}" @if($officeIssueGroupKey) data-office-group="1" @endif>
                                 <td data-row-no>{{ $issueRowNo }}</td>
                                 <td>
                                     <input type="hidden"
@@ -98,6 +102,7 @@
                                         class="tree-issue-checkbox"
                                         @checked((bool) $issueGroupKey)
                                         @if($issueGroupKey) data-saved-group="1" @endif
+                                        @if($officeIssueGroupKey) data-office-group="1" @endif
                                         aria-label="Select {{ $item->buch_no }}">
                                     <input type="hidden"
                                         name="items[{{ $item->id }}][issue_group_key]"
@@ -109,6 +114,7 @@
                                         value="{{ $issueGroupKey }}">
                                 </td>
                                 <td>{{ $item->buch_no }}</td>
+                                <td>{{ number_format($officeCutWt, 3, '.', '') }}</td>
                                 <td>
                                     <input type="number"
                                         name="items[{{ $item->id }}][receive_tree_wt]"
@@ -119,7 +125,10 @@
                                          value="{{ $receiveTreeWtValue }}">
                                 </td>
                                 <td>
-                                    <select name="items[{{ $item->id }}][job_worker_id]" class="form-control tree-cutting-worker-select">
+                                    <select name="items[{{ $item->id }}][job_worker_id]"
+                                        class="form-control tree-cutting-worker-select"
+                                        data-original-worker="{{ $defaultWorkerId ?: '' }}"
+                                        data-original-group-key="{{ $savedIssueGroupKey ?: '' }}">
                                         <option value="">Select Worker</option>
                                         @foreach($jobWorkers as $worker)
                                         <option value="{{ $worker->id }}" @selected((string) old('items.' . $item->id . '.job_worker_id', $defaultWorkerId) === (string) $worker->id)>{{ $worker->name }}</option>
@@ -145,6 +154,7 @@
                                         value="{{ old('custom_existing.' . $customItem->id . '.custom_buch_no', $customItem->custom_buch_no) }}"
                                         placeholder="Custom B No">
                                 </td>
+                                <td></td>
                                 <td>
                                     <input type="number"
                                         name="custom_existing[{{ $customItem->id }}][receive_tree_wt]"
@@ -167,13 +177,13 @@
 
                             @if($issueRowNo === 0)
                             <tr>
-                                <td colspan="5" class="text-center">No casting receive rows found</td>
+                                <td colspan="6" class="text-center">No casting receive rows found</td>
                             </tr>
                             @endif
                         </tbody>
                         <tfoot>
                             <tr>
-                                <td colspan="3">Total</td>
+                                <td colspan="4">Total</td>
                                 <td><strong id="treeIssueReceiveTreeWtTotal">{{ number_format($receiveTreeWtTotal, 3, '.', '') }}</strong></td>
                                 <td></td>
                             </tr>
@@ -262,6 +272,34 @@
         }
     }
 
+    function isTreeIssueWorkerLocked(row) {
+        const workerSelect = row?.querySelector('.tree-cutting-worker-select');
+        const checkbox = row?.querySelector('.tree-issue-checkbox');
+
+        if (!workerSelect?.dataset.originalWorker || !workerSelect?.dataset.originalGroupKey) {
+            return false;
+        }
+
+        if (checkbox?.dataset.officeGroup === '1') {
+            return true;
+        }
+
+        return Boolean(checkbox?.checked);
+    }
+
+    function revertLockedTreeIssueWorker(workerSelect) {
+        const row = workerSelect?.closest('tr');
+        const originalWorker = workerSelect?.dataset.originalWorker || '';
+
+        if (!isTreeIssueWorkerLocked(row) || String(workerSelect.value) === String(originalWorker)) {
+            return false;
+        }
+
+        workerSelect.value = originalWorker;
+        alert('First uncheck this group and save changes. After that you can change the worker.');
+        return true;
+    }
+
     function refreshTreeIssueGroupColors() {
         const groupColorMap = new Map();
         let nextColor = 1;
@@ -319,7 +357,8 @@
     }
 
     function applyWorkerToCheckedTreeRows(workerId) {
-        const checkedBoxes = Array.from(document.querySelectorAll('.tree-issue-checkbox:checked'));
+        const checkedBoxes = Array.from(document.querySelectorAll('.tree-issue-checkbox:checked:not([data-office-group="1"])'))
+            .filter((checkbox) => !isTreeIssueWorkerLocked(checkbox.closest('tr')));
         if (!workerId || checkedBoxes.length === 0) {
             return false;
         }
@@ -387,6 +426,10 @@
 
         document.querySelectorAll('.tree-issue-checkbox:checked').forEach((checkbox) => {
             const row = checkbox.closest('tr');
+            if (isTreeIssueWorkerLocked(row)) {
+                return;
+            }
+
             const workerSelect = row?.querySelector('.tree-cutting-worker-select');
             const itemMatch = workerSelect?.name.match(/^items\[(\d+)\]\[job_worker_id\]$/);
             if (!itemMatch) {
@@ -408,10 +451,13 @@
 
     function syncAppliedTreeIssueRows(responseData) {
         const itemIds = (responseData.item_ids || []).map((itemId) => String(itemId));
-        const groupKey = responseData.group_key || '';
-        const workerId = responseData.worker_id ? String(responseData.worker_id) : '';
+        const rowGroupKeys = responseData.row_group_keys || {};
+        const rowWorkerIds = responseData.row_worker_ids || {};
+        const defaultWorkerId = responseData.worker_id ? String(responseData.worker_id) : '';
 
         itemIds.forEach((itemId) => {
+            const groupKey = rowGroupKeys[itemId] || responseData.group_key || '';
+            const workerId = rowWorkerIds[itemId] ? String(rowWorkerIds[itemId]) : defaultWorkerId;
             const workerSelect = document.querySelector(`[name="items[${itemId}][job_worker_id]"]`);
             const row = workerSelect?.closest('tr');
             const checkbox = row?.querySelector('.tree-issue-checkbox');
@@ -422,6 +468,8 @@
 
             if (workerSelect) {
                 workerSelect.value = workerId;
+                workerSelect.dataset.originalWorker = workerId;
+                workerSelect.dataset.originalGroupKey = groupKey;
             }
             if (rowGroupKey) {
                 rowGroupKey.value = groupKey;
@@ -439,7 +487,7 @@
                 rowSelectedForGroup.value = groupKey ? '1' : '0';
             }
             if (checkbox) {
-                checkbox.checked = false;
+                checkbox.checked = checkbox.dataset.officeGroup === '1';
                 if (groupKey) {
                     checkbox.dataset.savedGroup = '1';
                 } else {
@@ -462,6 +510,7 @@
             <td>
                 <input type="text" name="custom_items[${index}][custom_buch_no]" class="form-control" placeholder="Custom B No">
             </td>
+            <td></td>
             <td>
                 <input type="number" name="custom_items[${index}][receive_tree_wt]" class="form-control tree-cutting-input" step="0.001" min="0" inputmode="decimal">
             </td>
@@ -478,6 +527,10 @@
 
     document.getElementById('check-all-tree-issue')?.addEventListener('change', function () {
         document.querySelectorAll('.tree-issue-checkbox').forEach((checkbox) => {
+            if (checkbox.dataset.officeGroup === '1') {
+                checkbox.checked = true;
+                return;
+            }
             checkbox.checked = this.checked;
             if (this.checked) {
                 const rowGroupChecked = checkbox.closest('tr')?.querySelector('.tree-issue-group-checked');
@@ -542,6 +595,20 @@
 
     document.addEventListener('change', function (event) {
         if (event.target.matches('.tree-issue-checkbox')) {
+            if (event.target.dataset.officeGroup === '1') {
+                event.target.checked = true;
+                const rowGroupChecked = event.target.closest('tr')?.querySelector('.tree-issue-group-checked');
+                const rowSelectedForGroup = event.target.closest('tr')?.querySelector('.tree-issue-selected-for-group');
+                if (rowGroupChecked) {
+                    rowGroupChecked.value = '1';
+                }
+                if (rowSelectedForGroup) {
+                    rowSelectedForGroup.value = '1';
+                }
+                refreshTreeIssueGroupColors();
+                return;
+            }
+
             if (event.target.checked) {
                 const rowGroupChecked = event.target.closest('tr')?.querySelector('.tree-issue-group-checked');
                 const rowSelectedForGroup = event.target.closest('tr')?.querySelector('.tree-issue-selected-for-group');
@@ -559,7 +626,15 @@
         }
 
         if (event.target.matches('#tree-cutting-issue-rows .tree-cutting-worker-select')) {
+            if (revertLockedTreeIssueWorker(event.target)) {
+                return;
+            }
+
             const rowCheckbox = event.target.closest('tr')?.querySelector('.tree-issue-checkbox');
+            if (rowCheckbox?.dataset.officeGroup === '1') {
+                event.target.value = event.target.dataset.originalWorker || event.target.value;
+                return;
+            }
             if (rowCheckbox?.checked && applyWorkerToCheckedTreeRows(event.target.value)) {
                 return;
             }
@@ -595,6 +670,9 @@
 
     document.querySelector('form')?.addEventListener('submit', function () {
         document.querySelectorAll('.tree-issue-checkbox').forEach((checkbox) => {
+            if (checkbox.dataset.officeGroup === '1') {
+                checkbox.checked = true;
+            }
             const rowGroupChecked = checkbox.closest('tr')?.querySelector('.tree-issue-group-checked');
             const rowSelectedForGroup = checkbox.closest('tr')?.querySelector('.tree-issue-selected-for-group');
             const rowGroupKey = checkbox.closest('tr')?.querySelector('.tree-issue-group-key');
@@ -609,7 +687,8 @@
             }
         });
 
-        const checkedRows = Array.from(document.querySelectorAll('.tree-issue-checkbox:checked'));
+        const checkedRows = Array.from(document.querySelectorAll('.tree-issue-checkbox:checked:not([data-office-group="1"])'))
+            .filter((checkbox) => !isTreeIssueWorkerLocked(checkbox.closest('tr')));
         const checkedRowsByWorker = checkedRows.reduce((groups, checkbox) => {
             const workerId = checkbox.closest('tr')?.querySelector('.tree-cutting-worker-select')?.value || '';
             if (!workerId) {

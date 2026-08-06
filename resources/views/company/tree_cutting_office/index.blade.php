@@ -9,10 +9,12 @@
 <div class="content-wrapper">
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <h4 class="card-title">Tree Cutting Receive Voucher List</h4>
+            <h4 class="card-title">Tree Cutting Issue Office Voucher List</h4>
         </div>
         <div class="card-body">
-            <div class="tree-cutting-receive-filters">
+            
+
+            <div class="tree-office-filters">
                 <div class="filter-field">
                     <label for="fromDate">From Date</label>
                     <input type="date" id="fromDate" class="form-control" value="{{ $fromDate }}">
@@ -36,8 +38,8 @@
                 </div>
             </div>
 
-            <div class="table-responsive tree-cutting-receive-list-scroll">
-                <table class="table table-bordered table-striped" id="treeCuttingReceiveTable">
+            <div class="table-responsive tree-office-list-scroll">
+                <table class="table table-bordered table-striped" id="treeCuttingOfficeTable">
                     <thead>
                         <tr>
                             <th>Sr No</th>
@@ -45,13 +47,10 @@
                             <th>Date Time</th>
                             <th>Process</th>
                             <th>Worker Name</th>
-                            <th>Assigned Receive</th>
-                            <th>Pending</th>
+                            <th>Office Used</th>
+                            <th>Tree Wt</th>
                             <th>Office Cut Wt</th>
-                            <th>Issue Tree Wt</th>
-                            <th>Receive Pc Wt</th>
-                            <th>Receive Tree Bhuko</th>
-                            <th>Loss</th>
+                            <th>Remaining Tree Wt</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -64,8 +63,8 @@
 
 @push('styles')
 <style>
-    .tree-cutting-receive-list-scroll { max-height: calc(100vh - 360px); overflow-y: auto; }
-    .tree-cutting-receive-filters {
+    .tree-office-list-scroll { max-height: calc(100vh - 360px); overflow-y: auto; }
+    .tree-office-filters {
         display: grid;
         grid-template-columns: minmax(160px, 200px) minmax(160px, 200px) minmax(220px, 320px) auto;
         gap: 12px;
@@ -75,10 +74,10 @@
         border: 1px solid rgba(255, 255, 255, 0.08);
         background: rgba(255, 255, 255, 0.025);
     }
-    .tree-cutting-receive-filters label { display: block; margin-bottom: 5px; color: #b8b8d4; font-size: 12px; }
+    .tree-office-filters label { display: block; margin-bottom: 5px; color: #b8b8d4; font-size: 12px; }
     .filter-actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .filter-actions .btn { min-width: 86px; }
-    #treeCuttingReceiveTable thead th { position: sticky; top: 0; z-index: 2; background: #25263a; }
+    #treeCuttingOfficeTable thead th { position: sticky; top: 0; z-index: 2; background: #25263a; }
     .count-badge {
         display: inline-flex;
         align-items: center;
@@ -90,10 +89,10 @@
         font-weight: 700;
         line-height: 1.1;
     }
-    .count-assigned, .count-complete { background: #16a34a; }
-    .count-pending { background: #dc2626; }
+    .count-assigned { background: #16a34a; }
+    .count-pending { background: #64748b; }
     @media (max-width: 767px) {
-        .tree-cutting-receive-filters { grid-template-columns: 1fr; }
+        .tree-office-filters { grid-template-columns: 1fr; }
         .filter-actions .btn { width: 100%; }
     }
 </style>
@@ -101,13 +100,13 @@
 
 @push('scripts')
 <script>
-    const defaultFromDate = @json($fromDate);
-    const defaultToDate = @json($toDate);
-    const treeCuttingReceiveTable = $('#treeCuttingReceiveTable').DataTable({
+    const defaultTreeOfficeFromDate = @json($fromDate);
+    const defaultTreeOfficeToDate = @json($toDate);
+    const treeCuttingOfficeTable = $('#treeCuttingOfficeTable').DataTable({
         processing: true,
         serverSide: true,
         ajax: {
-            url: "{{ route('company.tree-cutting-receive.index', $company->slug) }}",
+            url: "{{ route('company.tree-cutting-office.index', $company->slug) }}",
             data: function (data) {
                 data.from_date = $('#fromDate').val();
                 data.to_date = $('#toDate').val();
@@ -121,24 +120,21 @@
             { data: 'date_time_view', name: 'created_at' },
             { data: 'process_name', name: 'process.name', orderable: false },
             { data: 'worker_name', name: 'jobWorker.name', orderable: false },
-            { data: 'assigned_receive_view', name: 'tree_cutting_receive_count', orderable: false, searchable: false },
-            { data: 'pending_receive_view', name: 'pending_receive_count', orderable: false, searchable: false },
+            { data: 'office_used_view', name: 'office_used_count', orderable: false, searchable: false },
+            { data: 'tree_wt_view', name: 'tree_wt_total', orderable: false, searchable: false },
             { data: 'office_cut_wt_view', name: 'office_cut_wt_total', orderable: false, searchable: false },
-            { data: 'issue_tree_wt_view', name: 'issue_tree_wt_total', orderable: false, searchable: false },
-            { data: 'receive_pc_wt_view', name: 'receive_pc_wt_total', orderable: false, searchable: false },
-            { data: 'receive_tree_bhuko_view', name: 'receive_tree_bhuko_total', orderable: false, searchable: false },
-            { data: 'loss_view', name: 'loss_total', orderable: false, searchable: false },
+            { data: 'remaining_tree_wt_view', name: 'remaining_tree_wt_total', orderable: false, searchable: false },
             { data: 'action', name: 'action', orderable: false, searchable: false },
         ]
     });
-    $('#applyFilter').on('click', function () { treeCuttingReceiveTable.ajax.reload(); });
+    $('#applyFilter').on('click', function () { treeCuttingOfficeTable.ajax.reload(); });
     $('#resetFilter').on('click', function () {
-        $('#fromDate').val(defaultFromDate);
-        $('#toDate').val(defaultToDate);
+        $('#fromDate').val(defaultTreeOfficeFromDate);
+        $('#toDate').val(defaultTreeOfficeToDate);
         $('#workerFilter').val('');
-        treeCuttingReceiveTable.ajax.reload();
+        treeCuttingOfficeTable.ajax.reload();
     });
-    function normalizeDateRange() {
+    function normalizeTreeOfficeDateRange() {
         const fromDate = $('#fromDate').val();
         const toDate = $('#toDate').val();
         if (fromDate && toDate && fromDate > toDate) {
@@ -146,8 +142,8 @@
         }
     }
     $('#fromDate, #toDate, #workerFilter').on('change', function () {
-        normalizeDateRange();
-        treeCuttingReceiveTable.ajax.reload();
+        normalizeTreeOfficeDateRange();
+        treeCuttingOfficeTable.ajax.reload();
     });
 </script>
 @endpush

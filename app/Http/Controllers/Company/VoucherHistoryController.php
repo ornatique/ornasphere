@@ -9,6 +9,7 @@ use App\Models\CastingReleaseItem;
 use App\Models\CastingSortingItem;
 use App\Models\Company;
 use App\Models\TreeCuttingIssueItem;
+use App\Models\TreeCuttingOfficeItem;
 use App\Models\TreeCuttingReceiveItem;
 use App\Models\VacuumVoucher;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -109,6 +110,13 @@ class VoucherHistoryController extends Controller
             ->orderBy('id')
             ->get();
 
+        $officeItems = TreeCuttingOfficeItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucher->id)
+            ->when($validItemIds !== [], fn($query) => $query->whereIn('vacuum_voucher_item_id', $validItemIds))
+            ->with('voucherItem:id,buch_no')
+            ->orderBy('id')
+            ->get();
+
         $treeIssueItems = TreeCuttingIssueItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
             ->where(function ($query) use ($validItemIds) {
@@ -184,6 +192,20 @@ class VoucherHistoryController extends Controller
                     'release_tree_bhuko' => $this->decimal($item->release_tree_bhuko),
                     'loss' => $this->decimal($item->loss),
                     'received_at' => $this->dateTime($item->released_at ?: $item->created_at),
+                ]),
+            ],
+            'tree_cutting_office' => [
+                'totals' => [
+                    'tree_wt' => $this->decimal($officeItems->sum(fn($item) => (float) ($item->tree_wt ?? 0))),
+                    'tree_bhuko' => $this->decimal($officeItems->sum(fn($item) => (float) ($item->office_cut_wt ?? 0))),
+                    'remaining_tree_wt' => $this->decimal($officeItems->sum(fn($item) => (float) ($item->remaining_tree_wt ?? 0))),
+                ],
+                'rows' => $officeItems->map(fn($item) => [
+                    'buch_no' => $item->voucherItem?->buch_no ?? '-',
+                    'tree_wt' => $this->decimal($item->tree_wt),
+                    'tree_bhuko' => $this->decimal($item->office_cut_wt),
+                    'remaining_tree_wt' => $this->decimal($item->remaining_tree_wt),
+                    'office_at' => $this->dateTime($item->office_cut_at ?: $item->created_at),
                 ]),
             ],
             'tree_cutting_issue' => [

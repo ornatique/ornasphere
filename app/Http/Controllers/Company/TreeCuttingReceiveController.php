@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Company;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\TreeCuttingIssueItem;
+use App\Models\TreeCuttingOfficeItem;
 use App\Models\TreeCuttingReceiveItem;
 use App\Models\VacuumVoucher;
 use App\Services\WorkerPersonService;
@@ -75,6 +76,20 @@ class TreeCuttingReceiveController extends Controller
                         });
                 }, 'tree_cutting_receive_count')
                 ->selectSub(function ($query) use ($company) {
+                    $query->from('tree_cutting_office_items')
+                        ->selectRaw('COALESCE(SUM(tree_cutting_office_items.office_cut_wt), 0)')
+                        ->whereColumn('tree_cutting_office_items.vacuum_voucher_id', 'vacuum_vouchers.id')
+                        ->where('tree_cutting_office_items.company_id', $company->id);
+                }, 'office_cut_wt_total')
+                ->selectSub(function ($query) use ($company) {
+                    $query->from('tree_cutting_issue_items')
+                        ->selectRaw('COALESCE(SUM(tree_cutting_issue_items.receive_tree_wt), 0)')
+                        ->whereColumn('tree_cutting_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
+                        ->where('tree_cutting_issue_items.company_id', $company->id)
+                        ->whereNotNull('tree_cutting_issue_items.job_worker_id')
+                        ->where('tree_cutting_issue_items.receive_tree_wt', '>', 0);
+                }, 'issue_tree_wt_total')
+                ->selectSub(function ($query) use ($company) {
                     $query->from('tree_cutting_receive_items')
                         ->selectRaw('COALESCE(SUM(tree_cutting_receive_items.receive_pc_wt), 0)')
                         ->whereColumn('tree_cutting_receive_items.vacuum_voucher_id', 'vacuum_vouchers.id')
@@ -133,6 +148,8 @@ class TreeCuttingReceiveController extends Controller
                 ->addColumn('process_name', fn($row) => $row->process?->name ?? '-')
                 ->addColumn('worker_name', fn($row) => $row->tree_cutting_worker_names ?: ($row->jobWorker?->name ?? '-'))
                 ->addColumn('assigned_receive_view', fn($row) => '<span class="count-badge count-assigned">' . (int) ($row->tree_cutting_receive_count ?? 0) . '</span>')
+                ->addColumn('office_cut_wt_view', fn($row) => number_format((float) ($row->office_cut_wt_total ?? 0), 3, '.', ''))
+                ->addColumn('issue_tree_wt_view', fn($row) => number_format((float) ($row->issue_tree_wt_total ?? 0), 3, '.', ''))
                 ->addColumn('receive_pc_wt_view', fn($row) => number_format((float) ($row->receive_pc_wt_total ?? 0), 3, '.', ''))
                 ->addColumn('receive_tree_bhuko_view', fn($row) => number_format((float) ($row->receive_tree_bhuko_total ?? 0), 3, '.', ''))
                 ->addColumn('loss_view', fn($row) => number_format((float) ($row->loss_total ?? 0), 3, '.', ''))
@@ -192,7 +209,8 @@ class TreeCuttingReceiveController extends Controller
             ->get()
             ->values();
 
-        $issueRows = $this->issueReceiveRows($issueItems);
+        $officeItems = $this->officeItemsForVoucher($company->id, $voucher->id);
+        $issueRows = $this->issueReceiveRows($issueItems, $officeItems);
         $validItemKeys = $issueRows->keys()->all();
 
         $validated = $request->validate([
@@ -280,7 +298,8 @@ class TreeCuttingReceiveController extends Controller
 
         abort_if($issueItems->isEmpty(), 404);
 
-        $issueRows = $this->issueReceiveRows($issueItems);
+        $officeItems = $this->officeItemsForVoucher($company->id, $voucher->id);
+        $issueRows = $this->issueReceiveRows($issueItems, $officeItems);
 
         $receiveItems = TreeCuttingReceiveItem::where('company_id', $company->id)
             ->where('vacuum_voucher_id', $voucher->id)
@@ -293,11 +312,19 @@ class TreeCuttingReceiveController extends Controller
         return [$company, $voucher, $issueRows, $this->receiveItemsByIssueRows($receiveItems, $issueRows)];
     }
 
-    private function issueReceiveRows($issueItems)
+    private function officeItemsForVoucher(int $companyId, int $voucherId)
+    {
+        return TreeCuttingOfficeItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->get()
+            ->keyBy('vacuum_voucher_item_id');
+    }
+
+    private function issueReceiveRows($issueItems, $officeItems)
     {
         return $issueItems
             ->groupBy(fn($item) => $item->issue_group_key ?: 'item_' . $item->id)
-            ->map(function ($items, $key) {
+            ->map(function ($items, $key) use ($officeItems) {
                 $primary = $items->first();
                 $buchNos = $items
                     ->map(fn($item) => $item->is_custom ? $item->custom_buch_no : ($item->voucherItem?->buch_no ?? '-'))
@@ -312,6 +339,7 @@ class TreeCuttingReceiveController extends Controller
                     'primary_item' => $primary,
                     'buch_no' => $buchNos,
                     'jobWorker' => $primary->jobWorker,
+                    'office_cut_wt' => $items->sum(fn($item) => (float) ($officeItems->get($item->vacuum_voucher_item_id)?->office_cut_wt ?? 0)),
                     'receive_tree_wt' => $items->sum(fn($item) => (float) ($item->receive_tree_wt ?? 0)),
                 ];
             });

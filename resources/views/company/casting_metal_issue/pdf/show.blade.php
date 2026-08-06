@@ -127,11 +127,12 @@
                 <th class="center" style="width: 11%;">Status</th>
                 <th class="num" style="width: 11%;">Silver Weight</th>
                 <th class="center" style="width: 5%;">I/F</th>
-                <th class="num" style="width: 12%;">Pure Fine</th>
-                <th class="num" style="width: 10%;">O/M</th>
-                <th class="num" style="width: 12%;">Metal Weight</th>
+                <th class="num" style="width: 8%;">Melting %</th>
+                <th class="num" style="width: 11%;">Pure Fine</th>
+                <th class="num" style="width: 9%;">O/M</th>
+                <th class="num" style="width: 11%;">Metal Weight</th>
                 <th class="num" style="width: 12%;">Issue Silver Wt</th>
-                <th style="width: 10%;">Remark</th>
+                <th style="width: 7%;">Remark</th>
             </tr>
         </thead>
         <tbody>
@@ -142,6 +143,7 @@
                 $inBhati = (bool) ($heatingItem?->in_bhati);
                 $issueSilverWt = $issueItem?->issue_silver_wt;
                 $isIf = (bool) ($issueItem?->is_if);
+                $melting = $issueItem?->if_percentage;
                 $pureFine = $issueItem?->pure_fine;
                 $otherMetal = $issueItem?->other_metal;
                 $metalWeight = $issueItem?->metal_weight;
@@ -161,6 +163,7 @@
                 </td>
                 <td class="num">{{ number_format((float) $item->silver_wt, 3, '.', '') }}</td>
                 <td class="center">{{ $isIf ? 'Yes' : 'No' }}</td>
+                <td class="num">{{ $melting !== null ? number_format((float) $melting, 2, '.', '') : '-' }}</td>
                 <td class="num">{{ $isIf && $pureFine !== null ? number_format((float) $pureFine, 3, '.', '') : '-' }}</td>
                 <td class="num">{{ $isIf && $otherMetal !== null ? number_format((float) $otherMetal, 3, '.', '') : '-' }}</td>
                 <td class="num">{{ $isIf && $metalWeight !== null ? number_format((float) $metalWeight, 3, '.', '') : '-' }}</td>
@@ -169,13 +172,14 @@
             </tr>
             @empty
             <tr>
-                <td colspan="10" class="center">No Buch rows found</td>
+                <td colspan="11" class="center">No Buch rows found</td>
             </tr>
             @endforelse
             @if($voucher->items->count() > 0)
             <tr class="total-row">
                 <td colspan="3">Total</td>
                 <td class="num">{{ number_format($silverWeightTotal, 3, '.', '') }}</td>
+                <td></td>
                 <td></td>
                 <td class="num">{{ number_format($pureFineTotal, 3, '.', '') }}</td>
                 <td class="num">{{ number_format($otherMetalTotal, 3, '.', '') }}</td>

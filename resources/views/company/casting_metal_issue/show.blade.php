@@ -41,17 +41,16 @@
                     <div><span>Total Pcs</span><strong>{{ (int) ($voucher->items_count ?? $voucher->items->count()) }}</strong></div>
                     <div><span>Created At</span><strong>{{ optional($voucher->created_at)->format('d-m-Y h:i A') }}</strong></div>
                     <div class="melting-box">
-                        <label for="melting">Melting %</label>
-                        <input type="number"
+                        <label for="melting">Apply Melting %</label>
+                        <input type="text"
                             name="melting"
                             id="melting"
                             class="form-control"
-                            step="0.01"
-                            min="0"
-                            max="100"
                             inputmode="decimal"
+                            maxlength="5"
+                            pattern="\d{1,2}(\.\d{1,2})?"
                             value="{{ $meltingValue }}"
-                            placeholder="93">
+                            placeholder="93.50">
                     </div>
                 </div>
 
@@ -64,6 +63,7 @@
                                 <th class="text-center" style="width: 130px;">Status</th>
                                 <th style="width: 160px;">Silver Weight</th>
                                 <th class="text-center" style="width: 90px;">I/F</th>
+                                <th style="width: 140px;">Melting %</th>
                                 <th style="width: 160px;">Pure Fine</th>
                                 <th style="width: 160px;">O/M</th>
                                 <th style="width: 160px;">Metal Weight</th>
@@ -105,10 +105,16 @@
                                         {{ $isIf ? 'checked' : '' }}>
                                 </td>
                                 <td>
-                                    <input type="hidden"
+                                    <input type="text"
                                         name="items[{{ $item->id }}][if_percentage]"
+                                        class="form-control if-input"
                                         data-if-percentage
+                                        inputmode="decimal"
+                                        maxlength="5"
+                                        pattern="\d{1,2}(\.\d{1,2})?"
                                         value="{{ old('items.' . $item->id . '.if_percentage', $issueItem?->if_percentage) }}">
+                                </td>
+                                <td>
                                     <input type="number"
                                         name="items[{{ $item->id }}][pure_fine]"
                                         class="form-control if-input"
@@ -154,7 +160,7 @@
                             </tr>
                             @empty
                             <tr>
-                                <td colspan="10" class="text-center">No Buch rows found</td>
+                                <td colspan="11" class="text-center">No Buch rows found</td>
                             </tr>
                             @endforelse
                         </tbody>
@@ -165,7 +171,7 @@
                                 <td>
                                     <strong>{{ number_format($silverWeightTotal, 3, '.', '') }}</strong>
                                 </td>
-                                <td colspan="4"></td>
+                                <td colspan="5"></td>
                                 <td>
                                     <strong id="issueSilverWtTotal">{{ number_format($issueSilverWtTotal, 3, '.', '') }}</strong>
                                 </td>
@@ -332,6 +338,35 @@
         return (Math.abs(number) < 0.0005 ? 0 : number).toFixed(3);
     };
 
+    const normalizeMeltingPercentInput = (input, format = false) => {
+        if (!input) {
+            return;
+        }
+
+        let value = String(input.value || '').replace(/[^\d.]/g, '');
+        const parts = value.split('.');
+        let whole = (parts[0] || '').slice(0, 2);
+        let decimal = parts.length > 1 ? parts.slice(1).join('').slice(0, 2) : '';
+
+        value = whole;
+        if (parts.length > 1) {
+            value += '.' + decimal;
+        }
+
+        if (value !== '' && value !== '.') {
+            const numericValue = parseFloat(value);
+            if (Number.isFinite(numericValue) && numericValue > 99.99) {
+                value = '99.99';
+            }
+        }
+
+        if (format && value !== '' && value !== '.') {
+            value = metalToNum(value).toFixed(2);
+        }
+
+        input.value = value === '.' ? '' : value;
+    };
+
     function updateIssueSilverWtTotal() {
         const total = Array.from(document.querySelectorAll('.issue-silver-input'))
             .reduce((sum, input) => sum + metalToNum(input.value), 0);
@@ -349,10 +384,10 @@
         const preservePureFine = options.preservePureFine === true;
         const preserveOtherMetal = options.preserveOtherMetal === true;
         const enabled = row.querySelector('[data-if-toggle]')?.checked;
-        const melting = metalToNum(document.getElementById('melting')?.value);
         const silverWeight = metalToNum(row.dataset.silverWeight);
         const pureFine = row.querySelector('[data-pure-fine]');
         const percentage = row.querySelector('[data-if-percentage]');
+        const melting = metalToNum(percentage?.value);
         const otherMetal = row.querySelector('[data-other-metal]');
         const metalWeight = row.querySelector('[data-metal-weight]');
         const ifInputs = row.querySelectorAll('[data-pure-fine], [data-other-metal], [data-metal-weight]');
@@ -369,9 +404,6 @@
         if (!enabled) {
             if (pureFine) {
                 pureFine.value = '';
-            }
-            if (percentage) {
-                percentage.value = '';
             }
             if (otherMetal) {
                 otherMetal.value = '';
@@ -402,10 +434,6 @@
             : (calculatedMetalWeight !== null && pureFineValue !== null
                 ? calculatedMetalWeight - pureFineValue
                 : null);
-
-        if (percentage) {
-            percentage.value = melting > 0 ? melting.toFixed(2) : '';
-        }
 
         if (pureFine && !preservePureFine) {
             pureFine.value = pureFineValue !== null ? metalNfix(pureFineValue) : '';
@@ -443,7 +471,19 @@
 
     document.addEventListener('input', function (event) {
         if (event.target.matches('#melting')) {
-            document.querySelectorAll('[data-if-row]').forEach(resetIfRowFromMelting);
+            normalizeMeltingPercentInput(event.target);
+            document.querySelectorAll('[data-if-row]').forEach((row) => {
+                const percentage = row.querySelector('[data-if-percentage]');
+                if (percentage) {
+                    percentage.value = event.target.value;
+                }
+                resetIfRowFromMelting(row);
+            });
+        }
+
+        if (event.target.matches('[data-if-percentage]')) {
+            normalizeMeltingPercentInput(event.target);
+            resetIfRowFromMelting(event.target.closest('[data-if-row]'));
         }
 
         if (event.target.matches('[data-pure-fine]')) {
@@ -471,12 +511,16 @@
     });
 
     document.addEventListener('blur', function (event) {
-        if (event.target.matches('[data-pure-fine], [data-other-metal], .issue-silver-input, #melting')) {
+        if (event.target.matches('#melting, [data-if-percentage]')) {
+            normalizeMeltingPercentInput(event.target, true);
+        } else if (event.target.matches('[data-pure-fine], [data-other-metal], .issue-silver-input')) {
             if (event.target.value.trim() !== '') {
-                event.target.value = event.target.matches('#melting')
-                    ? metalToNum(event.target.value).toFixed(2)
-                    : metalNfix(event.target.value);
+                event.target.value = metalNfix(event.target.value);
             }
+        }
+
+        if (event.target.matches('[data-if-percentage]')) {
+            resetIfRowFromMelting(event.target.closest('[data-if-row]'));
         }
 
         if (event.target.matches('[data-pure-fine]')) {

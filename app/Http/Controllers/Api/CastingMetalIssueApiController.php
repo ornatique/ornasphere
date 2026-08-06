@@ -155,25 +155,24 @@ class CastingMetalIssueApiController extends Controller
         $voucherItems = $voucher->items->keyBy('id');
         $validItemIds = $voucherItems->keys()->map(fn($itemId) => (int) $itemId)->all();
         $validator = Validator::make($request->all(), [
-            'melting' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'melting' => ['nullable', 'numeric', 'min:0', 'max:99.99', 'regex:/^\d{1,2}(\.\d{1,2})?$/'],
             'items' => ['nullable', 'array'],
             'items.*.issue_silver_wt' => ['nullable', 'numeric', 'min:0'],
             'items.*.is_if' => ['nullable', 'boolean'],
             'items.*.pure_fine' => ['nullable', 'numeric', 'min:0'],
-            'items.*.if_percentage' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'items.*.if_percentage' => ['nullable', 'numeric', 'min:0', 'max:99.99', 'regex:/^\d{1,2}(\.\d{1,2})?$/'],
             'items.*.other_metal' => ['nullable', 'numeric'],
             'items.*.remarks' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $validator->after(function ($validator) use ($request) {
-            $melting = $request->input('melting');
             foreach ((array) $request->input('items', []) as $itemId => $row) {
                 $isIf = filter_var($row['is_if'] ?? false, FILTER_VALIDATE_BOOLEAN);
-                $ifPercentage = $melting !== null && $melting !== '' ? $melting : ($row['if_percentage'] ?? null);
+                $ifPercentage = $row['if_percentage'] ?? null;
 
                 if ($isIf && ($ifPercentage === null || $ifPercentage === '' || (float) $ifPercentage <= 0)) {
                     $validator->errors()->add(
-                        'melting',
+                        'items.' . $itemId . '.if_percentage',
                         'The Melting field must be greater than 0 when I/F is checked.'
                     );
                 }
@@ -183,7 +182,6 @@ class CastingMetalIssueApiController extends Controller
         $validated = $validator->validate();
 
         DB::transaction(function () use ($request, $companyId, $voucher, $voucherItems, $validItemIds, $validated) {
-            $melting = $validated['melting'] ?? null;
             foreach (($validated['items'] ?? []) as $itemId => $row) {
                 $itemId = (int) $itemId;
 
@@ -194,7 +192,7 @@ class CastingMetalIssueApiController extends Controller
                 $issueSilverWt = $row['issue_silver_wt'] ?? null;
                 $isIf = (bool) ($row['is_if'] ?? false);
                 $voucherItem = $voucherItems->get($itemId);
-                $ifPercentage = $melting !== null && $melting !== '' ? $melting : ($row['if_percentage'] ?? null);
+                $ifPercentage = $row['if_percentage'] ?? null;
                 $ifPercentageValue = $isIf && $ifPercentage !== null && $ifPercentage !== '' ? (float) $ifPercentage : null;
                 $pureFine = $row['pure_fine'] ?? null;
                 $otherMetalInput = $row['other_metal'] ?? null;
