@@ -31,8 +31,16 @@ class TreeCuttingOfficeApiController extends Controller
                     ->whereColumn('casting_release_items.vacuum_voucher_id', 'vacuum_vouchers.id')
                     ->where('casting_release_items.company_id', $companyId)
                     ->where(function ($q) {
-                        $q->where('casting_release_items.release_tree_wt', '>', 0)
-                            ->orWhere('casting_release_items.release_tree_bhuko', '>', 0);
+                        $q->where(function ($regular) {
+                            $regular->where('casting_release_items.is_custom', false)
+                                ->orWhereNull('casting_release_items.is_custom');
+                        })->orWhere(function ($custom) {
+                            $custom->where('casting_release_items.is_custom', true)
+                                ->where('casting_release_items.custom_type', 'pc_weight');
+                        });
+                    })
+                    ->where(function ($q) {
+                        $q->where('casting_release_items.release_tree_wt', '>', 0);
                     })
                     ->when($fromDate, fn($q) => $q->whereDate(DB::raw('COALESCE(casting_release_items.released_at, casting_release_items.created_at)'), '>=', $fromDate))
                     ->when($toDate, fn($q) => $q->whereDate(DB::raw('COALESCE(casting_release_items.released_at, casting_release_items.created_at)'), '<=', $toDate));
@@ -53,13 +61,21 @@ class TreeCuttingOfficeApiController extends Controller
                 $query->from('casting_release_items')
                     ->selectRaw('MAX(COALESCE(casting_release_items.released_at, casting_release_items.created_at))')
                     ->whereColumn('casting_release_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                    ->where('casting_release_items.company_id', $companyId);
+                    ->where('casting_release_items.company_id', $companyId)
+                    ->where(function ($q) {
+                        $q->where('casting_release_items.is_custom', false)
+                            ->orWhereNull('casting_release_items.is_custom');
+                    });
             }, 'casting_receive_datetime')
             ->selectSub(function ($query) use ($companyId) {
                 $query->from('casting_release_items')
                     ->selectRaw('COUNT(*)')
                     ->whereColumn('casting_release_items.vacuum_voucher_id', 'vacuum_vouchers.id')
                     ->where('casting_release_items.company_id', $companyId)
+                    ->where(function ($q) {
+                        $q->where('casting_release_items.is_custom', false)
+                            ->orWhereNull('casting_release_items.is_custom');
+                    })
                     ->where(function ($q) {
                         $q->where('casting_release_items.release_tree_wt', '>', 0)
                             ->orWhere('casting_release_items.release_tree_bhuko', '>', 0);
@@ -70,6 +86,10 @@ class TreeCuttingOfficeApiController extends Controller
                     ->selectRaw('COALESCE(SUM(casting_release_items.release_tree_wt), 0)')
                     ->whereColumn('casting_release_items.vacuum_voucher_id', 'vacuum_vouchers.id')
                     ->where('casting_release_items.company_id', $companyId)
+                    ->where(function ($q) {
+                        $q->where('casting_release_items.is_custom', false)
+                            ->orWhereNull('casting_release_items.is_custom');
+                    })
                     ->where(function ($q) {
                         $q->where('casting_release_items.release_tree_wt', '>', 0)
                             ->orWhere('casting_release_items.release_tree_bhuko', '>', 0);
@@ -97,6 +117,10 @@ class TreeCuttingOfficeApiController extends Controller
                     ->selectRaw('COALESCE(SUM(GREATEST(COALESCE(casting_release_items.release_tree_wt, 0) - COALESCE(tree_cutting_office_items.office_cut_wt, 0), 0)), 0)')
                     ->whereColumn('casting_release_items.vacuum_voucher_id', 'vacuum_vouchers.id')
                     ->where('casting_release_items.company_id', $companyId)
+                    ->where(function ($q) {
+                        $q->where('casting_release_items.is_custom', false)
+                            ->orWhereNull('casting_release_items.is_custom');
+                    })
                     ->where(function ($q) {
                         $q->where('casting_release_items.release_tree_wt', '>', 0)
                             ->orWhere('casting_release_items.release_tree_bhuko', '>', 0);
@@ -156,20 +180,13 @@ class TreeCuttingOfficeApiController extends Controller
             return response()->json(['success' => false, 'message' => 'Tree Cutting Office voucher not found'], 404);
         }
 
-        $releaseItems = CastingReleaseItem::where('company_id', $companyId)
-            ->where('vacuum_voucher_id', $voucher->id)
-            ->where(function ($q) {
-                $q->where('release_tree_wt', '>', 0)
-                    ->orWhere('release_tree_bhuko', '>', 0);
-            })
-            ->get()
-            ->keyBy('vacuum_voucher_item_id');
+        $releaseItems = $this->releaseItemsForVoucher($companyId, $voucher->id);
 
         if ($releaseItems->isEmpty()) {
             return response()->json(['success' => false, 'message' => 'Tree Cutting Office voucher not found'], 404);
         }
 
-        $validItemIds = $releaseItems->keys()->map(fn($itemId) => (int) $itemId)->all();
+        $validItemKeys = $releaseItems->keys()->map(fn($itemKey) => (string) $itemKey)->all();
 
         $validated = $request->validate([
             'items' => ['nullable', 'array'],
@@ -181,53 +198,56 @@ class TreeCuttingOfficeApiController extends Controller
             'items.*.bulk_batch_key' => ['nullable', 'string', 'max:64'],
         ]);
 
-        DB::transaction(function () use ($request, $companyId, $voucher, $releaseItems, $validItemIds, $validated) {
+        DB::transaction(function () use ($request, $companyId, $voucher, $releaseItems, $validItemKeys, $validated) {
             $rowKeepsGroup = fn($row) => $this->truthy($row['group_checked'] ?? false)
                 || $this->truthy($row['selected_for_group'] ?? false)
                 || $this->truthy($row['keep_group'] ?? false);
 
             $groupRows = collect($validated['items'] ?? [])
-                ->filter(fn($row, $itemId) => in_array((int) $itemId, $validItemIds, true) && $rowKeepsGroup($row));
+                ->filter(fn($row, $itemKey) => in_array((string) $itemKey, $validItemKeys, true) && $rowKeepsGroup($row));
             $submittedGroupKeys = collect();
 
             if ($groupRows->count() > 1) {
                 $firstRow = $groupRows->first();
                 $groupKey = trim((string) (($firstRow['bulk_batch_key'] ?? '') ?: ($firstRow['issue_group_key'] ?? ''))) ?: (string) Str::uuid();
-                foreach ($groupRows->keys() as $itemId) {
-                    $submittedGroupKeys->put((int) $itemId, $groupKey);
+                foreach ($groupRows->keys() as $itemKey) {
+                    $submittedGroupKeys->put((string) $itemKey, $groupKey);
                 }
             }
 
-            foreach (($validated['items'] ?? []) as $itemId => $row) {
-                $itemId = (int) $itemId;
-                if (!in_array($itemId, $validItemIds, true)) {
+            foreach (($validated['items'] ?? []) as $itemKey => $row) {
+                $itemKey = (string) $itemKey;
+                if (!in_array($itemKey, $validItemKeys, true)) {
                     continue;
                 }
 
-                $releaseItem = $releaseItems->get($itemId);
+                $releaseItem = $releaseItems->get($itemKey);
+                $isCustom = (bool) $releaseItem->is_custom;
                 $treeWt = (float) ($releaseItem->release_tree_wt ?? 0);
                 $officeCutWt = $row['office_cut_wt'] ?? null;
                 $officeCutWtValue = $officeCutWt !== null && $officeCutWt !== '' ? round((float) $officeCutWt, 3) : null;
 
                 if ($officeCutWtValue !== null && $officeCutWtValue > $treeWt) {
                     throw ValidationException::withMessages([
-                        "items.{$itemId}.office_cut_wt" => 'Office cutting wt cannot be greater than tree wt.',
+                        "items.{$itemKey}.office_cut_wt" => 'Tree bhuko cannot be greater than tree wt.',
                     ]);
                 }
 
                 $remainingTreeWt = round(max($treeWt - (float) ($officeCutWtValue ?? 0), 0), 3);
-                $submittedGroupKey = $submittedGroupKeys->get($itemId);
+                $submittedGroupKey = $submittedGroupKeys->get($itemKey);
                 $submittedGroupKey = $submittedGroupKey ? (string) $submittedGroupKey : null;
 
                 if ($officeCutWtValue === null || $officeCutWtValue <= 0) {
-                    TreeCuttingOfficeItem::where('company_id', $companyId)
-                        ->where('vacuum_voucher_item_id', $itemId)
-                        ->delete();
+                    $this->officeItemQuery($companyId, $releaseItem)->delete();
                 } else {
                     TreeCuttingOfficeItem::updateOrCreate(
-                        ['company_id' => $companyId, 'vacuum_voucher_item_id' => $itemId],
+                        $this->officeItemMatch($companyId, $releaseItem),
                         [
                             'vacuum_voucher_id' => $voucher->id,
+                            'vacuum_voucher_item_id' => $isCustom ? null : $releaseItem->vacuum_voucher_item_id,
+                            'casting_release_item_id' => $isCustom ? $releaseItem->id : null,
+                            'custom_buch_no' => $isCustom ? $releaseItem->custom_buch_no : null,
+                            'is_custom' => $isCustom,
                             'tree_wt' => $treeWt,
                             'office_cut_wt' => $officeCutWtValue,
                             'remaining_tree_wt' => $remainingTreeWt,
@@ -241,9 +261,23 @@ class TreeCuttingOfficeApiController extends Controller
 
                 $issueItem = TreeCuttingIssueItem::where('company_id', $companyId)
                     ->where('vacuum_voucher_id', $voucher->id)
-                    ->where('vacuum_voucher_item_id', $itemId)
-                    ->where('is_custom', false)
+                    ->when($isCustom, fn($query) => $query->where('casting_release_item_id', $releaseItem->id), fn($query) => $query->where('vacuum_voucher_item_id', $releaseItem->vacuum_voucher_item_id)->where('is_custom', false))
                     ->first();
+
+                if (!$issueItem && $isCustom && $remainingTreeWt > 0) {
+                    $issueItem = TreeCuttingIssueItem::create([
+                        'company_id' => $companyId,
+                        'vacuum_voucher_id' => $voucher->id,
+                        'vacuum_voucher_item_id' => null,
+                        'casting_release_item_id' => $releaseItem->id,
+                        'custom_buch_no' => $releaseItem->custom_buch_no,
+                        'is_custom' => true,
+                        'receive_tree_wt' => $remainingTreeWt,
+                        'issue_group_key' => $submittedGroupKey,
+                        'issued_by' => (int) $request->user()->id,
+                        'issued_at' => now(),
+                    ]);
+                }
 
                 if (!$issueItem) {
                     continue;
@@ -315,15 +349,7 @@ class TreeCuttingOfficeApiController extends Controller
             return null;
         }
 
-        $releaseItems = CastingReleaseItem::where('company_id', $companyId)
-            ->where('vacuum_voucher_id', $voucher->id)
-            ->where(function ($q) {
-                $q->where('release_tree_wt', '>', 0)
-                    ->orWhere('release_tree_bhuko', '>', 0);
-            })
-            ->with('voucherItem:id,buch_no')
-            ->get()
-            ->keyBy('vacuum_voucher_item_id');
+        $releaseItems = $this->releaseItemsForVoucher($companyId, $voucher->id);
 
         if ($releaseItems->isEmpty()) {
             return null;
@@ -332,28 +358,28 @@ class TreeCuttingOfficeApiController extends Controller
         $officeItems = TreeCuttingOfficeItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
             ->get()
-            ->keyBy('vacuum_voucher_item_id');
+            ->keyBy(fn($item) => $this->treeRowKey($item));
 
         return [$voucher, $releaseItems, $officeItems];
     }
 
     private function formatVoucher(VacuumVoucher $voucher, $releaseItems, $officeItems): array
     {
-        $rows = $voucher->items->map(function ($item) use ($releaseItems, $officeItems) {
-            $releaseItem = $releaseItems->get($item->id);
-            if (!$releaseItem) {
-                return null;
-            }
-
-            $officeItem = $officeItems->get($item->id);
+        $rows = $releaseItems->map(function ($releaseItem, $rowKey) use ($officeItems) {
+            $officeItem = $officeItems->get($rowKey);
             $treeWt = (float) ($releaseItem->release_tree_wt ?? 0);
             $officeCutWt = (float) ($officeItem?->office_cut_wt ?? 0);
+            $isCustom = (bool) $releaseItem->is_custom;
 
             return [
                 'id' => $officeItem?->id ? (int) $officeItem->id : null,
-                'vacuum_voucher_item_id' => (int) $item->id,
-                'vacuum_buch_id' => $item->vacuum_buch_id ? (int) $item->vacuum_buch_id : null,
-                'buch_no' => $item->buch_no,
+                'row_key' => (string) $rowKey,
+                'vacuum_voucher_item_id' => $isCustom ? null : (int) $releaseItem->vacuum_voucher_item_id,
+                'casting_release_item_id' => $isCustom ? (int) $releaseItem->id : null,
+                'vacuum_buch_id' => $isCustom ? null : ($releaseItem->voucherItem?->vacuum_buch_id ? (int) $releaseItem->voucherItem->vacuum_buch_id : null),
+                'buch_no' => $isCustom ? $releaseItem->custom_buch_no : $releaseItem->voucherItem?->buch_no,
+                'is_custom' => $isCustom,
+                'custom_type' => $isCustom ? $releaseItem->custom_type : null,
                 'tree_wt' => $this->decimal($treeWt),
                 'tree_bhuko' => $officeItem?->office_cut_wt !== null ? $this->decimal($officeCutWt) : null,
                 'office_cut_wt' => $officeItem?->office_cut_wt !== null ? $this->decimal($officeCutWt) : null,
@@ -381,6 +407,52 @@ class TreeCuttingOfficeApiController extends Controller
             'created_at_view' => optional($voucher->created_at)->format('d-m-Y / h:i A'),
             'items' => $rows,
         ];
+    }
+
+    private function releaseItemsForVoucher(int $companyId, int $voucherId)
+    {
+        return CastingReleaseItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->where(function ($q) {
+                $q->where(function ($regular) {
+                    $regular->where('is_custom', false)
+                        ->orWhereNull('is_custom');
+                })->orWhere(function ($custom) {
+                    $custom->where('is_custom', true)
+                        ->where('custom_type', 'pc_weight');
+                });
+            })
+            ->where('release_tree_wt', '>', 0)
+            ->with('voucherItem:id,vacuum_buch_id,buch_no')
+            ->get()
+            ->keyBy(fn($item) => $this->treeRowKey($item));
+    }
+
+    private function treeRowKey($item): string
+    {
+        return (bool) ($item->is_custom ?? false)
+            ? 'custom_' . (int) ($item->casting_release_item_id ?: $item->id)
+            : (string) $item->vacuum_voucher_item_id;
+    }
+
+    private function officeItemMatch(int $companyId, CastingReleaseItem $releaseItem): array
+    {
+        if ((bool) $releaseItem->is_custom) {
+            return [
+                'company_id' => $companyId,
+                'casting_release_item_id' => $releaseItem->id,
+            ];
+        }
+
+        return [
+            'company_id' => $companyId,
+            'vacuum_voucher_item_id' => $releaseItem->vacuum_voucher_item_id,
+        ];
+    }
+
+    private function officeItemQuery(int $companyId, CastingReleaseItem $releaseItem)
+    {
+        return TreeCuttingOfficeItem::where($this->officeItemMatch($companyId, $releaseItem));
     }
 
     private function decimal($value, int $precision = 3): string

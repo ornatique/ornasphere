@@ -10,6 +10,7 @@ class TreeCuttingIssueItem extends Model
         'company_id',
         'vacuum_voucher_id',
         'vacuum_voucher_item_id',
+        'casting_release_item_id',
         'job_worker_id',
         'issue_group_key',
         'custom_buch_no',
@@ -23,6 +24,7 @@ class TreeCuttingIssueItem extends Model
         'company_id' => 'integer',
         'vacuum_voucher_id' => 'integer',
         'vacuum_voucher_item_id' => 'integer',
+        'casting_release_item_id' => 'integer',
         'job_worker_id' => 'integer',
         'is_custom' => 'boolean',
         'receive_tree_wt' => 'decimal:3',
@@ -38,6 +40,11 @@ class TreeCuttingIssueItem extends Model
     public function voucherItem()
     {
         return $this->belongsTo(VacuumVoucherItem::class, 'vacuum_voucher_item_id');
+    }
+
+    public function castingReleaseItem()
+    {
+        return $this->belongsTo(CastingReleaseItem::class, 'casting_release_item_id');
     }
 
     public function issuedByUser()

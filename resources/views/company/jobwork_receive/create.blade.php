@@ -2,8 +2,8 @@
 
 @section('content')
 @php
-    $defaultFromDate = now()->subDays(6)->toDateString();
-    $defaultToDate = now()->toDateString();
+    $defaultFromDate = request('from_date', '');
+    $defaultToDate = request('to_date', '');
 @endphp
 <div class="content-wrapper">
     <div class="card">
@@ -11,7 +11,7 @@
             <h4 class="card-title">Add Jobwork Receive Voucher</h4>
             <a href="{{ route('company.jobwork-receive.index', $company->slug) }}" class="btn btn-info">Back</a>
         </div>
-        <div class="card-body">
+        <div class="card-body" id="jobworkReceiveCreateCardBody">
             <form class="row g-2 mb-3 align-items-end jobwork-receive-filter">
                 <div class="col-md-3">
                     <label class="form-label mb-1">From Date</label>
@@ -24,7 +24,7 @@
                 <div class="col-md-3">
                     <label class="form-label mb-1">Worker Name</label>
                     <select id="worker_id" class="form-control filter-control">
-                        <option value="">All Workers</option>
+                        <option value="">Select Worker</option>
                         @foreach($jobWorkers as $worker)
                             <option value="{{ $worker->id }}">{{ $worker->name }}</option>
                         @endforeach
@@ -38,7 +38,11 @@
                 </div>
             </form>
 
-            <div class="table-responsive">
+            <div id="workerSelectMessage" class="alert alert-info mb-0">
+                Please select a worker to view related jobwork vouchers.
+            </div>
+
+            <div class="table-responsive d-none" id="jobworkReceiveCreateTableWrap">
                 <table class="table table-bordered" id="jobworkReceiveCreateTable">
                     <thead>
                         <tr>
@@ -50,6 +54,7 @@
                             <th>Issue Net Wt</th>
                             <th>Receive Net Wt</th>
                             <th>Pending Net Wt</th>
+                            <th>Status</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -74,6 +79,7 @@
             }
         },
         order: [],
+        deferLoading: 0,
         columns: [
             { data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false },
             { data: 'voucher_no', name: 'voucher_no' },
@@ -83,19 +89,39 @@
             { data: 'issue_net_wt_sum', name: 'issue_net_wt_sum', orderable: false, searchable: false },
             { data: 'receive_net_wt_sum', name: 'receive_net_wt_sum', orderable: false, searchable: false },
             { data: 'pending_net_wt', name: 'pending_net_wt', orderable: false, searchable: false },
+            { data: 'status', name: 'status', orderable: false, searchable: false },
             { data: 'action', name: 'action', orderable: false, searchable: false }
         ]
     });
 
+    function loadWorkerVouchers() {
+        if (!$('#worker_id').val()) {
+            $('#jobworkReceiveCreateTableWrap').addClass('d-none');
+            $('#workerSelectMessage').removeClass('d-none');
+            table.clear().draw();
+            return;
+        }
+
+        $('#workerSelectMessage').addClass('d-none');
+        $('#jobworkReceiveCreateTableWrap').removeClass('d-none');
+        table.ajax.reload(function() {
+            table.columns.adjust();
+        });
+    }
+
     $('#filterBtn').on('click', function() {
-        table.ajax.reload();
+        loadWorkerVouchers();
+    });
+
+    $('#worker_id').on('change', function() {
+        loadWorkerVouchers();
     });
 
     $('#resetBtn').on('click', function() {
-        $('#from_date').val("{{ $defaultFromDate }}");
-        $('#to_date').val("{{ $defaultToDate }}");
+        $('#from_date').val('');
+        $('#to_date').val('');
         $('#worker_id').val('');
-        table.ajax.reload();
+        loadWorkerVouchers();
     });
 </script>
 @endpush
@@ -119,6 +145,10 @@
 
     .jobwork-receive-filter .filter-action-col .btn {
         width: 100%;
+    }
+
+    #jobworkReceiveCreateCardBody {
+        min-height: 600px;
     }
 
     @media (max-width: 767.98px) {

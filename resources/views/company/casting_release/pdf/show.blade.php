@@ -147,6 +147,25 @@
                 <td colspan="6" class="center">No casting receive rows found</td>
             </tr>
             @endforelse
+            @foreach($customReleaseItems ?? [] as $customItem)
+            @php
+                $releaseTreeWt = $customItem->release_tree_wt;
+                $releaseTreeBhuko = $customItem->release_tree_bhuko;
+                $loss = $customItem->loss;
+                $releaseTreeWtTotal += $releaseTreeWt !== null ? (float) $releaseTreeWt : 0;
+                $releaseTreeBhukoTotal += $releaseTreeBhuko !== null ? (float) $releaseTreeBhuko : 0;
+                $lossTotal += $loss !== null ? (float) $loss : 0;
+                $releaseRowCount++;
+            @endphp
+            <tr>
+                <td>{{ $releaseRowCount }}</td>
+                <td>{{ $customItem->custom_buch_no ?: 'Custom' }}</td>
+                <td class="num">0.000</td>
+                <td class="num">{{ $releaseTreeWt !== null ? number_format((float) $releaseTreeWt, 3, '.', '') : '-' }}</td>
+                <td class="num">{{ $releaseTreeBhuko !== null ? number_format((float) $releaseTreeBhuko, 3, '.', '') : '-' }}</td>
+                <td class="num">{{ $loss !== null ? number_format((float) $loss, 3, '.', '') : '-' }}</td>
+            </tr>
+            @endforeach
             @if($releaseRowCount > 0)
             <tr class="total-row">
                 <td colspan="2">Total</td>

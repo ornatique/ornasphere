@@ -58,6 +58,10 @@ class CastingReleaseController extends Controller
                         ->whereColumn('casting_release_items.vacuum_voucher_id', 'vacuum_vouchers.id')
                         ->where('casting_release_items.company_id', $company->id)
                         ->where(function ($q) {
+                            $q->where('casting_release_items.is_custom', false)
+                                ->orWhereNull('casting_release_items.is_custom');
+                        })
+                        ->where(function ($q) {
                             $q->where('casting_release_items.release_tree_wt', '>', 0)
                                 ->orWhere('casting_release_items.release_tree_bhuko', '>', 0);
                         });
@@ -147,16 +151,16 @@ class CastingReleaseController extends Controller
 
     public function show($slug, $encryptedId)
     {
-        [$company, $voucher, $issueItems, $releaseItems] = $this->voucherData($slug, $encryptedId);
+        [$company, $voucher, $issueItems, $releaseItems, $customReleaseItems] = $this->voucherData($slug, $encryptedId);
 
-        return view('company.casting_release.show', compact('company', 'voucher', 'issueItems', 'releaseItems'));
+        return view('company.casting_release.show', compact('company', 'voucher', 'issueItems', 'releaseItems', 'customReleaseItems'));
     }
 
     public function pdf($slug, $encryptedId)
     {
-        [$company, $voucher, $issueItems, $releaseItems] = $this->voucherData($slug, $encryptedId);
+        [$company, $voucher, $issueItems, $releaseItems, $customReleaseItems] = $this->voucherData($slug, $encryptedId);
 
-        return Pdf::loadView('company.casting_release.pdf.show', compact('company', 'voucher', 'issueItems', 'releaseItems'))
+        return Pdf::loadView('company.casting_release.pdf.show', compact('company', 'voucher', 'issueItems', 'releaseItems', 'customReleaseItems'))
             ->setPaper('a4', 'portrait')
             ->download('casting_receive_' . $voucher->voucher_no . '.pdf');
     }
@@ -179,6 +183,12 @@ class CastingReleaseController extends Controller
             'items' => ['nullable', 'array'],
             'items.*.release_tree_wt' => ['nullable', 'numeric', 'min:0'],
             'items.*.release_tree_bhuko' => ['nullable', 'numeric', 'min:0'],
+            'custom_items' => ['nullable', 'array'],
+            'custom_items.*.id' => ['nullable', 'integer'],
+            'custom_items.*.custom_type' => ['nullable', 'in:bhuko,pc_weight'],
+            'custom_items.*.custom_buch_no' => ['nullable', 'string', 'max:100'],
+            'custom_items.*.release_tree_wt' => ['nullable', 'numeric', 'min:0'],
+            'custom_items.*.release_tree_bhuko' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         DB::transaction(function () use ($company, $voucher, $validItemIds, $issueItems, $validated) {
@@ -234,6 +244,8 @@ class CastingReleaseController extends Controller
                     ],
                     [
                         'vacuum_voucher_id' => $voucher->id,
+                        'custom_buch_no' => null,
+                        'is_custom' => false,
                         'release_tree_wt' => $releaseTreeWtValue,
                         'release_tree_bhuko' => $releaseTreeBhukoValue,
                         'loss' => $loss,
@@ -264,6 +276,95 @@ class CastingReleaseController extends Controller
                         'receive_tree_wt' => $remainingTreeWt,
                     ]);
             }
+
+            $submittedCustomIds = [];
+            foreach (($validated['custom_items'] ?? []) as $row) {
+                $customId = (int) ($row['id'] ?? 0);
+                $customBuchNo = trim((string) ($row['custom_buch_no'] ?? ''));
+                $customType = $this->normalizeCustomType($row['custom_type'] ?? null, $row);
+                $releaseTreeWt = $row['release_tree_wt'] ?? null;
+                $releaseTreeBhuko = $row['release_tree_bhuko'] ?? null;
+                $releaseTreeWtValue = $releaseTreeWt !== null && $releaseTreeWt !== '' ? (float) $releaseTreeWt : null;
+                $releaseTreeBhukoValue = $releaseTreeBhuko !== null && $releaseTreeBhuko !== '' ? (float) $releaseTreeBhuko : null;
+                if ($customType === 'pc_weight') {
+                    $releaseTreeBhukoValue = null;
+                } else {
+                    $releaseTreeWtValue = null;
+                }
+
+                if (
+                    $customBuchNo === ''
+                    && ($releaseTreeWtValue === null || $releaseTreeWtValue <= 0)
+                    && ($releaseTreeBhukoValue === null || $releaseTreeBhukoValue <= 0)
+                ) {
+                    if ($customId > 0) {
+                        CastingReleaseItem::where('company_id', $company->id)
+                            ->where('vacuum_voucher_id', $voucher->id)
+                            ->where('is_custom', true)
+                            ->where('id', $customId)
+                            ->delete();
+                        $this->deleteCustomTreeFlow($company->id, $customId);
+                    }
+                    continue;
+                }
+
+                if (
+                    $customBuchNo === ''
+                    || (($releaseTreeWtValue === null || $releaseTreeWtValue <= 0) && ($releaseTreeBhukoValue === null || $releaseTreeBhukoValue <= 0))
+                ) {
+                    continue;
+                }
+
+                $payload = [
+                    'company_id' => $company->id,
+                    'vacuum_voucher_id' => $voucher->id,
+                    'vacuum_voucher_item_id' => null,
+                    'custom_buch_no' => $customBuchNo,
+                    'is_custom' => true,
+                    'custom_type' => $customType,
+                    'release_tree_wt' => $releaseTreeWtValue,
+                    'release_tree_bhuko' => $releaseTreeBhukoValue,
+                    'loss' => round(($releaseTreeWtValue ?? 0) + ($releaseTreeBhukoValue ?? 0), 3),
+                    'released_by' => auth()->id(),
+                    'released_at' => now(),
+                ];
+
+                if ($customId > 0) {
+                    $customItem = CastingReleaseItem::where('company_id', $company->id)
+                        ->where('vacuum_voucher_id', $voucher->id)
+                        ->where('is_custom', true)
+                        ->where('id', $customId)
+                        ->first();
+
+                    if ($customItem) {
+                        $customItem->update($payload);
+                        $this->syncCustomTreeFlow($company->id, $voucher, $customItem);
+                        $submittedCustomIds[] = $customItem->id;
+                        continue;
+                    }
+                }
+
+                $customItem = CastingReleaseItem::create($payload);
+                $this->syncCustomTreeFlow($company->id, $voucher, $customItem);
+                $submittedCustomIds[] = $customItem->id;
+            }
+
+            $deletedCustomIds = CastingReleaseItem::where('company_id', $company->id)
+                ->where('vacuum_voucher_id', $voucher->id)
+                ->where('is_custom', true)
+                ->when(!empty($submittedCustomIds), fn($query) => $query->whereNotIn('id', $submittedCustomIds))
+                ->pluck('id')
+                ->all();
+
+            if (!empty($deletedCustomIds)) {
+                foreach ($deletedCustomIds as $deletedCustomId) {
+                    $this->deleteCustomTreeFlow($company->id, (int) $deletedCustomId);
+                }
+
+                CastingReleaseItem::where('company_id', $company->id)
+                    ->whereIn('id', $deletedCustomIds)
+                    ->delete();
+            }
         });
 
         return redirect()
@@ -291,12 +392,109 @@ class CastingReleaseController extends Controller
         $releaseItems = CastingReleaseItem::where('company_id', $company->id)
             ->where('vacuum_voucher_id', $voucher->id)
             ->where(function ($q) {
+                $q->where('is_custom', false)
+                    ->orWhereNull('is_custom');
+            })
+            ->where(function ($q) {
                 $q->where('release_tree_wt', '>', 0)
                     ->orWhere('release_tree_bhuko', '>', 0);
             })
             ->get()
             ->keyBy('vacuum_voucher_item_id');
 
-        return [$company, $voucher, $issueItems, $releaseItems];
+        $customReleaseItems = CastingReleaseItem::where('company_id', $company->id)
+            ->where('vacuum_voucher_id', $voucher->id)
+            ->where('is_custom', true)
+            ->where(function ($q) {
+                $q->where('release_tree_wt', '>', 0)
+                    ->orWhere('release_tree_bhuko', '>', 0);
+            })
+            ->orderBy('id')
+            ->get();
+
+        return [$company, $voucher, $issueItems, $releaseItems, $customReleaseItems];
+    }
+
+    private function normalizeCustomType($type, array $row): string
+    {
+        $type = (string) ($type ?? '');
+        if (in_array($type, ['bhuko', 'pc_weight'], true)) {
+            return $type;
+        }
+
+        $releaseTreeWt = $row['release_tree_wt'] ?? null;
+        $releaseTreeBhuko = $row['release_tree_bhuko'] ?? null;
+
+        return ($releaseTreeWt !== null && $releaseTreeWt !== '' && (float) $releaseTreeWt > 0)
+            && !($releaseTreeBhuko !== null && $releaseTreeBhuko !== '' && (float) $releaseTreeBhuko > 0)
+                ? 'pc_weight'
+                : 'bhuko';
+    }
+
+    private function syncCustomTreeFlow(int $companyId, VacuumVoucher $voucher, CastingReleaseItem $customItem): void
+    {
+        if ($customItem->custom_type !== 'pc_weight' || (float) ($customItem->release_tree_wt ?? 0) <= 0) {
+            $this->deleteCustomTreeFlow($companyId, (int) $customItem->id);
+            return;
+        }
+
+        $officeItem = TreeCuttingOfficeItem::where('company_id', $companyId)
+            ->where('casting_release_item_id', $customItem->id)
+            ->first();
+        $officeCutWt = (float) ($officeItem?->office_cut_wt ?? 0);
+        $remainingTreeWt = round(max((float) $customItem->release_tree_wt - $officeCutWt, 0), 3);
+
+        if ($officeItem) {
+            $officeItem->update([
+                'vacuum_voucher_item_id' => null,
+                'custom_buch_no' => $customItem->custom_buch_no,
+                'is_custom' => true,
+                'tree_wt' => $customItem->release_tree_wt,
+                'remaining_tree_wt' => $remainingTreeWt,
+                'updated_by' => auth()->id(),
+            ]);
+        }
+
+        $issueItem = TreeCuttingIssueItem::firstOrNew([
+            'company_id' => $companyId,
+            'casting_release_item_id' => $customItem->id,
+        ]);
+
+        $issueItem->fill([
+            'vacuum_voucher_id' => $voucher->id,
+            'vacuum_voucher_item_id' => null,
+            'custom_buch_no' => $customItem->custom_buch_no,
+            'is_custom' => true,
+            'receive_tree_wt' => $remainingTreeWt,
+            'issued_by' => auth()->id(),
+            'issued_at' => now(),
+        ]);
+
+        if ($officeItem && $officeItem->issue_group_key) {
+            $issueItem->issue_group_key = $officeItem->issue_group_key;
+        }
+
+        $issueItem->save();
+    }
+
+    private function deleteCustomTreeFlow(int $companyId, int $castingReleaseItemId): void
+    {
+        $issueIds = TreeCuttingIssueItem::where('company_id', $companyId)
+            ->where('casting_release_item_id', $castingReleaseItemId)
+            ->pluck('id');
+
+        if ($issueIds->isNotEmpty()) {
+            TreeCuttingReceiveItem::where('company_id', $companyId)
+                ->whereIn('tree_cutting_issue_item_id', $issueIds)
+                ->delete();
+
+            TreeCuttingIssueItem::where('company_id', $companyId)
+                ->whereIn('id', $issueIds)
+                ->delete();
+        }
+
+        TreeCuttingOfficeItem::where('company_id', $companyId)
+            ->where('casting_release_item_id', $castingReleaseItemId)
+            ->delete();
     }
 }

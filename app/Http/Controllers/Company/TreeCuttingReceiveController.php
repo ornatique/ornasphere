@@ -181,16 +181,16 @@ class TreeCuttingReceiveController extends Controller
 
     public function show($slug, $encryptedId)
     {
-        [$company, $voucher, $issueItems, $receiveItems] = $this->voucherData($slug, $encryptedId);
+        [$company, $voucher, $issueItems, $receiveItems, $customReceiveItems] = $this->voucherData($slug, $encryptedId);
 
-        return view('company.tree_cutting_receive.show', compact('company', 'voucher', 'issueItems', 'receiveItems'));
+        return view('company.tree_cutting_receive.show', compact('company', 'voucher', 'issueItems', 'receiveItems', 'customReceiveItems'));
     }
 
     public function pdf($slug, $encryptedId)
     {
-        [$company, $voucher, $issueItems, $receiveItems] = $this->voucherData($slug, $encryptedId);
+        [$company, $voucher, $issueItems, $receiveItems, $customReceiveItems] = $this->voucherData($slug, $encryptedId);
 
-        return Pdf::loadView('company.tree_cutting_receive.pdf.show', compact('company', 'voucher', 'issueItems', 'receiveItems'))
+        return Pdf::loadView('company.tree_cutting_receive.pdf.show', compact('company', 'voucher', 'issueItems', 'receiveItems', 'customReceiveItems'))
             ->setPaper('a4', 'portrait')
             ->download('tree_cutting_receive_' . $voucher->voucher_no . '.pdf');
     }
@@ -217,6 +217,12 @@ class TreeCuttingReceiveController extends Controller
             'items' => ['nullable', 'array'],
             'items.*.receive_pc_wt' => ['nullable', 'numeric', 'min:0'],
             'items.*.receive_tree_bhuko' => ['nullable', 'numeric', 'min:0'],
+            'custom_items' => ['nullable', 'array'],
+            'custom_items.*.id' => ['nullable', 'integer'],
+            'custom_items.*.custom_type' => ['nullable', 'in:bhuko,pc_weight'],
+            'custom_items.*.custom_buch_no' => ['nullable', 'string', 'max:100'],
+            'custom_items.*.receive_pc_wt' => ['nullable', 'numeric', 'min:0'],
+            'custom_items.*.receive_tree_bhuko' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         DB::transaction(function () use ($company, $voucher, $issueRows, $validItemKeys, $validated) {
@@ -270,6 +276,86 @@ class TreeCuttingReceiveController extends Controller
                     'received_at' => now(),
                 ]);
             }
+
+            $submittedCustomIds = [];
+            foreach (($validated['custom_items'] ?? []) as $row) {
+                $customId = (int) ($row['id'] ?? 0);
+                $customBuchNo = trim((string) ($row['custom_buch_no'] ?? ''));
+                $customType = $this->normalizeCustomType($row['custom_type'] ?? null, $row);
+                $receivePcWt = $row['receive_pc_wt'] ?? null;
+                $receiveTreeBhuko = $row['receive_tree_bhuko'] ?? null;
+                $receivePcWtValue = $receivePcWt !== null && $receivePcWt !== '' ? (float) $receivePcWt : null;
+                $receiveTreeBhukoValue = $receiveTreeBhuko !== null && $receiveTreeBhuko !== '' ? (float) $receiveTreeBhuko : null;
+                if ($customType === 'pc_weight') {
+                    $receiveTreeBhukoValue = null;
+                } else {
+                    $receivePcWtValue = null;
+                }
+
+                if (
+                    $customBuchNo === ''
+                    && ($receivePcWtValue === null || $receivePcWtValue <= 0)
+                    && ($receiveTreeBhukoValue === null || $receiveTreeBhukoValue <= 0)
+                ) {
+                    if ($customId > 0) {
+                        TreeCuttingReceiveItem::where('company_id', $company->id)
+                            ->where('vacuum_voucher_id', $voucher->id)
+                            ->where('is_custom', true)
+                            ->whereNull('tree_cutting_issue_item_id')
+                            ->where('id', $customId)
+                            ->delete();
+                    }
+                    continue;
+                }
+
+                if (
+                    $customBuchNo === ''
+                    || (($receivePcWtValue === null || $receivePcWtValue <= 0) && ($receiveTreeBhukoValue === null || $receiveTreeBhukoValue <= 0))
+                ) {
+                    continue;
+                }
+
+                $payload = [
+                    'company_id' => $company->id,
+                    'vacuum_voucher_id' => $voucher->id,
+                    'vacuum_voucher_item_id' => null,
+                    'tree_cutting_issue_item_id' => null,
+                    'issue_group_key' => null,
+                    'job_worker_id' => null,
+                    'custom_buch_no' => $customBuchNo,
+                    'is_custom' => true,
+                    'receive_pc_wt' => $receivePcWtValue,
+                    'receive_tree_bhuko' => $receiveTreeBhukoValue,
+                    'loss' => round(($receivePcWtValue ?? 0) + ($receiveTreeBhukoValue ?? 0), 3),
+                    'received_by' => auth()->id(),
+                    'received_at' => now(),
+                ];
+
+                if ($customId > 0) {
+                    $customItem = TreeCuttingReceiveItem::where('company_id', $company->id)
+                        ->where('vacuum_voucher_id', $voucher->id)
+                        ->where('is_custom', true)
+                        ->whereNull('tree_cutting_issue_item_id')
+                        ->where('id', $customId)
+                        ->first();
+
+                    if ($customItem) {
+                        $customItem->update($payload);
+                        $submittedCustomIds[] = $customItem->id;
+                        continue;
+                    }
+                }
+
+                $customItem = TreeCuttingReceiveItem::create($payload);
+                $submittedCustomIds[] = $customItem->id;
+            }
+
+            TreeCuttingReceiveItem::where('company_id', $company->id)
+                ->where('vacuum_voucher_id', $voucher->id)
+                ->where('is_custom', true)
+                ->whereNull('tree_cutting_issue_item_id')
+                ->when(!empty($submittedCustomIds), fn($query) => $query->whereNotIn('id', $submittedCustomIds))
+                ->delete();
         });
 
         return redirect()
@@ -304,12 +390,44 @@ class TreeCuttingReceiveController extends Controller
         $receiveItems = TreeCuttingReceiveItem::where('company_id', $company->id)
             ->where('vacuum_voucher_id', $voucher->id)
             ->where(function ($q) {
+                $q->where('is_custom', false)
+                    ->orWhereNull('is_custom')
+                    ->orWhereNotNull('tree_cutting_issue_item_id');
+            })
+            ->where(function ($q) {
                 $q->where('receive_pc_wt', '>', 0)
                     ->orWhere('receive_tree_bhuko', '>', 0);
             })
             ->get();
 
-        return [$company, $voucher, $issueRows, $this->receiveItemsByIssueRows($receiveItems, $issueRows)];
+        $customReceiveItems = TreeCuttingReceiveItem::where('company_id', $company->id)
+            ->where('vacuum_voucher_id', $voucher->id)
+            ->where('is_custom', true)
+            ->whereNull('tree_cutting_issue_item_id')
+            ->where(function ($q) {
+                $q->where('receive_pc_wt', '>', 0)
+                    ->orWhere('receive_tree_bhuko', '>', 0);
+            })
+            ->orderBy('id')
+            ->get();
+
+        return [$company, $voucher, $issueRows, $this->receiveItemsByIssueRows($receiveItems, $issueRows), $customReceiveItems];
+    }
+
+    private function normalizeCustomType($type, array $row): string
+    {
+        $type = (string) ($type ?? '');
+        if (in_array($type, ['bhuko', 'pc_weight'], true)) {
+            return $type;
+        }
+
+        $receivePcWt = $row['receive_pc_wt'] ?? null;
+        $receiveTreeBhuko = $row['receive_tree_bhuko'] ?? null;
+
+        return ($receivePcWt !== null && $receivePcWt !== '' && (float) $receivePcWt > 0)
+            && !($receiveTreeBhuko !== null && $receiveTreeBhuko !== '' && (float) $receiveTreeBhuko > 0)
+                ? 'pc_weight'
+                : 'bhuko';
     }
 
     private function officeItemsForVoucher(int $companyId, int $voucherId)
@@ -317,7 +435,7 @@ class TreeCuttingReceiveController extends Controller
         return TreeCuttingOfficeItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucherId)
             ->get()
-            ->keyBy('vacuum_voucher_item_id');
+            ->keyBy(fn($item) => $this->treeSourceKey($item));
     }
 
     private function issueReceiveRows($issueItems, $officeItems)
@@ -339,10 +457,19 @@ class TreeCuttingReceiveController extends Controller
                     'primary_item' => $primary,
                     'buch_no' => $buchNos,
                     'jobWorker' => $primary->jobWorker,
-                    'office_cut_wt' => $items->sum(fn($item) => (float) ($officeItems->get($item->vacuum_voucher_item_id)?->office_cut_wt ?? 0)),
+                    'office_cut_wt' => $items->sum(fn($item) => (float) ($officeItems->get($this->treeSourceKey($item))?->office_cut_wt ?? 0)),
                     'receive_tree_wt' => $items->sum(fn($item) => (float) ($item->receive_tree_wt ?? 0)),
                 ];
             });
+    }
+
+    private function treeSourceKey($item): string
+    {
+        if ((bool) ($item->is_custom ?? false) && !empty($item->casting_release_item_id)) {
+            return 'custom_' . $item->casting_release_item_id;
+        }
+
+        return (string) $item->vacuum_voucher_item_id;
     }
 
     private function receiveItemsByIssueRows($receiveItems, $issueRows)

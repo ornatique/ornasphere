@@ -26,21 +26,19 @@
         $treeBhukoTotal = 0;
         $remainingTreeWtTotal = 0;
 
-        foreach ($voucher->items as $item) {
-            $releaseItem = $releaseItems->get($item->id);
-            if (!$releaseItem) {
-                continue;
-            }
-
-            $officeItem = $officeItems->get($item->id);
+        foreach ($releaseItems as $rowKey => $releaseItem) {
+            $officeItem = $officeItems->get($rowKey);
+            $buchNo = (bool) $releaseItem->is_custom
+                ? $releaseItem->custom_buch_no
+                : ($releaseItem->voucherItem?->buch_no ?? $rowKey);
             $treeWt = (float) ($releaseItem->release_tree_wt ?? 0);
             $treeBhuko = (float) ($officeItem?->office_cut_wt ?? 0);
             $remainingTreeWt = max($treeWt - $treeBhuko, 0);
             $groupKey = $officeItem?->issue_group_key;
-            $rowKey = $groupKey ? 'group_' . $groupKey : 'item_' . $item->id;
+            $pdfRowKey = $groupKey ? 'group_' . $groupKey : 'item_' . $rowKey;
 
-            if (!isset($pdfRows[$rowKey])) {
-                $pdfRows[$rowKey] = [
+            if (!isset($pdfRows[$pdfRowKey])) {
+                $pdfRows[$pdfRowKey] = [
                     'buch_nos' => [],
                     'tree_wt' => 0,
                     'tree_bhuko' => 0,
@@ -48,10 +46,10 @@
                 ];
             }
 
-            $pdfRows[$rowKey]['buch_nos'][] = $item->buch_no;
-            $pdfRows[$rowKey]['tree_wt'] += $treeWt;
-            $pdfRows[$rowKey]['tree_bhuko'] += $treeBhuko;
-            $pdfRows[$rowKey]['remaining_tree_wt'] += $remainingTreeWt;
+            $pdfRows[$pdfRowKey]['buch_nos'][] = $buchNo;
+            $pdfRows[$pdfRowKey]['tree_wt'] += $treeWt;
+            $pdfRows[$pdfRowKey]['tree_bhuko'] += $treeBhuko;
+            $pdfRows[$pdfRowKey]['remaining_tree_wt'] += $remainingTreeWt;
         }
     @endphp
 

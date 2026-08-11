@@ -13,6 +13,7 @@ class JobworkReceiveItem extends Model
         'receive_gross_wt',
         'other_wt',
         'other_amt',
+        'other_charge_details',
         'receive_net_wt',
         'receive_fine_wt',
         'receive_qty_pcs',

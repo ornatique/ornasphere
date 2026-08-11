@@ -18,8 +18,7 @@ class CustomerAdvanceController extends Controller
     {
         $company = Company::where('slug', $slug)->firstOrFail();
 
-        $customers = Customer::where('company_id', $company->id)
-            ->where('is_active', 1)
+        $customers = $this->partyCustomersQuery($company->id)
             ->orderBy('name')
             ->get(['id', 'name', 'city', 'mobile_no']);
 
@@ -39,17 +38,16 @@ class CustomerAdvanceController extends Controller
         if ($customerId <= 0) {
             return response()->json([
                 'success' => false,
-                'message' => 'Customer is required.',
+                'message' => 'Party is required.',
             ], 422);
         }
 
-        $customer = Customer::where('company_id', $company->id)
-            ->where('is_active', 1)
+        $customer = $this->partyCustomersQuery($company->id)
             ->find($customerId);
         if (!$customer) {
             return response()->json([
                 'success' => false,
-                'message' => 'Customer not found.',
+                'message' => 'Party not found.',
             ], 404);
         }
 
@@ -92,8 +90,7 @@ class CustomerAdvanceController extends Controller
             'remarks' => 'nullable|string|max:255',
         ]);
 
-        $customer = Customer::where('company_id', $company->id)
-            ->where('is_active', 1)
+        $customer = $this->partyCustomersQuery($company->id)
             ->findOrFail((int) $request->customer_id);
 
         $entryType = (string) $request->input('entry_type', 'receive_amount');
@@ -212,11 +209,10 @@ class CustomerAdvanceController extends Controller
             }
         }
         if ($customerId <= 0) {
-            return back()->with('error', 'Please select customer first.');
+            return back()->with('error', 'Please select party first.');
         }
 
-        $customer = Customer::where('company_id', $company->id)
-            ->where('is_active', 1)
+        $customer = $this->partyCustomersQuery($company->id)
             ->findOrFail($customerId);
 
         $this->reconcileSaleSilverAdjustments($company->id, $customerId);
@@ -272,6 +268,17 @@ class CustomerAdvanceController extends Controller
                 'other' => (float) ($metalRows['other'] ?? 0),
             ],
         ];
+    }
+
+    private function partyCustomersQuery(int $companyId)
+    {
+        return Customer::query()
+            ->where('company_id', $companyId)
+            ->where('is_active', 1)
+            ->whereHas('categoryPerson', function ($query) use ($companyId) {
+                $query->where('company_id', $companyId)
+                    ->whereRaw('LOWER(TRIM(category_name)) = ?', ['party']);
+            });
     }
 
     private function reconcileSaleSilverAdjustments(int $companyId, int $customerId): void

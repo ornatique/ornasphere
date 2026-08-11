@@ -59,16 +59,14 @@
                                 $officeCutWtTotal = 0;
                                 $remainingTreeWtTotal = 0;
                             @endphp
-                            @foreach($voucher->items as $item)
+                            @foreach($releaseItems as $rowKey => $releaseItem)
                             @php
-                                $releaseItem = $releaseItems->get($item->id);
-                                if (!$releaseItem) {
-                                    continue;
-                                }
-                                $officeItem = $officeItems->get($item->id);
+                                $officeItem = $officeItems->get($rowKey);
+                                $isCustom = (bool) $releaseItem->is_custom;
+                                $buchNo = $isCustom ? $releaseItem->custom_buch_no : ($releaseItem->voucherItem?->buch_no ?? $rowKey);
                                 $treeWt = (float) ($releaseItem->release_tree_wt ?? 0);
-                                $officeCutWtValue = old('items.' . $item->id . '.office_cut_wt', $officeItem?->office_cut_wt);
-                                $issueGroupKey = old('items.' . $item->id . '.issue_group_key', $officeItem?->issue_group_key);
+                                $officeCutWtValue = old('items.' . $rowKey . '.office_cut_wt', $officeItem?->office_cut_wt);
+                                $issueGroupKey = old('items.' . $rowKey . '.issue_group_key', $officeItem?->issue_group_key);
                                 $officeCutWt = $officeCutWtValue !== null && $officeCutWtValue !== '' ? (float) $officeCutWtValue : 0;
                                 $remainingTreeWt = max($treeWt - $officeCutWt, 0);
                                 $treeWtTotal += $treeWt;
@@ -80,34 +78,34 @@
                                 <td>{{ $rowNo }}</td>
                                 <td>
                                     <input type="hidden"
-                                        name="items[{{ $item->id }}][group_checked]"
+                                        name="items[{{ $rowKey }}][group_checked]"
                                         class="tree-office-group-checked"
                                         value="0">
                                     <input type="hidden"
-                                        name="items[{{ $item->id }}][selected_for_group]"
+                                        name="items[{{ $rowKey }}][selected_for_group]"
                                         class="tree-office-selected-for-group"
                                         value="{{ $issueGroupKey ? '1' : '0' }}">
                                     <input type="checkbox"
-                                        name="items[{{ $item->id }}][keep_group]"
+                                        name="items[{{ $rowKey }}][keep_group]"
                                         value="1"
                                         class="tree-office-checkbox"
                                         @checked((bool) $issueGroupKey)
                                         @if($issueGroupKey) data-saved-group="1" @endif
-                                        aria-label="Select {{ $item->buch_no }}">
+                                        aria-label="Select {{ $buchNo }}">
                                     <input type="hidden"
-                                        name="items[{{ $item->id }}][issue_group_key]"
+                                        name="items[{{ $rowKey }}][issue_group_key]"
                                         class="tree-office-group-key"
                                         value="{{ $issueGroupKey }}">
                                     <input type="hidden"
-                                        name="items[{{ $item->id }}][bulk_batch_key]"
+                                        name="items[{{ $rowKey }}][bulk_batch_key]"
                                         class="tree-office-batch-key"
                                         value="{{ $issueGroupKey }}">
                                 </td>
-                                <td>{{ $item->buch_no }}</td>
+                                <td>{{ $buchNo }}</td>
                                 <td>{{ number_format($treeWt, 3, '.', '') }}</td>
                                 <td>
                                     <input type="number"
-                                        name="items[{{ $item->id }}][office_cut_wt]"
+                                        name="items[{{ $rowKey }}][office_cut_wt]"
                                         class="form-control tree-office-cut-input"
                                         step="0.001"
                                         min="0"

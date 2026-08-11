@@ -10,6 +10,9 @@ class TreeCuttingOfficeItem extends Model
         'company_id',
         'vacuum_voucher_id',
         'vacuum_voucher_item_id',
+        'casting_release_item_id',
+        'custom_buch_no',
+        'is_custom',
         'tree_wt',
         'office_cut_wt',
         'remaining_tree_wt',
@@ -23,6 +26,8 @@ class TreeCuttingOfficeItem extends Model
         'company_id' => 'integer',
         'vacuum_voucher_id' => 'integer',
         'vacuum_voucher_item_id' => 'integer',
+        'casting_release_item_id' => 'integer',
+        'is_custom' => 'boolean',
         'tree_wt' => 'decimal:3',
         'office_cut_wt' => 'decimal:3',
         'remaining_tree_wt' => 'decimal:3',
@@ -39,6 +44,11 @@ class TreeCuttingOfficeItem extends Model
     public function voucherItem()
     {
         return $this->belongsTo(VacuumVoucherItem::class, 'vacuum_voucher_item_id');
+    }
+
+    public function castingReleaseItem()
+    {
+        return $this->belongsTo(CastingReleaseItem::class, 'casting_release_item_id');
     }
 
     public function createdByUser()

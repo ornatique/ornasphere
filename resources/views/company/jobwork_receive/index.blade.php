@@ -2,19 +2,19 @@
 
 @section('content')
 @php
-    $defaultFromDate = now()->subDays(6)->toDateString();
-    $defaultToDate = now()->toDateString();
+    $defaultFromDate = request('from_date', '');
+    $defaultToDate = request('to_date', '');
 @endphp
 <div class="content-wrapper">
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
             <h4 class="card-title">Jobwork Receive Voucher List</h4>
             <a href="{{ route('company.jobwork-receive.create', $company->slug) }}" class="btn btn-primary">
-                + Add Received Voucher
+                + Receive Jobwork
             </a>
         </div>
         <div class="card-body">
-            <form class="row g-2 mb-3 align-items-end">
+            <form class="row g-2 mb-3 align-items-end jobwork-receive-filter">
                 <div class="col-md-3">
                     <label class="form-label mb-1">From Date</label>
                     <input type="date" id="from_date" class="form-control" value="{{ $defaultFromDate }}">
@@ -23,10 +23,19 @@
                     <label class="form-label mb-1">To Date</label>
                     <input type="date" id="to_date" class="form-control" value="{{ $defaultToDate }}">
                 </div>
-                <div class="col-md-2 d-grid">
+                <div class="col-md-3">
+                    <label class="form-label mb-1">Worker Name</label>
+                    <select id="worker_id" class="form-control filter-control">
+                        <option value="">All Workers</option>
+                        @foreach($jobWorkers as $worker)
+                            <option value="{{ $worker->id }}">{{ $worker->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="filter-action-col d-grid">
                     <button type="button" id="filterBtn" class="btn btn-info">Apply Filter</button>
                 </div>
-                <div class="col-md-2 d-grid">
+                <div class="filter-action-col d-grid">
                     <button type="button" id="resetBtn" class="btn btn-secondary">Reset</button>
                 </div>
             </form>
@@ -43,6 +52,7 @@
                             <th>Issue Net Wt</th>
                             <th>Receive Net Wt</th>
                             <th>Pending Net Wt</th>
+                            <th>Status</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -63,6 +73,7 @@
             data: function(d) {
                 d.from_date = $('#from_date').val();
                 d.to_date = $('#to_date').val();
+                d.worker_id = $('#worker_id').val();
             }
         },
         order: [],
@@ -75,6 +86,7 @@
             { data: 'issue_net_wt_sum', name: 'issue_net_wt_sum', orderable: false, searchable: false },
             { data: 'receive_net_wt_sum', name: 'receive_net_wt_sum', orderable: false, searchable: false },
             { data: 'pending_net_wt', name: 'pending_net_wt', orderable: false, searchable: false },
+            { data: 'status', name: 'status', orderable: false, searchable: false },
             { data: 'action', name: 'action', orderable: false, searchable: false }
         ]
     });
@@ -84,9 +96,40 @@
     });
 
     $('#resetBtn').on('click', function() {
-        $('#from_date').val("{{ $defaultFromDate }}");
-        $('#to_date').val("{{ $defaultToDate }}");
+        $('#from_date').val('');
+        $('#to_date').val('');
+        $('#worker_id').val('');
         table.ajax.reload();
     });
 </script>
+@endpush
+
+@push('styles')
+<style>
+    .jobwork-receive-filter .form-control,
+    .jobwork-receive-filter .btn {
+        min-height: 48px;
+    }
+
+    .jobwork-receive-filter .filter-control {
+        appearance: auto;
+        padding: 0.75rem 1rem;
+    }
+
+    .jobwork-receive-filter .filter-action-col {
+        flex: 0 0 160px;
+        max-width: 160px;
+    }
+
+    .jobwork-receive-filter .filter-action-col .btn {
+        width: 100%;
+    }
+
+    @media (max-width: 767.98px) {
+        .jobwork-receive-filter .filter-action-col {
+            flex: 0 0 100%;
+            max-width: 100%;
+        }
+    }
+</style>
 @endpush

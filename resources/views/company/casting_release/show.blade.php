@@ -11,7 +11,7 @@
             <a href="{{ route('company.casting-release.index', $company->slug) }}" class="btn btn-secondary">Back</a>
         </div>
 
-        <form method="POST" action="{{ route('company.casting-release.update', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $voucher->id)]) }}">
+        <form id="castingReleaseForm" method="POST" action="{{ route('company.casting-release.update', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $voucher->id)]) }}">
             @csrf
             <div class="card-body">
                 @if(session('success'))
@@ -35,6 +35,10 @@
                     <div><span>Created At</span><strong>{{ optional($voucher->created_at)->format('d-m-Y h:i A') }}</strong></div>
                 </div>
 
+                <div class="mb-2 text-end">
+                    <button type="button" class="btn btn-primary" id="addCustomBhukoRow">+ Custom</button>
+                </div>
+
                 <div class="table-responsive casting-release-scroll">
                     <table class="table table-bordered table-sm casting-release-table">
                         <thead>
@@ -47,7 +51,7 @@
                                 <th style="width: 160px;">Loss</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="castingReleaseBody">
                             @php
                                 $issueSilverWtTotal = 0;
                                 $releaseTreeWtTotal = 0;
@@ -109,6 +113,67 @@
                                 <td colspan="6" class="text-center">No casting metal issue rows found</td>
                             </tr>
                             @endforelse
+                            @foreach($customReleaseItems ?? [] as $customItem)
+                            @php
+                                $releaseTreeWtValue = old('custom_items.' . $loop->index . '.release_tree_wt', $customItem->release_tree_wt);
+                                $releaseTreeBhukoValue = old('custom_items.' . $loop->index . '.release_tree_bhuko', $customItem->release_tree_bhuko);
+                                $customType = old('custom_items.' . $loop->index . '.custom_type', $customItem->custom_type ?: (((float) ($customItem->release_tree_wt ?? 0) > 0 && (float) ($customItem->release_tree_bhuko ?? 0) <= 0) ? 'pc_weight' : 'bhuko'));
+                                $lossValue = $customItem->loss;
+                                $releaseTreeWtTotal += $releaseTreeWtValue !== null && $releaseTreeWtValue !== '' ? (float) $releaseTreeWtValue : 0;
+                                $releaseTreeBhukoTotal += $releaseTreeBhukoValue !== null && $releaseTreeBhukoValue !== '' ? (float) $releaseTreeBhukoValue : 0;
+                                $lossTotal += $lossValue !== null && $lossValue !== '' ? (float) $lossValue : 0;
+                            @endphp
+                            <tr class="custom-bhuko-row">
+                                <td>Custom</td>
+                                <td>
+                                    <input type="hidden" name="custom_items[{{ $loop->index }}][id]" value="{{ $customItem->id }}">
+                                    <select name="custom_items[{{ $loop->index }}][custom_type]"
+                                        class="form-control release-input mb-2"
+                                        data-custom-type>
+                                        <option value="bhuko" @selected($customType === 'bhuko')>Bhuko</option>
+                                        <option value="pc_weight" @selected($customType === 'pc_weight')>PC Weight</option>
+                                    </select>
+                                    <input type="text"
+                                        name="custom_items[{{ $loop->index }}][custom_buch_no]"
+                                        class="form-control release-input"
+                                        data-custom-buch-no
+                                        maxlength="100"
+                                        value="{{ old('custom_items.' . $loop->index . '.custom_buch_no', $customItem->custom_buch_no) }}"
+                                        placeholder="B. No">
+                                </td>
+                                <td><span data-issue-wt>0.000</span></td>
+                                <td>
+                                    <input type="number"
+                                        name="custom_items[{{ $loop->index }}][release_tree_wt]"
+                                        class="form-control release-input"
+                                        data-release-tree-wt
+                                        step="0.001"
+                                        min="0"
+                                        inputmode="decimal"
+                                        value="{{ $releaseTreeWtValue }}">
+                                </td>
+                                <td>
+                                    <input type="number"
+                                        name="custom_items[{{ $loop->index }}][release_tree_bhuko]"
+                                        class="form-control release-input"
+                                        data-release-tree-bhuko
+                                        step="0.001"
+                                        min="0"
+                                        inputmode="decimal"
+                                        value="{{ $releaseTreeBhukoValue }}">
+                                </td>
+                                <td>
+                                    <div class="d-flex gap-2">
+                                        <input type="number"
+                                            class="form-control"
+                                            data-loss
+                                            value="{{ $lossValue !== null ? number_format((float) $lossValue, 3, '.', '') : '' }}"
+                                            readonly>
+                                        <button type="button" class="btn btn-sm btn-danger remove-custom-bhuko-row">Remove</button>
+                                    </div>
+                                </td>
+                            </tr>
+                            @endforeach
                             <tr class="casting-release-total-row">
                                 <td colspan="2">Total</td>
                                 <td><strong>{{ number_format($issueSilverWtTotal, 3, '.', '') }}</strong></td>
@@ -201,6 +266,14 @@
         vertical-align: middle;
     }
 
+    .custom-bhuko-row td {
+        background: rgba(42, 78, 116, 0.24);
+    }
+
+    .custom-bhuko-row .btn-danger {
+        min-width: 78px;
+    }
+
     @media (max-width: 991px) {
         .casting-release-summary {
             grid-template-columns: repeat(2, minmax(150px, 1fr));
@@ -238,6 +311,65 @@
         updateReleaseTotals();
     }
 
+    function nextCustomIndex() {
+        let maxIndex = -1;
+        document.querySelectorAll('[name^="custom_items["]').forEach((input) => {
+            const match = input.name.match(/^custom_items\[(\d+)]/);
+            if (match) {
+                maxIndex = Math.max(maxIndex, parseInt(match[1], 10));
+            }
+        });
+        return maxIndex + 1;
+    }
+
+    function customBhukoRow(index) {
+        return `
+            <tr class="custom-bhuko-row">
+                <td>Custom</td>
+                <td>
+                    <input type="hidden" name="custom_items[${index}][id]" value="">
+                    <select name="custom_items[${index}][custom_type]"
+                        class="form-control release-input mb-2"
+                        data-custom-type>
+                        <option value="bhuko" selected>Bhuko</option>
+                        <option value="pc_weight">PC Weight</option>
+                    </select>
+                    <input type="text"
+                        name="custom_items[${index}][custom_buch_no]"
+                        class="form-control release-input"
+                        data-custom-buch-no
+                        maxlength="100"
+                        placeholder="B. No">
+                </td>
+                <td><span data-issue-wt>0.000</span></td>
+                <td>
+                    <input type="number"
+                        name="custom_items[${index}][release_tree_wt]"
+                        class="form-control release-input"
+                        data-release-tree-wt
+                        step="0.001"
+                        min="0"
+                        inputmode="decimal">
+                </td>
+                <td>
+                    <input type="number"
+                        name="custom_items[${index}][release_tree_bhuko]"
+                        class="form-control release-input"
+                        data-release-tree-bhuko
+                        step="0.001"
+                        min="0"
+                        inputmode="decimal">
+                </td>
+                <td>
+                    <div class="d-flex gap-2">
+                        <input type="number" class="form-control" data-loss readonly>
+                        <button type="button" class="btn btn-sm btn-danger remove-custom-bhuko-row">Remove</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }
+
     function updateReleaseTotals() {
         let releaseTreeWtTotal = 0;
         let releaseTreeBhukoTotal = 0;
@@ -258,12 +390,87 @@
         document.getElementById('releaseLossTotal').textContent = nfix(releaseLossTotal);
     }
 
+    function applyCustomTypeState(row) {
+        const type = row.querySelector('[data-custom-type]')?.value || 'bhuko';
+        const treeWtInput = row.querySelector('[data-release-tree-wt]');
+        const bhukoInput = row.querySelector('[data-release-tree-bhuko]');
+
+        if (!row.classList.contains('custom-bhuko-row')) {
+            return;
+        }
+
+        if (type === 'pc_weight') {
+            if (bhukoInput) {
+                bhukoInput.value = '';
+                bhukoInput.disabled = true;
+            }
+            if (treeWtInput) {
+                treeWtInput.disabled = false;
+            }
+        } else {
+            if (treeWtInput) {
+                treeWtInput.value = '';
+                treeWtInput.disabled = true;
+            }
+            if (bhukoInput) {
+                bhukoInput.disabled = false;
+            }
+        }
+
+        recalcReleaseRow(row);
+    }
+
     document.addEventListener('input', function (event) {
         if (event.target.matches('[data-release-tree-wt], [data-release-tree-bhuko]')) {
             recalcReleaseRow(event.target.closest('tr'));
         }
     });
 
+    document.addEventListener('change', function (event) {
+        if (event.target.matches('[data-custom-type]')) {
+            applyCustomTypeState(event.target.closest('tr'));
+        }
+    });
+
+    document.getElementById('addCustomBhukoRow')?.addEventListener('click', function () {
+        const totalRow = document.querySelector('.casting-release-total-row');
+        totalRow.insertAdjacentHTML('beforebegin', customBhukoRow(nextCustomIndex()));
+        const newRow = totalRow.previousElementSibling;
+        newRow?.querySelector('[data-custom-buch-no]')?.focus();
+        applyCustomTypeState(newRow);
+        updateReleaseTotals();
+    });
+
+    document.addEventListener('click', function (event) {
+        if (!event.target.matches('.remove-custom-bhuko-row')) {
+            return;
+        }
+
+        event.target.closest('tr')?.remove();
+        updateReleaseTotals();
+    });
+
+    document.getElementById('castingReleaseForm')?.addEventListener('submit', function (event) {
+        for (const row of document.querySelectorAll('.custom-bhuko-row')) {
+            const nameInput = row.querySelector('[data-custom-buch-no]');
+            const type = row.querySelector('[data-custom-type]')?.value || 'bhuko';
+            const valueInput = type === 'pc_weight'
+                ? row.querySelector('[data-release-tree-wt]')
+                : row.querySelector('[data-release-tree-bhuko]');
+
+            const hasName = (nameInput?.value || '').trim() !== '';
+            const hasValue = toNum(valueInput?.value) > 0;
+
+            if (!hasName || !hasValue) {
+                event.preventDefault();
+                alert('Please enter custom B. No and value, or remove the custom row.');
+                (hasName ? valueInput : nameInput)?.focus();
+                return;
+            }
+        }
+    });
+
+    document.querySelectorAll('.custom-bhuko-row').forEach(applyCustomTypeState);
     updateReleaseTotals();
 </script>
 @endpush

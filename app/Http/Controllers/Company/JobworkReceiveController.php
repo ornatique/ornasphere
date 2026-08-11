@@ -7,6 +7,7 @@ use App\Models\Company;
 use App\Models\Item;
 use App\Models\JobworkIssue;
 use App\Models\JobworkReceive;
+use App\Models\OtherCharge;
 use App\Services\WorkerPersonService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
@@ -25,7 +26,9 @@ class JobworkReceiveController extends Controller
             return $this->receiveVoucherDataTable($this->baseQuery($company, $request), $company, false);
         }
 
-        return view('company.jobwork_receive.index', compact('company'));
+        $jobWorkers = $this->jobWorkers($company);
+
+        return view('company.jobwork_receive.index', compact('company', 'jobWorkers'));
     }
 
     public function create(Request $request, string $slug)
@@ -33,6 +36,10 @@ class JobworkReceiveController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
 
         if ($request->ajax()) {
+            if (!$request->filled('worker_id')) {
+                return $this->receiveVoucherDataTable(JobworkIssue::query()->whereRaw('1 = 0'), $company, false);
+            }
+
             return $this->receiveVoucherDataTable($this->baseQuery($company, $request), $company, false);
         }
 
@@ -50,8 +57,9 @@ class JobworkReceiveController extends Controller
         $issueItemOptions = $this->issueItemOptions($row);
         $receiveItemOptions = $this->receiveItemOptions($company, $issueItemOptions);
         $workerIssueVouchers = $this->workerIssueVouchers($company, $row);
+        $otherCharges = $this->otherChargeOptions($company);
 
-        return view('company.jobwork_receive.show', compact('company', 'row', 'receive', 'issueItemOptions', 'receiveItemOptions', 'workerIssueVouchers'));
+        return view('company.jobwork_receive.show', compact('company', 'row', 'receive', 'issueItemOptions', 'receiveItemOptions', 'workerIssueVouchers', 'otherCharges'));
     }
 
     public function update(Request $request, string $slug, string $encryptedId)
@@ -73,6 +81,7 @@ class JobworkReceiveController extends Controller
             'items.*.receive_gross_wt' => ['nullable', 'numeric', 'min:0'],
             'items.*.other_wt' => ['nullable', 'numeric', 'min:0'],
             'items.*.other_amt' => ['nullable', 'numeric', 'min:0'],
+            'items.*.other_charge_details' => ['nullable', 'string'],
             'items.*.receive_net_wt' => ['nullable', 'numeric', 'min:0'],
             'items.*.receive_fine_wt' => ['nullable', 'numeric', 'min:0'],
             'items.*.receive_qty_pcs' => ['nullable', 'integer', 'min:0'],
@@ -123,6 +132,7 @@ class JobworkReceiveController extends Controller
                     'receive_gross_wt' => $receiveGross,
                     'other_wt' => $otherWt,
                     'other_amt' => (float) ($item['other_amt'] ?? 0),
+                    'other_charge_details' => $item['other_charge_details'] ?? null,
                     'receive_net_wt' => $receiveNet,
                     'receive_fine_wt' => (float) ($item['receive_fine_wt'] ?? 0),
                     'receive_qty_pcs' => $receiveQty,
@@ -152,10 +162,8 @@ class JobworkReceiveController extends Controller
 
     private function baseQuery(Company $company, Request $request)
     {
-        $defaultFromDate = now()->subDays(6)->toDateString();
-        $defaultToDate = now()->toDateString();
-        $fromDate = $request->input('from_date', $defaultFromDate);
-        $toDate = $request->input('to_date', $defaultToDate);
+        $fromDate = $request->input('from_date');
+        $toDate = $request->input('to_date');
         $workerId = $request->input('worker_id');
 
         return JobworkIssue::query()
@@ -188,19 +196,44 @@ class JobworkReceiveController extends Controller
     {
         return DataTables::of($rows)
             ->addIndexColumn()
+            ->editColumn('voucher_no', function ($row) use ($company) {
+                $id = Crypt::encryptString((string) $row->id);
+                $viewUrl = route('company.jobwork-receive.show', [$company->slug, $id]);
+
+                return '<a href="' . $viewUrl . '" class="text-info fw-semibold">' . e($row->voucher_no) . '</a>';
+            })
             ->addColumn('jobwork_date_view', fn($row) => optional($row->jobwork_date)->format('d-m-Y') ?? '-')
             ->addColumn('jobworker_name', fn($row) => $row->jobWorker?->name ?? '-')
             ->addColumn('production_step_name', fn($row) => $row->productionStep?->name ?? '-')
             ->addColumn('issue_net_wt_sum', fn($row) => number_format((float) ($row->issue_net_wt_sum ?? 0), 3, '.', ''))
             ->addColumn('receive_net_wt_sum', fn($row) => number_format((float) ($row->receive?->receive_net_wt_sum ?? 0), 3, '.', ''))
             ->addColumn('pending_net_wt', fn($row) => number_format((float) ($row->issue_net_wt_sum ?? 0) - (float) ($row->receive?->receive_net_wt_sum ?? 0), 3, '.', ''))
+            ->addColumn('status', function ($row) {
+                $issueWt = (float) ($row->issue_net_wt_sum ?? 0);
+                $receiveWt = (float) ($row->receive?->receive_net_wt_sum ?? 0);
+                $pendingWt = max(0, $issueWt - $receiveWt);
+
+                if ($issueWt > 0 && $pendingWt <= 0.0005) {
+                    return '<span class="badge bg-success">Completed</span>';
+                }
+
+                if ($receiveWt > 0) {
+                    return '<span class="badge bg-warning text-dark">Partial</span>';
+                }
+
+                return '<span class="badge bg-danger">Pending</span>';
+            })
             ->addColumn('assigned_receive', fn($row) => $this->assignedReceiveCount($row))
             ->addColumn('pending', fn($row) => max(0, (int) ($row->items_count ?? 0) - $this->assignedReceiveCount($row)))
             ->addColumn('action', function ($row) use ($company, $showPdf) {
                 $id = Crypt::encryptString((string) $row->id);
                 $viewUrl = route('company.jobwork-receive.show', [$company->slug, $id]);
+                $issueWt = (float) ($row->issue_net_wt_sum ?? 0);
+                $receiveWt = (float) ($row->receive?->receive_net_wt_sum ?? 0);
+                $pendingWt = max(0, $issueWt - $receiveWt);
+                $label = $pendingWt > 0.0005 ? 'Receive' : 'View';
 
-                $buttons = '<a href="' . $viewUrl . '" class="btn btn-sm btn-info">View</a>';
+                $buttons = '<a href="' . $viewUrl . '" class="btn btn-sm btn-info">' . $label . '</a>';
 
                 if ($showPdf) {
                     $pdfUrl = route('company.jobwork-receive.pdf', [$company->slug, $id]);
@@ -209,7 +242,7 @@ class JobworkReceiveController extends Controller
 
                 return '<div class="d-flex flex-wrap gap-1 align-items-center">' . $buttons . '</div>';
             })
-            ->rawColumns(['action'])
+            ->rawColumns(['voucher_no', 'status', 'action'])
             ->make(true);
     }
 
@@ -321,5 +354,41 @@ class JobworkReceiveController extends Controller
             ->orderByDesc('jobwork_date')
             ->orderByDesc('id')
             ->get();
+    }
+
+    private function otherChargeOptions(Company $company)
+    {
+        return OtherCharge::where('company_id', $company->id)
+            ->orderByRaw('COALESCE(sequence_no, 999999) asc')
+            ->orderBy('id')
+            ->get([
+                'id',
+                'other_charge',
+                'default_amount',
+                'default_weight',
+                'quantity_pcs',
+                'weight_formula',
+                'weight_percent',
+                'other_amt_formula',
+                'wt_operation',
+                'is_default',
+                'is_selected',
+                'item_id',
+            ])
+            ->map(fn($charge) => [
+                'id' => (int) $charge->id,
+                'name' => $charge->other_charge,
+                'default_amount' => (float) ($charge->default_amount ?? 0),
+                'default_weight' => (float) ($charge->default_weight ?? 0),
+                'quantity_pcs' => (float) ($charge->quantity_pcs ?? 1),
+                'weight_formula' => $charge->weight_formula ?: 'flat',
+                'weight_percent' => (float) ($charge->weight_percent ?? 0),
+                'other_amt_formula' => $charge->other_amt_formula ?: 'flat',
+                'wt_operation' => $charge->wt_operation ?: 'less',
+                'is_default' => (bool) ($charge->is_default ?? false),
+                'is_selected' => (bool) ($charge->is_selected ?? false),
+                'item_id' => $charge->item_id ? (int) $charge->item_id : null,
+            ])
+            ->values();
     }
 }

@@ -11,7 +11,7 @@
             <a href="{{ route('company.tree-cutting-receive.index', $company->slug) }}" class="btn btn-secondary">Back</a>
         </div>
 
-        <form method="POST" action="{{ route('company.tree-cutting-receive.update', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $voucher->id)]) }}">
+        <form id="treeCuttingReceiveForm" method="POST" action="{{ route('company.tree-cutting-receive.update', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $voucher->id)]) }}">
             @csrf
             <div class="card-body">
                 @if(session('success'))
@@ -34,6 +34,10 @@
                     <div><span>Created At</span><strong>{{ optional($voucher->created_at)->format('d-m-Y h:i A') }}</strong></div>
                 </div>
 
+                <div class="mb-2 text-end">
+                    <button type="button" class="btn btn-primary" id="addCustomBhukoRow">+ Custom</button>
+                </div>
+
                 <div class="table-responsive tree-cutting-receive-scroll">
                     <table class="table table-bordered table-sm tree-cutting-receive-table">
                         <thead>
@@ -48,7 +52,7 @@
                                 <th style="width: 160px;">Loss</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="treeCuttingReceiveBody">
                             @php
                                 $officeCutWtTotal = 0;
                                 $issueTreeWtTotal = 0;
@@ -109,6 +113,69 @@
                                 <td colspan="8" class="text-center">No tree cutting issue rows found</td>
                             </tr>
                             @endforelse
+                            @foreach($customReceiveItems ?? [] as $customItem)
+                            @php
+                                $receivePcWtValue = old('custom_items.' . $loop->index . '.receive_pc_wt', $customItem->receive_pc_wt);
+                                $receiveTreeBhukoValue = old('custom_items.' . $loop->index . '.receive_tree_bhuko', $customItem->receive_tree_bhuko);
+                                $customType = old('custom_items.' . $loop->index . '.custom_type', ((float) ($customItem->receive_pc_wt ?? 0) > 0 && (float) ($customItem->receive_tree_bhuko ?? 0) <= 0) ? 'pc_weight' : 'bhuko');
+                                $lossValue = $customItem->loss;
+                                $receivePcWtTotal += $receivePcWtValue !== null && $receivePcWtValue !== '' ? (float) $receivePcWtValue : 0;
+                                $receiveTreeBhukoTotal += $receiveTreeBhukoValue !== null && $receiveTreeBhukoValue !== '' ? (float) $receiveTreeBhukoValue : 0;
+                                $lossTotal += $lossValue !== null && $lossValue !== '' ? (float) $lossValue : 0;
+                            @endphp
+                            <tr class="custom-bhuko-row" data-receive-row>
+                                <td>Custom</td>
+                                <td>
+                                    <input type="hidden" name="custom_items[{{ $loop->index }}][id]" value="{{ $customItem->id }}">
+                                    <select name="custom_items[{{ $loop->index }}][custom_type]"
+                                        class="form-control mb-2"
+                                        data-custom-type>
+                                        <option value="bhuko" @selected($customType === 'bhuko')>Bhuko</option>
+                                        <option value="pc_weight" @selected($customType === 'pc_weight')>PC Weight</option>
+                                    </select>
+                                    <input type="text"
+                                        name="custom_items[{{ $loop->index }}][custom_buch_no]"
+                                        class="form-control"
+                                        data-custom-buch-no
+                                        maxlength="100"
+                                        value="{{ old('custom_items.' . $loop->index . '.custom_buch_no', $customItem->custom_buch_no) }}"
+                                        placeholder="B. No">
+                                </td>
+                                <td>-</td>
+                                <td><span>0.000</span></td>
+                                <td><span data-issue-tree-wt>0.000</span></td>
+                                <td>
+                                    <input type="number"
+                                        name="custom_items[{{ $loop->index }}][receive_pc_wt]"
+                                        class="form-control"
+                                        data-receive-pc-wt
+                                        step="0.001"
+                                        min="0"
+                                        inputmode="decimal"
+                                        value="{{ $receivePcWtValue }}">
+                                </td>
+                                <td>
+                                    <input type="number"
+                                        name="custom_items[{{ $loop->index }}][receive_tree_bhuko]"
+                                        class="form-control"
+                                        data-receive-tree-bhuko
+                                        step="0.001"
+                                        min="0"
+                                        inputmode="decimal"
+                                        value="{{ $receiveTreeBhukoValue }}">
+                                </td>
+                                <td>
+                                    <div class="custom-loss-actions">
+                                        <input type="number"
+                                            class="form-control"
+                                            data-loss
+                                            value="{{ $lossValue !== null ? number_format((float) $lossValue, 3, '.', '') : '' }}"
+                                            readonly>
+                                        <button type="button" class="btn btn-sm btn-danger remove-custom-bhuko-row">Remove</button>
+                                    </div>
+                                </td>
+                            </tr>
+                            @endforeach
                         </tbody>
                         <tfoot>
                             <tr>
@@ -146,6 +213,10 @@
     .tree-cutting-receive-table thead th { position: sticky; top: 0; z-index: 2; background: #25263a; }
     .tree-cutting-receive-table tfoot td { position: sticky; bottom: 0; z-index: 2; background: #25263a; color: #fff; font-weight: 700; }
     .tree-cutting-receive-table th, .tree-cutting-receive-table td { padding: 0.65rem 0.8rem; vertical-align: middle; }
+    .custom-bhuko-row td { background: rgba(42, 78, 116, 0.24); }
+    .custom-loss-actions { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+    .custom-loss-actions [data-loss] { width: 100%; min-width: 96px; text-align: right; }
+    .custom-bhuko-row .btn-danger { min-width: 78px; }
     @media (max-width: 991px) { .tree-cutting-receive-summary { grid-template-columns: repeat(2, minmax(150px, 1fr)); } }
     @media (max-width: 575px) { .tree-cutting-receive-summary { grid-template-columns: 1fr; } }
 </style>
@@ -171,6 +242,65 @@
         }
         updateTreeReceiveTotals();
     }
+    function nextCustomIndex() {
+        let maxIndex = -1;
+        document.querySelectorAll('[name^="custom_items["]').forEach((input) => {
+            const match = input.name.match(/^custom_items\[(\d+)]/);
+            if (match) {
+                maxIndex = Math.max(maxIndex, parseInt(match[1], 10));
+            }
+        });
+        return maxIndex + 1;
+    }
+    function customBhukoRow(index) {
+        return `
+            <tr class="custom-bhuko-row" data-receive-row>
+                <td>Custom</td>
+                <td>
+                    <input type="hidden" name="custom_items[${index}][id]" value="">
+                    <select name="custom_items[${index}][custom_type]"
+                        class="form-control mb-2"
+                        data-custom-type>
+                        <option value="bhuko" selected>Bhuko</option>
+                        <option value="pc_weight">PC Weight</option>
+                    </select>
+                    <input type="text"
+                        name="custom_items[${index}][custom_buch_no]"
+                        class="form-control"
+                        data-custom-buch-no
+                        maxlength="100"
+                        placeholder="B. No">
+                </td>
+                <td>-</td>
+                <td><span>0.000</span></td>
+                <td><span data-issue-tree-wt>0.000</span></td>
+                <td>
+                    <input type="number"
+                        name="custom_items[${index}][receive_pc_wt]"
+                        class="form-control"
+                        data-receive-pc-wt
+                        step="0.001"
+                        min="0"
+                        inputmode="decimal">
+                </td>
+                <td>
+                    <input type="number"
+                        name="custom_items[${index}][receive_tree_bhuko]"
+                        class="form-control"
+                        data-receive-tree-bhuko
+                        step="0.001"
+                        min="0"
+                        inputmode="decimal">
+                </td>
+                <td>
+                    <div class="custom-loss-actions">
+                        <input type="number" class="form-control" data-loss readonly>
+                        <button type="button" class="btn btn-sm btn-danger remove-custom-bhuko-row">Remove</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }
     function updateTreeReceiveTotals() {
         let receivePcWtTotal = 0;
         let bhukoTotal = 0;
@@ -186,11 +316,82 @@
         document.getElementById('treeReceiveBhukoTotal').textContent = receiveNfix(bhukoTotal);
         document.getElementById('treeReceiveLossTotal').textContent = receiveNfix(lossTotal);
     }
+    function applyCustomTypeState(row) {
+        if (!row?.classList.contains('custom-bhuko-row')) {
+            return;
+        }
+
+        const type = row.querySelector('[data-custom-type]')?.value || 'bhuko';
+        const pcWtInput = row.querySelector('[data-receive-pc-wt]');
+        const bhukoInput = row.querySelector('[data-receive-tree-bhuko]');
+
+        if (type === 'pc_weight') {
+            if (bhukoInput) {
+                bhukoInput.value = '';
+                bhukoInput.disabled = true;
+            }
+            if (pcWtInput) {
+                pcWtInput.disabled = false;
+            }
+        } else {
+            if (pcWtInput) {
+                pcWtInput.value = '';
+                pcWtInput.disabled = true;
+            }
+            if (bhukoInput) {
+                bhukoInput.disabled = false;
+            }
+        }
+
+        recalcReceiveRow(row);
+    }
     document.addEventListener('input', function (event) {
         if (event.target.matches('[data-receive-pc-wt], [data-receive-tree-bhuko]')) {
             recalcReceiveRow(event.target.closest('[data-receive-row]'));
         }
     });
+    document.addEventListener('change', function (event) {
+        if (event.target.matches('[data-custom-type]')) {
+            applyCustomTypeState(event.target.closest('[data-receive-row]'));
+        }
+    });
+    document.getElementById('addCustomBhukoRow')?.addEventListener('click', function () {
+        const body = document.getElementById('treeCuttingReceiveBody');
+        if (!body) {
+            return;
+        }
+
+        body.insertAdjacentHTML('beforeend', customBhukoRow(nextCustomIndex()));
+        const newRow = body.lastElementChild;
+        newRow?.querySelector('[data-custom-buch-no]')?.focus();
+        applyCustomTypeState(newRow);
+    });
+    document.addEventListener('click', function (event) {
+        const removeButton = event.target.closest('.remove-custom-bhuko-row');
+        if (removeButton) {
+            removeButton.closest('.custom-bhuko-row')?.remove();
+            updateTreeReceiveTotals();
+        }
+    });
+    document.getElementById('treeCuttingReceiveForm')?.addEventListener('submit', function (event) {
+        for (const row of document.querySelectorAll('.custom-bhuko-row')) {
+            const nameInput = row.querySelector('[data-custom-buch-no]');
+            const type = row.querySelector('[data-custom-type]')?.value || 'bhuko';
+            const valueInput = type === 'pc_weight'
+                ? row.querySelector('[data-receive-pc-wt]')
+                : row.querySelector('[data-receive-tree-bhuko]');
+            const hasName = (nameInput?.value || '').trim() !== '';
+            const hasValue = toReceiveNum(valueInput?.value) > 0;
+
+            if (!hasName || !hasValue) {
+                event.preventDefault();
+                alert('Please enter custom B. No and value, or remove the custom row.');
+                (hasName ? valueInput : nameInput)?.focus();
+                return;
+            }
+        }
+    });
+    document.querySelectorAll('.custom-bhuko-row').forEach(applyCustomTypeState);
     updateTreeReceiveTotals();
 </script>
 @endpush

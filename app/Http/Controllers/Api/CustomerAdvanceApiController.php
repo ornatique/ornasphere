@@ -20,15 +20,13 @@ class CustomerAdvanceApiController extends Controller
             return response()->json(['success' => false, 'message' => 'Company not found.'], 404);
         }
 
-        $rows = Customer::query()
-            ->where('company_id', $company->id)
-            ->where('is_active', 1)
+        $rows = $this->partyCustomersQuery((int) $company->id)
             ->orderBy('name')
             ->get(['id', 'name', 'city', 'mobile_no']);
 
         return response()->json([
             'success' => true,
-            'message' => 'Active persons fetched successfully.',
+            'message' => 'Active parties fetched successfully.',
             'count' => $rows->count(),
             'data' => $rows,
         ]);
@@ -43,15 +41,13 @@ class CustomerAdvanceApiController extends Controller
 
         $customerId = (int) $request->query('customer_id', 0);
         if ($customerId <= 0) {
-            return response()->json(['success' => false, 'message' => 'customer_id is required.'], 422);
+            return response()->json(['success' => false, 'message' => 'party customer_id is required.'], 422);
         }
 
-        $customer = Customer::query()
-            ->where('company_id', $company->id)
-            ->where('is_active', 1)
+        $customer = $this->partyCustomersQuery((int) $company->id)
             ->find($customerId);
         if (!$customer) {
-            return response()->json(['success' => false, 'message' => 'Customer not found.'], 404);
+            return response()->json(['success' => false, 'message' => 'Party not found.'], 404);
         }
 
         $this->reconcileSaleSilverAdjustments($company->id, $customerId);
@@ -59,7 +55,7 @@ class CustomerAdvanceApiController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Customer advance summary fetched successfully.',
+            'message' => 'Party advance summary fetched successfully.',
             'data' => [
                 'customer' => [
                     'id' => (int) $customer->id,
@@ -80,15 +76,13 @@ class CustomerAdvanceApiController extends Controller
 
         $customerId = (int) $request->query('customer_id', 0);
         if ($customerId <= 0) {
-            return response()->json(['success' => false, 'message' => 'customer_id is required.'], 422);
+            return response()->json(['success' => false, 'message' => 'party customer_id is required.'], 422);
         }
 
-        $customer = Customer::query()
-            ->where('company_id', $company->id)
-            ->where('is_active', 1)
+        $customer = $this->partyCustomersQuery((int) $company->id)
             ->find($customerId);
         if (!$customer) {
-            return response()->json(['success' => false, 'message' => 'Customer not found.'], 404);
+            return response()->json(['success' => false, 'message' => 'Party not found.'], 404);
         }
 
         $this->reconcileSaleSilverAdjustments($company->id, $customerId);
@@ -165,12 +159,10 @@ class CustomerAdvanceApiController extends Controller
             ], 422);
         }
 
-        $customer = Customer::query()
-            ->where('company_id', $company->id)
-            ->where('is_active', 1)
+        $customer = $this->partyCustomersQuery((int) $company->id)
             ->find((int) $request->customer_id);
         if (!$customer) {
-            return response()->json(['success' => false, 'message' => 'Customer not found.'], 404);
+            return response()->json(['success' => false, 'message' => 'Party not found.'], 404);
         }
 
         $entryType = (string) $request->input('entry_type', 'receive_amount');
@@ -299,7 +291,12 @@ class CustomerAdvanceApiController extends Controller
 
         $customerId = (int) $request->query('customer_id', 0);
         if ($customerId <= 0) {
-            return response()->json(['success' => false, 'message' => 'customer_id is required.'], 422);
+            return response()->json(['success' => false, 'message' => 'party customer_id is required.'], 422);
+        }
+
+        $customer = $this->partyCustomersQuery((int) $company->id)->find($customerId);
+        if (!$customer) {
+            return response()->json(['success' => false, 'message' => 'Party not found.'], 404);
         }
 
         $url = route('company.sales.advance.pdf', ['slug' => $company->slug]) . '?customer_key=' . urlencode(\Illuminate\Support\Facades\Crypt::encryptString((string) $customerId));
@@ -323,15 +320,13 @@ class CustomerAdvanceApiController extends Controller
 
         $customerId = (int) $request->query('customer_id', 0);
         if ($customerId <= 0) {
-            return response()->json(['success' => false, 'message' => 'customer_id is required.'], 422);
+            return response()->json(['success' => false, 'message' => 'party customer_id is required.'], 422);
         }
 
-        $customer = Customer::query()
-            ->where('company_id', $company->id)
-            ->where('is_active', 1)
+        $customer = $this->partyCustomersQuery((int) $company->id)
             ->find($customerId);
         if (!$customer) {
-            return response()->json(['success' => false, 'message' => 'Customer not found.'], 404);
+            return response()->json(['success' => false, 'message' => 'Party not found.'], 404);
         }
 
         $this->reconcileSaleSilverAdjustments($company->id, $customerId);
@@ -403,6 +398,17 @@ class CustomerAdvanceApiController extends Controller
                 'other' => (float) ($metalRows['other'] ?? 0),
             ],
         ];
+    }
+
+    private function partyCustomersQuery(int $companyId)
+    {
+        return Customer::query()
+            ->where('company_id', $companyId)
+            ->where('is_active', 1)
+            ->whereHas('categoryPerson', function ($query) use ($companyId) {
+                $query->where('company_id', $companyId)
+                    ->whereRaw('LOWER(TRIM(category_name)) = ?', ['party']);
+            });
     }
 
     private function reconcileSaleSilverAdjustments(int $companyId, int $customerId): void

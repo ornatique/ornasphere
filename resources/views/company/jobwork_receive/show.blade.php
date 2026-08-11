@@ -17,6 +17,7 @@
                 'receive_gross_wt' => $items->sum('receive_gross_wt'),
                 'other_wt' => $items->sum('other_wt'),
                 'other_amt' => $items->sum('other_amt'),
+                'other_charge_details' => $items->pluck('other_charge_details')->filter()->first(),
                 'receive_net_wt' => $items->sum('receive_net_wt'),
                 'receive_fine_wt' => $items->sum('receive_fine_wt'),
                 'receive_qty_pcs' => $items->sum('receive_qty_pcs'),
@@ -30,6 +31,7 @@
             'receive_gross_wt' => 0,
             'other_wt' => 0,
             'other_amt' => 0,
+            'other_charge_details' => '',
             'receive_net_wt' => 0,
             'receive_fine_wt' => 0,
             'receive_qty_pcs' => 0,
@@ -39,6 +41,7 @@
     $jobworkReceivePageData = [
         'issueItemOptions' => $receiveItemOptions,
         'totalIssueNet' => number_format($totalIssueNet, 3, '.', ''),
+        'otherChargeOptions' => $otherCharges ?? [],
     ];
 @endphp
 <div id="jobworkReceiveAjaxContent">
@@ -134,6 +137,7 @@
                                     $receiveGross = (float) ($receiveRow['receive_gross_wt'] ?? 0);
                                     $otherWt = (float) ($receiveRow['other_wt'] ?? 0);
                                     $otherAmt = (float) ($receiveRow['other_amt'] ?? 0);
+                                    $otherChargeDetails = $receiveRow['other_charge_details'] ?? '';
                                     $receiveNet = max(0, $receiveGross - $otherWt);
                                     $receiveFine = (float) ($receiveRow['receive_fine_wt'] ?? ($receiveNet * $purity / 100));
                                     $pendingNet = $issueNet - $receiveNet;
@@ -162,6 +166,7 @@
                                     <td>
                                         <input type="hidden" name="items[{{ $index }}][other_wt]" class="other-wt" value="{{ number_format((float) $otherWt, 3, '.', '') }}">
                                         <input type="hidden" name="items[{{ $index }}][other_amt]" class="other-amt" value="{{ number_format((float) $otherAmt, 2, '.', '') }}">
+                                        <input type="hidden" name="items[{{ $index }}][other_charge_details]" class="other-charge-details" value="{{ $otherChargeDetails }}">
                                         <button type="button" class="btn btn-warning receive-other-btn">Wt | Amt</button>
                                         <div class="receive-other-summary">Wt: <span class="summary-other-wt">{{ number_format((float) $otherWt, 3, '.', '') }}</span> | Amt: <span class="summary-other-amt">{{ number_format((float) $otherAmt, 2, '.', '') }}</span></div>
                                     </td>
@@ -217,17 +222,34 @@
 </div>
 
 <div class="modal fade" id="receiveOtherModal" tabindex="-1" role="dialog" aria-labelledby="receiveOtherModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-sm" role="document">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable" role="document">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="receiveOtherModalLabel">Other Weight</h5>
+                <h5 class="modal-title" id="receiveOtherModalLabel">Other Charges</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <label class="form-label">Other Wt</label>
-                <input type="number" step="0.001" min="0" class="form-control" id="receiveOtherWeight" value="0.000">
-                <label class="form-label mt-2">Other Amt</label>
-                <input type="number" step="0.01" min="0" class="form-control" id="receiveOtherAmount" value="0.00">
+                <div class="table-responsive">
+                    <table class="table table-bordered" id="receiveOtherChargeTable">
+                        <thead>
+                            <tr>
+                                <th>Sr</th>
+                                <th>Charge</th>
+                                <th>Amount</th>
+                                <th>Qty</th>
+                                <th>Wt Formula</th>
+                                <th>Weight</th>
+                                <th>Amt Formula</th>
+                                <th>Total Amt</th>
+                                <th>Select</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <div class="text-end mt-2">
+                    <strong>Charge Total:</strong> <span id="receiveModalChargeTotal">0.00</span>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-info" data-bs-dismiss="modal">Cancel</button>
@@ -356,6 +378,30 @@
         font-size: 12px;
     }
 
+    #receiveOtherChargeTable {
+        min-width: 1300px;
+    }
+
+    #receiveOtherChargeTable th,
+    #receiveOtherChargeTable td {
+        white-space: nowrap;
+        vertical-align: middle;
+    }
+
+    #receiveOtherChargeTable .charge-sr {
+        width: 44px;
+        text-align: center;
+        font-weight: 600;
+    }
+
+    #receiveOtherChargeTable .charge-row {
+        cursor: pointer;
+    }
+
+    #receiveOtherChargeTable .charge-select-col {
+        text-align: center;
+    }
+
     input[type=number]::-webkit-inner-spin-button,
     input[type=number]::-webkit-outer-spin-button {
         opacity: 1;
@@ -372,6 +418,7 @@ window.initJobworkReceivePage = function () {
     let receiveRowIndex = document.querySelectorAll('.receive-row').length;
     const pageData = JSON.parse(document.getElementById('jobworkReceivePageData')?.textContent || '{}');
     const issueItemOptions = pageData.issueItemOptions || [];
+    let otherChargeOptions = pageData.otherChargeOptions || [];
     const totalIssueNet = numberValue(pageData.totalIssueNet || 0);
     const receiveOtherModalEl = document.getElementById('receiveOtherModal');
     const receiveOtherModal = window.bootstrap && bootstrap.Modal
@@ -434,6 +481,62 @@ window.initJobworkReceivePage = function () {
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#039;');
+    }
+
+    const weightFormulaOptions = [
+        { value: 'flat', label: 'flat' },
+        { value: 'per_weight', label: 'per_weight' },
+        { value: 'per_quantity', label: 'per_quantity' }
+    ];
+
+    const amountFormulaOptions = [
+        { value: 'flat', label: 'flat' },
+        { value: 'per_weight', label: 'per_weight' },
+        { value: 'per_quantity', label: 'per_quantity' },
+        { value: 'carat', label: 'carat' }
+    ];
+
+    function normalizeFormula(value, allowed, fallback = 'flat') {
+        const normalized = String(value || fallback).toLowerCase();
+        return allowed.includes(normalized) ? normalized : fallback;
+    }
+
+    function buildFormulaSelect(type, currentValue) {
+        const options = type === 'wt' ? weightFormulaOptions : amountFormulaOptions;
+        const className = type === 'wt' ? 'charge-wt-formula' : 'charge-amt-formula';
+        const selected = normalizeFormula(currentValue, options.map((option) => option.value), 'flat');
+        return `<select class="form-control ${className}">`
+            + options.map((option) => `<option value="${option.value}" ${selected === option.value ? 'selected' : ''}>${option.label}</option>`).join('')
+            + '</select>';
+    }
+
+    function calculateLineWeight(wtFormula, itemWeight, defaultWeight, qty, weightPercent) {
+        if ((wtFormula === 'per_quantity' || wtFormula === 'per_weight') && defaultWeight > 0) {
+            return defaultWeight * qty;
+        }
+        if (weightPercent > 0) {
+            return (itemWeight * weightPercent) / 100;
+        }
+        if (wtFormula === 'per_weight') {
+            return itemWeight;
+        }
+        if (wtFormula === 'per_quantity') {
+            return defaultWeight * qty;
+        }
+        return defaultWeight;
+    }
+
+    function calculateLineAmount(amtFormula, amount, qty, chargeWeight, itemWeight) {
+        if (amtFormula === 'per_quantity') {
+            return amount * qty;
+        }
+        if (amtFormula === 'per_weight') {
+            return amount * chargeWeight;
+        }
+        if (amtFormula === 'carat') {
+            return amount * itemWeight;
+        }
+        return amount;
     }
 
     function optionHtml(selectedId = '') {
@@ -505,6 +608,150 @@ window.initJobworkReceivePage = function () {
         return row.querySelector('.receive-item-select')?.selectedOptions?.[0] || null;
     }
 
+    function selectedItemId(row) {
+        return parseInt(row.querySelector('.receive-item-select')?.value || 0, 10);
+    }
+
+    function selectedOtherChargeOptions(row) {
+        const itemId = selectedItemId(row);
+        return otherChargeOptions.filter((charge) => {
+            const chargeItemId = parseInt(charge.item_id || 0, 10);
+            return !chargeItemId || !itemId || chargeItemId === itemId;
+        });
+    }
+
+    function parseOtherChargeDetails(row) {
+        const detailsRaw = row.querySelector('.other-charge-details')?.value || '';
+        if (!detailsRaw) {
+            return [];
+        }
+
+        try {
+            const parsed = JSON.parse(detailsRaw);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (_) {
+            return [];
+        }
+    }
+
+    function recomputeReceiveChargeLine(tr) {
+        const amount = numberValue(tr.querySelector('.charge-amount-input')?.value);
+        const qty = numberValue(tr.querySelector('.charge-qty-input')?.value || 1);
+        const wtFormula = normalizeFormula(
+            tr.querySelector('.charge-wt-formula')?.value,
+            weightFormulaOptions.map((option) => option.value),
+            'flat'
+        );
+        const amtFormula = normalizeFormula(
+            tr.querySelector('.charge-amt-formula')?.value,
+            amountFormulaOptions.map((option) => option.value),
+            'flat'
+        );
+        const itemWeight = numberValue(tr.dataset.itemWeight);
+        const defaultWeight = numberValue(tr.dataset.defaultWeight);
+        const weightPercent = numberValue(tr.dataset.weightPercent);
+        const wtOperation = String(tr.dataset.wtOperation || 'less').toLowerCase();
+        const weight = calculateLineWeight(wtFormula, itemWeight, defaultWeight, qty, weightPercent);
+        const total = calculateLineAmount(amtFormula, amount, qty, weight, itemWeight);
+
+        tr.dataset.amount = fixed(amount, 2);
+        tr.dataset.qty = fixed(qty);
+        tr.dataset.wtFormula = wtFormula;
+        tr.dataset.amtFormula = amtFormula;
+        tr.dataset.weight = fixed(weight, 6);
+        tr.dataset.total = fixed(total, 2);
+        tr.dataset.wtOperation = wtOperation;
+        tr.querySelector('.charge-weight-input').value = fixed(weight);
+        tr.querySelector('.charge-total-cell').textContent = fixed(total, 2);
+    }
+
+    function recalcReceiveModalCharges() {
+        let total = 0;
+        document.querySelectorAll('#receiveOtherChargeTable tbody tr').forEach((tr) => {
+            if (tr.querySelector('.charge-check')?.checked) {
+                total += numberValue(tr.dataset.total);
+            }
+        });
+
+        document.getElementById('receiveModalChargeTotal').textContent = fixed(total, 2);
+    }
+
+    function renderReceiveOtherChargeRows(row) {
+        const tbody = document.querySelector('#receiveOtherChargeTable tbody');
+        if (!tbody) {
+            return;
+        }
+
+        const lines = parseOtherChargeDetails(row);
+        const existingMap = new Map(lines.map((line) => [Number(line.charge_id), line]));
+        const grossWeight = numberValue(row.querySelector('.receive-gross-wt')?.value);
+        tbody.innerHTML = '';
+
+        selectedOtherChargeOptions(row).forEach((charge, index) => {
+            const existing = existingMap.get(Number(charge.id)) || null;
+            const checked = existing ? 'checked' : '';
+            const activeClass = checked ? 'table-active' : '';
+            const amount = existing ? numberValue(existing.amount) : numberValue(charge.default_amount);
+            const qty = existing ? numberValue(existing.qty || 1) : numberValue(charge.quantity_pcs || 1);
+            const wtFormula = existing ? String(existing.wt_formula || charge.weight_formula || 'flat') : String(charge.weight_formula || 'flat');
+            const amtFormula = existing ? String(existing.amt_formula || charge.other_amt_formula || 'flat') : String(charge.other_amt_formula || 'flat');
+            const wtOperation = existing ? String(existing.wt_operation || charge.wt_operation || 'less') : String(charge.wt_operation || 'less');
+
+            tbody.insertAdjacentHTML('beforeend', `
+                <tr class="charge-row ${activeClass}"
+                    data-id="${charge.id}"
+                    data-name="${escapeHtml(charge.name || '')}"
+                    data-item-weight="${fixed(grossWeight, 6)}"
+                    data-default-weight="${fixed(charge.default_weight || 0, 6)}"
+                    data-weight-percent="${fixed(charge.weight_percent || 0, 6)}"
+                    data-wt-operation="${escapeHtml(wtOperation)}"
+                    data-amount="${fixed(amount, 2)}"
+                    data-qty="${fixed(qty)}"
+                    data-wt-formula="${escapeHtml(wtFormula)}"
+                    data-amt-formula="${escapeHtml(amtFormula)}"
+                    data-weight="0"
+                    data-total="0">
+                    <td class="charge-sr">${index + 1}</td>
+                    <td>${escapeHtml(charge.name || '-')}</td>
+                    <td><input type="number" step="0.01" class="form-control charge-amount-input text-end" value="${fixed(amount, 2)}"></td>
+                    <td><input type="number" step="0.001" class="form-control charge-qty-input text-end" value="${fixed(qty)}"></td>
+                    <td>${buildFormulaSelect('wt', wtFormula)}</td>
+                    <td><input type="number" step="0.001" class="form-control charge-weight-input text-end" value="0" readonly></td>
+                    <td>${buildFormulaSelect('amt', amtFormula)}</td>
+                    <td class="text-end charge-total-cell">0.00</td>
+                    <td class="charge-select-col"><input type="checkbox" class="charge-check" ${checked}></td>
+                </tr>
+            `);
+
+            recomputeReceiveChargeLine(tbody.lastElementChild);
+        });
+
+        recalcReceiveModalCharges();
+    }
+
+    function collectReceiveModalChargeLines() {
+        const lines = [];
+        document.querySelectorAll('#receiveOtherChargeTable tbody tr').forEach((tr) => {
+            if (!tr.querySelector('.charge-check')?.checked) {
+                return;
+            }
+
+            lines.push({
+                charge_id: numberValue(tr.dataset.id),
+                charge_name: String(tr.dataset.name || ''),
+                amount: numberValue(tr.dataset.amount),
+                qty: numberValue(tr.dataset.qty),
+                wt_formula: String(tr.dataset.wtFormula || 'flat'),
+                amt_formula: String(tr.dataset.amtFormula || 'flat'),
+                weight: numberValue(tr.dataset.weight),
+                total: numberValue(tr.dataset.total),
+                wt_operation: String(tr.dataset.wtOperation || 'less')
+            });
+        });
+
+        return lines;
+    }
+
     function updateIssueData(row) {
         const option = selectedOption(row);
         const issueNet = option && option.value ? numberValue(option.dataset.issueNet) : 0;
@@ -562,8 +809,7 @@ window.initJobworkReceivePage = function () {
 
         row.querySelector('.receive-other-btn')?.addEventListener('click', function () {
             activeReceiveRow = row;
-            document.getElementById('receiveOtherWeight').value = row.querySelector('.other-wt').value || '0.000';
-            document.getElementById('receiveOtherAmount').value = row.querySelector('.other-amt').value || '0.00';
+            renderReceiveOtherChargeRows(row);
             if (receiveOtherModal) {
                 receiveOtherModal.show();
             } else {
@@ -588,6 +834,7 @@ window.initJobworkReceivePage = function () {
             <td>
                 <input type="hidden" name="items[${index}][other_wt]" class="other-wt" value="0.000">
                 <input type="hidden" name="items[${index}][other_amt]" class="other-amt" value="0.00">
+                <input type="hidden" name="items[${index}][other_charge_details]" class="other-charge-details" value="">
                 <button type="button" class="btn btn-warning receive-other-btn">Wt | Amt</button>
                 <div class="receive-other-summary">Wt: <span class="summary-other-wt">0.000</span> | Amt: <span class="summary-other-amt">0.00</span></div>
             </td>
@@ -634,15 +881,71 @@ window.initJobworkReceivePage = function () {
         document.getElementById('topPendingNet').textContent = fixed(pendingNet);
     }
 
+    document.getElementById('receiveOtherChargeTable')?.addEventListener('click', function (event) {
+        const row = event.target.closest('.charge-row');
+        if (!row || event.target.matches('input, select, option')) {
+            return;
+        }
+
+        const checkbox = row.querySelector('.charge-check');
+        if (checkbox) {
+            checkbox.checked = !checkbox.checked;
+            checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    });
+
+    document.getElementById('receiveOtherChargeTable')?.addEventListener('change', function (event) {
+        if (event.target.matches('.charge-check')) {
+            event.target.closest('tr')?.classList.toggle('table-active', event.target.checked);
+            recalcReceiveModalCharges();
+            return;
+        }
+
+        if (event.target.matches('.charge-wt-formula, .charge-amt-formula')) {
+            const row = event.target.closest('tr');
+            if (row) {
+                recomputeReceiveChargeLine(row);
+                recalcReceiveModalCharges();
+            }
+        }
+    });
+
+    document.getElementById('receiveOtherChargeTable')?.addEventListener('input', function (event) {
+        if (!event.target.matches('.charge-amount-input, .charge-qty-input')) {
+            return;
+        }
+
+        const row = event.target.closest('tr');
+        if (row) {
+            recomputeReceiveChargeLine(row);
+            recalcReceiveModalCharges();
+        }
+    });
+
     document.getElementById('applyReceiveOther').addEventListener('click', function () {
         if (!activeReceiveRow) {
             return;
         }
 
-        const other = fixed(document.getElementById('receiveOtherWeight').value);
-        const otherAmt = fixed(document.getElementById('receiveOtherAmount').value, 2);
+        const lines = collectReceiveModalChargeLines();
+        let totalAmt = 0;
+        let lessWt = 0;
+        let addWt = 0;
+
+        lines.forEach((line) => {
+            totalAmt += numberValue(line.total);
+            if (String(line.wt_operation || 'less').toLowerCase() === 'add') {
+                addWt += numberValue(line.weight);
+            } else {
+                lessWt += numberValue(line.weight);
+            }
+        });
+
+        const other = fixed(lessWt - addWt);
+        const otherAmt = fixed(totalAmt, 2);
         activeReceiveRow.querySelector('.other-wt').value = other;
         activeReceiveRow.querySelector('.other-amt').value = otherAmt;
+        activeReceiveRow.querySelector('.other-charge-details').value = lines.length ? JSON.stringify(lines) : '';
         activeReceiveRow.querySelector('.summary-other-wt').textContent = other;
         activeReceiveRow.querySelector('.summary-other-amt').textContent = otherAmt;
         if (receiveOtherModal) {

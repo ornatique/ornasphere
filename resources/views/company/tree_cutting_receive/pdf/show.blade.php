@@ -92,6 +92,25 @@
                 <td colspan="8" class="center">No tree cutting issue rows found</td>
             </tr>
             @endforelse
+            @foreach($customReceiveItems ?? [] as $customItem)
+            @php
+                $receiveTreeBhuko = $customItem->receive_tree_bhuko;
+                $loss = $customItem->loss;
+                $receiveTreeBhukoTotal += $receiveTreeBhuko !== null ? (float) $receiveTreeBhuko : 0;
+                $lossTotal += $loss !== null ? (float) $loss : 0;
+                $rowCount++;
+            @endphp
+            <tr>
+                <td>{{ $rowCount }}</td>
+                <td>{{ $customItem->custom_buch_no ?: 'Custom' }}</td>
+                <td>Custom</td>
+                <td class="num">0.000</td>
+                <td class="num">0.000</td>
+                <td class="num">-</td>
+                <td class="num">{{ $receiveTreeBhuko !== null ? number_format((float) $receiveTreeBhuko, 3, '.', '') : '-' }}</td>
+                <td class="num">{{ $loss !== null ? number_format((float) $loss, 3, '.', '') : '-' }}</td>
+            </tr>
+            @endforeach
             @if($rowCount > 0)
             <tr class="total-row">
                 <td colspan="3">Total</td>

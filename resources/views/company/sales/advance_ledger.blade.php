@@ -10,11 +10,11 @@
             <form class="row g-3 mb-3 align-items-end" id="customerLoadForm">
                 <div class="col-md-5">
                     <label>Party (Active Customer)</label>
-                    <select name="customer_id" id="customer_id" class="form-select">
+                    <select name="customer_id" id="customer_id" class="form-select searchable-party-select">
                         <option value="">Select Party</option>
                         @foreach($customers as $c)
                             <option value="{{ $c->id }}" {{ (int)$selectedCustomerId === (int)$c->id ? 'selected' : '' }}>
-                                {{ $c->name }}{{ !empty($c->city) ? ' - ' . $c->city : '' }}
+                                {{ $c->name }}
                             </option>
                         @endforeach
                     </select>
@@ -63,7 +63,7 @@
                 </div>
                 <div class="col-md-3">
                     <label>Party</label>
-                    <select name="customer_id" id="entry_customer_id" class="form-select" required>
+                    <select name="customer_id" id="entry_customer_id" class="form-select searchable-party-select" required>
                         <option value="">Select Party</option>
                         @foreach($customers as $c)
                             <option value="{{ $c->id }}" {{ (int)$selectedCustomerId === (int)$c->id ? 'selected' : '' }}>{{ $c->name }}</option>
@@ -241,6 +241,40 @@
         vertical-align: middle;
     }
 
+    .searchable-party-select {
+        width: 100%;
+    }
+
+    .select2-container--bootstrap4 .select2-selection--single,
+    .select2-container--default .select2-selection--single {
+        min-height: 40px;
+        background-color: #2e2d52;
+        border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    .select2-container--bootstrap4 .select2-selection--single .select2-selection__rendered,
+    .select2-container--default .select2-selection--single .select2-selection__rendered {
+        color: #c9c8dc;
+        line-height: 40px;
+    }
+
+    .select2-container--bootstrap4 .select2-selection--single .select2-selection__arrow,
+    .select2-container--default .select2-selection--single .select2-selection__arrow {
+        height: 40px;
+    }
+
+    .select2-container--default .select2-dropdown,
+    .select2-container--bootstrap4 .select2-dropdown {
+        background-color: #ffffff;
+        border-color: rgba(0, 0, 0, 0.18);
+    }
+
+    .select2-container--default .select2-search--dropdown .select2-search__field,
+    .select2-container--bootstrap4 .select2-search--dropdown .select2-search__field {
+        min-height: 34px;
+        color: #111827;
+    }
+
     #convertModal .modal-dialog {
         max-width: 1100px;
     }
@@ -304,6 +338,22 @@ $(function () {
     let availableCashRaw = 0;
     let availableMetal = { gold: 0, silver: 0, other: 0 };
     let advanceLedgerDt = null;
+
+    function initPartySelects() {
+        if (!$.fn.select2) return;
+        $('.searchable-party-select').each(function () {
+            const $select = $(this);
+            if ($select.hasClass('select2-hidden-accessible')) {
+                return;
+            }
+            $select.select2({
+                theme: 'bootstrap4',
+                width: '100%',
+                placeholder: 'Select Party',
+                allowClear: true
+            });
+        });
+    }
 
     function setBal(labelId, valueId, labelText, raw, decimals) {
         const type = raw >= 0 ? 'Credit' : 'Debit';
@@ -408,7 +458,7 @@ $(function () {
                         '<td></td><td></td><td></td><td></td><td></td>' +
                     '</tr>'
                 ));
-                $('#entry_customer_id').val(String(customerId));
+                $('#entry_customer_id').val(String(customerId)).trigger('change.select2');
                 $('#convert_customer_id').val(String(customerId));
                 if (parseInt(resp.row_count || 0, 10) > 0) {
                     initAdvanceTable();
@@ -423,7 +473,7 @@ $(function () {
 
     $('#btnLoadCustomer').on('click', function () {
         const customerId = $('#customer_id').val();
-        $('#entry_customer_id').val(customerId);
+        $('#entry_customer_id').val(customerId).trigger('change.select2');
         currentCustomerPdfKey = '';
         updateHistoryPdfLink('');
         loadCustomerLedger(customerId);
@@ -431,7 +481,7 @@ $(function () {
 
     $('#customer_id').on('change', function () {
         const cid = $(this).val();
-        $('#entry_customer_id').val(cid);
+        $('#entry_customer_id').val(cid).trigger('change.select2');
         $('#convert_customer_id').val(cid);
         currentCustomerPdfKey = '';
         updateHistoryPdfLink('');
@@ -542,9 +592,10 @@ $(function () {
     );
 
     const initialCustomerId = '{{ (int)$selectedCustomerId }}';
+    initPartySelects();
     if (initialCustomerId && initialCustomerId !== '0') {
-        $('#customer_id').val(initialCustomerId);
-        $('#entry_customer_id').val(initialCustomerId);
+        $('#customer_id').val(initialCustomerId).trigger('change.select2');
+        $('#entry_customer_id').val(initialCustomerId).trigger('change.select2');
         updateHistoryPdfLink('');
         loadCustomerLedger(initialCustomerId);
     } else {

@@ -141,20 +141,46 @@
                             @foreach($customTreeCuttingItems as $customItem)
                             @php
                                 $customReceiveTreeWtValue = old('custom_existing.' . $customItem->id . '.receive_tree_wt', $customItem->receive_tree_wt);
+                                $customSavedIssueGroupKey = $customItem->issue_group_key ?: ($customItem->office_issue_group_key ?? null);
+                                $customIssueGroupKey = old('custom_existing.' . $customItem->id . '.issue_group_key', $customSavedIssueGroupKey);
                                 $receiveTreeWtTotal += $customReceiveTreeWtValue !== null && $customReceiveTreeWtValue !== '' ? (float) $customReceiveTreeWtValue : 0;
                                 $issueRowNo++;
                             @endphp
-                            <tr data-custom-existing-row>
+                            <tr data-tree-issue-row data-custom-existing-row data-group-key="{{ $customIssueGroupKey }}" @if($customItem->office_issue_group_key ?? null) data-office-group="1" @endif>
                                 <td data-row-no>{{ $issueRowNo }}</td>
-                                <td></td>
                                 <td>
-                                    <input type="text"
-                                        name="custom_existing[{{ $customItem->id }}][custom_buch_no]"
-                                        class="form-control"
-                                        value="{{ old('custom_existing.' . $customItem->id . '.custom_buch_no', $customItem->custom_buch_no) }}"
-                                        placeholder="Custom B No">
+                                    <input type="hidden"
+                                        name="custom_existing[{{ $customItem->id }}][group_checked]"
+                                        class="tree-issue-group-checked"
+                                        value="0">
+                                    <input type="hidden"
+                                        name="custom_existing[{{ $customItem->id }}][selected_for_group]"
+                                        class="tree-issue-selected-for-group"
+                                        value="{{ $customIssueGroupKey ? '1' : '0' }}">
+                                    <input type="checkbox"
+                                        name="custom_existing[{{ $customItem->id }}][keep_group]"
+                                        value="1"
+                                        class="tree-issue-checkbox"
+                                        @checked((bool) $customIssueGroupKey)
+                                        @if($customIssueGroupKey) data-saved-group="1" @endif
+                                        @if($customItem->office_issue_group_key ?? null) data-office-group="1" @endif
+                                        aria-label="Select {{ $customItem->custom_buch_no }}">
+                                    <input type="hidden"
+                                        name="custom_existing[{{ $customItem->id }}][issue_group_key]"
+                                        class="tree-issue-group-key"
+                                        value="{{ $customIssueGroupKey }}">
+                                    <input type="hidden"
+                                        name="custom_existing[{{ $customItem->id }}][bulk_batch_key]"
+                                        class="tree-issue-batch-key"
+                                        value="{{ $customIssueGroupKey }}">
                                 </td>
-                                <td></td>
+                                <td>
+                                    <input type="hidden"
+                                        name="custom_existing[{{ $customItem->id }}][custom_buch_no]"
+                                        value="{{ old('custom_existing.' . $customItem->id . '.custom_buch_no', $customItem->custom_buch_no) }}">
+                                    <span class="tree-custom-readonly">{{ old('custom_existing.' . $customItem->id . '.custom_buch_no', $customItem->custom_buch_no) }}</span>
+                                </td>
+                                <td>{{ number_format((float) ($customItem->office_cut_wt ?? 0), 3, '.', '') }}</td>
                                 <td>
                                     <input type="number"
                                         name="custom_existing[{{ $customItem->id }}][receive_tree_wt]"
@@ -165,7 +191,10 @@
                                         value="{{ $customReceiveTreeWtValue }}">
                                 </td>
                                 <td>
-                                    <select name="custom_existing[{{ $customItem->id }}][job_worker_id]" class="form-control tree-cutting-worker-select">
+                                    <select name="custom_existing[{{ $customItem->id }}][job_worker_id]"
+                                        class="form-control tree-cutting-worker-select"
+                                        data-original-worker="{{ $customItem->job_worker_id ?: '' }}"
+                                        data-original-group-key="{{ $customSavedIssueGroupKey ?: '' }}">
                                         <option value="">Select Worker</option>
                                         @foreach($jobWorkers as $worker)
                                         <option value="{{ $worker->id }}" @selected((string) old('custom_existing.' . $customItem->id . '.job_worker_id', $customItem->job_worker_id) === (string) $worker->id)>{{ $worker->name }}</option>
@@ -225,6 +254,7 @@
     .tree-cutting-table tbody tr[class*="tree-group-color-"] td:first-child { box-shadow: inset 4px 0 0 rgba(255, 255, 255, 0.25); }
     .tree-cutting-input { max-width: 220px; }
     .tree-cutting-worker-select { max-width: 240px; }
+    .tree-custom-readonly { display: inline-block; min-height: 36px; padding: 8px 12px; color: #fff; font-weight: 600; }
     @media (max-width: 991px) { .tree-cutting-summary { grid-template-columns: repeat(2, minmax(150px, 1fr)); } }
     @media (max-width: 575px) { .tree-cutting-summary { grid-template-columns: 1fr; } }
 </style>
@@ -375,7 +405,7 @@
             const rowBatchKey = row?.querySelector('.tree-issue-batch-key');
             const rowGroupChecked = row?.querySelector('.tree-issue-group-checked');
             const rowSelectedForGroup = row?.querySelector('.tree-issue-selected-for-group');
-            const itemMatch = rowWorker?.name.match(/^items\[(\d+)\]\[job_worker_id\]$/);
+            const itemMatch = rowWorker?.name.match(/^(?:items|custom_existing)\[(\d+)\]\[job_worker_id\]$/);
 
             if (rowWorker) {
                 rowWorker.value = workerId;
@@ -550,7 +580,7 @@
         refreshTreeIssueGroupColors();
     });
 
-    document.getElementById('apply-bulk-tree-worker')?.addEventListener('click', async function () {
+    document.getElementById('apply-bulk-tree-worker')?.addEventListener('click', function () {
         const workerSelect = document.getElementById('bulk-tree-worker');
         const workerId = workerSelect?.value || '';
         if (!workerId) {
@@ -558,39 +588,15 @@
             return;
         }
 
-        const payload = checkedTreeIssuePayload(workerId);
-        if (payload.item_ids.length === 0) {
+        if (!applyWorkerToCheckedTreeRows(workerId)) {
             return;
-        }
-
-        this.disabled = true;
-        try {
-            const response = await fetch("{{ route('company.tree-cutting-issue.apply-group', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $voucher->id)]) }}", {
-                method: 'POST',
-                headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': this.closest('form')?.querySelector('[name="_token"]')?.value || '',
-                },
-                body: JSON.stringify(payload),
-            });
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.message || 'Unable to apply group');
-            }
-
-            syncAppliedTreeIssueRows(data);
-        } catch (error) {
-            alert(error.message || 'Unable to apply group');
-            return;
-        } finally {
-            this.disabled = false;
         }
 
         const checkAll = document.getElementById('check-all-tree-issue');
         if (checkAll) {
             checkAll.checked = false;
         }
+        refreshTreeIssueGroupColors();
     });
 
     document.addEventListener('change', function (event) {
