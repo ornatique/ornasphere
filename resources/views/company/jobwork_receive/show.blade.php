@@ -608,16 +608,8 @@ window.initJobworkReceivePage = function () {
         return row.querySelector('.receive-item-select')?.selectedOptions?.[0] || null;
     }
 
-    function selectedItemId(row) {
-        return parseInt(row.querySelector('.receive-item-select')?.value || 0, 10);
-    }
-
-    function selectedOtherChargeOptions(row) {
-        const itemId = selectedItemId(row);
-        return otherChargeOptions.filter((charge) => {
-            const chargeItemId = parseInt(charge.item_id || 0, 10);
-            return !chargeItemId || !itemId || chargeItemId === itemId;
-        });
+    function selectedOtherChargeOptions() {
+        return otherChargeOptions;
     }
 
     function parseOtherChargeDetails(row) {

@@ -20,11 +20,11 @@
             color: #000;
             background: #fff;
             font-family: Arial, Helvetica, sans-serif;
-            font-size: 12px;
+            font-size: 9pt;
         }
 
         .sheet {
-            width: 194mm;
+            width: 550pt;
             page-break-after: always;
         }
 
@@ -34,10 +34,10 @@
 
         .voucher-meta {
             width: 100%;
-            margin-bottom: 3mm;
-            padding-bottom: 2mm;
+            margin-bottom: 8pt;
+            padding-bottom: 5pt;
             border-bottom: 1px solid #000;
-            font-size: 11px;
+            font-size: 8pt;
             font-weight: 700;
         }
 
@@ -57,52 +57,46 @@
         .label-table {
             width: 100%;
             border-collapse: collapse;
-            table-layout: fixed;
+            table-layout: auto;
+        }
+
+        .label-table tr {
+            height: 36pt;
         }
 
         .label-table td {
-            width: 33.333%;
-            height: 12.85mm;
+            height: 36pt;
             padding: 0;
             border: 1px solid #202020;
             vertical-align: middle;
-            font-size: 22px;
+            font-size: 16.5pt;
             font-weight: 700;
             white-space: nowrap;
             text-align: left;
+            overflow: hidden;
         }
 
-        .label-line {
-            display: table;
-            width: 100%;
-            height: 100%;
-            border-collapse: collapse;
-        }
-
-        .serial {
-            display: table-cell;
-            width: 38px;
-            height: 100%;
-            border-right: 1px solid #202020;
-            box-shadow: inset 0 -1px 0 #202020;
+        .serial-cell {
+            width: 28.5pt;
+            min-width: 28.5pt;
+            max-width: 28.5pt;
             background-color: #c8d0cc !important;
             color: #000 !important;
-            text-align: center;
-            vertical-align: middle;
-            font-size: 22px;
+            text-align: center !important;
+            font-size: 16.5pt;
             font-weight: 800;
         }
 
-        .label-value {
-            display: table-cell;
-            padding: 0 8px;
+        .value-cell {
+            width: 154.8pt;
+            min-width: 154.8pt;
+            max-width: 154.8pt;
+            padding: 0 6pt;
             background-color: #6f7f7c !important;
             color: #fff !important;
-            text-align: center;
-            vertical-align: middle;
-            font-size: 22px;
+            text-align: center !important;
+            font-size: 16.5pt;
             font-weight: 800;
-            box-shadow: inset 0 -1px 0 #202020;
         }
 
         .buch-no {
@@ -115,8 +109,10 @@
             min-width: 0;
         }
 
-        .empty-label {
-            color: #fff;
+        .empty-label-cell {
+            width: 183.3pt;
+            background: #fff;
+            color: transparent;
         }
     </style>
 </head>
@@ -135,6 +131,14 @@
             </table>
 
             <table class="label-table">
+                <colgroup>
+                    <col style="width: 28.5pt;">
+                    <col style="width: 154.8pt;">
+                    <col style="width: 28.5pt;">
+                    <col style="width: 154.8pt;">
+                    <col style="width: 28.5pt;">
+                    <col style="width: 154.8pt;">
+                </colgroup>
                 <tbody>
                     @for($row = 0; $row < 20; $row++)
                         @php
@@ -143,45 +147,35 @@
                             $right = $pageLabels->get($row + 40);
                         @endphp
                         <tr>
-                            <td>
-                                @if($left)
-                                    <div class="label-line">
-                                        <span class="serial">{{ $left['serial'] }}</span>
-                                        <span class="label-value">
-                                            <span class="buch-no">{{ $left['buch_no'] }}</span>
-                                            <span class="buch-weight">-{{ $left['size'] }}</span>
-                                        </span>
-                                    </div>
-                                @else
-                                    <span class="empty-label">.</span>
-                                @endif
-                            </td>
-                            <td>
-                                @if($middle)
-                                    <div class="label-line">
-                                        <span class="serial">{{ $middle['serial'] }}</span>
-                                        <span class="label-value">
-                                            <span class="buch-no">{{ $middle['buch_no'] }}</span>
-                                            <span class="buch-weight">-{{ $middle['size'] }}</span>
-                                        </span>
-                                    </div>
-                                @else
-                                    <span class="empty-label">.</span>
-                                @endif
-                            </td>
-                            <td>
-                                @if($right)
-                                    <div class="label-line">
-                                        <span class="serial">{{ $right['serial'] }}</span>
-                                        <span class="label-value">
-                                            <span class="buch-no">{{ $right['buch_no'] }}</span>
-                                            <span class="buch-weight">-{{ $right['size'] }}</span>
-                                        </span>
-                                    </div>
-                                @else
-                                    <span class="empty-label">.</span>
-                                @endif
-                            </td>
+                            @if($left)
+                                <td class="serial-cell" width="28.5">{{ $left['serial'] }}</td>
+                                <td class="value-cell" width="154.8">
+                                    <span class="buch-no">{{ $left['buch_no'] }}</span>
+                                    <span class="buch-weight">-{{ $left['size'] }}</span>
+                                </td>
+                            @else
+                                <td class="empty-label-cell" colspan="2" width="183.3">.</td>
+                            @endif
+
+                            @if($middle)
+                                <td class="serial-cell" width="28.5">{{ $middle['serial'] }}</td>
+                                <td class="value-cell" width="154.8">
+                                    <span class="buch-no">{{ $middle['buch_no'] }}</span>
+                                    <span class="buch-weight">-{{ $middle['size'] }}</span>
+                                </td>
+                            @else
+                                <td class="empty-label-cell" colspan="2" width="183.3">.</td>
+                            @endif
+
+                            @if($right)
+                                <td class="serial-cell" width="28.5">{{ $right['serial'] }}</td>
+                                <td class="value-cell" width="154.8">
+                                    <span class="buch-no">{{ $right['buch_no'] }}</span>
+                                    <span class="buch-weight">-{{ $right['size'] }}</span>
+                                </td>
+                            @else
+                                <td class="empty-label-cell" colspan="2" width="183.3">.</td>
+                            @endif
                         </tr>
                     @endfor
                 </tbody>

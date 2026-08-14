@@ -41,6 +41,61 @@
     display: none !important;
   }
 
+  .content-wrapper select.form-control:not(.form-control-sm):not([multiple]):not([size]),
+  .content-wrapper select.form-select:not(.form-select-sm):not([multiple]):not([size]) {
+    width: 100%;
+    min-height: 44px;
+    height: 44px;
+    padding: 10px 12px;
+    line-height: 1.4;
+    color: #cfd3e6;
+    background-color: #2f2e55;
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .content-wrapper select.form-control:not(.form-control-sm):not([multiple]):not([size]):focus,
+  .content-wrapper select.form-select:not(.form-select-sm):not([multiple]):not([size]):focus {
+    border-color: rgba(125, 145, 255, 0.75);
+    box-shadow: none;
+  }
+
+  .content-wrapper .select2-container {
+    width: 100% !important;
+  }
+
+  .content-wrapper .select2-container--default .select2-selection--single,
+  .content-wrapper .select2-container--bootstrap4 .select2-selection--single {
+    min-height: 44px;
+    height: 44px;
+    background-color: #2f2e55;
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .content-wrapper .select2-container--default .select2-selection--single .select2-selection__rendered,
+  .content-wrapper .select2-container--bootstrap4 .select2-selection--single .select2-selection__rendered {
+    min-height: 42px;
+    line-height: 42px;
+    padding-left: 12px;
+    color: #cfd3e6;
+  }
+
+  .content-wrapper .select2-container--default .select2-selection--single .select2-selection__arrow,
+  .content-wrapper .select2-container--bootstrap4 .select2-selection--single .select2-selection__arrow {
+    height: 100%;
+    top: 0;
+    right: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .content-wrapper .select2-container--default .select2-selection--single .select2-selection__arrow b,
+  .content-wrapper .select2-container--bootstrap4 .select2-selection--single .select2-selection__arrow b {
+    position: static;
+    margin: 0;
+    transform: none;
+  }
+
   .content-wrapper .dataTables_scrollBody,
   .content-wrapper .table-responsive,
   .content-wrapper .sales-list-grid-wrap,

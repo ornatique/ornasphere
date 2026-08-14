@@ -145,8 +145,9 @@
         </tr>
     </table>
     @php
+        $cashPayable = (float)($cashPayableTotal ?? ($sale->net_total ?? 0));
         $effectiveReceived = (float)($sale->received_amount ?? 0) - (float)($sale->paid_amount ?? 0);
-        $pendingRaw = (float)($sale->net_total ?? 0) - $effectiveReceived;
+        $pendingRaw = $cashPayable - $effectiveReceived;
         $pendingType = $pendingRaw >= 0 ? 'Debit' : 'Credit';
         $pendingAmount = abs($pendingRaw);
         $advCashRaw = (float)($advanceSummary['cash'] ?? 0);
@@ -187,7 +188,7 @@
             @foreach($sale->saleItems as $index => $row)
                 @php
                     $itemSet = $row->itemset;
-                    $item = optional($itemSet)->item;
+                    $item = optional($itemSet)->item ?: $row->product;
                     $labelCode = optional($itemSet)->qr_code ?? '';
                     $itemName = optional($item)->item_name ?? '-';
                     $itemDisplay = trim(($labelCode ? ($labelCode . ' - ') : '') . $itemName);
@@ -240,7 +241,7 @@
         </tfoot>
     </table>
 
-    <div class="grand-total">Grand Total : Rs {{ number_format((float)($sale->net_total ?? $sumTotal), 2) }}</div>
+    <div class="grand-total">Grand Total : Rs {{ number_format($cashPayable, 2) }}</div>
     @php
         $showGoldBox = $goldAbs > 0.000001;
         $showSilverBox = $silverBalanceAbs > 0.000001;
@@ -325,7 +326,7 @@
                 <tr>
                     <td colspan="3" class="text-right"><strong>Pending Amount</strong></td>
                     <td class="text-right">
-                        <strong>Rs {{ number_format(max(0, (float)($sale->net_total ?? $sumTotal) - $paymentTotal), 2) }}</strong>
+                        <strong>Rs {{ number_format(max(0, $cashPayable - $paymentTotal), 2) }}</strong>
                     </td>
                 </tr>
             </tbody>

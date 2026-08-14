@@ -21,7 +21,7 @@
                 <div class="row mb-3">
                     <div class="col-md-4">
                         <label>Customer</label>
-                        <select name="customer_id" class="form-select" id="customerSelect" required>
+                        <select name="customer_id" class="form-select sale-customer-search-select" id="customerSelect" required>
                             <option value="">Select Customer</option>
                             @foreach($customers as $customer)
                             <option value="{{ $customer->id }}" {{ (!empty($sale) && (int) $sale->customer_id === (int) $customer->id) ? 'selected' : '' }}>{{ $customer->name }}</option>
@@ -31,7 +31,7 @@
 
                     <div class="col-md-4">
                         <label>Approval Person</label>
-                        <select class="form-select" id="approvalPersonSelect">
+                        <select class="form-select sale-customer-search-select" id="approvalPersonSelect">
                             <option value="">Select Approval Person</option>
                             @foreach($customers as $customer)
                             <option value="{{ $customer->id }}">
@@ -215,6 +215,11 @@
                     <input type="text" id="approvalItemSearch" class="form-control" placeholder="Type item name or QR/code..." autocomplete="off">
                 </div>
 
+                <div id="approvalLoadStatus" class="approval-load-status d-none">
+                    <span class="approval-spinner"></span>
+                    <span id="approvalLoadStatusText">Loading approval items...</span>
+                </div>
+
                 <div class="row approval-scroll-area">
                     <div class="col-md-6">
                         <div class="approval-list-title">Available Items</div>
@@ -348,6 +353,41 @@
         color: rgba(255, 255, 255, 0.86);
     }
 
+    #approvalModal .approval-load-status {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 42px;
+        margin-bottom: 12px;
+        padding: 10px 12px;
+        background: rgba(13, 110, 253, 0.14);
+        border: 1px solid rgba(125, 145, 255, 0.35);
+        border-radius: 8px;
+        color: rgba(255, 255, 255, 0.9);
+        font-weight: 700;
+    }
+
+    #approvalModal .approval-load-status.d-none {
+        display: none !important;
+    }
+
+    #approvalModal .approval-spinner {
+        width: 18px;
+        height: 18px;
+        border: 3px solid rgba(255, 255, 255, 0.28);
+        border-top-color: #ffffff;
+        border-radius: 50%;
+        animation: approvalSpin 0.8s linear infinite;
+        flex: 0 0 auto;
+    }
+
+    @keyframes approvalSpin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
     #approvalModal #approvalItemSearch {
         background: #292d49;
         border: 1px solid rgba(150, 170, 255, 0.5);
@@ -421,6 +461,16 @@
         background: rgba(255, 255, 255, 0.08);
     }
 
+    #approvalModal .approval-state-row td {
+        height: 120px;
+        color: rgba(255, 255, 255, 0.78);
+        font-weight: 700;
+    }
+
+    #approvalModal .approval-state-row.approval-error-row td {
+        color: #ffb8b8;
+    }
+
     #approvalModal .approval-total-bar {
         flex: 0 0 auto;
         padding-top: 10px;
@@ -428,7 +478,8 @@
     }
 
     .sale-grid-wrap {
-        max-height: 62vh;
+        height: 400px;
+        max-height: min(400px, 62vh);
         overflow: auto;
         position: relative;
         border: 1px solid rgba(255, 255, 255, 0.08);
@@ -523,6 +574,54 @@
         z-index: 7;
     }
 
+    #saleTable #saleSearchRow td:first-child {
+        z-index: 4;
+    }
+
+    .grid-label-search-wrap {
+        position: relative;
+        min-width: 260px;
+    }
+
+    .grid-label-search {
+        min-width: 260px !important;
+        text-align: left !important;
+    }
+
+    .grid-label-suggestion-box {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        z-index: 30;
+        max-height: 280px;
+        overflow-y: auto;
+        background: #302f54;
+        border: 1px solid rgba(150, 170, 255, 0.45);
+        border-radius: 6px;
+        display: none;
+    }
+
+    .grid-label-suggestion-box .list-group-item,
+    #suggestionBox .list-group-item {
+        background: #302f54;
+        border-color: rgba(255, 255, 255, 0.08);
+        color: #ffffff;
+    }
+
+    .grid-label-suggestion-box .list-group-item.active,
+    #suggestionBox .list-group-item.active,
+    .grid-label-suggestion-box .list-group-item:hover,
+    #suggestionBox .list-group-item:hover {
+        background: #0d6efd;
+        color: #ffffff;
+    }
+
+    .sale-grid-placeholder-cell {
+        color: rgba(255, 255, 255, 0.55);
+        font-weight: 700;
+    }
+
     #saleTable input.form-control {
         min-width: 125px;
         width: 100%;
@@ -605,6 +704,32 @@
     #otherChargeTable .charge-select-col {
         text-align: center;
     }
+
+    .select2-container--bootstrap4 .select2-search--dropdown .select2-search__field,
+    .select2-container--default .select2-search--dropdown .select2-search__field {
+        min-height: 38px;
+        background: #292d49;
+        color: #ffffff;
+        border: 1px solid rgba(150, 170, 255, 0.5);
+        outline: none;
+    }
+
+    .select2-dropdown {
+        background: #302f54;
+        border-color: rgba(150, 170, 255, 0.45);
+        color: #ffffff;
+    }
+
+    .select2-results__option {
+        color: #ffffff;
+        padding: 8px 12px;
+    }
+
+    .select2-container--default .select2-results__option--highlighted[aria-selected],
+    .select2-container--bootstrap4 .select2-results__option--highlighted[aria-selected] {
+        background: #0d6efd;
+        color: #ffffff;
+    }
 </style>
 @endsection
 
@@ -612,6 +737,8 @@
 <script>
 $(function () {
     const initialSaleRows = @json(!empty($editableItems) ? $editableItems : []);
+    const existingSaleAdvanceUsage = @json($saleAdvanceUsage ?? []);
+    const existingSaleCustomerId = '{{ !empty($sale) ? (int)($sale->customer_id ?? 0) : 0 }}';
     const existingRefundPaid = {{ !empty($sale) ? (float)($sale->paid_amount ?? 0) : 0 }};
     const selectedRows = {};
     let advanceCashBalance = 0;
@@ -620,6 +747,22 @@ $(function () {
     let advanceOtherBalance = 0;
     let modalRowId = null;
     let otherChargeOptions = [];
+
+    if ($.fn.select2) {
+        $('#customerSelect').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'Select Customer',
+            allowClear: true
+        });
+
+        $('#approvalPersonSelect').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'Select Approval Person',
+            allowClear: true
+        });
+    }
 
     const toNum = (v, d = 0) => {
         const n = parseFloat(v);
@@ -637,6 +780,7 @@ $(function () {
         const fixed = Math.abs(n) < 1e-9 ? 0 : n;
         return fixed.toFixed(decimals);
     };
+    const saleItemSearchUrl = "{{ route('company.items.search', $company->slug) }}";
 
     const esc = (v) => $('<div>').text(v ?? '').html();
     const normalizeMetalType = (v) => {
@@ -692,9 +836,10 @@ $(function () {
 
         $.get("{{ route('company.sales.customerAdvance', $company->slug) }}", { customer_id: customerId }, function(resp) {
             advanceCashBalance = toNum(resp.cash || 0);
-            advanceGoldBalance = toNum(resp.gold || 0);
-            advanceSilverBalance = toNum(resp.silver || 0);
-            advanceOtherBalance = toNum(resp.other || 0);
+            const isOriginalSaleCustomer = existingSaleCustomerId && String(customerId) === String(existingSaleCustomerId);
+            advanceGoldBalance = toNum(resp.gold || 0) + (isOriginalSaleCustomer ? toNum(existingSaleAdvanceUsage.gold_used || 0) : 0);
+            advanceSilverBalance = toNum(resp.silver || 0) + (isOriginalSaleCustomer ? toNum(existingSaleAdvanceUsage.silver_used || 0) : 0);
+            advanceOtherBalance = toNum(resp.other || 0) + (isOriginalSaleCustomer ? toNum(existingSaleAdvanceUsage.other_used || 0) : 0);
             const cashType = advanceCashBalance >= 0 ? 'Credit' : 'Debit';
             $('#advance_cash_balance_label').text('Advance Cash Balance ' + cashType);
             $('#advance_cash_balance').val(nfix(Math.abs(advanceCashBalance), 2));
@@ -1100,8 +1245,35 @@ $(function () {
         recalcPendingAmount();
     }
 
+    function calculateCashPayableTotal() {
+        const remainingMetal = {
+            gold: Math.max(0, advanceGoldBalance),
+            silver: Math.max(0, advanceSilverBalance),
+            other: Math.max(0, advanceOtherBalance),
+        };
+        let cashTotal = 0;
+
+        Object.values(selectedRows).forEach(row => {
+            cashTotal += toNum(row.labour_amount) + toNum(row.other_amount);
+
+            const fine = Math.max(0, toNum(row.fine_weight));
+            const metalAmount = Math.max(0, toNum(row.metal_amount));
+            if (fine <= 0 || metalAmount <= 0) return;
+
+            const metalType = normalizeMetalType(row.metal_type);
+            const coveredFine = Math.min(fine, remainingMetal[metalType] || 0);
+            remainingMetal[metalType] = Math.max(0, (remainingMetal[metalType] || 0) - coveredFine);
+            const uncoveredFine = Math.max(0, fine - coveredFine);
+            if (uncoveredFine > 0) {
+                cashTotal += metalAmount * (uncoveredFine / fine);
+            }
+        });
+
+        return cashTotal;
+    }
+
     function recalcPendingAmount() {
-        const netTotal = toNum($('#saleTotalAmount').text() || 0);
+        const netTotal = calculateCashPayableTotal();
         const received = toNum($('#received_amount').val() || 0);
         const additional = toNum($('#additional_received_amount').val() || 0);
         const effectiveReceived = received - existingRefundPaid;
@@ -1127,6 +1299,133 @@ $(function () {
         if (toNum(row?.itemset_id) > 0) return `set_${toNum(row.itemset_id)}`;
         if (toNum(row?.item_id) > 0) return `item_${toNum(row.item_id)}`;
         return '';
+    }
+
+    function normalizeSaleSearchResponse(resp) {
+        if (Array.isArray(resp)) return resp;
+        if (resp && Array.isArray(resp.data)) return resp.data;
+        if (resp && typeof resp === 'object') return Object.values(resp);
+        return [];
+    }
+
+    function normalizeSearchItem(item) {
+        const isItemOnly = !!item.is_item_only;
+        const itemsetId = toNum(item.itemset_id ?? item.id);
+        const itemId = toNum(item.item_id);
+        const approvalItemId = item.approval_item_id ?? item.approval_id ?? '';
+        const rowKey = approvalItemId
+            ? `approval_${approvalItemId}`
+            : (isItemOnly ? `item_${itemId}` : `set_${itemsetId}`);
+
+        return {
+            row_key: rowKey,
+            itemset_id: isItemOnly ? 0 : itemsetId,
+            item_id: itemId,
+            approval_item_id: approvalItemId,
+            approval_id: approvalItemId,
+            name: item.name || '',
+            metal_type: normalizeMetalType(item.metal_type || ''),
+            code: item.code || '',
+            huid: item.huid || '',
+            gross_weight: toNum(item.gross_weight),
+            other_weight: toNum(item.other_weight),
+            net_weight: toNum(item.net_weight),
+            purity: toNum(item.purity),
+            waste_percent: toNum(item.waste_percent),
+            net_purity: toNum(item.net_purity),
+            fine_weight: toNum(item.fine_weight),
+            metal_rate: toNum(item.metal_rate),
+            apply_metal: true,
+            metal_amount: toNum(item.metal_amount),
+            labour_rate: toNum(item.labour_rate),
+            apply_labour: true,
+            labour_amount: toNum(item.labour_amount),
+            other_amount: toNum(item.other_amount),
+            remarks: item.remarks || '',
+            total_amount: toNum(item.total_amount),
+            other_charges: [],
+            is_item_only: isItemOnly,
+            source: item.source || (isItemOnly ? 'item' : 'itemset'),
+        };
+    }
+
+    function saleSearchParams(query) {
+        return {
+            search: query,
+            limit: 1000,
+            customer_id: $('#approvalPersonSelect').val() || $('#customerSelect').val() || ''
+        };
+    }
+
+    function suggestionLabel(row) {
+        const codeText = row.code || row.huid || '';
+        const typeText = row.source === 'approval'
+            ? 'Approval Label'
+            : (row.is_item_only ? 'Item' : 'Label');
+        const noteText = row.is_item_only ? '<br><small>(Item found, Itemset not created)</small>' : '';
+
+        return `
+            <strong>${esc(codeText || row.name || '-')}</strong>
+            <br><small>${esc(row.name || '')} - ${esc(typeText)}</small>${noteText}
+        `;
+    }
+
+    function searchSaleItems(query, onDone, onFail = null) {
+        $.get(saleItemSearchUrl, saleSearchParams(query))
+            .done(function(resp) {
+                onDone(normalizeSaleSearchResponse(resp).map(normalizeSearchItem));
+            })
+            .fail(function(xhr) {
+                if (typeof onFail === 'function') {
+                    onFail(xhr);
+                }
+            });
+    }
+
+    function ensureGridSearchRow() {
+        if ($('#saleSearchRow').length) return;
+
+        $('#saleBody').append(`
+            <tr id="saleSearchRow">
+                <td>
+                    <div class="grid-label-search-wrap">
+                        <input type="text" class="form-control grid-label-search" placeholder="Search Label / Item" autocomplete="off">
+                        <div class="grid-label-suggestion-box list-group"></div>
+                    </div>
+                </td>
+                <td colspan="17" class="sale-grid-placeholder-cell">Select label or item from Label column</td>
+            </tr>
+        `);
+    }
+
+    function renderGridSuggestions($input, rows) {
+        const $box = $input.closest('.grid-label-search-wrap').find('.grid-label-suggestion-box');
+        let html = '';
+
+        rows.forEach(function(row) {
+            const rowKey = resolveRowKey(row);
+            if (!rowKey || selectedRows[rowKey]) return;
+
+            html += `<a href="#" class="list-group-item gridItemSelect" data-row='${esc(JSON.stringify(row))}'>${suggestionLabel(row)}</a>`;
+        });
+
+        if (!html.trim()) {
+            html = '<div class="list-group-item">No Data</div>';
+        }
+
+        $box.html(html).show();
+        $box.find('.gridItemSelect').first().addClass('active');
+    }
+
+    function rowFromSuggestion($el) {
+        const dataRow = $el.data('row');
+        if (dataRow && typeof dataRow === 'object') return dataRow;
+
+        try {
+            return JSON.parse($el.attr('data-row') || '{}');
+        } catch (e) {
+            return {};
+        }
     }
 
     function appendSaleRow(row) {
@@ -1186,15 +1485,20 @@ $(function () {
             <td><button type="button" class="btn btn-danger removeRow" data-id="${rowKey}">X</button></td>
         </tr>`;
 
-        $('#saleBody').append(tr);
+        if ($('#saleSearchRow').length) {
+            $('#saleSearchRow').before(tr);
+        } else {
+            $('#saleBody').append(tr);
+        }
         recalcRow(rowKey);
+        ensureGridSearchRow();
     }
 
     $('#customerSelect').change(function() {
         $('#item_search').prop('disabled', !$(this).val());
         loadCustomerAdvance($(this).val());
         if ($(this).val() && !$('#approvalPersonSelect').val()) {
-            $('#approvalPersonSelect').val($(this).val());
+            $('#approvalPersonSelect').val($(this).val()).trigger('change.select2');
         }
     });
 
@@ -1205,45 +1509,22 @@ $(function () {
             return;
         }
 
-        $.get("{{ route('company.items.search', $company->slug) }}", { search: query, limit: 1000 }, function(data) {
+        searchSaleItems(query, function(data) {
             let html = '';
-            data.forEach(item => {
-                const rowKey = item.is_item_only ? `item_${toNum(item.item_id)}` : `set_${toNum(item.id)}`;
-                if (!item.is_item_only && !item.id) return;
+            data.forEach(row => {
+                const rowKey = resolveRowKey(row);
+                if (!rowKey) return;
                 if (selectedRows[rowKey]) return;
-                const codeText = item.code || item.huid || '';
-                const nameText = item.name || '';
-                const isItemOnly = !!item.is_item_only;
-                const noteText = isItemOnly ? '<br><small>(Item found, Itemset not created)</small>' : '';
                 html += `
                 <a href="#" class="list-group-item itemSelect"
-                    data-row-key="${rowKey}"
-                    data-itemset-id="${item.id}"
-                    data-item-id="${item.item_id || ''}"
-                    data-approval-id=""
-                    data-name="${esc(item.name || '')}"
-                    data-metal-type="${esc(item.metal_type || '')}"
-                    data-code="${esc(item.code || '')}"
-                    data-huid="${esc(item.huid || '')}"
-                    data-gross-weight="${nfix(item.gross_weight,3)}"
-                    data-other-weight="${nfix(item.other_weight,3)}"
-                    data-net-weight="${nfix(item.net_weight,3)}"
-                    data-purity="${nfix(item.purity,3)}"
-                    data-waste-percent="${nfix(item.waste_percent,3)}"
-                    data-net-purity="${nfix(item.net_purity,3)}"
-                    data-fine-weight="${nfix(item.fine_weight,3)}"
-                    data-metal-rate="${nfix(item.metal_rate,2)}"
-                    data-apply-metal="1"
-                    data-metal-amount="${nfix(item.metal_amount,2)}"
-                    data-labour-rate="${nfix(item.labour_rate,2)}"
-                    data-apply-labour="1"
-                    data-labour-amount="${nfix(item.labour_amount,2)}"
-                    data-other-amount="${nfix(item.other_amount,2)}"
-                    data-remarks="${esc(item.remarks || '')}"
-                    data-total-amount="${nfix(item.total_amount,2)}">
-                    ${esc(codeText)}<br><small>${esc(nameText)}</small>${noteText}
+                    data-row='${esc(JSON.stringify(row))}'>
+                    ${suggestionLabel(row)}
                 </a>`;
             });
+
+            if (!html.trim()) {
+                html = '<div class="list-group-item">No Data</div>';
+            }
 
             $('#suggestionBox').html(html).show();
             $('#suggestionBox .itemSelect').first().addClass('active');
@@ -1270,38 +1551,46 @@ $(function () {
 
     $(document).on('click', '.itemSelect', function(e) {
         e.preventDefault();
-
-        appendSaleRow({
-            row_key: $(this).data('row-key'),
-            itemset_id: toNum($(this).data('itemset-id')),
-            item_id: toNum($(this).data('item-id')),
-            approval_item_id: $(this).data('approval-id'),
-            approval_id: $(this).data('approval-id'),
-            name: $(this).data('name'),
-            metal_type: normalizeMetalType($(this).data('metal-type')),
-            code: $(this).data('code'),
-            huid: $(this).data('huid'),
-            gross_weight: toNum($(this).data('gross-weight')),
-            other_weight: toNum($(this).data('other-weight')),
-            net_weight: toNum($(this).data('net-weight')),
-            purity: toNum($(this).data('purity')),
-            waste_percent: toNum($(this).data('waste-percent')),
-            net_purity: toNum($(this).data('net-purity')),
-            fine_weight: toNum($(this).data('fine-weight')),
-            metal_rate: toNum($(this).data('metal-rate')),
-            apply_metal: toBool($(this).data('apply-metal'), true),
-            metal_amount: toNum($(this).data('metal-amount')),
-            labour_rate: toNum($(this).data('labour-rate')),
-            apply_labour: toBool($(this).data('apply-labour'), true),
-            labour_amount: toNum($(this).data('labour-amount')),
-            other_amount: toNum($(this).data('other-amount')),
-            remarks: $(this).data('remarks') || '',
-            total_amount: toNum($(this).data('total-amount')),
-            other_charges: [],
-        });
+        appendSaleRow(rowFromSuggestion($(this)));
 
         $('#item_search').val('');
         $('#suggestionBox').hide().empty();
+    });
+
+    $(document).on('input', '.grid-label-search', function() {
+        const $input = $(this);
+        const query = $input.val().trim();
+
+        if (query.length < 2) {
+            $input.closest('.grid-label-search-wrap').find('.grid-label-suggestion-box').hide().empty();
+            return;
+        }
+
+        searchSaleItems(query, function(rows) {
+            renderGridSuggestions($input, rows);
+        });
+    });
+
+    $(document).on('keydown', '.grid-label-search', function(e) {
+        if (e.key !== 'Enter') return;
+
+        e.preventDefault();
+        const $box = $(this).closest('.grid-label-search-wrap').find('.grid-label-suggestion-box');
+        const $active = $box.find('.gridItemSelect.active').first();
+        if ($active.length) {
+            $active.click();
+        }
+    });
+
+    $(document).on('click', '.gridItemSelect', function(e) {
+        e.preventDefault();
+        const row = rowFromSuggestion($(this));
+        const $searchRow = $('#saleSearchRow');
+
+        $searchRow.remove();
+        appendSaleRow(row);
+        ensureGridSearchRow();
+        $('#saleSearchRow .grid-label-search').focus();
     });
 
     $('#openApprovalModal').click(function() {
@@ -1320,79 +1609,117 @@ $(function () {
 
         $('#approvalModal').modal('show');
         $('#approvalItemSearch').val('');
+        setApprovalLoading(true);
 
-        $.get("{{ route('company.sales.approval.items', $company->slug) }}", { customer_id: approvalCustomerId }, function(resp) {
-            let data = [];
-            if (Array.isArray(resp)) {
-                data = resp;
-            } else if (resp && Array.isArray(resp.data)) {
-                data = resp.data;
-            } else if (resp && typeof resp === 'object') {
-                data = Object.values(resp);
-            }
-            let html = '';
-            if (!data.length) {
-                html = `<tr><td colspan="4" class="text-center">No Data</td></tr>`;
-            } else {
-                data.forEach((item, i) => {
-                    const itemsetId = toNum(item.itemset_id ?? item.itemsetId ?? 0);
-                    const approvalItemId = item.approval_item_id ?? item.approval_id ?? item.id ?? '';
-                    const code = item.code ?? item.qr_code ?? '';
-                    const grossWeight = toNum(item.gross_weight ?? item.gross_wt ?? item.gross ?? 0);
-                    const otherWeight = toNum(item.other_weight ?? item.other_wt ?? 0);
-                    const netWeight = toNum(item.net_weight ?? item.net_wt ?? (grossWeight - otherWeight));
-                    const wastePercent = toNum(item.waste_percent ?? item.waste_pct ?? 0);
-                    const fineWeight = toNum(item.fine_weight ?? item.fine_wt ?? 0);
-                    const metalAmount = toNum(item.metal_amount ?? item.metal_amt ?? 0);
-                    const labourAmount = toNum(item.labour_amount ?? item.labour_amt ?? 0);
-                    const otherAmount = toNum(item.other_amount ?? item.other_amt ?? 0);
-                    const totalAmount = toNum(item.total_amount ?? item.total_amt ?? 0);
-                    const itemName = item.name || '';
-                    const searchableText = `${code} ${itemName} ${item.huid || ''}`.toLowerCase();
+        $.ajax({
+            url: "{{ route('company.sales.approval.items', $company->slug) }}",
+            type: 'GET',
+            data: { customer_id: approvalCustomerId },
+            success: function(resp) {
+                renderApprovalRows(resp);
+            },
+            error: function(xhr) {
+                const message = xhr.responseJSON && xhr.responseJSON.message
+                    ? xhr.responseJSON.message
+                    : 'Approval items could not be loaded. Please try again.';
 
-                    if (!itemsetId || selectedRows[itemsetId]) return;
-                    html += `
-                    <tr class="leftRow"
-                        data-search="${esc(searchableText)}"
-                        data-itemset-id="${itemsetId}"
-                        data-item-id="${item.item_id || ''}"
-                        data-approval-id="${approvalItemId}"
-                        data-name="${esc(itemName)}"
-                        data-metal-type="${esc(item.metal_type || '')}"
-                        data-code="${esc(code)}"
-                        data-huid="${esc(item.huid || '')}"
-                        data-gross-weight="${nfix(grossWeight,3)}"
-                        data-other-weight="${nfix(otherWeight,3)}"
-                        data-net-weight="${nfix(netWeight,3)}"
-                        data-purity="${nfix(item.purity,3)}"
-                        data-waste-percent="${nfix(wastePercent,3)}"
-                        data-net-purity="${nfix(item.net_purity,3)}"
-                        data-fine-weight="${nfix(fineWeight,3)}"
-                        data-metal-rate="${nfix(item.metal_rate,2)}"
-                        data-apply-metal="1"
-                        data-metal-amount="${nfix(metalAmount,2)}"
-                        data-labour-rate="${nfix(item.labour_rate,2)}"
-                        data-apply-labour="1"
-                        data-labour-amount="${nfix(labourAmount,2)}"
-                        data-other-amount="${nfix(otherAmount,2)}"
-                        data-remarks="${esc(item.remarks || '')}"
-                        data-total-amount="${nfix(totalAmount,2)}">
-                        <td>${i + 1}</td>
-                        <td>${esc(code)}</td>
-                        <td>${esc(itemName)}</td>
-                        <td>${nfix(grossWeight,3)}</td>
-                    </tr>`;
-                });
+                $('#leftTable').html(`<tr class="approval-state-row approval-error-row"><td colspan="4" class="text-center">${esc(message)}</td></tr>`);
+                $('#rightTable').html('');
+                updateModalTotals();
+            },
+            complete: function() {
+                setApprovalLoading(false);
             }
-            if (!html.trim()) {
-                html = `<tr><td colspan="4" class="text-center">No Data</td></tr>`;
-            }
-            $('#leftTable').html(html);
-            $('#rightTable').html('');
-            filterApprovalRows();
-            updateModalTotals();
         });
     });
+
+    function setApprovalLoading(isLoading) {
+        $('#approvalLoadStatus').toggleClass('d-none', !isLoading);
+        $('#approvalItemSearch').prop('disabled', isLoading);
+        $('#addToSale').prop('disabled', isLoading);
+
+        if (isLoading) {
+            $('#leftTable').html(`<tr class="approval-state-row"><td colspan="4" class="text-center">Loading approval items...</td></tr>`);
+            $('#rightTable').html('');
+            $('#totalItems').text(0);
+            $('#totalGross').text(nfix(0, 3));
+        }
+    }
+
+    function renderApprovalRows(resp) {
+        let data = [];
+        if (Array.isArray(resp)) {
+            data = resp;
+        } else if (resp && Array.isArray(resp.data)) {
+            data = resp.data;
+        } else if (resp && typeof resp === 'object') {
+            data = Object.values(resp);
+        }
+
+        let html = '';
+        if (!data.length) {
+            html = `<tr class="approval-state-row"><td colspan="4" class="text-center">No Data</td></tr>`;
+        } else {
+            data.forEach((item, i) => {
+                const itemsetId = toNum(item.itemset_id ?? item.itemsetId ?? 0);
+                const approvalItemId = item.approval_item_id ?? item.approval_id ?? item.id ?? '';
+                const code = item.code ?? item.qr_code ?? '';
+                const grossWeight = toNum(item.gross_weight ?? item.gross_wt ?? item.gross ?? 0);
+                const otherWeight = toNum(item.other_weight ?? item.other_wt ?? 0);
+                const netWeight = toNum(item.net_weight ?? item.net_wt ?? (grossWeight - otherWeight));
+                const wastePercent = toNum(item.waste_percent ?? item.waste_pct ?? 0);
+                const fineWeight = toNum(item.fine_weight ?? item.fine_wt ?? 0);
+                const metalAmount = toNum(item.metal_amount ?? item.metal_amt ?? 0);
+                const labourAmount = toNum(item.labour_amount ?? item.labour_amt ?? 0);
+                const otherAmount = toNum(item.other_amount ?? item.other_amt ?? 0);
+                const totalAmount = toNum(item.total_amount ?? item.total_amt ?? 0);
+                const itemName = item.name || '';
+                const searchableText = `${code} ${itemName} ${item.huid || ''}`.toLowerCase();
+
+                if (!itemsetId || selectedRows[itemsetId]) return;
+                html += `
+                <tr class="leftRow"
+                    data-search="${esc(searchableText)}"
+                    data-itemset-id="${itemsetId}"
+                    data-item-id="${item.item_id || ''}"
+                    data-approval-id="${approvalItemId}"
+                    data-name="${esc(itemName)}"
+                    data-metal-type="${esc(item.metal_type || '')}"
+                    data-code="${esc(code)}"
+                    data-huid="${esc(item.huid || '')}"
+                    data-gross-weight="${nfix(grossWeight,3)}"
+                    data-other-weight="${nfix(otherWeight,3)}"
+                    data-net-weight="${nfix(netWeight,3)}"
+                    data-purity="${nfix(item.purity,3)}"
+                    data-waste-percent="${nfix(wastePercent,3)}"
+                    data-net-purity="${nfix(item.net_purity,3)}"
+                    data-fine-weight="${nfix(fineWeight,3)}"
+                    data-metal-rate="${nfix(item.metal_rate,2)}"
+                    data-apply-metal="1"
+                    data-metal-amount="${nfix(metalAmount,2)}"
+                    data-labour-rate="${nfix(item.labour_rate,2)}"
+                    data-apply-labour="1"
+                    data-labour-amount="${nfix(labourAmount,2)}"
+                    data-other-amount="${nfix(otherAmount,2)}"
+                    data-remarks="${esc(item.remarks || '')}"
+                    data-total-amount="${nfix(totalAmount,2)}">
+                    <td>${i + 1}</td>
+                    <td>${esc(code)}</td>
+                    <td>${esc(itemName)}</td>
+                    <td>${nfix(grossWeight,3)}</td>
+                </tr>`;
+            });
+        }
+
+        if (!html.trim()) {
+            html = `<tr class="approval-state-row"><td colspan="4" class="text-center">No Data</td></tr>`;
+        }
+
+        $('#leftTable').html(html);
+        $('#rightTable').html('');
+        filterApprovalRows();
+        updateModalTotals();
+    }
 
     $('#approvalItemSearch').on('input', function() {
         filterApprovalRows();
@@ -1430,7 +1757,7 @@ $(function () {
 
     function updateModalTotals() {
         let count = 0, gross = 0;
-        $('#rightTable tr').each(function() {
+        $('#rightTable tr.rightRow').each(function() {
             count++;
             gross += toNum($(this).data('gross-weight'));
         });
@@ -1485,7 +1812,7 @@ $(function () {
     });
 
     $(document).on('input', '.remarks', function() {
-        const id = Number($(this).data('id'));
+        const id = String($(this).data('id') || '');
         if (!selectedRows[id]) return;
         selectedRows[id].remarks = $(this).val();
         $(`input[name="remarks[]"][data-id="${id}"]`).val($(this).val());
@@ -1496,7 +1823,7 @@ $(function () {
     });
 
     $(document).on('click', '.open-other-charge-modal', function () {
-        const id = Number($(this).data('id'));
+        const id = String($(this).data('id') || '');
         const row = selectedRows[id];
         if (!row) return;
 
@@ -1566,6 +1893,7 @@ $(function () {
         delete selectedRows[id];
         $('#row_' + id).remove();
         recalcTotals();
+        ensureGridSearchRow();
     });
 
     $('#received_amount').on('input', recalcPendingAmount);
@@ -1597,7 +1925,7 @@ $(function () {
             return false;
         }
 
-        const netTotal = toNum($('#saleTotalAmount').text() || 0);
+        const netTotal = calculateCashPayableTotal();
         const received = toNum($('#received_amount').val() || 0);
         const additional = toNum($('#additional_received_amount').val() || 0);
         const effectiveReceived = received - existingRefundPaid;
@@ -1615,6 +1943,7 @@ $(function () {
         });
     }
 
+    ensureGridSearchRow();
     $('#customerSelect').trigger('change');
     recalcTotals();
 });

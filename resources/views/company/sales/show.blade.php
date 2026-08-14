@@ -16,14 +16,14 @@
                 <div class="col-md-3"><strong>Voucher No:</strong> {{ $sale->voucher_no }}</div>
                 <div class="col-md-3"><strong>Date:</strong> {{ optional($sale->sale_date)->format('d-m-Y') }}</div>
                 <div class="col-md-3"><strong>Customer:</strong> {{ optional($sale->customer)->name ?? '-' }}</div>
-                <div class="col-md-3"><strong>Total:</strong> {{ number_format((float) ($sale->net_total ?? 0), 2) }}</div>
+                <div class="col-md-3"><strong>Total:</strong> {{ number_format((float) ($cashPayableTotal ?? $sale->net_total ?? 0), 2) }}</div>
             </div>
             <div class="row mb-3">
                 @php
                     $received = (float) ($sale->received_amount ?? 0);
                     $refundPaid = (float) ($sale->paid_amount ?? 0);
                     $effectiveReceived = $received - $refundPaid;
-                    $pending = max(0, (float) ($sale->net_total ?? 0) - $effectiveReceived);
+                    $pending = max(0, (float) ($cashPayableTotal ?? $sale->net_total ?? 0) - $effectiveReceived);
                 @endphp
                 <div class="col-md-3"><strong>Received:</strong> {{ number_format($received, 2) }}</div>
                 <div class="col-md-3"><strong>Refund Paid:</strong> {{ number_format($refundPaid, 2) }}</div>
@@ -68,7 +68,7 @@
                         @forelse($sale->saleItems as $index => $row)
                             <tr>
                                 <td>{{ $index + 1 }}</td>
-                                <td>{{ optional(optional($row->itemset)->item)->item_name ?? '-' }}</td>
+                                <td>{{ optional(optional($row->itemset)->item)->item_name ?? optional($row->product)->item_name ?? '-' }}</td>
                                 <td>{{ optional($row->itemset)->HUID ?? '-' }}</td>
                                 <td>{{ optional($row->itemset)->qr_code ?? '-' }}</td>
                                 <td>{{ number_format((float) ($row->gross_weight ?? 0), 3) }}</td>

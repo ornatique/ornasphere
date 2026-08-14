@@ -374,6 +374,7 @@ class SaleApiController extends Controller
 
             return [
                 'id' => (int) (optional($itemSet)->id ?? 0),
+                'row_key' => 'approval_' . (int) $approvalItem->id,
                 'itemset_id' => (int) (optional($itemSet)->id ?? 0),
                 'approval_item_id' => (int) $approvalItem->id,
                 'approval_id' => (int) ($approvalItem->approval_id ?? 0),
@@ -437,6 +438,7 @@ class SaleApiController extends Controller
 
             return [
                 'id' => (int) $set->id,
+                'row_key' => 'set_' . (int) $set->id,
                 'itemset_id' => (int) $set->id,
                 'item_id' => (int) ($set->item_id ?? 0),
                 'name' => (string) (optional($set->item)->item_name ?? ''),
@@ -464,6 +466,7 @@ class SaleApiController extends Controller
         $itemOnlyRows = $itemOnly->map(function ($item) {
             return [
                 'id' => 0,
+                'row_key' => 'item_' . (int) $item->id,
                 'itemset_id' => 0,
                 'item_id' => (int) $item->id,
                 'name' => (string) ($item->item_name ?? ''),

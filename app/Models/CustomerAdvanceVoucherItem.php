@@ -4,13 +4,16 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class SaleItem extends Model
+class CustomerAdvanceVoucherItem extends Model
 {
     protected $fillable = [
-        'sale_id',
+        'voucher_id',
         'itemset_id',
         'product_id',
-        'qty',
+        'label_code',
+        'huid',
+        'item_name',
+        'metal_type',
         'gross_weight',
         'other_weight',
         'net_weight',
@@ -19,18 +22,24 @@ class SaleItem extends Model
         'net_purity',
         'fine_weight',
         'metal_rate',
+        'apply_metal',
         'metal_amount',
         'labour_rate',
+        'apply_labour',
         'labour_amount',
         'other_amount',
         'total_amount',
         'remarks',
-        'approval_item_id',
     ];
 
-    public function sale()
+    protected $casts = [
+        'apply_metal' => 'boolean',
+        'apply_labour' => 'boolean',
+    ];
+
+    public function voucher()
     {
-        return $this->belongsTo(Sale::class);
+        return $this->belongsTo(CustomerAdvanceVoucher::class, 'voucher_id');
     }
 
     public function itemset()

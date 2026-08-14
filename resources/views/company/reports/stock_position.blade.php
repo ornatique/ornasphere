@@ -8,7 +8,7 @@
         </div>
         <div class="card-body">
             <div class="row mb-3">
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <label>Item</label>
                     <select id="item_id" class="form-select">
                         <option value="">All Items</option>
@@ -17,11 +17,20 @@
                         @endforeach
                     </select>
                 </div>
-                <div class="col-md-4 d-flex align-items-end">
+                <div class="col-md-3">
+                    <label>Party</label>
+                    <select id="customer_id" class="form-select">
+                        <option value="">All Parties</option>
+                        @foreach($customers as $customer)
+                            <option value="{{ $customer->id }}">{{ $customer->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
                     <button id="filter" class="btn btn-success me-2">Filter</button>
                     <button id="reset" class="btn btn-secondary">Reset</button>
                 </div>
-                <div class="col-md-4 d-flex align-items-end justify-content-end mt-2 mt-md-0">
+                <div class="col-md-3 d-flex align-items-end justify-content-end mt-2 mt-md-0">
                     <button id="export_excel" class="btn btn-info me-2">Excel</button>
                     <button id="export_pdf" class="btn btn-primary">PDF</button>
                 </div>
@@ -32,9 +41,11 @@
                     <tr>
                         <th>#</th>
                         <th>Item</th>
+                        <th>Party</th>
                         <th>Qty Pcs</th>
                         <th>Gross Wt</th>
                         <th>Net Wt</th>
+                        <th>Fine Wt</th>
                         <th>Labour Amt</th>
                         <th>Other Amt</th>
                     </tr>
@@ -55,14 +66,17 @@ $(function () {
             url: "{{ route('company.reports.stock-position.index', $company->slug) }}",
             data: function (d) {
                 d.item_id = $('#item_id').val();
+                d.customer_id = $('#customer_id').val();
             }
         },
         columns: [
             { data: 'DT_RowIndex', orderable: false, searchable: false },
-            { data: 'item_name', name: 'items.item_name' },
+            { data: 'item_name', name: 'item_name' },
+            { data: 'customer_name', name: 'customer_name' },
             { data: 'qty_pcs', orderable: false, searchable: false },
             { data: 'gross_weight', orderable: false, searchable: false },
             { data: 'net_weight', orderable: false, searchable: false },
+            { data: 'fine_weight', orderable: false, searchable: false },
             { data: 'labour_amount', orderable: false, searchable: false },
             { data: 'other_amount', orderable: false, searchable: false },
         ]
@@ -71,12 +85,14 @@ $(function () {
     $('#filter').on('click', function () { table.draw(); });
     $('#reset').on('click', function () {
         $('#item_id').val('');
+        $('#customer_id').val('');
         table.draw();
     });
 
     function queryParams() {
         return $.param({
-            item_id: $('#item_id').val()
+            item_id: $('#item_id').val(),
+            customer_id: $('#customer_id').val()
         });
     }
 

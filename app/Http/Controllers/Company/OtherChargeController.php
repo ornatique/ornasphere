@@ -237,20 +237,10 @@ class OtherChargeController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
-        $itemId = (int) $request->input('item_id', 0);
-
         $query = OtherCharge::query()
             ->where('company_id', $company->id)
             ->orderByRaw('COALESCE(sequence_no, 999999) asc')
             ->orderBy('id');
-
-        if ($itemId > 0) {
-            $query->where(function ($q) use ($itemId) {
-                $q->whereNull('item_id')
-                    ->orWhere('item_id', 0)
-                    ->orWhere('item_id', $itemId);
-            });
-        }
 
         $rows = $query->get();
 

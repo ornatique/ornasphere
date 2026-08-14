@@ -15,21 +15,21 @@
         </div>
         <div class="card-body">
             <div class="filter-panel mb-3">
-                <div class="row align-items-end">
-                    <div class="col-md-4">
+                <div class="row align-items-end g-3 person-filter-row">
+                    <div class="col-xl-4 col-lg-5 col-md-6 person-filter-select-wrap">
                         <label for="category_person_id" class="form-label">Category Person</label>
-                        <select id="category_person_id" class="form-control">
+                        <select id="category_person_id" class="form-control person-filter-select">
                             <option value="">All Category Persons</option>
                             @foreach($categoryPeople as $categoryPerson)
                                 <option value="{{ $categoryPerson->id }}">{{ $categoryPerson->category_name }}</option>
                             @endforeach
                         </select>
                     </div>
-                    <div class="col-md-2">
-                        <button type="button" id="filterBtn" class="btn btn-primary w-100">Filter</button>
+                    <div class="col-xl-2 col-lg-3 col-md-3 person-filter-action-wrap">
+                        <button type="button" id="filterBtn" class="btn btn-primary w-100 person-filter-action">Filter</button>
                     </div>
-                    <div class="col-md-2">
-                        <button type="button" id="resetBtn" class="btn btn-secondary w-100">Reset</button>
+                    <div class="col-xl-2 col-lg-3 col-md-3 person-filter-action-wrap">
+                        <button type="button" id="resetBtn" class="btn btn-secondary w-100 person-filter-action">Reset</button>
                     </div>
                 </div>
             </div>

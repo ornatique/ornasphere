@@ -17,6 +17,7 @@ class CategoryPersonController extends Controller
     public function index(Request $request)
     {
         $companyId = (int) $request->user()->company_id;
+        CategoryPerson::ensureCompanyDefaults($companyId);
 
         $categories = CategoryPerson::where('company_id', $companyId)
             ->latest()
@@ -34,6 +35,9 @@ class CategoryPersonController extends Controller
     public function store(Request $request)
     {
         $companyId = (int) $request->user()->company_id;
+        $request->merge([
+            'category_name' => trim((string) $request->input('category_name')),
+        ]);
 
         $validated = $request->validate([
             'category_name' => [
@@ -95,6 +99,17 @@ class CategoryPersonController extends Controller
             ], 404);
         }
 
+        if ($category->isSystemDefault()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'System default category cannot be edited.',
+            ], 422);
+        }
+
+        $request->merge([
+            'category_name' => trim((string) $request->input('category_name')),
+        ]);
+
         $validated = $request->validate([
             'category_name' => [
                 'required',
@@ -128,6 +143,13 @@ class CategoryPersonController extends Controller
                 'success' => false,
                 'message' => 'Category not found.',
             ], 404);
+        }
+
+        if ($category->isSystemDefault()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'System default category cannot be deleted.',
+            ], 422);
         }
 
         $category->delete();

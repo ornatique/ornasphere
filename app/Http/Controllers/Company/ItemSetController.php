@@ -21,6 +21,25 @@ use Illuminate\Support\Facades\Crypt;
 
 class ItemSetController extends Controller
 {
+    private function configuredItemsQuery(int $companyId)
+    {
+        return Item::where('company_id', $companyId)
+            ->whereHas('labelConfig', function ($query) use ($companyId) {
+                $query->where('company_id', $companyId);
+            });
+    }
+
+    private function configuredItem(int $companyId, $itemId): ?Item
+    {
+        if (!$itemId) {
+            return null;
+        }
+
+        return $this->configuredItemsQuery($companyId)
+            ->where('id', $itemId)
+            ->first();
+    }
+
     private function normalizeLabourFormulaValue(?string $formula): string
     {
         $raw = strtolower(str_replace(' ', '', trim((string) $formula)));
@@ -198,7 +217,7 @@ class ItemSetController extends Controller
                 ->make(true);
         }
 
-        $items = Item::where('company_id', $company->id)
+        $items = $this->configuredItemsQuery($company->id)
             ->orderBy('item_name')
             ->get();
 
@@ -209,7 +228,9 @@ class ItemSetController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
-        $items = Item::where('company_id', $company->id)->get();
+        $items = $this->configuredItemsQuery($company->id)
+            ->orderBy('item_name')
+            ->get();
 
         return view(
             'company.item_sets.index',
@@ -225,6 +246,10 @@ class ItemSetController extends Controller
     public function loadMore(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+
+        if (!$this->configuredItem($company->id, $request->item_id)) {
+            return response()->json([]);
+        }
 
         return ItemSet::where('company_id', $company->id)
             ->where('item_id', $request->item_id)
@@ -259,9 +284,15 @@ class ItemSetController extends Controller
             return (float) str_replace(',', '', (string) $value);
         };
 
-        $item = Item::where('company_id', $company->id)
-            ->where('id', $request->item_id)
-            ->first();
+        $item = $this->configuredItem($company->id, $request->item_id);
+
+        if (!$item) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Label Config not found for selected item. Please create Label Config first.',
+            ], 422);
+        }
+
         $defaultLabourFormula = $this->labourFormulaLabel(optional($item)->labour_type);
         $requestedLabourFormula = $this->normalizeLabourFormulaValue($request->input('sale_labour_formula'));
 
@@ -336,14 +367,13 @@ class ItemSetController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
-        $item = Item::where('company_id', $company->id)
-            ->where('id', $itemId)
-            ->first();
+        $item = $this->configuredItem($company->id, $itemId);
 
         if (!$item) {
             return response()->json([
-                'status' => false
-            ]);
+                'status' => false,
+                'message' => 'Label Config not found for selected item. Please create Label Config first.',
+            ], 422);
         }
 
         return response()->json([
@@ -359,20 +389,18 @@ class ItemSetController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
-        $item = Item::where('company_id', $company->id)
-            ->where('id', $request->item_id)
-            ->firstOrFail();
+        $item = $this->configuredItem($company->id, $request->item_id);
 
-        $config = LabelConfig::where('company_id', $company->id)
-            ->where('item_id', $item->id)
-            ->first();
-
-        if (!$config) {
+        if (!$item) {
             return response()->json([
                 'status' => false,
                 'message' => 'Label Config not found for selected item. Please create Label Config first.',
             ], 422);
         }
+
+        $config = LabelConfig::where('company_id', $company->id)
+            ->where('item_id', $item->id)
+            ->first();
 
         DB::beginTransaction();
 

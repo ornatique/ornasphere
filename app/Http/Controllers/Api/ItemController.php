@@ -13,7 +13,17 @@ class ItemController extends Controller
     {
         $companyId = $request->user()->company_id;
 
-        $items = Item::where('company_id', $companyId)->latest()->get();
+        $items = Item::where('company_id', $companyId)
+            ->when(
+                $request->boolean('label_configured_only') || $request->boolean('has_label_config'),
+                function ($query) use ($companyId) {
+                    $query->whereHas('labelConfig', function ($labelConfigQuery) use ($companyId) {
+                        $labelConfigQuery->where('company_id', $companyId);
+                    });
+                }
+            )
+            ->latest()
+            ->get();
 
         return response()->json([
             'success' => true,
@@ -156,4 +166,3 @@ class ItemController extends Controller
         ]);
     }
 }
-

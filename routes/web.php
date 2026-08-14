@@ -865,12 +865,18 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
 
         Route::get('/sales/advance-ledger', [CustomerAdvanceController::class, 'index'])
             ->name('sales.advance.index');
+        Route::get('/sales/advance-ledger/create', [CustomerAdvanceController::class, 'create'])
+            ->name('sales.advance.create');
         Route::get('/sales/advance-ledger/data', [CustomerAdvanceController::class, 'data'])
             ->name('sales.advance.data');
         Route::get('/sales/advance-ledger/pdf', [CustomerAdvanceController::class, 'exportPdf'])
             ->name('sales.advance.pdf');
+        Route::get('/sales/advance-ledger/{encryptedId}/pdf', [CustomerAdvanceController::class, 'voucherPdf'])
+            ->name('sales.advance.voucher.pdf');
         Route::post('/sales/advance-ledger', [CustomerAdvanceController::class, 'store'])
             ->name('sales.advance.store');
+        Route::post('/sales/advance-ledger/items', [CustomerAdvanceController::class, 'storeItems'])
+            ->name('sales.advance.items.store');
 
         Route::get('sales/{encryptedId}', [SaleController::class, 'show'])
             ->name('sales.show');

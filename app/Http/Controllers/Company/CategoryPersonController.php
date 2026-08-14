@@ -17,6 +17,8 @@ class CategoryPersonController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
 
         if ($request->ajax()) {
+            CategoryPerson::ensureCompanyDefaults((int) $company->id);
+
             $categories = CategoryPerson::query()
                 ->where('company_id', $company->id)
                 ->latest();
@@ -25,6 +27,10 @@ class CategoryPersonController extends Controller
                 ->addIndexColumn()
                 ->addColumn('created_at_display', fn ($row) => optional($row->created_at)->format('d-m-Y h:i A'))
                 ->addColumn('action', function ($row) use ($company) {
+                    if ($row->isSystemDefault()) {
+                        return '<span class="badge bg-secondary">System Default</span>';
+                    }
+
                     $encryptedId = Crypt::encryptString($row->id);
                     $editUrl = route('company.category-persons.edit', [$company->slug, $encryptedId]);
                     $deleteUrl = route('company.category-persons.destroy', [$company->slug, $encryptedId]);
@@ -54,6 +60,9 @@ class CategoryPersonController extends Controller
     public function store(Request $request, string $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $request->merge([
+            'category_name' => trim((string) $request->input('category_name')),
+        ]);
 
         $validated = $request->validate([
             'category_name' => [
@@ -80,6 +89,12 @@ class CategoryPersonController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
         $categoryPerson = $this->findCategoryPerson($company, $encryptedId);
 
+        if ($categoryPerson->isSystemDefault()) {
+            return redirect()
+                ->route('company.category-persons.index', $company->slug)
+                ->withErrors(['category_name' => 'System default category person cannot be edited.']);
+        }
+
         return view('company.category_person.edit', compact('company', 'categoryPerson'));
     }
 
@@ -87,6 +102,16 @@ class CategoryPersonController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
         $categoryPerson = $this->findCategoryPerson($company, $encryptedId);
+
+        if ($categoryPerson->isSystemDefault()) {
+            return redirect()
+                ->route('company.category-persons.index', $company->slug)
+                ->withErrors(['category_name' => 'System default category person cannot be edited.']);
+        }
+
+        $request->merge([
+            'category_name' => trim((string) $request->input('category_name')),
+        ]);
 
         $validated = $request->validate([
             'category_name' => [
@@ -110,6 +135,11 @@ class CategoryPersonController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
         $categoryPerson = $this->findCategoryPerson($company, $encryptedId);
+
+        if ($categoryPerson->isSystemDefault()) {
+            return back()->withErrors(['category_name' => 'System default category person cannot be deleted.']);
+        }
+
         $categoryPerson->delete();
 
         return back()->with('success', 'Category person deleted successfully');

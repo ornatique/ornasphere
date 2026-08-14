@@ -383,11 +383,15 @@ class ReportController extends Controller
             return DataTables::of($this->stockPositionBaseQuery($company, $request))
                 ->addIndexColumn()
                 ->filterColumn('item_name', function ($query, $keyword) {
-                    $query->where('items.item_name', 'like', '%' . $keyword . '%');
+                    $query->where('stock_rows.item_name', 'like', '%' . $keyword . '%');
+                })
+                ->filterColumn('customer_name', function ($query, $keyword) {
+                    $query->where('stock_rows.customer_name', 'like', '%' . $keyword . '%');
                 })
                 ->editColumn('qty_pcs', fn($row) => (int) ($row->qty_pcs ?? 0))
                 ->editColumn('gross_weight', fn($row) => number_format((float) ($row->gross_weight ?? 0), 3))
                 ->editColumn('net_weight', fn($row) => number_format((float) ($row->net_weight ?? 0), 3))
+                ->editColumn('fine_weight', fn($row) => number_format((float) ($row->fine_weight ?? 0), 3))
                 ->editColumn('labour_amount', fn($row) => number_format((float) ($row->labour_amount ?? 0), 2))
                 ->editColumn('other_amount', fn($row) => number_format((float) ($row->other_amount ?? 0), 2))
                 ->make(true);
@@ -399,7 +403,14 @@ class ReportController extends Controller
             ->select('id', 'item_name')
             ->get();
 
-        return view('company.reports.stock_position', compact('company', 'items'));
+        $customers = DB::table('customers')
+            ->where('company_id', $company->id)
+            ->where('is_active', 1)
+            ->orderBy('name')
+            ->select('id', 'name')
+            ->get();
+
+        return view('company.reports.stock_position', compact('company', 'items', 'customers'));
     }
 
     public function stockPositionExcel(Request $request, $slug): StreamedResponse
@@ -409,13 +420,15 @@ class ReportController extends Controller
 
         return response()->streamDownload(function () use ($rows) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Item', 'Qty Pcs', 'Gross Wt', 'Net Wt', 'Labour Amt', 'Other Amt']);
+            fputcsv($out, ['Item', 'Party', 'Qty Pcs', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Labour Amt', 'Other Amt']);
             foreach ($rows as $r) {
                 fputcsv($out, [
                     $r->item_name,
+                    $r->customer_name,
                     (int) ($r->qty_pcs ?? 0),
                     number_format((float) ($r->gross_weight ?? 0), 3, '.', ''),
                     number_format((float) ($r->net_weight ?? 0), 3, '.', ''),
+                    number_format((float) ($r->fine_weight ?? 0), 3, '.', ''),
                     number_format((float) ($r->labour_amount ?? 0), 2, '.', ''),
                     number_format((float) ($r->other_amount ?? 0), 2, '.', ''),
                 ]);
@@ -1162,7 +1175,7 @@ class ReportController extends Controller
 
     private function stockPositionBaseQuery(Company $company, Request $request)
     {
-        return ItemSet::query()
+        $labelStock = ItemSet::query()
             ->join('items', 'items.id', '=', 'item_sets.item_id')
             ->where('item_sets.company_id', $company->id)
             ->where('item_sets.is_final', 1)
@@ -1170,16 +1183,63 @@ class ReportController extends Controller
             ->when($request->filled('item_id'), function ($q) use ($request) {
                 $q->where('item_sets.item_id', (int) $request->item_id);
             })
+            ->when($request->filled('customer_id'), function ($q) {
+                $q->whereRaw('1 = 0');
+            })
             ->select([
                 'item_sets.item_id',
                 'items.item_name',
+                DB::raw('NULL as customer_id'),
+                DB::raw("'-' as customer_name"),
                 DB::raw('COUNT(item_sets.id) as qty_pcs'),
                 DB::raw('SUM(COALESCE(item_sets.gross_weight,0)) as gross_weight'),
                 DB::raw('SUM(COALESCE(item_sets.net_weight,0)) as net_weight'),
+                DB::raw('SUM(COALESCE(item_sets.net_weight,0)) as fine_weight'),
                 DB::raw('SUM(COALESCE(item_sets.sale_labour_amount,0)) as labour_amount'),
                 DB::raw('SUM(COALESCE(item_sets.sale_other,0)) as other_amount'),
             ])
             ->groupBy('item_sets.item_id', 'items.item_name');
+
+        $customerReceivedStock = DB::table('customer_advance_voucher_items as cavi')
+            ->join('customer_advance_vouchers as cav', 'cav.id', '=', 'cavi.voucher_id')
+            ->join('customers as customers', 'customers.id', '=', 'cav.customer_id')
+            ->leftJoin('items', 'items.id', '=', 'cavi.product_id')
+            ->where('cav.company_id', $company->id)
+            ->when($request->filled('item_id'), function ($q) use ($request) {
+                $q->where('cavi.product_id', (int) $request->item_id);
+            })
+            ->when($request->filled('customer_id'), function ($q) use ($request) {
+                $q->where('cav.customer_id', (int) $request->customer_id);
+            })
+            ->select([
+                DB::raw('COALESCE(cavi.product_id, 0) as item_id'),
+                DB::raw("COALESCE(items.item_name, cavi.item_name, 'Unknown Item') as item_name"),
+                'cav.customer_id',
+                DB::raw('customers.name as customer_name'),
+                DB::raw('COUNT(cavi.id) as qty_pcs'),
+                DB::raw('SUM(COALESCE(cavi.gross_weight,0)) as gross_weight'),
+                DB::raw('SUM(COALESCE(cavi.net_weight,0)) as net_weight'),
+                DB::raw('SUM(COALESCE(cavi.fine_weight,0)) as fine_weight'),
+                DB::raw('SUM(COALESCE(cavi.labour_amount,0)) as labour_amount'),
+                DB::raw('SUM(COALESCE(cavi.other_amount,0)) as other_amount'),
+            ])
+            ->groupBy('cavi.product_id', 'items.item_name', 'cavi.item_name', 'cav.customer_id', 'customers.name');
+
+        return DB::query()
+            ->fromSub($labelStock->unionAll($customerReceivedStock), 'stock_rows')
+            ->select([
+                'stock_rows.item_id',
+                'stock_rows.item_name',
+                'stock_rows.customer_id',
+                'stock_rows.customer_name',
+                DB::raw('SUM(stock_rows.qty_pcs) as qty_pcs'),
+                DB::raw('SUM(stock_rows.gross_weight) as gross_weight'),
+                DB::raw('SUM(stock_rows.net_weight) as net_weight'),
+                DB::raw('SUM(stock_rows.fine_weight) as fine_weight'),
+                DB::raw('SUM(stock_rows.labour_amount) as labour_amount'),
+                DB::raw('SUM(stock_rows.other_amount) as other_amount'),
+            ])
+            ->groupBy('stock_rows.item_id', 'stock_rows.item_name', 'stock_rows.customer_id', 'stock_rows.customer_name');
     }
 
     private function workerLossBaseQuery(Company $company, Request $request)

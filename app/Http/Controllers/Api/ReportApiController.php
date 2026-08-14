@@ -125,9 +125,12 @@ class ReportApiController extends Controller
                 return [
                     'item_id' => (int) $row->item_id,
                     'item_name' => $row->item_name,
+                    'customer_id' => $row->customer_id ? (int) $row->customer_id : null,
+                    'customer_name' => $row->customer_name ?? '-',
                     'qty_pcs' => (int) ($row->qty_pcs ?? 0),
                     'gross_weight' => (float) ($row->gross_weight ?? 0),
                     'net_weight' => (float) ($row->net_weight ?? 0),
+                    'fine_weight' => (float) ($row->fine_weight ?? 0),
                     'labour_amount' => (float) ($row->labour_amount ?? 0),
                     'other_amount' => (float) ($row->other_amount ?? 0),
                     'created_at' => $row->created_at ? Carbon::parse($row->created_at)->format('Y-m-d H:i:s') : null,
@@ -150,13 +153,15 @@ class ReportApiController extends Controller
 
         return response()->streamDownload(function () use ($rows) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Item', 'Qty Pcs', 'Gross Wt', 'Net Wt', 'Labour Amt', 'Other Amt']);
+            fputcsv($out, ['Item', 'Party', 'Qty Pcs', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Labour Amt', 'Other Amt']);
             foreach ($rows as $r) {
                 fputcsv($out, [
                     $r->item_name,
+                    $r->customer_name,
                     (int) ($r->qty_pcs ?? 0),
                     number_format((float) ($r->gross_weight ?? 0), 3, '.', ''),
                     number_format((float) ($r->net_weight ?? 0), 3, '.', ''),
+                    number_format((float) ($r->fine_weight ?? 0), 3, '.', ''),
                     number_format((float) ($r->labour_amount ?? 0), 2, '.', ''),
                     number_format((float) ($r->other_amount ?? 0), 2, '.', ''),
                 ]);
@@ -1153,7 +1158,7 @@ class ReportApiController extends Controller
 
     private function stockPositionBaseQuery(Request $request, int $companyId)
     {
-        return ItemSet::query()
+        $labelStock = ItemSet::query()
             ->join('items', 'items.id', '=', 'item_sets.item_id')
             ->where('item_sets.company_id', $companyId)
             ->where('item_sets.is_final', 1)
@@ -1161,17 +1166,66 @@ class ReportApiController extends Controller
             ->when($request->filled('item_id'), function ($q) use ($request) {
                 $q->where('item_sets.item_id', (int) $request->item_id);
             })
+            ->when($request->filled('customer_id'), function ($q) {
+                $q->whereRaw('1 = 0');
+            })
             ->select([
                 'item_sets.item_id',
                 'items.item_name',
+                DB::raw('NULL as customer_id'),
+                DB::raw("'-' as customer_name"),
                 DB::raw('COUNT(item_sets.id) as qty_pcs'),
                 DB::raw('SUM(COALESCE(item_sets.gross_weight,0)) as gross_weight'),
                 DB::raw('SUM(COALESCE(item_sets.net_weight,0)) as net_weight'),
+                DB::raw('SUM(COALESCE(item_sets.net_weight,0)) as fine_weight'),
                 DB::raw('SUM(COALESCE(item_sets.sale_labour_amount,0)) as labour_amount'),
                 DB::raw('SUM(COALESCE(item_sets.sale_other,0)) as other_amount'),
                 DB::raw('MAX(item_sets.created_at) as created_at'),
             ])
             ->groupBy('item_sets.item_id', 'items.item_name');
+
+        $customerReceivedStock = DB::table('customer_advance_voucher_items as cavi')
+            ->join('customer_advance_vouchers as cav', 'cav.id', '=', 'cavi.voucher_id')
+            ->join('customers as customers', 'customers.id', '=', 'cav.customer_id')
+            ->leftJoin('items', 'items.id', '=', 'cavi.product_id')
+            ->where('cav.company_id', $companyId)
+            ->when($request->filled('item_id'), function ($q) use ($request) {
+                $q->where('cavi.product_id', (int) $request->item_id);
+            })
+            ->when($request->filled('customer_id'), function ($q) use ($request) {
+                $q->where('cav.customer_id', (int) $request->customer_id);
+            })
+            ->select([
+                DB::raw('COALESCE(cavi.product_id, 0) as item_id'),
+                DB::raw("COALESCE(items.item_name, cavi.item_name, 'Unknown Item') as item_name"),
+                'cav.customer_id',
+                DB::raw('customers.name as customer_name'),
+                DB::raw('COUNT(cavi.id) as qty_pcs'),
+                DB::raw('SUM(COALESCE(cavi.gross_weight,0)) as gross_weight'),
+                DB::raw('SUM(COALESCE(cavi.net_weight,0)) as net_weight'),
+                DB::raw('SUM(COALESCE(cavi.fine_weight,0)) as fine_weight'),
+                DB::raw('SUM(COALESCE(cavi.labour_amount,0)) as labour_amount'),
+                DB::raw('SUM(COALESCE(cavi.other_amount,0)) as other_amount'),
+                DB::raw('MAX(cavi.created_at) as created_at'),
+            ])
+            ->groupBy('cavi.product_id', 'items.item_name', 'cavi.item_name', 'cav.customer_id', 'customers.name');
+
+        return DB::query()
+            ->fromSub($labelStock->unionAll($customerReceivedStock), 'stock_rows')
+            ->select([
+                'stock_rows.item_id',
+                'stock_rows.item_name',
+                'stock_rows.customer_id',
+                'stock_rows.customer_name',
+                DB::raw('SUM(stock_rows.qty_pcs) as qty_pcs'),
+                DB::raw('SUM(stock_rows.gross_weight) as gross_weight'),
+                DB::raw('SUM(stock_rows.net_weight) as net_weight'),
+                DB::raw('SUM(stock_rows.fine_weight) as fine_weight'),
+                DB::raw('SUM(stock_rows.labour_amount) as labour_amount'),
+                DB::raw('SUM(stock_rows.other_amount) as other_amount'),
+                DB::raw('MAX(stock_rows.created_at) as created_at'),
+            ])
+            ->groupBy('stock_rows.item_id', 'stock_rows.item_name', 'stock_rows.customer_id', 'stock_rows.customer_name');
     }
 
     private function approvalOutstandingBaseQuery(Request $request, int $companyId)

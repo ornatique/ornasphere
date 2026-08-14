@@ -17,9 +17,11 @@
         <thead>
             <tr>
                 <th>Item</th>
+                <th>Party</th>
                 <th>Qty Pcs</th>
                 <th>Gross Wt</th>
                 <th>Net Wt</th>
+                <th>Fine Wt</th>
                 <th>Labour Amt</th>
                 <th>Other Amt</th>
             </tr>
@@ -28,9 +30,11 @@
             @foreach($rows as $r)
             <tr>
                 <td>{{ $r->item_name }}</td>
+                <td>{{ $r->customer_name ?? '-' }}</td>
                 <td>{{ (int)($r->qty_pcs ?? 0) }}</td>
                 <td>{{ number_format((float)($r->gross_weight ?? 0), 3, '.', '') }}</td>
                 <td>{{ number_format((float)($r->net_weight ?? 0), 3, '.', '') }}</td>
+                <td>{{ number_format((float)($r->fine_weight ?? 0), 3, '.', '') }}</td>
                 <td>{{ number_format((float)($r->labour_amount ?? 0), 2, '.', '') }}</td>
                 <td>{{ number_format((float)($r->other_amount ?? 0), 2, '.', '') }}</td>
             </tr>

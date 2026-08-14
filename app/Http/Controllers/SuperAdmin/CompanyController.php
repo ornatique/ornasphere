@@ -4,6 +4,7 @@ namespace App\Http\Controllers\SuperAdmin;
 
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
+use App\Models\CategoryPerson;
 use App\Models\Company;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -174,6 +175,8 @@ class CompanyController extends Controller
                 // default inactive
                 'status'     => 0,
             ]);
+
+            CategoryPerson::ensureCompanyDefaults((int) $company->id);
 
             /*
         -------------------------

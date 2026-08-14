@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\CategoryPerson;
 use App\Models\Company;
 use App\Models\Customer;
 use App\Models\CustomerAdvanceLedger;
@@ -402,12 +403,14 @@ class CustomerAdvanceApiController extends Controller
 
     private function partyCustomersQuery(int $companyId)
     {
+        CategoryPerson::ensureCompanyDefaults($companyId);
+
         return Customer::query()
             ->where('company_id', $companyId)
             ->where('is_active', 1)
             ->whereHas('categoryPerson', function ($query) use ($companyId) {
                 $query->where('company_id', $companyId)
-                    ->whereRaw('LOWER(TRIM(category_name)) = ?', ['party']);
+                    ->whereIn(DB::raw('LOWER(TRIM(category_name))'), ['customer', 'party']);
             });
     }
 

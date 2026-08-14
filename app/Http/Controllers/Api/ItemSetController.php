@@ -10,6 +10,25 @@ use Illuminate\Support\Facades\DB;
 
 class ItemSetController extends Controller
 {
+    private function configuredItemsQuery(int $companyId)
+    {
+        return Item::where('company_id', $companyId)
+            ->whereHas('labelConfig', function ($query) use ($companyId) {
+                $query->where('company_id', $companyId);
+            });
+    }
+
+    private function configuredItem(int $companyId, $itemId): ?Item
+    {
+        if (!$itemId) {
+            return null;
+        }
+
+        return $this->configuredItemsQuery($companyId)
+            ->where('id', $itemId)
+            ->first();
+    }
+
     private function resolveIncomingRowId(array $row): ?int
     {
         $id = $row['id'] ?? ($row['temp_id'] ?? null);
@@ -27,7 +46,15 @@ class ItemSetController extends Controller
         $companyId = $request->user()->company_id;
 
         $itemId = $request->item_id;
-            //dd($request);
+
+        if (!$this->configuredItem($companyId, $itemId)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Label Config not found for selected item. Please create Label Config first.',
+                'data' => [],
+            ], 422);
+        }
+
         $sets = ItemSet::where('company_id', $companyId)
             ->where('item_id', $itemId)
             ->where('is_final', 0)
@@ -53,8 +80,15 @@ class ItemSetController extends Controller
         };
 
         $request->validate([
-            'item_id' => 'required|exists:items,id',
+            'item_id' => 'required',
         ]);
+
+        if (!$this->configuredItem($companyId, $request->item_id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Label Config not found for selected item. Please create Label Config first.',
+            ], 422);
+        }
 
         $incomingId = $request->id ?? $request->temp_id;
 
@@ -113,9 +147,16 @@ public function bulkSave(Request $request)
     $companyId = $request->user()->company_id;
 
     $request->validate([
-        'item_id' => 'required|exists:items,id',
+        'item_id' => 'required',
         'rows' => 'required|array'
     ]);
+
+    if (!$this->configuredItem($companyId, $request->item_id)) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Label Config not found for selected item. Please create Label Config first.',
+        ], 422);
+    }
 
     $savedRows = [];
     $rows = (array) $request->rows;
@@ -228,20 +269,18 @@ public function bulkSave(Request $request)
     {
         $companyId = $request->user()->company_id;
 
-        $item = Item::where('company_id', $companyId)
-            ->where('id', $request->item_id)
-            ->firstOrFail();
+        $item = $this->configuredItem($companyId, $request->item_id);
 
-        $config = LabelConfig::where('company_id', $companyId)
-            ->where('item_id', $item->id)
-            ->first();
-
-        if (!$config) {
+        if (!$item) {
             return response()->json([
                 'success' => false,
                 'message' => 'Label Config not found for selected item. Please create Label Config first.',
             ], 422);
         }
+
+        $config = LabelConfig::where('company_id', $companyId)
+            ->where('item_id', $item->id)
+            ->first();
 
         DB::beginTransaction();
 

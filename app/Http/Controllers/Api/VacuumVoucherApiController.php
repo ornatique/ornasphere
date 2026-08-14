@@ -164,15 +164,15 @@ class VacuumVoucherApiController extends Controller
                 'layout' => [
                     'paper' => 'A4',
                     'columns' => 3,
-                    'rows_per_column' => 28,
-                    'labels_per_page' => 84,
+                    'rows_per_column' => 20,
+                    'labels_per_page' => 60,
                 ],
                 'labels' => $labels,
                 'pages' => $labels
-                    ->chunk(84)
+                    ->chunk(60)
                     ->map(function ($pageLabels) {
                         return $pageLabels
-                            ->chunk(28)
+                            ->chunk(20)
                             ->map(fn($columnLabels) => $columnLabels->values())
                             ->values();
                     })

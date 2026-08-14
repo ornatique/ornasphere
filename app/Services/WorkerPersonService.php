@@ -15,11 +15,11 @@ class WorkerPersonService
 
     public static function categoryPeopleForCompany(int $companyId): Collection
     {
-        self::workerCategory($companyId);
-
         if (!Schema::hasTable('category_people')) {
             return collect();
         }
+
+        CategoryPerson::ensureCompanyDefaults($companyId);
 
         return CategoryPerson::where('company_id', $companyId)
             ->orderBy('category_name')
@@ -46,18 +46,11 @@ class WorkerPersonService
             return null;
         }
 
-        $category = CategoryPerson::where('company_id', $companyId)
+        CategoryPerson::ensureCompanyDefaults($companyId);
+
+        return CategoryPerson::where('company_id', $companyId)
             ->whereRaw('LOWER(TRIM(category_name)) = ?', [strtolower(self::WORKER_CATEGORY)])
             ->first();
-
-        if ($category) {
-            return $category;
-        }
-
-        return CategoryPerson::create([
-            'company_id' => $companyId,
-            'category_name' => self::WORKER_CATEGORY,
-        ]);
     }
 
     public static function syncPersonToWorker(Customer $person): void

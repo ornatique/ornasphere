@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\MetalRateApiController;
 use App\Http\Controllers\Api\ProductionStepApiController;
 use App\Http\Controllers\Api\JobWorkerApiController;
 use App\Http\Controllers\Api\JobworkIssueApiController;
+use App\Http\Controllers\Api\JobworkReceiveApiController;
 use App\Http\Controllers\Api\VisitingCardApiController;
 use App\Http\Controllers\Api\ProductBackgroundRemoveApiController;
 use App\Http\Controllers\Api\RoleApiController;
@@ -133,6 +134,18 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/create-jobwork-issues', [JobworkIssueApiController::class, 'store']);
     Route::put('/update-jobwork-issues/{id}', [JobworkIssueApiController::class, 'update']);
     Route::delete('/delete-jobwork-issues/{id}', [JobworkIssueApiController::class, 'destroy']);
+
+    Route::get('/jobwork-receive', [JobworkReceiveApiController::class, 'index']);
+    Route::get('/jobwork-receive/other-charges', [JobworkReceiveApiController::class, 'otherCharges']);
+    Route::get('/jobwork-receive/pdf/{id}', [JobworkReceiveApiController::class, 'pdf'])->whereNumber('id');
+    Route::get('/jobwork-receive/{id}', [JobworkReceiveApiController::class, 'show'])->whereNumber('id');
+    Route::put('/jobwork-receive/{id}', [JobworkReceiveApiController::class, 'update'])->whereNumber('id');
+    Route::post('/jobwork-receive/{id}', [JobworkReceiveApiController::class, 'update'])->whereNumber('id');
+    Route::get('/jobwork_receive_list', [JobworkReceiveApiController::class, 'index']);
+    Route::get('/jobwork_receive_other_charges', [JobworkReceiveApiController::class, 'otherCharges']);
+    Route::get('/jobwork_receive_show/{id}', [JobworkReceiveApiController::class, 'show'])->whereNumber('id');
+    Route::get('/jobwork_receive_pdf/{id}', [JobworkReceiveApiController::class, 'pdf'])->whereNumber('id');
+    Route::post('/update_jobwork_receive/{id}', [JobworkReceiveApiController::class, 'update'])->whereNumber('id');
 
     Route::get('/vacuum-buchs', [VacuumBuchApiController::class, 'index']);
     Route::get('/vacuum-buchs/options', [VacuumBuchApiController::class, 'options']);

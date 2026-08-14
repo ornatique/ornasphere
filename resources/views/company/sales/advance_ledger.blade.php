@@ -3,8 +3,9 @@
 @section('content')
 <div class="content-wrapper">
     <div class="card">
-        <div class="card-header">
-            <h4 class="card-title mb-0">Receive / Return / Purchase</h4>
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="card-title mb-0">Add Receive / Return / Purchase</h4>
+            <a href="{{ route('company.sales.advance.index', $company->slug) }}" class="btn btn-primary">Back</a>
         </div>
         <div class="card-body">
             <form class="row g-3 mb-3 align-items-end" id="customerLoadForm">
@@ -57,6 +58,7 @@
             <form method="POST" action="{{ route('company.sales.advance.store', $company->slug) }}" class="row g-3 mb-4" id="advanceForm">
                 @csrf
                 <input type="hidden" name="entry_type" value="receive_amount">
+                <input type="hidden" name="advance_items_payload" id="advance_items_payload" value="[]">
                 <div class="col-md-2">
                     <label>Date</label>
                     <input type="date" name="entry_date" class="form-control" value="{{ now()->format('Y-m-d') }}" required>
@@ -134,6 +136,74 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
+
+            <div class="d-flex justify-content-end mt-4 mb-2">
+                <div style="min-width: 280px;">
+                    <input type="text" id="advance_item_name_search" class="form-control" placeholder="Search Item Name">
+                </div>
+            </div>
+
+            <div class="table-responsive advance-sale-grid-wrap">
+                <table class="table table-bordered" id="advanceSaleTable">
+                    <thead>
+                        <tr>
+                            <th>Label</th>
+                            <th>Gross Wt</th>
+                            <th>Other Wt</th>
+                            <th>Net Wt</th>
+                            <th>Purity</th>
+                            <th>Waste %</th>
+                            <th>Net Purity</th>
+                            <th>Fine Wt</th>
+                            <th>Metal Rate</th>
+                            <th>Apply</th>
+                            <th>Metal Amt</th>
+                            <th>Labour Rate</th>
+                            <th>Apply</th>
+                            <th>Labour Amt</th>
+                            <th>Other Amt</th>
+                            <th>Total Amt</th>
+                            <th>Remarks</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="advanceSaleBody"></tbody>
+                    <tfoot>
+                        <tr>
+                            <th class="text-end">Totals</th>
+                            <th><span id="advanceTotalGrossWt">0.000</span></th>
+                            <th><span id="advanceTotalOtherWt">0.000</span></th>
+                            <th><span id="advanceTotalNetWt">0.000</span></th>
+                            <th colspan="3"></th>
+                            <th><span id="advanceTotalFineWt">0.000</span></th>
+                            <th></th>
+                            <th></th>
+                            <th><span id="advanceTotalMetalAmt">0.00</span></th>
+                            <th></th>
+                            <th></th>
+                            <th><span id="advanceTotalLabourAmt">0.00</span></th>
+                            <th><span id="advanceTotalOtherAmt">0.00</span></th>
+                            <th>Rs <span id="advanceGrandTotal">0.00</span></th>
+                            <th></th>
+                            <th></th>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+
+            <form method="POST" action="{{ route('company.sales.advance.items.store', $company->slug) }}" id="advanceItemsForm" class="d-none">
+                @csrf
+                <input type="hidden" name="entry_date" id="advance_items_entry_date">
+                <input type="hidden" name="customer_id" id="advance_items_customer_id">
+                <input type="hidden" name="remarks" id="advance_items_remarks">
+                <input type="hidden" name="advance_items_payload" id="advance_items_payload_only" value="[]">
+            </form>
+
+            <div class="d-flex justify-content-end mt-3">
+                <button type="button" class="btn btn-success" id="btnSaveAdvanceItems">
+                    Save Items
+                </button>
             </div>
         </div>
     </div>
@@ -241,6 +311,67 @@
         vertical-align: middle;
     }
 
+    .advance-sale-grid-wrap {
+        height: 400px;
+        overflow: auto;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+    }
+
+    #advanceSaleTable {
+        min-width: 1900px;
+        margin-bottom: 0;
+    }
+
+    #advanceSaleTable th {
+        white-space: nowrap;
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        background: #2b2f4a;
+        color: #ffffff;
+    }
+
+    #advanceSaleTable th:first-child,
+    #advanceSaleTable td:first-child {
+        min-width: 300px;
+        position: sticky;
+        left: 0;
+        z-index: 4;
+        background: #262a44;
+    }
+
+    #advanceSaleTable thead th:first-child {
+        z-index: 7;
+    }
+
+    #advanceSaleTable input.form-control {
+        min-width: 120px;
+        width: 100%;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .advance-grid-label-wrap {
+        min-width: 280px;
+        width: 100%;
+    }
+
+    .advance-grid-label-select {
+        min-width: 280px;
+        width: 100%;
+    }
+
+    #advanceSaleTable .select2-container {
+        min-width: 280px;
+        width: 100% !important;
+    }
+
+    .advance-grid-placeholder-cell {
+        color: rgba(255, 255, 255, 0.6);
+        font-weight: 700;
+    }
+
     .searchable-party-select {
         width: 100%;
     }
@@ -265,14 +396,32 @@
 
     .select2-container--default .select2-dropdown,
     .select2-container--bootstrap4 .select2-dropdown {
-        background-color: #ffffff;
-        border-color: rgba(0, 0, 0, 0.18);
+        background-color: #302f54;
+        border-color: rgba(150, 170, 255, 0.45);
+        color: #ffffff;
     }
 
     .select2-container--default .select2-search--dropdown .select2-search__field,
     .select2-container--bootstrap4 .select2-search--dropdown .select2-search__field {
         min-height: 34px;
-        color: #111827;
+        background: #292d49;
+        color: #ffffff;
+        border: 1px solid rgba(150, 170, 255, 0.5);
+    }
+
+    .select2-results__option {
+        color: #ffffff;
+        padding: 8px 12px;
+    }
+
+    .select2-container--default .select2-results__option--highlighted[aria-selected],
+    .select2-container--bootstrap4 .select2-results__option--highlighted[aria-selected] {
+        background: #0d6efd;
+        color: #ffffff;
+    }
+
+    .select2-results__options {
+        max-height: 400px !important;
     }
 
     #convertModal .modal-dialog {
@@ -338,6 +487,21 @@ $(function () {
     let availableCashRaw = 0;
     let availableMetal = { gold: 0, silver: 0, other: 0 };
     let advanceLedgerDt = null;
+    const selectedAdvanceItems = {};
+    const advanceItemSearchUrl = "{{ route('company.items.search', $company->slug) }}";
+
+    const toNum = (value, fallback = 0) => {
+        const n = parseFloat(String(value ?? '').replace(/,/g, ''));
+        return Number.isFinite(n) ? n : fallback;
+    };
+
+    const nfix = (value, decimals) => {
+        const n = toNum(value);
+        const fixed = Math.abs(n) < 1e-9 ? 0 : n;
+        return fixed.toFixed(decimals);
+    };
+
+    const esc = (value) => $('<div>').text(value ?? '').html();
 
     function initPartySelects() {
         if (!$.fn.select2) return;
@@ -354,6 +518,316 @@ $(function () {
             });
         });
     }
+
+    function advanceSearchParams(query) {
+        return {
+            search: query || '',
+            limit: 1000,
+            customer_id: $('#customer_id').val() || $('#entry_customer_id').val() || ''
+        };
+    }
+
+    function normalizeAdvanceSearchResponse(resp) {
+        if (Array.isArray(resp)) return resp;
+        if (resp && Array.isArray(resp.data)) return resp.data;
+        if (resp && typeof resp === 'object') return Object.values(resp);
+        return [];
+    }
+
+    function normalizeMetalType(value) {
+        const s = String(value || '').trim().toLowerCase();
+        if (s === 'gold' || s.includes('gold')) return 'gold';
+        if (s === 'silver' || s.includes('silver')) return 'silver';
+        return 'other';
+    }
+
+    function normalizeAdvanceItem(row) {
+        const gross = toNum(row.gross_weight ?? row.gross ?? 0);
+        const otherWeight = toNum(row.other_weight ?? row.other ?? 0);
+        const net = toNum(row.net_weight ?? (gross - otherWeight));
+        const purity = toNum(row.purity ?? 0);
+        const wastePercent = toNum(row.waste_percent ?? 0);
+        const netPurity = toNum(row.net_purity ?? (purity + wastePercent));
+        const fineWeight = toNum(row.fine_weight ?? (net * netPurity / 100));
+        const metalRate = toNum(row.metal_rate ?? 0);
+        const metalAmount = toNum(row.metal_amount ?? (fineWeight * metalRate));
+        const labourRate = toNum(row.labour_rate ?? 0);
+        const labourAmount = toNum(row.labour_amount ?? (net * labourRate));
+        const otherAmount = toNum(row.other_amount ?? row.sale_other ?? 0);
+
+        return {
+            row_key: row.row_key || ((row.is_item_only || row.source === 'item') ? 'item_' + row.item_id : 'set_' + (row.itemset_id || row.id)),
+            itemset_id: toNum(row.itemset_id ?? row.id),
+            item_id: toNum(row.item_id ?? 0),
+            name: row.name ?? row.item_name ?? '',
+            code: row.code ?? row.qr_code ?? '',
+            huid: row.huid ?? row.HUID ?? '',
+            metal_type: normalizeMetalType(row.metal_type ?? row.metal ?? ''),
+            gross_weight: gross,
+            other_weight: otherWeight,
+            net_weight: net,
+            purity: purity,
+            waste_percent: wastePercent,
+            net_purity: netPurity,
+            fine_weight: fineWeight,
+            metal_rate: metalRate,
+            apply_metal: true,
+            metal_amount: metalAmount,
+            labour_rate: labourRate,
+            apply_labour: true,
+            labour_amount: labourAmount,
+            other_amount: otherAmount,
+            total_amount: toNum(row.total_amount ?? (metalAmount + labourAmount + otherAmount)),
+            remarks: row.remarks ?? '',
+            source: row.source || (row.is_item_only ? 'item' : 'itemset'),
+            is_item_only: !!row.is_item_only
+        };
+    }
+
+    function resolveAdvanceRowKey(row) {
+        return String(row.row_key || ((row.is_item_only || row.source === 'item') ? 'item_' + row.item_id : 'set_' + (row.itemset_id || row.id || '')));
+    }
+
+    function advanceSuggestionLabel(row) {
+        const codeText = row.code || row.huid || row.name || '';
+        const typeText = row.source === 'approval' ? 'Approval Label' : (row.is_item_only ? 'Item' : 'Label');
+        const noteText = row.is_item_only ? '<br><small>(Item found, Itemset not created)</small>' : '';
+
+        return `
+            <strong>${esc(codeText || '-')}</strong>
+            <br><small>${esc(row.name || '')} - ${esc(typeText)}</small>${noteText}
+        `;
+    }
+
+    function ensureAdvanceGridSearchRow() {
+        if ($('#advanceSaleSearchRow').length) return;
+
+        $('#advanceSaleBody').append(`
+            <tr id="advanceSaleSearchRow">
+                <td>
+                    <div class="advance-grid-label-wrap">
+                        <select class="form-select advance-grid-label-select">
+                            <option value=""></option>
+                        </select>
+                    </div>
+                </td>
+                <td colspan="17" class="advance-grid-placeholder-cell">Select label or item from Label column</td>
+            </tr>
+        `);
+
+        initAdvanceGridLabelSelect($('#advanceSaleSearchRow .advance-grid-label-select'));
+    }
+
+    function initAdvanceGridLabelSelect($select) {
+        if (!$select.length || !$.fn.select2) return;
+
+        $select.select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'Search Label / Item',
+            allowClear: true,
+            minimumInputLength: 0,
+            ajax: {
+                delay: 200,
+                transport: function(params, success, failure) {
+                    const term = params.data && params.data.term ? params.data.term : '';
+                    const request = $.get(advanceItemSearchUrl, advanceSearchParams(term));
+                    request.then(success);
+                    request.fail(failure);
+                    return request;
+                },
+                processResults: function(resp) {
+                    const results = normalizeAdvanceSearchResponse(resp)
+                        .map(normalizeAdvanceItem)
+                        .filter(function(row) {
+                            const key = resolveAdvanceRowKey(row);
+                            return key && !selectedAdvanceItems[key];
+                        })
+                        .map(function(row) {
+                            const key = resolveAdvanceRowKey(row);
+                            const code = row.code || row.huid || row.name || '';
+                            return {
+                                id: key,
+                                text: `${code}${row.name ? ' - ' + row.name : ''}`,
+                                row: row
+                            };
+                        });
+
+                    return { results: results };
+                }
+            },
+            templateResult: function(data) {
+                if (!data.id) return data.text;
+                return $(advanceSuggestionLabel(data.row || data));
+            },
+            templateSelection: function(data) {
+                return data.text || 'Search Label / Item';
+            },
+            escapeMarkup: function(markup) {
+                return markup;
+            }
+        }).on('select2:select', function(e) {
+            const row = e.params.data.row || {};
+            $('#advanceSaleSearchRow').remove();
+            appendAdvanceSaleRow(row);
+            ensureAdvanceGridSearchRow();
+        });
+    }
+
+    function recalcAdvanceRow(rowKey) {
+        const row = selectedAdvanceItems[rowKey];
+        if (!row) return;
+
+        row.gross_weight = toNum($(`.advance-gross[data-id="${rowKey}"]`).val());
+        row.other_weight = toNum($(`.advance-other-weight[data-id="${rowKey}"]`).val());
+        row.net_weight = Math.max(0, row.gross_weight - row.other_weight);
+        row.purity = toNum($(`.advance-purity[data-id="${rowKey}"]`).val());
+        row.waste_percent = toNum($(`.advance-waste-percent[data-id="${rowKey}"]`).val());
+        row.net_purity = row.purity + row.waste_percent;
+        row.fine_weight = row.net_weight * row.net_purity / 100;
+        row.metal_rate = toNum($(`.advance-metal-rate[data-id="${rowKey}"]`).val());
+        row.apply_metal = $(`.advance-apply-metal[data-id="${rowKey}"]`).is(':checked');
+        row.metal_amount = row.apply_metal ? row.fine_weight * row.metal_rate : 0;
+        row.labour_rate = toNum($(`.advance-labour-rate[data-id="${rowKey}"]`).val());
+        row.apply_labour = $(`.advance-apply-labour[data-id="${rowKey}"]`).is(':checked');
+        row.labour_amount = row.apply_labour ? row.net_weight * row.labour_rate : 0;
+        row.other_amount = toNum($(`.advance-other-amount[data-id="${rowKey}"]`).val());
+        row.total_amount = row.metal_amount + row.labour_amount + row.other_amount;
+
+        $(`#advance_net_${rowKey}`).val(nfix(row.net_weight, 3));
+        $(`#advance_net_purity_${rowKey}`).val(nfix(row.net_purity, 3));
+        $(`#advance_fine_${rowKey}`).val(nfix(row.fine_weight, 3));
+        $(`#advance_metal_amt_${rowKey}`).val(nfix(row.metal_amount, 2));
+        $(`#advance_labour_amt_${rowKey}`).val(nfix(row.labour_amount, 2));
+        $(`#advance_total_amt_${rowKey}`).val(nfix(row.total_amount, 2));
+        updateAdvanceGridTotals();
+    }
+
+    function updateAdvanceGridTotals() {
+        let gross = 0;
+        let other = 0;
+        let net = 0;
+        let fine = 0;
+        let metal = 0;
+        let labour = 0;
+        let otherAmount = 0;
+        let total = 0;
+
+        Object.values(selectedAdvanceItems).forEach(function(row) {
+            gross += toNum(row.gross_weight);
+            other += toNum(row.other_weight);
+            net += toNum(row.net_weight);
+            fine += toNum(row.fine_weight);
+            metal += toNum(row.metal_amount);
+            labour += toNum(row.labour_amount);
+            otherAmount += toNum(row.other_amount);
+            total += toNum(row.total_amount);
+        });
+
+        $('#advanceTotalGrossWt').text(nfix(gross, 3));
+        $('#advanceTotalOtherWt').text(nfix(other, 3));
+        $('#advanceTotalNetWt').text(nfix(net, 3));
+        $('#advanceTotalFineWt').text(nfix(fine, 3));
+        $('#advanceTotalMetalAmt').text(nfix(metal, 2));
+        $('#advanceTotalLabourAmt').text(nfix(labour, 2));
+        $('#advanceTotalOtherAmt').text(nfix(otherAmount, 2));
+        $('#advanceGrandTotal').text(nfix(total, 2));
+    }
+
+    function appendAdvanceSaleRow(row) {
+        const normalized = normalizeAdvanceItem(row);
+        const rowKey = resolveAdvanceRowKey(normalized);
+        if (!rowKey || selectedAdvanceItems[rowKey]) return;
+
+        selectedAdvanceItems[rowKey] = normalized;
+        const tr = `
+            <tr id="advance_row_${rowKey}">
+                <td>
+                    <strong>${esc(normalized.huid || '')}</strong><br>
+                    <small>${esc(normalized.code || '')}</small><br>
+                    <small>${esc(normalized.name || '')}</small>
+                </td>
+                <td><input type="number" step="0.001" class="form-control advance-gross" data-id="${rowKey}" value="${nfix(normalized.gross_weight, 3)}"></td>
+                <td><input type="number" step="0.001" class="form-control advance-other-weight" data-id="${rowKey}" value="${nfix(normalized.other_weight, 3)}"></td>
+                <td><input type="number" step="0.001" class="form-control" id="advance_net_${rowKey}" readonly value="${nfix(normalized.net_weight, 3)}"></td>
+                <td><input type="number" step="0.001" class="form-control advance-purity" data-id="${rowKey}" value="${nfix(normalized.purity, 3)}"></td>
+                <td><input type="number" step="0.001" class="form-control advance-waste-percent" data-id="${rowKey}" value="${nfix(normalized.waste_percent, 3)}"></td>
+                <td><input type="number" step="0.001" class="form-control" id="advance_net_purity_${rowKey}" readonly value="${nfix(normalized.net_purity, 3)}"></td>
+                <td><input type="number" step="0.001" class="form-control" id="advance_fine_${rowKey}" readonly value="${nfix(normalized.fine_weight, 3)}"></td>
+                <td><input type="number" step="0.01" class="form-control advance-metal-rate" data-id="${rowKey}" value="${nfix(normalized.metal_rate, 2)}"></td>
+                <td class="text-center"><input type="checkbox" class="form-check-input advance-apply-metal" data-id="${rowKey}" checked></td>
+                <td><input type="number" step="0.01" class="form-control" id="advance_metal_amt_${rowKey}" readonly value="${nfix(normalized.metal_amount, 2)}"></td>
+                <td><input type="number" step="0.01" class="form-control advance-labour-rate" data-id="${rowKey}" value="${nfix(normalized.labour_rate, 2)}"></td>
+                <td class="text-center"><input type="checkbox" class="form-check-input advance-apply-labour" data-id="${rowKey}" checked></td>
+                <td><input type="number" step="0.01" class="form-control" id="advance_labour_amt_${rowKey}" readonly value="${nfix(normalized.labour_amount, 2)}"></td>
+                <td><input type="number" step="0.01" class="form-control advance-other-amount" data-id="${rowKey}" value="${nfix(normalized.other_amount, 2)}"></td>
+                <td><input type="number" step="0.01" class="form-control" id="advance_total_amt_${rowKey}" readonly value="${nfix(normalized.total_amount, 2)}"></td>
+                <td><input type="text" class="form-control advance-remarks" data-id="${rowKey}" value="${esc(normalized.remarks)}"></td>
+                <td><button type="button" class="btn btn-danger advance-remove-row" data-id="${rowKey}">X</button></td>
+            </tr>
+        `;
+
+        if ($('#advanceSaleSearchRow').length) {
+            $('#advanceSaleSearchRow').before(tr);
+        } else {
+            $('#advanceSaleBody').append(tr);
+        }
+        recalcAdvanceRow(rowKey);
+    }
+
+    $(document).on('input change', '.advance-gross, .advance-other-weight, .advance-purity, .advance-waste-percent, .advance-metal-rate, .advance-labour-rate, .advance-other-amount, .advance-apply-metal, .advance-apply-labour', function() {
+        recalcAdvanceRow($(this).data('id'));
+    });
+
+    $(document).on('input', '.advance-remarks', function() {
+        const row = selectedAdvanceItems[$(this).data('id')];
+        if (row) row.remarks = $(this).val();
+    });
+
+    $(document).on('click', '.advance-remove-row', function() {
+        const rowKey = String($(this).data('id'));
+        delete selectedAdvanceItems[rowKey];
+        $('#advance_row_' + rowKey).remove();
+        ensureAdvanceGridSearchRow();
+        updateAdvanceGridTotals();
+    });
+
+    $('#advance_item_name_search').on('input', function() {
+        const term = String($(this).val() || '').trim().toLowerCase();
+        $('#advanceSaleBody tr').not('#advanceSaleSearchRow').each(function() {
+            $(this).toggle(!term || $(this).text().toLowerCase().includes(term));
+        });
+    });
+
+    function syncAdvanceItemsPayload(targetSelector) {
+        Object.keys(selectedAdvanceItems).forEach(recalcAdvanceRow);
+        const rows = Object.values(selectedAdvanceItems);
+        $(targetSelector).val(JSON.stringify(rows));
+        return rows.length;
+    }
+
+    $('#advanceForm').on('submit', function() {
+        syncAdvanceItemsPayload('#advance_items_payload');
+    });
+
+    $('#btnSaveAdvanceItems').on('click', function() {
+        const rowCount = syncAdvanceItemsPayload('#advance_items_payload_only');
+        if (!rowCount) {
+            alert('Please select at least one item before saving.');
+            return;
+        }
+
+        const customerId = $('#entry_customer_id').val() || $('#customer_id').val();
+        if (!customerId) {
+            alert('Please select party before saving item details.');
+            return;
+        }
+
+        $('#advance_items_entry_date').val($('#advanceForm input[name="entry_date"]').val());
+        $('#advance_items_customer_id').val(customerId);
+        $('#advance_items_remarks').val($('#advanceForm input[name="remarks"]').val());
+        $('#advanceItemsForm').trigger('submit');
+    });
 
     function setBal(labelId, valueId, labelText, raw, decimals) {
         const type = raw >= 0 ? 'Credit' : 'Debit';
@@ -601,6 +1075,7 @@ $(function () {
     } else {
         updateHistoryPdfLink('');
     }
+    ensureAdvanceGridSearchRow();
     syncConvertUiMode();
 });
 </script>
