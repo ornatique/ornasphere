@@ -54,4 +54,14 @@ class Company extends Model
     {
         return $this->hasMany(Customer::class);
     }
+
+    public function officeAccessSetting()
+    {
+        return $this->hasOne(CompanyOfficeAccessSetting::class);
+    }
+
+    public function workerAllowedDevices()
+    {
+        return $this->hasMany(WorkerAllowedDevice::class);
+    }
 }

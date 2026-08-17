@@ -115,6 +115,21 @@
 
                         </div>
 
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group row">
+                                    <label class="col-sm-3 col-form-label">Mobile App</label>
+                                    <div class="col-sm-9">
+                                        <select name="mobile_access_allowed" class="form-control">
+                                            <option value="1" {{ old('mobile_access_allowed', $user->mobile_access_allowed ? '1' : '0') == '1' ? 'selected' : '' }}>Allow mobile app</option>
+                                            <option value="0" {{ old('mobile_access_allowed', $user->mobile_access_allowed ? '1' : '0') == '0' ? 'selected' : '' }}>Block mobile app</option>
+                                        </select>
+                                        <small class="text-muted">If blocked, this worker cannot use the mobile app even if a phone is approved.</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         {{-- PERSON DETAILS --}}
                         <p class="card-description">Person Details</p>
 
@@ -258,6 +273,65 @@
                 </div>
 
                 </form>
+
+                <div class="card-body border-top">
+                    <p class="card-description">Mobile App Devices</p>
+
+                    <div class="table-responsive">
+                        <table class="table table-bordered">
+                            <thead>
+                                <tr>
+                                    <th>Device</th>
+                                    <th>Platform</th>
+                                    <th>App Version</th>
+                                    <th>Status</th>
+                                    <th>Last Seen</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse(($devices ?? collect()) as $device)
+                                    <tr>
+                                        <td>
+                                            <strong>{{ $device->device_name ?: '-' }}</strong><br>
+                                            <small>{{ $device->device_id }}</small>
+                                        </td>
+                                        <td>{{ $device->platform ?: '-' }}</td>
+                                        <td>{{ $device->app_version ?: '-' }}</td>
+                                        <td>
+                                            @php
+                                                $badgeClass = match($device->status) {
+                                                    'approved' => 'bg-success',
+                                                    'rejected', 'inactive' => 'bg-danger',
+                                                    default => 'bg-warning',
+                                                };
+                                            @endphp
+                                            <span class="badge {{ $badgeClass }}">{{ ucfirst($device->status) }}</span>
+                                        </td>
+                                        <td>{{ optional($device->last_seen_at)->format('d-m-Y h:i A') ?: '-' }}</td>
+                                        <td>
+                                            @foreach(['approved' => 'Approve', 'rejected' => 'Reject', 'inactive' => 'Inactive'] as $status => $label)
+                                                <form method="POST"
+                                                      action="{{ route('company.users.devices.status', [$company->slug, Crypt::encryptString($user->id), $device->id]) }}"
+                                                      style="display:inline">
+                                                    @csrf
+                                                    <input type="hidden" name="status" value="{{ $status }}">
+                                                    <button type="submit" class="btn btn-sm {{ $status === 'approved' ? 'btn-success' : 'btn-danger' }}">
+                                                        {{ $label }}
+                                                    </button>
+                                                </form>
+                                            @endforeach
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="6" class="text-center">No phone device registered yet.</td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

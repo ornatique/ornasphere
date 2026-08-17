@@ -188,6 +188,7 @@ class CompanyPermissionController extends Controller
             'permission',
             'notification',
             'app-theme',
+            'office-access',
             'person',
             'job-worker',
             'jobwork-issue',
@@ -309,6 +310,7 @@ class CompanyPermissionController extends Controller
             'vacuum-voucher' => 'Vacuum',
             'approval' => 'Sale on Approval',
             'jobwork-issue' => 'Jobwork',
+            'office-access' => 'Office Access',
         ];
 
         $normalized = $this->normalizePermissionName($name);

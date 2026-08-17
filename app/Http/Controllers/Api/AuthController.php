@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use App\Models\Permission;
 use App\Models\User;
+use App\Models\WorkerAllowedDevice;
 use PragmaRX\Google2FA\Google2FA;
 
 class AuthController extends Controller
@@ -85,7 +86,11 @@ class AuthController extends Controller
     {
         $request->validate([
             'user_id' => 'required',
-            'otp' => 'required'
+            'otp' => 'required',
+            'device_id' => 'nullable|string|max:191',
+            'device_name' => 'nullable|string|max:255',
+            'platform' => 'nullable|string|max:100',
+            'app_version' => 'nullable|string|max:100',
         ]);
 
         $user = User::find($request->user_id);
@@ -105,11 +110,38 @@ class AuthController extends Controller
             return response()->json(['message' => 'Invalid OTP'], 401);
         }
 
+        $device = null;
+        $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        if ($deviceId !== '' && $user->company_id) {
+            $device = WorkerAllowedDevice::firstOrCreate(
+                [
+                    'company_id' => $user->company_id,
+                    'user_id' => $user->id,
+                    'device_id' => $deviceId,
+                ],
+                ['status' => WorkerAllowedDevice::STATUS_PENDING]
+            );
+
+            $device->forceFill([
+                'device_name' => $request->input('device_name') ?: $request->header('X-Device-Name') ?: $device->device_name,
+                'platform' => $request->input('platform') ?: $request->header('X-Platform') ?: $device->platform,
+                'app_version' => $request->input('app_version') ?: $request->header('X-App-Version') ?: $device->app_version,
+                'last_seen_at' => now(),
+            ])->save();
+        }
+
         $token = $user->createToken('api-token')->plainTextToken;
 
         return response()->json([
             'message' => 'Login successful',
             'token' => $token,
+            'device' => $device ? [
+                'id' => (int) $device->id,
+                'device_id' => $device->device_id,
+                'status' => $device->status,
+                'is_approved' => $device->isApproved(),
+            ] : null,
+            'mobile_access_allowed' => (bool) $user->mobile_access_allowed,
             'company' => [
                 'id' => (int) optional($user->company)->id,
                 'name' => optional($user->company)->name,
@@ -205,6 +237,7 @@ class AuthController extends Controller
             'role_names' => $user->roles->pluck('name')->values(),
             'permissions' => $permissions,
             'is_active' => (bool) $user->is_active,
+            'mobile_access_allowed' => (bool) $user->mobile_access_allowed,
             'status' => $user->is_active ? 'Active' : 'Inactive',
             'profile_image' => $user->profile_image,
             'profile_image_url' => $this->safeProfileImageUrl($user),
@@ -374,6 +407,7 @@ class AuthController extends Controller
             'permission',
             'notification',
             'app-theme',
+            'office-access',
             'person',
             'job-worker',
             'jobwork-issue',

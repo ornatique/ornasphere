@@ -141,7 +141,7 @@ class CustomerAdvanceApiController extends Controller
         $validator = Validator::make($request->all(), [
             'entry_date' => 'required|date',
             'customer_id' => 'required|integer',
-            'entry_type' => 'nullable|string|in:receive_amount,return_amount,convert_to_metal,convert_to_rupees,purchase_adjust_amount,purchase_adjust_metal',
+            'entry_type' => 'nullable|string|in:receive_amount,receive_metal,return_amount,convert_to_metal,convert_to_rupees,purchase_adjust_amount,purchase_adjust_metal',
             'payment_mode' => 'nullable|string|max:30',
             'amount' => 'nullable|numeric|min:0',
             'metal_type' => 'nullable|string|in:gold,silver,other',
@@ -176,8 +176,17 @@ class CustomerAdvanceApiController extends Controller
             ->where('company_id', $company->id)
             ->where('customer_id', (int) $customer->id)
             ->exists();
-        if (!$hasAnyEntry && $entryType !== 'receive_amount') {
-            return response()->json(['success' => false, 'message' => 'First entry must be Receive Amount.'], 422);
+        if (!$hasAnyEntry && !in_array($entryType, ['receive_amount', 'receive_metal'], true)) {
+            return response()->json(['success' => false, 'message' => 'First entry must be Receive Amount or Receive Metal.'], 422);
+        }
+
+        if ($entryType === 'receive_metal') {
+            if (!$metalType) {
+                return response()->json(['success' => false, 'message' => 'Metal type is required for receive metal.'], 422);
+            }
+            if ($fineWeight <= 0) {
+                return response()->json(['success' => false, 'message' => 'Fine weight must be greater than zero.'], 422);
+            }
         }
 
         if ($entryType === 'convert_to_metal') {
@@ -209,6 +218,28 @@ class CustomerAdvanceApiController extends Controller
             }
         }
 
+        if ($entryType === 'receive_amount' && $amount <= 0) {
+            return response()->json(['success' => false, 'message' => 'Amount must be greater than zero.'], 422);
+        }
+
+        if (in_array($entryType, ['return_amount', 'purchase_adjust_amount'], true) && $amount <= 0) {
+            return response()->json(['success' => false, 'message' => 'Amount must be greater than zero.'], 422);
+        }
+
+        if ($entryType === 'purchase_adjust_metal') {
+            if (!$metalType) {
+                return response()->json(['success' => false, 'message' => 'Metal type is required for metal adjustment.'], 422);
+            }
+            if ($fineWeight <= 0) {
+                return response()->json(['success' => false, 'message' => 'Fine weight must be greater than zero.'], 422);
+            }
+            $balance = $this->getCustomerBalance($company->id, (int) $customer->id);
+            $availableMetal = (float) data_get($balance, 'metal_balance.' . $metalType, 0);
+            if ($availableMetal + 0.000001 < $fineWeight) {
+                return response()->json(['success' => false, 'message' => 'Fine weight exceeds available metal balance.'], 422);
+            }
+        }
+
         $cashIn = 0.0;
         $cashOut = 0.0;
         $metalIn = 0.0;
@@ -218,12 +249,19 @@ class CustomerAdvanceApiController extends Controller
         switch ($entryType) {
             case 'receive_amount':
                 $cashIn = $amount;
+                $metalType = null;
+                break;
+            case 'receive_metal':
+                $metalIn = round($fineWeight, 3);
+                $amount = 0;
                 break;
             case 'return_amount':
                 $cashOut = $amount;
+                $metalType = null;
                 break;
             case 'purchase_adjust_amount':
                 $cashOut = $amount;
+                $metalType = null;
                 break;
             case 'purchase_adjust_metal':
                 $metalOut = $fineWeight;

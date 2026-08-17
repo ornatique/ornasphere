@@ -47,6 +47,7 @@
                         'vacuum-voucher' => 'Vacuum',
                         'approval' => 'Sale on Approval',
                         'jobwork-issue' => 'Jobwork',
+                        'office-access' => 'Office Access',
                     ];
                 @endphp
 

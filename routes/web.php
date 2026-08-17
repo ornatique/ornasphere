@@ -49,6 +49,7 @@ use App\Http\Controllers\SuperAdmin\SuperAdmin2FAController;
 use App\Http\Controllers\Company\ApprovalController;
 use App\Http\Controllers\Company\CustomerAdvanceController;
 use App\Http\Controllers\Company\AppThemeController;
+use App\Http\Controllers\Company\OfficeAccessController;
 use App\Http\Controllers\Api\VisitingCardApiController as VisitingCardApiWebController;
 
 
@@ -399,6 +400,11 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
         Route::get('/users', [CompanyUserController::class, 'index'])
             ->name('users.index');
 
+        Route::get('/office-access', [OfficeAccessController::class, 'edit'])
+            ->name('office-access.edit');
+        Route::post('/office-access', [OfficeAccessController::class, 'update'])
+            ->name('office-access.update');
+
         Route::get('/users/create', [CompanyUserController::class, 'create'])
             ->name('users.create');
 
@@ -424,6 +430,11 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
             '/users/{encryptedId}/reset-2fa',
             [CompanyUserController::class, 'reset2fa']
         )->name('users.reset-2fa');
+
+        Route::post(
+            '/users/{encryptedId}/devices/{device}/status',
+            [CompanyUserController::class, 'updateDeviceStatus']
+        )->name('users.devices.status');
 
         Route::get(
             '/check-employee-limit',

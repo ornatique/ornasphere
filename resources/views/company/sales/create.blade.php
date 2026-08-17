@@ -541,6 +541,8 @@
 
     #saleTable {
         min-width: 2250px;
+        height: 100%;
+        margin-bottom: 0;
     }
 
     #saleTable thead th {
@@ -576,6 +578,12 @@
 
     #saleTable #saleSearchRow td:first-child {
         z-index: 4;
+    }
+
+    #saleSearchRow td {
+        height: 230px;
+        vertical-align: top;
+        padding-top: 20px;
     }
 
     .grid-label-search-wrap {

@@ -57,7 +57,6 @@
 
             <form method="POST" action="{{ route('company.sales.advance.store', $company->slug) }}" class="row g-3 mb-4" id="advanceForm">
                 @csrf
-                <input type="hidden" name="entry_type" value="receive_amount">
                 <input type="hidden" name="advance_items_payload" id="advance_items_payload" value="[]">
                 <div class="col-md-2">
                     <label>Date</label>
@@ -73,8 +72,15 @@
                     </select>
                 </div>
                 <div class="col-md-2">
+                    <label>Entry Type</label>
+                    <select name="entry_type" id="entry_type" class="form-select">
+                        <option value="receive_amount">Receive Amount</option>
+                        <option value="receive_metal">Receive Fine Metal</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
                     <label>Payment Mode</label>
-                    <select name="payment_mode" class="form-select">
+                    <select name="payment_mode" id="entry_payment_mode" class="form-select">
                         <option value="">Select</option>
                         <option value="cash">Cash</option>
                         <option value="online">Online</option>
@@ -86,6 +92,18 @@
                 <div class="col-md-2">
                     <label>Amount</label>
                     <input type="number" step="any" min="0" name="amount" id="amount" class="form-control" placeholder="0.00" required>
+                </div>
+                <div class="col-md-2 d-none" id="entry_metal_type_wrap">
+                    <label>Metal Type</label>
+                    <select name="metal_type" id="entry_metal_type" class="form-select">
+                        <option value="silver">Silver</option>
+                        <option value="gold">Gold</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div class="col-md-2 d-none" id="entry_fine_weight_wrap">
+                    <label>Fine Weight</label>
+                    <input type="number" step="0.001" min="0" name="fine_weight" id="entry_fine_weight" class="form-control" placeholder="0.000">
                 </div>
                 <div class="col-md-6">
                     <label>Remarks</label>
@@ -320,6 +338,7 @@
 
     #advanceSaleTable {
         min-width: 1900px;
+        height: 100%;
         margin-bottom: 0;
     }
 
@@ -370,6 +389,12 @@
     .advance-grid-placeholder-cell {
         color: rgba(255, 255, 255, 0.6);
         font-weight: 700;
+    }
+
+    #advanceSaleSearchRow td {
+        height: 230px;
+        vertical-align: top;
+        padding-top: 20px;
     }
 
     .searchable-party-select {
@@ -502,6 +527,20 @@ $(function () {
     };
 
     const esc = (value) => $('<div>').text(value ?? '').html();
+
+    function updateEntryTypeFields() {
+        const isMetalReceive = String($('#entry_type').val() || '') === 'receive_metal';
+        $('#entry_payment_mode').prop('disabled', isMetalReceive).prop('required', !isMetalReceive);
+        $('#amount').prop('required', !isMetalReceive).closest('.col-md-2').toggleClass('d-none', isMetalReceive);
+        $('#entry_metal_type_wrap, #entry_fine_weight_wrap').toggleClass('d-none', !isMetalReceive);
+        $('#entry_metal_type, #entry_fine_weight').prop('required', isMetalReceive);
+        if (isMetalReceive) {
+            $('#entry_payment_mode').val('');
+            $('#amount').val('');
+        } else {
+            $('#entry_fine_weight').val('');
+        }
+    }
 
     function initPartySelects() {
         if (!$.fn.select2) return;
@@ -1038,6 +1077,7 @@ $(function () {
     $('#convert_amount, #convert_rate').on('input', updateFinePreview);
     $('#convert_type').on('change', syncConvertUiMode);
     $('#convert_metal_type').on('change', updateAutoConvertRemark);
+    $('#entry_type').on('change', updateEntryTypeFields);
 
     $('#convertForm').on('submit', function (e) {
         const mode = String($('#convert_type').val() || 'convert_to_metal');
@@ -1076,6 +1116,7 @@ $(function () {
         updateHistoryPdfLink('');
     }
     ensureAdvanceGridSearchRow();
+    updateEntryTypeFields();
     syncConvertUiMode();
 });
 </script>

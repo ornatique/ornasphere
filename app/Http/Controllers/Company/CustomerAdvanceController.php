@@ -114,7 +114,7 @@ class CustomerAdvanceController extends Controller
         $request->validate([
             'entry_date' => 'required|date',
             'customer_id' => 'required|integer',
-            'entry_type' => 'nullable|string|in:receive_amount,return_amount,convert_to_metal,convert_to_rupees,purchase_adjust_amount,purchase_adjust_metal',
+            'entry_type' => 'nullable|string|in:receive_amount,receive_metal,return_amount,convert_to_metal,convert_to_rupees,purchase_adjust_amount,purchase_adjust_metal',
             'payment_mode' => 'nullable|string|max:30',
             'amount' => 'nullable|numeric|min:0',
             'metal_type' => 'nullable|string|in:gold,silver,other',
@@ -136,8 +136,8 @@ class CustomerAdvanceController extends Controller
         $hasAnyEntry = CustomerAdvanceLedger::where('company_id', $company->id)
             ->where('customer_id', (int) $customer->id)
             ->exists();
-        if (!$hasAnyEntry && $entryType !== 'receive_amount') {
-            return back()->with('error', 'First entry must be Receive Amount.');
+        if (!$hasAnyEntry && !in_array($entryType, ['receive_amount', 'receive_metal'], true)) {
+            return back()->with('error', 'First entry must be Receive Amount or Receive Metal.');
         }
 
         $cashIn = 0.0;
@@ -153,6 +153,14 @@ class CustomerAdvanceController extends Controller
             $metalType = null;
             $rate = 0;
             $fineWeight = 0;
+        } elseif ($entryType === 'receive_metal') {
+            if ($fineWeight <= 0 || empty($metalType)) {
+                return back()->with('error', 'Fine weight and metal type are required for receive metal.');
+            }
+            $metalIn = round($fineWeight, 3);
+            $amount = 0;
+            $rate = 0;
+            $request->merge(['payment_mode' => null]);
         } elseif ($entryType === 'return_amount' || $entryType === 'purchase_adjust_amount') {
             if ($amount <= 0) {
                 return back()->with('error', 'Amount must be greater than 0.');

@@ -108,6 +108,21 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group row">
+                                    <label class="col-sm-3 col-form-label">Mobile App</label>
+                                    <div class="col-sm-9">
+                                        <select name="mobile_access_allowed" class="form-control">
+                                            <option value="1" {{ old('mobile_access_allowed', '1') == '1' ? 'selected' : '' }}>Allow mobile app</option>
+                                            <option value="0" {{ old('mobile_access_allowed') == '0' ? 'selected' : '' }}>Block mobile app</option>
+                                        </select>
+                                        <small class="text-muted">If blocked, this worker cannot use the mobile app even with correct login.</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">Password</label>
                                     <div class="col-sm-9">
                                         <input type="password"

@@ -40,6 +40,7 @@ use App\Http\Controllers\Api\VacuumProcessApiController;
 use App\Http\Controllers\Api\VacuumVoucherApiController;
 use App\Http\Controllers\Api\VoucherHistoryApiController;
 use App\Http\Controllers\Api\CategoryPersonController;
+use App\Http\Controllers\Api\OfficeAccessController;
 
 Route::post('/company/login', [AuthController::class, 'login']);
 Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
@@ -48,12 +49,20 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/company/logout', [AuthController::class, 'logout']);
     Route::get('/company/me', [AuthController::class, 'me']);
     Route::get('/company/profile', [AuthController::class, 'profile']);
+
+    Route::get('/office-access/status', [OfficeAccessController::class, 'status']);
+    Route::post('/office-access/register-device', [OfficeAccessController::class, 'registerDevice']);
+    Route::get('/office-access/settings', [OfficeAccessController::class, 'settings']);
+    Route::post('/office-access/settings', [OfficeAccessController::class, 'updateSettings']);
+    Route::get('/office-access/devices', [OfficeAccessController::class, 'devices']);
+    Route::post('/office-access/devices/{device}/status', [OfficeAccessController::class, 'updateDeviceStatus']);
+    Route::post('/office-access/emergency-override', [OfficeAccessController::class, 'setEmergencyOverride']);
 });
 
 
 
 
-Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
+Route::middleware(['auth:sanctum', 'company.active', 'worker.office.access'])->group(function () {
 
     Route::get('/notifications/summary', [NotificationApiController::class, 'summary']);
     Route::get('/notifications', [NotificationApiController::class, 'index']);

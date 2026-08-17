@@ -132,6 +132,7 @@ public function store(Request $request)
         'email' => 'required|email|unique:users,email',
         'role'  => 'required',
         'profile_image' => 'nullable|image|max:2048',
+        'mobile_access_allowed' => 'nullable|boolean',
     ]);
 
     // 🔹 Upload Image (If Provided)
@@ -167,6 +168,7 @@ public function store(Request $request)
         'anniversary_date' => $request->anniversary_date,
         'reference' => $request->reference,
         'remarks' => $request->remarks,
+        'mobile_access_allowed' => $request->boolean('mobile_access_allowed', true),
     ]);
 
     // 🔹 Assign Role (Spatie)
@@ -210,6 +212,7 @@ public function update(Request $request, $id)
             ],
             'role'  => 'required|string',
             'profile_image' => 'nullable|image|max:2048',
+            'mobile_access_allowed' => 'nullable|boolean',
         ]);
 
         if (strtolower((string) $validated['role']) === 'customer') {
@@ -252,6 +255,9 @@ public function update(Request $request, $id)
             'anniversary_date' => $request->anniversary_date,
             'reference' => $request->reference,
             'remarks' => $request->remarks,
+            'mobile_access_allowed' => $request->has('mobile_access_allowed')
+                ? $request->boolean('mobile_access_allowed')
+                : (bool) $user->mobile_access_allowed,
         ]);
 
         // 🔁 Sync Spatie Role

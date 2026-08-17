@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Company;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Company;
+use App\Models\WorkerAllowedDevice;
 use Illuminate\Http\Request;
 use Spatie\Permission\Models\Role;
 use Illuminate\Support\Facades\Hash;
@@ -12,6 +13,7 @@ use Illuminate\Support\Facades\Storage;
 use Yajra\DataTables\Facades\DataTables;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class CompanyUserController extends Controller
 {
@@ -130,6 +132,11 @@ class CompanyUserController extends Controller
                         ? '<span class="badge bg-success">Active</span>'
                         : '<span class="badge bg-danger">Inactive</span>';
                 })
+                ->addColumn('mobile_access', function ($user) {
+                    return $user->mobile_access_allowed
+                        ? '<span class="badge bg-success">Allowed</span>'
+                        : '<span class="badge bg-danger">Blocked</span>';
+                })
                 ->addColumn('created_time', function ($user) {
                     return optional($user->created_at)->format('d-m-Y h:i A') ?? '-';
                 })
@@ -185,7 +192,7 @@ class CompanyUserController extends Controller
                     return $html;
                 })
 
-                ->rawColumns(['status', 'action'])
+                ->rawColumns(['status', 'mobile_access', 'action'])
                 ->make(true);
         }
 
@@ -239,6 +246,7 @@ class CompanyUserController extends Controller
             'email' => 'required|email|unique:users,email',
             'role' => 'required',
             'password' => 'required|string|min:6|confirmed',
+            'mobile_access_allowed' => 'nullable|boolean',
             // 'profile_image' => 'nullable|image|max:2048',
         ]);
 
@@ -282,6 +290,7 @@ class CompanyUserController extends Controller
             'anniversary_date' => $request->anniversary_date,
             'reference' => $request->reference,
             'remarks' => $request->remarks,
+            'mobile_access_allowed' => $request->boolean('mobile_access_allowed'),
         ]);
 
         $user->syncRoles([$roleModel->id]);
@@ -311,7 +320,11 @@ class CompanyUserController extends Controller
             ->whereRaw('LOWER(name) != ?', ['customer'])
             ->get();
 
-        return view('company.users.edit', compact('company', 'user', 'roles'));
+        $devices = $user->workerAllowedDevices()
+            ->latest()
+            ->get();
+
+        return view('company.users.edit', compact('company', 'user', 'roles', 'devices'));
     }
 
     public function update(Request $request, $slug, $encryptedId)
@@ -335,6 +348,7 @@ class CompanyUserController extends Controller
             'role' => 'required',
             'profile_image' => 'nullable|image|max:2048',
             'password' => 'nullable|string|min:6|confirmed',
+            'mobile_access_allowed' => 'nullable|boolean',
         ]);
 
         if (strtolower((string) $request->role) === 'customer') {
@@ -400,6 +414,7 @@ class CompanyUserController extends Controller
             'anniversary_date' => $request->anniversary_date,
             'reference' => $request->reference,
             'address' => $request->address,
+            'mobile_access_allowed' => $request->boolean('mobile_access_allowed'),
         ];
 
         if ($request->filled('password')) {
@@ -512,6 +527,40 @@ class CompanyUserController extends Controller
         return redirect()
             ->route('company.users.index', $company->slug)
             ->with('success', 'User 2FA reset successfully.');
+    }
+
+    public function updateDeviceStatus(Request $request, $slug, $encryptedId, WorkerAllowedDevice $device)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $userId = Crypt::decryptString($encryptedId);
+
+        $user = User::where('id', $userId)
+            ->where('company_id', $company->id)
+            ->firstOrFail();
+
+        abort_if((int) $device->company_id !== (int) $company->id, 404);
+        abort_if((int) $device->user_id !== (int) $user->id, 404);
+
+        $validated = $request->validate([
+            'status' => ['required', Rule::in([
+                WorkerAllowedDevice::STATUS_APPROVED,
+                WorkerAllowedDevice::STATUS_REJECTED,
+                WorkerAllowedDevice::STATUS_INACTIVE,
+                WorkerAllowedDevice::STATUS_PENDING,
+            ])],
+        ]);
+
+        $payload = ['status' => $validated['status']];
+        if ($validated['status'] === WorkerAllowedDevice::STATUS_APPROVED) {
+            $payload['approved_at'] = now();
+            $payload['approved_by'] = $request->user()->id;
+        }
+
+        $device->forceFill($payload)->save();
+
+        return redirect()
+            ->route('company.users.edit', [$company->slug, $encryptedId])
+            ->with('success', 'Phone device status updated successfully.');
     }
 }
 

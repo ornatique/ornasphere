@@ -1024,6 +1024,7 @@ class SaleApiController extends Controller
                 'payment_mode' => $request->input('payment_mode'),
                 'payment_reference' => $request->input('payment_reference'),
                 'payment_note' => $request->input('payment_note'),
+                'use_silver_balance' => (bool) $request->input('use_silver_balance', true),
                 'employee_id' => $user->id,
                 'modified_count' => 0,
             ]);
@@ -1144,7 +1145,13 @@ class SaleApiController extends Controller
                 $total += $lineTotal;
             }
 
-            $sale->update(['net_total' => $total]);
+            $sale->update(['net_total' => $this->saleCashPayableTotal($sale->fresh('saleItems.itemset.item', 'saleItems.product'))]);
+            $this->syncSilverAdvanceUsageForSale(
+                $companyId,
+                $sale,
+                (bool) $request->input('use_silver_balance', true),
+                (int) $user->id
+            );
 
             SaleCart::where('user_id', auth()->id())
                 ->where('company_id', $user->company_id)
@@ -1155,7 +1162,7 @@ class SaleApiController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Sale created successfully',
-                'data' => $sale,
+                'data' => $this->saleResponsePayload($sale->fresh(['customer', 'saleItems.itemset.item', 'saleItems.product', 'payments'])),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -1506,7 +1513,7 @@ class SaleApiController extends Controller
 
                 SaleItem::create([
                     'sale_id' => $sale->id,
-                    'itemset_id' => $itemSet?->id ?: 0,
+                    'itemset_id' => $itemSet?->id,
                     'product_id' => $item['product_id'] ?? $productId ?? $itemSet->item_id ?? null,
                     'approval_item_id' => $approvalItemId > 0 ? $approvalItemId : null,
                     'qty' => $qty,
@@ -1542,7 +1549,7 @@ class SaleApiController extends Controller
                 $total += $lineTotal;
             }
 
-            $sale->update(['net_total' => $total]);
+            $sale->update(['net_total' => $this->saleCashPayableTotal($sale->fresh('saleItems.itemset.item', 'saleItems.product'))]);
             $this->syncSilverAdvanceUsageForSale(
                 $companyId,
                 $sale,
@@ -1565,7 +1572,7 @@ class SaleApiController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Sale created successfully',
-                'data' => $sale
+                'data' => $this->saleResponsePayload($sale->fresh(['customer', 'saleItems.itemset.item', 'saleItems.product', 'payments']))
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -1592,46 +1599,9 @@ class SaleApiController extends Controller
             ]);
         }
 
-        $sale->setAttribute(
-            'can_edit_today',
-            true
-        );
-        $sale->setAttribute('can_edit', true);
-        $sale->setAttribute('created_by', optional($sale->creator)->name);
-        $sale->setAttribute('modified_at', optional($sale->updated_at)?->format('Y-m-d H:i:s'));
-        $sale->setAttribute('modified_count', (int) ($sale->modified_count ?? 0));
-        $sale->setAttribute('qty_pcs', (int) $sale->saleItems->sum('qty'));
-        $sale->setAttribute('gross_weight', (float) $sale->saleItems->sum('gross_weight'));
-        $sale->setAttribute('net_weight', (float) $sale->saleItems->sum('net_weight'));
-        $sale->setAttribute('fine_weight', (float) $sale->saleItems->sum('fine_weight'));
-        $sale->setAttribute('metal_amount', (float) $sale->saleItems->sum('metal_amount'));
-        $sale->setAttribute('labour_amount', (float) $sale->saleItems->sum('labour_amount'));
-        $sale->setAttribute('other_amount', (float) $sale->saleItems->sum('other_amount'));
-        $received = (float) ($sale->received_amount ?? 0);
-        $refundPaid = (float) ($sale->paid_amount ?? 0);
-        $sale->setAttribute('refund_paid_amount', $refundPaid);
-        $sale->setAttribute('pending_amount', max(0, (float) ($sale->net_total ?? 0) - ($received - $refundPaid)));
-        $sale->setAttribute('payment_history', collect($sale->payments ?? [])->map(function ($p) {
-            return [
-                'id' => (int) $p->id,
-                'paid_on' => optional($p->paid_on)?->format('Y-m-d'),
-                'amount' => (float) ($p->amount ?? 0),
-                'payment_mode' => $p->payment_mode,
-                'payment_reference' => $p->payment_reference,
-                'payment_note' => $p->payment_note,
-            ];
-        })->values());
-
-        // Add item_name in each sale item for app-side direct consumption.
-        $sale->saleItems->transform(function ($row) {
-            $itemName = optional(optional($row->itemset)->item)->item_name;
-            $row->setAttribute('item_name', $itemName);
-            return $row;
-        });
-
         return response()->json([
             'success' => true,
-            'data' => $sale
+            'data' => $this->saleResponsePayload($sale)
         ]);
     }
 
@@ -1907,7 +1877,13 @@ class SaleApiController extends Controller
                 $total += $lineTotal;
             }
 
-            $sale->update(['net_total' => $total]);
+            $existingUsage = $this->saleLedgerMetalUsage($companyId, (int) $sale->id);
+            $advanceSummaryNow = $this->getAdvanceSummary($companyId, (int) $request->customer_id);
+            $sale->update(['net_total' => $this->saleCashPayableTotal($sale->fresh('saleItems.itemset.item', 'saleItems.product'), [
+                'gold' => (float) ($advanceSummaryNow['gold'] ?? 0) + (float) ($existingUsage['gold_used'] ?? 0),
+                'silver' => (float) ($advanceSummaryNow['silver'] ?? 0) + (float) ($existingUsage['silver_used'] ?? 0),
+                'other' => (float) ($advanceSummaryNow['other'] ?? 0) + (float) ($existingUsage['other_used'] ?? 0),
+            ])]);
             $this->syncSilverAdvanceUsageForSale(
                 $companyId,
                 $sale,
@@ -1922,7 +1898,7 @@ class SaleApiController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Sale updated successfully',
-                'data' => $sale->fresh(['customer', 'saleItems.itemset']),
+                'data' => $this->saleResponsePayload($sale->fresh(['customer', 'saleItems.itemset.item', 'saleItems.product', 'payments'])),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -2023,6 +1999,149 @@ class SaleApiController extends Controller
         ];
     }
 
+    private function saleCashPayableTotal(Sale $sale, ?array $availableMetalOverride = null): float
+    {
+        $items = $sale->relationLoaded('saleItems')
+            ? $sale->saleItems
+            : $sale->saleItems()->with(['itemset.item', 'product'])->get();
+
+        $availableMetal = $availableMetalOverride ?: $this->getAdvanceSummary(
+            (int) $sale->company_id,
+            (int) ($sale->customer_id ?? 0),
+            $sale->sale_date
+        );
+
+        $remainingMetal = [
+            'gold' => max(0, (float) ($availableMetal['gold'] ?? 0)),
+            'silver' => max(0, (float) ($availableMetal['silver'] ?? 0)),
+            'other' => max(0, (float) ($availableMetal['other'] ?? 0)),
+        ];
+        $cashTotal = 0.0;
+
+        foreach ($items as $row) {
+            $cashTotal += (float) ($row->labour_amount ?? 0) + (float) ($row->other_amount ?? 0);
+
+            $fine = max(0, (float) ($row->fine_weight ?? 0));
+            $metalAmount = max(0, (float) ($row->metal_amount ?? 0));
+            if ($fine <= 0 || $metalAmount <= 0) {
+                continue;
+            }
+
+            $item = optional($row->itemset)->item ?: $row->product;
+            $metalType = $this->normalizeMetalType(optional($item)->metal ?? null);
+            $coveredFine = min($fine, (float) ($remainingMetal[$metalType] ?? 0));
+            $remainingMetal[$metalType] = max(0, (float) ($remainingMetal[$metalType] ?? 0) - $coveredFine);
+            $uncoveredFine = max(0, $fine - $coveredFine);
+
+            if ($uncoveredFine > 0) {
+                $cashTotal += $metalAmount * ($uncoveredFine / $fine);
+            }
+        }
+
+        return round($cashTotal, 2);
+    }
+
+    private function saleLedgerMetalUsage(int $companyId, int $saleId): array
+    {
+        $usage = CustomerAdvanceLedger::query()
+            ->where('company_id', $companyId)
+            ->where('reference_type', 'sale')
+            ->where('reference_id', $saleId)
+            ->selectRaw('COALESCE(SUM(CASE WHEN metal_type = "gold" THEN metal_out ELSE 0 END),0) as gold_used')
+            ->selectRaw('COALESCE(SUM(CASE WHEN metal_type = "silver" THEN metal_out ELSE 0 END),0) as silver_used')
+            ->selectRaw('COALESCE(SUM(CASE WHEN metal_type = "other" THEN metal_out ELSE 0 END),0) as other_used')
+            ->first();
+
+        return [
+            'gold_used' => (float) ($usage->gold_used ?? 0),
+            'silver_used' => (float) ($usage->silver_used ?? 0),
+            'other_used' => (float) ($usage->other_used ?? 0),
+        ];
+    }
+
+    private function getSaleAdvanceUsage(int $companyId, Sale $sale): array
+    {
+        $usage = $this->saleLedgerMetalUsage($companyId, (int) $sale->id);
+        $summary = $this->getAdvanceSummary($companyId, (int) ($sale->customer_id ?? 0));
+        $required = ['gold' => 0.0, 'silver' => 0.0, 'other' => 0.0];
+
+        $items = $sale->relationLoaded('saleItems')
+            ? $sale->saleItems
+            : $sale->saleItems()->with(['itemset.item', 'product'])->get();
+
+        foreach ($items as $row) {
+            $item = optional($row->itemset)->item ?: $row->product;
+            $metalType = $this->normalizeMetalType(optional($item)->metal ?? null);
+            $required[$metalType] += max(0, (float) ($row->fine_weight ?? 0));
+        }
+
+        $silverUsed = (float) ($usage['silver_used'] ?? 0);
+        $silverClosing = (float) ($summary['silver'] ?? 0);
+        $silverOpening = $silverClosing + $silverUsed;
+        $silverRequired = (float) ($required['silver'] ?? 0);
+
+        return [
+            'fine_required' => [
+                'gold' => round((float) ($required['gold'] ?? 0), 3),
+                'silver' => round($silverRequired, 3),
+                'other' => round((float) ($required['other'] ?? 0), 3),
+            ],
+            'metal_used' => [
+                'gold' => round((float) ($usage['gold_used'] ?? 0), 3),
+                'silver' => round($silverUsed, 3),
+                'other' => round((float) ($usage['other_used'] ?? 0), 3),
+            ],
+            'silver_opening' => round($silverOpening, 3),
+            'silver_used' => round($silverUsed, 3),
+            'silver_closing' => round($silverClosing, 3),
+            'silver_debit' => round(max(0, $silverRequired - $silverOpening), 3),
+            'silver_credit' => round(max(0, $silverOpening - $silverRequired), 3),
+            'cash_balance' => round((float) ($summary['cash'] ?? 0), 2),
+            'cash_payable_total' => round((float) ($sale->net_total ?? 0), 2),
+            'cash_pending' => round(max(0, (float) ($sale->net_total ?? 0) - ((float) ($sale->received_amount ?? 0) - (float) ($sale->paid_amount ?? 0))), 2),
+        ];
+    }
+
+    private function saleResponsePayload(Sale $sale): Sale
+    {
+        $sale->loadMissing(['customer', 'saleItems.itemset.item', 'saleItems.product', 'creator', 'payments']);
+
+        $sale->setAttribute('can_edit_today', true);
+        $sale->setAttribute('can_edit', true);
+        $sale->setAttribute('created_by', optional($sale->creator)->name);
+        $sale->setAttribute('modified_at', optional($sale->updated_at)?->format('Y-m-d H:i:s'));
+        $sale->setAttribute('modified_count', (int) ($sale->modified_count ?? 0));
+        $sale->setAttribute('qty_pcs', (int) $sale->saleItems->sum('qty'));
+        $sale->setAttribute('gross_weight', (float) $sale->saleItems->sum('gross_weight'));
+        $sale->setAttribute('net_weight', (float) $sale->saleItems->sum('net_weight'));
+        $sale->setAttribute('fine_weight', (float) $sale->saleItems->sum('fine_weight'));
+        $sale->setAttribute('metal_amount', (float) $sale->saleItems->sum('metal_amount'));
+        $sale->setAttribute('labour_amount', (float) $sale->saleItems->sum('labour_amount'));
+        $sale->setAttribute('other_amount', (float) $sale->saleItems->sum('other_amount'));
+        $sale->setAttribute('refund_paid_amount', (float) ($sale->paid_amount ?? 0));
+        $sale->setAttribute('pending_amount', max(0, (float) ($sale->net_total ?? 0) - ((float) ($sale->received_amount ?? 0) - (float) ($sale->paid_amount ?? 0))));
+        $sale->setAttribute('advance_usage', $this->getSaleAdvanceUsage((int) $sale->company_id, $sale));
+        $sale->setAttribute('payment_history', collect($sale->payments ?? [])->map(function ($p) {
+            return [
+                'id' => (int) $p->id,
+                'paid_on' => optional($p->paid_on)?->format('Y-m-d'),
+                'amount' => (float) ($p->amount ?? 0),
+                'payment_mode' => $p->payment_mode,
+                'payment_reference' => $p->payment_reference,
+                'payment_note' => $p->payment_note,
+            ];
+        })->values());
+
+        $sale->saleItems->transform(function ($row) {
+            $item = optional($row->itemset)->item ?: $row->product;
+            $row->setAttribute('item_name', optional($item)->item_name);
+            $row->setAttribute('metal_type', $this->normalizeMetalType(optional($item)->metal ?? null));
+            return $row;
+        });
+
+        return $sale;
+    }
+
     private function formatAdvanceBalance(float $balance, int $decimals, string $labelPrefix): array
     {
         $type = $balance >= 0 ? 'Credit' : 'Debit';
@@ -2072,22 +2191,26 @@ class SaleApiController extends Controller
         }
 
         $asOnDate = Carbon::parse($sale->sale_date ?? now())->toDateString();
-        $items = $sale->saleItems()->with('itemset.item')->get();
+        $items = $sale->saleItems()->with(['itemset.item', 'product'])->get();
         $metalFineUsage = ['gold' => 0.0, 'silver' => 0.0, 'other' => 0.0];
+        $availableMetal = $this->getAdvanceSummary($companyId, (int) $sale->customer_id, $asOnDate);
 
         foreach ($items as $row) {
             $fine = (float) ($row->fine_weight ?? 0);
             if ($fine <= 0) {
                 continue;
             }
-            $metalType = $this->normalizeMetalType(optional(optional($row->itemset)->item)->metal ?? null);
+            $item = optional($row->itemset)->item ?: $row->product;
+            $metalType = $this->normalizeMetalType(optional($item)->metal ?? null);
             $metalFineUsage[$metalType] = (float) ($metalFineUsage[$metalType] ?? 0) + $fine;
         }
 
         foreach ($metalFineUsage as $metalType => $metalOut) {
-            if ($metalOut <= 0) {
+            $coveredMetalOut = min((float) $metalOut, max(0, (float) ($availableMetal[$metalType] ?? 0)));
+            if ($coveredMetalOut <= 0) {
                 continue;
             }
+            $availableMetal[$metalType] = max(0, (float) ($availableMetal[$metalType] ?? 0) - $coveredMetalOut);
             CustomerAdvanceLedger::create([
                 'company_id' => $companyId,
                 'customer_id' => (int) $sale->customer_id,
@@ -2098,7 +2221,7 @@ class SaleApiController extends Controller
                 'cash_out' => 0,
                 'metal_type' => $metalType,
                 'metal_in' => 0,
-                'metal_out' => round((float) $metalOut, 3),
+                'metal_out' => round((float) $coveredMetalOut, 3),
                 'rate' => 0,
                 'reference_type' => 'sale',
                 'reference_id' => (int) $sale->id,

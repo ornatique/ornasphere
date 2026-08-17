@@ -58,32 +58,29 @@ class ItemController extends Controller
     {
         $companyId = $request->user()->company_id;
 
-        $validated = $request->validate([
-            'item_name' => 'required|string|max:255'
+        $payload = $this->itemPayload($request, $companyId);
+
+        $request->merge($payload);
+        $request->validate([
+            'item_name' => 'required|string|max:255',
+            'item_code' => 'nullable|string|max:255',
+            'metal' => 'nullable|string|max:100',
+            'metal_formula' => 'nullable|string|max:100',
+            'outward_carat' => 'nullable|numeric',
+            'inward_carat' => 'nullable|numeric',
+            'outward_purity' => 'nullable|numeric',
+            'inward_purity' => 'nullable|numeric',
+            'labour_type' => 'nullable|string|max:100',
+            'labour_unit' => 'nullable|string|max:100',
+            'jobwork_item_type' => 'nullable|string|max:100',
+            'hsn' => 'nullable|string|max:100',
+            'export_hsn' => 'nullable|string|max:100',
+            'numeric_length' => 'nullable|integer',
+            'item_group' => 'nullable|string|max:100',
+            'remarks' => 'nullable|string|max:1000',
         ]);
 
-        $item = Item::create([
-            'company_id' => $companyId,
-            'item_name' => $request->item_name,
-            'item_code' => $request->item_code,
-            'metal' => $request->metal,
-            'metal_formula' => $request->metal_formula,
-            'outward_carat' => $request->outward_carat,
-            'inward_carat' => $request->inward_carat,
-            'outward_purity' => $request->outward_purity,
-            'inward_purity' => $request->inward_purity,
-            'labour_type' => $request->labour_type,
-            'labour_unit' => $request->labour_unit,
-            'jobwork_item_type' => $request->jobwork_item_type,
-            'hsn' => $request->hsn,
-            'export_hsn' => $request->export_hsn,
-            'numeric_length' => $request->numeric_length,
-            'item_group' => $request->item_group,
-            'remarks' => $request->remarks,
-            'auto_load_purity' => $request->boolean('auto_load_purity'),
-            'auto_create_label_purchase' => $request->boolean('auto_create_label_purchase'),
-            'auto_create_label_config' => $request->boolean('auto_create_label_config'),
-        ]);
+        $item = Item::create($payload);
 
         return response()->json([
             'success' => true,
@@ -108,32 +105,29 @@ class ItemController extends Controller
             ], 404);
         }
 
+        $payload = $this->itemPayload($request, $companyId);
+
+        $request->merge($payload);
         $request->validate([
             'item_name' => 'required|string|max:255',
-            'item_code' => 'required|string|max:255',
+            'item_code' => 'nullable|string|max:255',
+            'metal' => 'nullable|string|max:100',
+            'metal_formula' => 'nullable|string|max:100',
+            'outward_carat' => 'nullable|numeric',
+            'inward_carat' => 'nullable|numeric',
+            'outward_purity' => 'nullable|numeric',
+            'inward_purity' => 'nullable|numeric',
+            'labour_type' => 'nullable|string|max:100',
+            'labour_unit' => 'nullable|string|max:100',
+            'jobwork_item_type' => 'nullable|string|max:100',
+            'hsn' => 'nullable|string|max:100',
+            'export_hsn' => 'nullable|string|max:100',
+            'numeric_length' => 'nullable|integer',
+            'item_group' => 'nullable|string|max:100',
+            'remarks' => 'nullable|string|max:1000',
         ]);
 
-        $item->update([
-            'item_name' => $request->item_name,
-            'item_code' => $request->item_code,
-            'metal' => $request->metal,
-            'metal_formula' => $request->metal_formula,
-            'outward_carat' => $request->outward_carat,
-            'inward_carat' => $request->inward_carat,
-            'outward_purity' => $request->outward_purity,
-            'inward_purity' => $request->inward_purity,
-            'labour_type' => $request->labour_type,
-            'labour_unit' => $request->labour_unit,
-            'jobwork_item_type' => $request->jobwork_item_type,
-            'hsn' => $request->hsn,
-            'export_hsn' => $request->export_hsn,
-            'numeric_length' => $request->numeric_length,
-            'item_group' => $request->item_group,
-            'remarks' => $request->remarks,
-            'auto_load_purity' => $request->boolean('auto_load_purity'),
-            'auto_create_label_purchase' => $request->boolean('auto_create_label_purchase'),
-            'auto_create_label_config' => $request->boolean('auto_create_label_config'),
-        ]);
+        $item->update($payload);
 
         return response()->json([
             'success' => true,
@@ -164,5 +158,57 @@ class ItemController extends Controller
             'success' => true,
             'message' => 'Item deleted successfully'
         ]);
+    }
+
+    private function itemPayload(Request $request, int $companyId): array
+    {
+        return [
+            'company_id' => $companyId,
+            'item_name' => $request->input('item_name'),
+            'item_code' => $request->input('item_code'),
+            'metal' => $request->input('metal'),
+            'metal_formula' => $request->input('metal_formula'),
+            'outward_carat' => $this->nullableDecimal($request->input('outward_carat')),
+            'inward_carat' => $this->nullableDecimal($request->input('inward_carat')),
+            'outward_purity' => $this->nullableDecimal($request->input('outward_purity')),
+            'inward_purity' => $this->nullableDecimal($request->input('inward_purity')),
+            'labour_type' => $request->input('labour_type'),
+            'labour_unit' => $request->input('labour_unit'),
+            'jobwork_item_type' => $request->input('jobwork_item_type'),
+            'hsn' => $request->input('hsn'),
+            'export_hsn' => $request->input('export_hsn'),
+            'numeric_length' => $this->nullableInteger($request->input('numeric_length')),
+            'item_group' => $request->input('item_group'),
+            'remarks' => $request->input('remarks'),
+            'auto_load_purity' => $request->boolean('auto_load_purity'),
+            'auto_create_label_purchase' => $request->boolean('auto_create_label_purchase'),
+            'auto_create_label_config' => $request->boolean('auto_create_label_config'),
+        ];
+    }
+
+    private function nullableDecimal($value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $value = str_replace(',', '', trim((string) $value));
+
+        if ($value === '' || $value === '.' || $value === '-' || $value === '+') {
+            return null;
+        }
+
+        return is_numeric($value) ? $value : null;
+    }
+
+    private function nullableInteger($value): ?int
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return preg_match('/^-?\d+$/', $value) ? (int) $value : null;
     }
 }

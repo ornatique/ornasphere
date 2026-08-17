@@ -39,6 +39,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'company.route.permission' => \App\Http\Middleware\CompanyRoutePermission::class,
             'company.active' => \App\Http\Middleware\EnsureCompanyIsActive::class,
             'company.notification.read' => \App\Http\Middleware\MarkCompanyNotificationModuleRead::class,
+            'worker.office.access' => \App\Http\Middleware\CheckWorkerOfficeAccess::class,
         ]);
 
     })

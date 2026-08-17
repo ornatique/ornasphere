@@ -53,6 +53,7 @@
     $canRoles = $canModule('role');
     $canPermissions = $canModule('permission');
     $canAppTheme = $canModule('app-theme');
+    $canOfficeAccess = $canModule('office-access');
 
     $canItems = $canModule('item');
     $canItemSets = $canModule('item-set');
@@ -215,9 +216,10 @@
         request()->routeIs('company.permissions.*') ||
         request()->routeIs('company.category-persons.*') ||
         request()->routeIs('company.customers.*') ||
+        request()->routeIs('company.office-access.*') ||
         request()->routeIs('company.users.*');
         @endphp
-        @if($canUsers || $canCategoryPerson || $canPerson || $canRoles || $canPermissions)
+        @if($canUsers || $canOfficeAccess || $canCategoryPerson || $canPerson || $canRoles || $canPermissions)
         <li class="nav-item {{ $userManagementActive ? 'active' : '' }}">
             <a class="nav-link"
                 data-bs-toggle="collapse"
@@ -239,6 +241,15 @@
                         <a class="nav-link {{ request()->routeIs('company.users.*') ? 'active' : '' }}"
                             href="{{ route('company.users.index', auth()->user()->company->slug) }}">
                             Users
+                        </a>
+                    </li>
+                    @endif
+
+                    @if($canOfficeAccess)
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.office-access.*') ? 'active' : '' }}"
+                            href="{{ route('company.office-access.edit', auth()->user()->company->slug) }}">
+                            Office Access
                         </a>
                     </li>
                     @endif

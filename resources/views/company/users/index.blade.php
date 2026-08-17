@@ -22,6 +22,7 @@
                         <th>Email</th>
                         <th>Role</th>
                         <th>Status</th>
+                        <th>Mobile App</th>
                         <th>Create Time</th>
                         <th>Update Time</th>
                         <th>Action</th>
@@ -63,6 +64,11 @@
                 {
                     data: 'status',
                     name: 'status'
+                },
+                {
+                    data: 'mobile_access',
+                    name: 'mobile_access',
+                    searchable: false
                 },
                 {
                     data: 'created_time',

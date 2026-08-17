@@ -227,6 +227,7 @@ class CompanyRoleController extends Controller
             'permission',
             'notification',
             'app-theme',
+            'office-access',
             'person',
             'job-worker',
             'jobwork-issue',

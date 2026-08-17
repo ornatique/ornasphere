@@ -158,16 +158,18 @@ class ApprovalApiController extends Controller
     public function searchItemSets(Request $request)
     {
         $companyId = $request->user()->company_id;
-        $keyword = trim((string) $request->keyword);
+        $keyword = trim((string) $request->input('keyword', $request->input('search', '')));
+        $limit = max(10, min((int) $request->input('limit', 1000), 2000));
 
         if ($keyword === '') {
             return response()->json([
                 'success' => true,
+                'count' => 0,
                 'data' => [],
             ]);
         }
 
-        $rows = ItemSet::with('item')
+        $itemSets = ItemSet::with('item')
             ->where('company_id', $companyId)
             ->where('is_final', 1)
             ->where('is_sold', 0)
@@ -180,33 +182,158 @@ class ApprovalApiController extends Controller
                             ->orWhere('item_code', 'LIKE', "%{$keyword}%");
                     });
             })
-            ->limit(20)
+            ->orderByDesc('id')
+            ->limit($limit)
             ->get();
 
+        $itemSetItemIds = $itemSets->pluck('item_id')->filter()->unique()->values()->all();
+
+        $itemOnlyQuery = Item::query()
+            ->where('company_id', $companyId)
+            ->whereNotIn('id', $itemSetItemIds)
+            ->where(function ($q) use ($keyword) {
+                $q->where('item_name', 'LIKE', "%{$keyword}%")
+                    ->orWhere('item_code', 'LIKE', "%{$keyword}%");
+            });
+
+        if (Schema::hasColumn('items', 'is_active')) {
+            $itemOnlyQuery->where('is_active', 1);
+        }
+
+        $itemOnly = $itemOnlyQuery
+            ->orderBy('item_name')
+            ->limit($limit)
+            ->get(['id', 'item_name', 'item_code', 'outward_purity', 'labour_rate']);
+
+        $itemSetRows = $itemSets->map(function ($set) {
+            $gross = (float) ($set->gross_weight ?? 0);
+            $otherWeight = (float) ($set->other ?? 0);
+            $net = (float) ($set->net_weight ?? max(0, $gross - $otherWeight));
+            $purity = (float) (optional($set->item)->outward_purity ?? 0);
+            $wastePercent = 0;
+            $netPurity = $purity + $wastePercent;
+            $fineWeight = $net * $netPurity / 100;
+            $metalRate = 0;
+            $metalAmount = $net * $metalRate;
+            $labourRate = (float) ($set->sale_labour_rate ?? optional($set->item)->labour_rate ?? 0);
+            $labourAmount = $net * $labourRate;
+            $otherAmount = (float) ($set->sale_other ?? 0);
+            $totalAmount = $metalAmount + $labourAmount + $otherAmount;
+
+            return [
+                'id' => (int) $set->id,
+                'row_key' => 'set_' . (int) $set->id,
+                'itemset_id' => (int) $set->id,
+                'item_id' => (int) ($set->item_id ?? 0),
+                'name' => (string) (optional($set->item)->item_name ?? ''),
+                'code' => (string) ($set->qr_code ?? ''),
+                'huid' => (string) ($set->HUID ?? ''),
+                'HUID' => (string) ($set->HUID ?? ''),
+                'qr_code' => (string) ($set->qr_code ?? ''),
+                'barcode' => (string) ($set->barcode ?? ''),
+                'gross_weight' => $gross,
+                'other' => $otherWeight,
+                'other_weight' => $otherWeight,
+                'net_weight' => $net,
+                'purity' => $purity,
+                'waste_percent' => $wastePercent,
+                'net_purity' => $netPurity,
+                'fine_weight' => $fineWeight,
+                'total_fine_weight' => $fineWeight,
+                'metal_rate' => $metalRate,
+                'metal_amount' => $metalAmount,
+                'labour_rate' => $labourRate,
+                'labour_amount' => $labourAmount,
+                'sale_labour_rate' => $labourRate,
+                'sale_other' => $otherAmount,
+                'other_amount' => $otherAmount,
+                'total_amount' => $totalAmount,
+                'remarks' => '',
+                'is_item_only' => false,
+                'source' => 'itemset',
+                'item' => [
+                    'id' => (int) (optional($set->item)->id ?? 0),
+                    'item_name' => (string) (optional($set->item)->item_name ?? ''),
+                    'item_code' => (string) (optional($set->item)->item_code ?? ''),
+                    'outward_purity' => $purity,
+                    'labour_rate' => (float) (optional($set->item)->labour_rate ?? 0),
+                ],
+            ];
+        })->values();
+
+        $itemOnlyRows = $itemOnly->map(function ($item) {
+            return [
+                'id' => 0,
+                'row_key' => 'item_' . (int) $item->id,
+                'itemset_id' => 0,
+                'item_id' => (int) $item->id,
+                'name' => (string) ($item->item_name ?? ''),
+                'code' => (string) ($item->item_code ?? ''),
+                'huid' => '',
+                'HUID' => '',
+                'qr_code' => (string) ($item->item_code ?? ''),
+                'barcode' => '',
+                'gross_weight' => 0,
+                'other' => 0,
+                'other_weight' => 0,
+                'net_weight' => 0,
+                'purity' => (float) ($item->outward_purity ?? 0),
+                'waste_percent' => 0,
+                'net_purity' => 0,
+                'fine_weight' => 0,
+                'total_fine_weight' => 0,
+                'metal_rate' => 0,
+                'metal_amount' => 0,
+                'labour_rate' => (float) ($item->labour_rate ?? 0),
+                'labour_amount' => 0,
+                'sale_labour_rate' => (float) ($item->labour_rate ?? 0),
+                'sale_other' => 0,
+                'other_amount' => 0,
+                'total_amount' => 0,
+                'remarks' => '',
+                'is_item_only' => true,
+                'source' => 'item',
+                'message' => 'Item found, Itemset not created',
+                'item' => [
+                    'id' => (int) $item->id,
+                    'item_name' => (string) ($item->item_name ?? ''),
+                    'item_code' => (string) ($item->item_code ?? ''),
+                    'outward_purity' => (float) ($item->outward_purity ?? 0),
+                    'labour_rate' => (float) ($item->labour_rate ?? 0),
+                ],
+            ];
+        })->values();
+
+        $rows = $itemSetRows->concat($itemOnlyRows)->values();
+
         if ($rows->isEmpty()) {
+            $itemSetMatch = function ($q) use ($keyword) {
+                $q->where('HUID', 'LIKE', "%{$keyword}%")
+                    ->orWhere('qr_code', 'LIKE', "%{$keyword}%")
+                    ->orWhere('barcode', 'LIKE', "%{$keyword}%")
+                    ->orWhereHas('item', function ($itemQuery) use ($keyword) {
+                        $itemQuery->where('item_name', 'LIKE', "%{$keyword}%")
+                            ->orWhere('item_code', 'LIKE', "%{$keyword}%");
+                    });
+            };
+            $itemMatch = function ($q) use ($keyword) {
+                $q->where('item_name', 'LIKE', "%{$keyword}%")
+                    ->orWhere('item_code', 'LIKE', "%{$keyword}%");
+            };
+
             $existsInOtherCompany = ItemSet::where('company_id', '!=', $companyId)
-                ->where(function ($q) use ($keyword) {
-                    $q->where('HUID', 'LIKE', "%{$keyword}%")
-                        ->orWhere('qr_code', 'LIKE', "%{$keyword}%")
-                        ->orWhere('barcode', 'LIKE', "%{$keyword}%")
-                        ->orWhereHas('item', function ($itemQuery) use ($keyword) {
-                            $itemQuery->where('item_name', 'LIKE', "%{$keyword}%")
-                                ->orWhere('item_code', 'LIKE', "%{$keyword}%");
-                        });
-                })
-                ->exists();
+                ->where($itemSetMatch)
+                ->exists()
+                || Item::where('company_id', '!=', $companyId)
+                    ->where($itemMatch)
+                    ->exists();
 
             $existsInCompany = ItemSet::where('company_id', $companyId)
-                ->where(function ($q) use ($keyword) {
-                    $q->where('HUID', 'LIKE', "%{$keyword}%")
-                        ->orWhere('qr_code', 'LIKE', "%{$keyword}%")
-                        ->orWhere('barcode', 'LIKE', "%{$keyword}%")
-                        ->orWhereHas('item', function ($itemQuery) use ($keyword) {
-                            $itemQuery->where('item_name', 'LIKE', "%{$keyword}%")
-                                ->orWhere('item_code', 'LIKE', "%{$keyword}%");
-                        });
-                })
-                ->exists();
+                ->where($itemSetMatch)
+                ->exists()
+                || Item::where('company_id', $companyId)
+                    ->where($itemMatch)
+                    ->exists();
 
             $message = 'No item found for this keyword.';
             if ($existsInOtherCompany) {
@@ -218,12 +345,14 @@ class ApprovalApiController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => $message,
+                'count' => 0,
                 'data' => [],
             ], 404);
         }
 
         return response()->json([
             'success' => true,
+            'count' => $rows->count(),
             'data' => $rows,
         ]);
     }

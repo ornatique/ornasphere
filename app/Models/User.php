@@ -47,6 +47,7 @@ class User extends Authenticatable
         'reference',
         'remarks',
         'is_active',
+        'mobile_access_allowed',
         'password_set_url',
         'two_factor_secret',
         'two_factor_recovery_codes',
@@ -80,6 +81,7 @@ class User extends Authenticatable
     }
     protected $casts = [
         'two_factor_recovery_codes' => 'array',
+        'mobile_access_allowed' => 'boolean',
     ];
     public function company()
     {
@@ -90,6 +92,11 @@ class User extends Authenticatable
     {
         return $this->belongsToMany(ProductionStep::class, 'production_step_user')
             ->withTimestamps();
+    }
+
+    public function workerAllowedDevices()
+    {
+        return $this->hasMany(WorkerAllowedDevice::class);
     }
 
     public function getProfileImageUrlAttribute(): ?string
