@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Hash;
 use App\Models\Permission;
 use App\Models\User;
 use App\Models\WorkerAllowedDevice;
+use App\Services\OfficeAccessGuard;
 use PragmaRX\Google2FA\Google2FA;
 
 class AuthController extends Controller
@@ -82,7 +83,7 @@ class AuthController extends Controller
         ]);
     }
 
-    public function verifyOtp(Request $request)
+    public function verifyOtp(Request $request, OfficeAccessGuard $officeAccessGuard)
     {
         $request->validate([
             'user_id' => 'required',
@@ -141,7 +142,13 @@ class AuthController extends Controller
                 'status' => $device->status,
                 'is_approved' => $device->isApproved(),
             ] : null,
-            'mobile_access_allowed' => (bool) $user->mobile_access_allowed,
+            'mobile_access_allowed' => $officeAccessGuard->isMobileAccessAllowed($user),
+            'office_access' => [
+                'allowed' => true,
+                'reason' => 'otp_location_check_skipped',
+                'distance_meters' => null,
+                'allowed_radius_meters' => null,
+            ],
             'company' => [
                 'id' => (int) optional($user->company)->id,
                 'name' => optional($user->company)->name,
@@ -237,7 +244,7 @@ class AuthController extends Controller
             'role_names' => $user->roles->pluck('name')->values(),
             'permissions' => $permissions,
             'is_active' => (bool) $user->is_active,
-            'mobile_access_allowed' => (bool) $user->mobile_access_allowed,
+            'mobile_access_allowed' => $this->mobileAccessAllowed($user),
             'status' => $user->is_active ? 'Active' : 'Inactive',
             'profile_image' => $user->profile_image,
             'profile_image_url' => $this->safeProfileImageUrl($user),
@@ -284,6 +291,11 @@ class AuthController extends Controller
                 'status' => $company->status == 1 ? 'Active' : 'Inactive',
             ] : null,
         ];
+    }
+
+    private function mobileAccessAllowed(User $user): bool
+    {
+        return app(OfficeAccessGuard::class)->isMobileAccessAllowed($user);
     }
 
     private function safeProfileImageUrl(User $user): ?string

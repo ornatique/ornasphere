@@ -7,6 +7,7 @@ use App\Models\CategoryPerson;
 use App\Models\Company;
 use App\Models\Customer;
 use App\Models\CustomerAdvanceLedger;
+use App\Models\CustomerAdvanceVoucher;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -128,6 +129,72 @@ class CustomerAdvanceApiController extends Controller
             ],
             'data' => $data,
             'balance' => $this->getCustomerBalance($company->id, $customerId),
+        ]);
+    }
+
+    public function vouchers(Request $request)
+    {
+        $company = $this->resolveCompany($request);
+        if (!$company) {
+            return response()->json(['success' => false, 'message' => 'Company not found.'], 404);
+        }
+
+        $perPage = min(200, max(1, (int) $request->query('per_page', 25)));
+
+        $query = CustomerAdvanceVoucher::with('customer')
+            ->where('company_id', $company->id)
+            ->when($request->filled('from_date'), function ($q) use ($request) {
+                $q->whereDate('voucher_date', '>=', $request->query('from_date'));
+            })
+            ->when($request->filled('to_date'), function ($q) use ($request) {
+                $q->whereDate('voucher_date', '<=', $request->query('to_date'));
+            })
+            ->when((int) $request->query('customer_id', 0) > 0, function ($q) use ($request) {
+                $q->where('customer_id', (int) $request->query('customer_id'));
+            })
+            ->orderByDesc('voucher_date')
+            ->orderByDesc('id');
+
+        $rows = $query->paginate($perPage);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Receive / Return / Purchase vouchers fetched successfully.',
+            'count' => $rows->total(),
+            'pagination' => [
+                'current_page' => $rows->currentPage(),
+                'last_page' => $rows->lastPage(),
+                'per_page' => $rows->perPage(),
+                'total' => $rows->total(),
+            ],
+            'filters' => [
+                'from_date' => $request->query('from_date'),
+                'to_date' => $request->query('to_date'),
+                'customer_id' => (int) $request->query('customer_id', 0),
+            ],
+            'data' => collect($rows->items())->map(fn($voucher) => $this->voucherPayload($voucher))->values(),
+        ]);
+    }
+
+    public function voucherShow(Request $request, int $id)
+    {
+        $company = $this->resolveCompany($request);
+        if (!$company) {
+            return response()->json(['success' => false, 'message' => 'Company not found.'], 404);
+        }
+
+        $voucher = CustomerAdvanceVoucher::with(['customer', 'items'])
+            ->where('company_id', $company->id)
+            ->find($id);
+
+        if (!$voucher) {
+            return response()->json(['success' => false, 'message' => 'Voucher not found.'], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Voucher fetched successfully.',
+            'data' => $this->voucherPayload($voucher, true),
         ]);
     }
 
@@ -278,27 +345,54 @@ class CustomerAdvanceApiController extends Controller
                 break;
         }
 
-        $entry = CustomerAdvanceLedger::create([
-            'company_id' => $company->id,
-            'customer_id' => $customer->id,
-            'entry_date' => $request->entry_date,
-            'entry_type' => $entryType,
-            'payment_mode' => $request->payment_mode,
-            'cash_in' => $cashIn,
-            'cash_out' => $cashOut,
-            'metal_type' => $metalType,
-            'metal_in' => $metalIn,
-            'metal_out' => $metalOut,
-            'rate' => $rateToStore,
-            'remarks' => $request->remarks,
-            'reference_type' => $request->reference_type,
-            'reference_id' => $request->reference_id,
-            'created_by' => optional($request->user())->id,
-        ]);
+        [$entry, $voucher] = DB::transaction(function () use ($request, $company, $customer, $entryType, $cashIn, $cashOut, $metalType, $metalIn, $metalOut, $rateToStore, $amount) {
+            $entry = CustomerAdvanceLedger::create([
+                'company_id' => $company->id,
+                'customer_id' => $customer->id,
+                'entry_date' => $request->entry_date,
+                'entry_type' => $entryType,
+                'payment_mode' => $request->payment_mode,
+                'cash_in' => $cashIn,
+                'cash_out' => $cashOut,
+                'metal_type' => $metalType,
+                'metal_in' => $metalIn,
+                'metal_out' => $metalOut,
+                'rate' => $rateToStore,
+                'remarks' => $request->remarks,
+                'reference_type' => $request->reference_type,
+                'reference_id' => $request->reference_id,
+                'created_by' => optional($request->user())->id,
+            ]);
+
+            $voucher = CustomerAdvanceVoucher::create([
+                'company_id' => $company->id,
+                'customer_id' => $customer->id,
+                'ledger_id' => $entry->id,
+                'voucher_no' => 'RP-TMP-' . uniqid(),
+                'voucher_date' => $request->entry_date,
+                'entry_type' => $entryType,
+                'payment_mode' => $request->payment_mode,
+                'amount' => $amount,
+                'cash_in' => $cashIn,
+                'cash_out' => $cashOut,
+                'metal_type' => $metalType,
+                'metal_in' => $metalIn,
+                'metal_out' => $metalOut,
+                'rate' => $rateToStore,
+                'remarks' => $request->remarks,
+                'created_by' => optional($request->user())->id,
+            ]);
+
+            $voucher->update([
+                'voucher_no' => 'RP' . now()->format('y') . '-' . $voucher->id,
+            ]);
+
+            return [$entry, $voucher->fresh('customer')];
+        });
 
         return response()->json([
             'success' => true,
-            'message' => 'Advance ledger entry saved successfully.',
+            'message' => 'Receive / Return / Purchase voucher saved successfully.',
             'data' => [
                 'id' => (int) $entry->id,
                 'customer_id' => (int) $entry->customer_id,
@@ -312,6 +406,7 @@ class CustomerAdvanceApiController extends Controller
                 'rate' => (float) ($entry->rate ?? 0),
                 'remarks' => (string) ($entry->remarks ?? ''),
             ],
+            'voucher' => $this->voucherPayload($voucher),
             'balance' => $this->getCustomerBalance($company->id, (int) $entry->customer_id),
         ]);
     }
@@ -396,6 +491,57 @@ class CustomerAdvanceApiController extends Controller
         return $pdf->stream($fileName);
     }
 
+    public function voucherPdfUrl(Request $request, int $id)
+    {
+        $company = $this->resolveCompany($request);
+        if (!$company) {
+            return response()->json(['success' => false, 'message' => 'Company not found.'], 404);
+        }
+
+        $voucher = CustomerAdvanceVoucher::where('company_id', $company->id)->find($id);
+        if (!$voucher) {
+            return response()->json(['success' => false, 'message' => 'Voucher not found.'], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Voucher PDF URL generated successfully.',
+            'data' => [
+                'url' => url('/api/sales/advance-ledger/vouchers/' . $voucher->id . '/pdf') . '?mode=inline',
+                'download_url' => url('/api/sales/advance-ledger/vouchers/' . $voucher->id . '/pdf') . '?mode=download',
+            ],
+        ]);
+    }
+
+    public function voucherPdf(Request $request, int $id)
+    {
+        $company = $this->resolveCompany($request);
+        if (!$company) {
+            return response()->json(['success' => false, 'message' => 'Company not found.'], 404);
+        }
+
+        $voucher = CustomerAdvanceVoucher::with(['customer', 'items'])
+            ->where('company_id', $company->id)
+            ->find($id);
+
+        if (!$voucher) {
+            return response()->json(['success' => false, 'message' => 'Voucher not found.'], 404);
+        }
+
+        $pdf = Pdf::loadView('company.sales.pdf.advance_voucher', [
+            'company' => $company,
+            'voucher' => $voucher,
+        ])->setPaper('a4', 'landscape');
+
+        $fileName = 'receive-return-purchase-' . $voucher->voucher_no . '.pdf';
+        $mode = strtolower((string) $request->query('mode', 'inline'));
+        if ($mode === 'download') {
+            return $pdf->download($fileName);
+        }
+
+        return $pdf->stream($fileName);
+    }
+
     private function resolveCompany(Request $request): ?Company
     {
         $user = $request->user();
@@ -450,6 +596,66 @@ class CustomerAdvanceApiController extends Controller
                 $query->where('company_id', $companyId)
                     ->whereIn(DB::raw('LOWER(TRIM(category_name))'), ['customer', 'party']);
             });
+    }
+
+    private function voucherPayload(CustomerAdvanceVoucher $voucher, bool $withItems = false): array
+    {
+        $payload = [
+            'id' => (int) $voucher->id,
+            'voucher_no' => (string) $voucher->voucher_no,
+            'voucher_date' => optional($voucher->voucher_date)->format('Y-m-d'),
+            'voucher_date_fmt' => optional($voucher->voucher_date)->format('d-m-Y'),
+            'customer_id' => (int) $voucher->customer_id,
+            'party_name' => (string) (optional($voucher->customer)->name ?? ''),
+            'entry_type' => (string) $voucher->entry_type,
+            'entry_type_label' => ucwords(str_replace('_', ' ', (string) $voucher->entry_type)),
+            'payment_mode' => (string) ($voucher->payment_mode ?? ''),
+            'payment_mode_label' => $voucher->payment_mode ? ucfirst((string) $voucher->payment_mode) : '-',
+            'cash_in' => (float) ($voucher->cash_in ?? 0),
+            'cash_out' => (float) ($voucher->cash_out ?? 0),
+            'metal_type' => (string) ($voucher->metal_type ?? ''),
+            'metal_type_label' => $voucher->metal_type ? ucfirst((string) $voucher->metal_type) : '-',
+            'metal_in' => (float) ($voucher->metal_in ?? 0),
+            'metal_out' => (float) ($voucher->metal_out ?? 0),
+            'rate' => (float) ($voucher->rate ?? 0),
+            'amount' => (float) ($voucher->amount ?? 0),
+            'remarks' => (string) ($voucher->remarks ?? ''),
+            'pdf_url' => url('/api/sales/advance-ledger/vouchers/' . $voucher->id . '/pdf') . '?mode=inline',
+            'pdf_download_url' => url('/api/sales/advance-ledger/vouchers/' . $voucher->id . '/pdf') . '?mode=download',
+            'created_at' => optional($voucher->created_at)->toDateTimeString(),
+        ];
+
+        if ($withItems) {
+            $payload['items'] = $voucher->items->map(function ($item) {
+                return [
+                    'id' => (int) $item->id,
+                    'itemset_id' => $item->itemset_id ? (int) $item->itemset_id : null,
+                    'product_id' => $item->product_id ? (int) $item->product_id : null,
+                    'label_code' => (string) ($item->label_code ?? ''),
+                    'huid' => (string) ($item->huid ?? ''),
+                    'item_name' => (string) ($item->item_name ?? ''),
+                    'metal_type' => (string) ($item->metal_type ?? ''),
+                    'gross_weight' => (float) ($item->gross_weight ?? 0),
+                    'other_weight' => (float) ($item->other_weight ?? 0),
+                    'net_weight' => (float) ($item->net_weight ?? 0),
+                    'purity' => (float) ($item->purity ?? 0),
+                    'waste_percent' => (float) ($item->waste_percent ?? 0),
+                    'net_purity' => (float) ($item->net_purity ?? 0),
+                    'fine_weight' => (float) ($item->fine_weight ?? 0),
+                    'metal_rate' => (float) ($item->metal_rate ?? 0),
+                    'apply_metal' => (bool) $item->apply_metal,
+                    'metal_amount' => (float) ($item->metal_amount ?? 0),
+                    'labour_rate' => (float) ($item->labour_rate ?? 0),
+                    'apply_labour' => (bool) $item->apply_labour,
+                    'labour_amount' => (float) ($item->labour_amount ?? 0),
+                    'other_amount' => (float) ($item->other_amount ?? 0),
+                    'total_amount' => (float) ($item->total_amount ?? 0),
+                    'remarks' => (string) ($item->remarks ?? ''),
+                ];
+            })->values();
+        }
+
+        return $payload;
     }
 
     private function reconcileSaleSilverAdjustments(int $companyId, int $customerId): void

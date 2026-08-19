@@ -911,23 +911,9 @@ class SaleController extends Controller
                 ]);
             }
 
-            $existingItems = $sale->saleItems->keyBy('itemset_id');
-            $existingItemsetIds = $existingItems->keys()->map(fn($id) => (int) $id)->values();
-            $incomingItemsetIds = collect($request->items)
-                ->map(fn($id) => (int) $id)
-                ->filter(fn($id) => $id > 0)
-                ->values();
-
             $approvalIds = [];
 
-            // Remove deleted rows from sale.
-            $removedItemsetIds = $existingItemsetIds->diff($incomingItemsetIds)->values();
-            foreach ($removedItemsetIds as $itemsetId) {
-                $saleItem = $existingItems->get($itemsetId);
-                if (!$saleItem) {
-                    continue;
-                }
-
+            foreach ($sale->saleItems as $saleItem) {
                 if (!empty($saleItem->approval_item_id)) {
                     $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($company) {
                         $q->where('company_id', $company->id);
@@ -939,9 +925,11 @@ class SaleController extends Controller
                     }
                 }
 
-                ItemSet::where('company_id', $company->id)
-                    ->where('id', (int) $itemsetId)
-                    ->update(['is_sold' => 0]);
+                if (!empty($saleItem->itemset_id)) {
+                    ItemSet::where('company_id', $company->id)
+                        ->where('id', (int) $saleItem->itemset_id)
+                        ->update(['is_sold' => 0]);
+                }
 
                 $saleItem->delete();
             }
@@ -950,36 +938,49 @@ class SaleController extends Controller
 
             foreach ($request->items as $index => $itemsetIdRaw) {
                 $itemsetId = (int) $itemsetIdRaw;
-                if ($itemsetId <= 0) {
+                $productId = (int) ($request->item_ids[$index] ?? 0);
+                $approvalItemId = $request->approval_item_ids[$index] ?? null;
+
+                $item = null;
+                $directItem = null;
+
+                if ($itemsetId > 0) {
+                    $itemQuery = ItemSet::where('company_id', $company->id)
+                        ->where('id', $itemsetId);
+
+                    if (empty($approvalItemId)) {
+                        $itemQuery->where('is_sold', 0);
+                    }
+
+                    $item = $itemQuery->first();
+                    if (!$item) {
+                        throw new \Exception("Item not available for sale: {$itemsetId}");
+                    }
+                } elseif ($productId > 0) {
+                    $directItem = Item::where('company_id', $company->id)->find($productId);
+                    if (!$directItem) {
+                        throw new \Exception("Direct item not found: {$productId}");
+                    }
+                } else {
                     continue;
                 }
 
-                $existingSaleItem = $existingItems->get($itemsetId);
-                $approvalItemId = $request->approval_item_ids[$index] ?? null;
-
-                $itemQuery = ItemSet::where('company_id', $company->id)
-                    ->where('id', $itemsetId);
-
-                if (!$existingSaleItem && empty($approvalItemId)) {
-                    $itemQuery->where('is_sold', 0);
-                }
-
-                $item = $itemQuery->first();
-                if (!$item) {
-                    throw new \Exception("Item not available for sale: {$itemsetId}");
-                }
+                $product = $directItem ?: optional($item)->item;
 
                 $payload = [
-                    'gross_weight'     => $request->gross_weight[$index] ?? $item->gross_weight ?? 0,
-                    'other_weight'     => $request->other_weight[$index] ?? $item->other ?? 0,
+                    'sale_id'          => $sale->id,
+                    'itemset_id'       => $item ? $item->id : null,
+                    'product_id'       => $productId ?: (int) ($item->item_id ?? optional($product)->id ?? 0),
+                    'gross_weight'     => $request->gross_weight[$index] ?? ($item->gross_weight ?? 0),
+                    'other_weight'     => $request->other_weight[$index] ?? ($item->other ?? 0),
                     'net_weight'       => $request->net_weight[$index] ?? 0,
-                    'purity'           => $request->purity[$index] ?? 0,
+                    'purity'           => $request->purity[$index] ?? optional($product)->outward_purity ?? 0,
                     'waste_percent'    => $request->waste_percent[$index] ?? 0,
                     'net_purity'       => $request->net_purity[$index] ?? 0,
                     'fine_weight'      => $request->fine_weight[$index] ?? 0,
                     'metal_rate'       => $request->metal_rate[$index] ?? 0,
                     'metal_amount'     => $request->metal_amount[$index] ?? 0,
-                    'labour_rate'      => $request->labour_rate[$index] ?? 0,
+                    'labour_rate'      => $request->labour_rate[$index] ?? optional($product)->labour_rate ?? 0,
                     'labour_amount'    => $request->labour_amount[$index] ?? 0,
                     'other_amount'     => $request->other_amount[$index] ?? 0,
                     'total_amount'     => $request->total_amount[$index] ?? 0,
@@ -987,28 +988,9 @@ class SaleController extends Controller
                     'approval_item_id' => $approvalItemId,
                 ];
 
-                if ($existingSaleItem) {
-                    $oldApprovalItemId = (int) ($existingSaleItem->approval_item_id ?? 0);
-                    $newApprovalItemId = (int) ($approvalItemId ?? 0);
+                SaleItem::create($payload);
 
-                    $existingSaleItem->update($payload);
-
-                    if ($oldApprovalItemId > 0 && $oldApprovalItemId !== $newApprovalItemId) {
-                        $oldApproval = ApprovalItem::whereHas('approval', function ($q) use ($company) {
-                            $q->where('company_id', $company->id);
-                        })->find($oldApprovalItemId);
-
-                        if ($oldApproval) {
-                            $oldApproval->update(['status' => 'pending']);
-                            $approvalIds[] = (int) $oldApproval->approval_id;
-                        }
-                    }
-                } else {
-                    SaleItem::create(array_merge($payload, [
-                        'sale_id' => $sale->id,
-                        'itemset_id' => $item->id,
-                    ]));
-
+                if ($item) {
                     $item->update(['is_sold' => 1]);
                 }
 

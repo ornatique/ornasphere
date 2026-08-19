@@ -62,7 +62,7 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
 
 
 
-Route::middleware(['auth:sanctum', 'company.active', 'worker.office.access'])->group(function () {
+Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
 
     Route::get('/notifications/summary', [NotificationApiController::class, 'summary']);
     Route::get('/notifications', [NotificationApiController::class, 'index']);
@@ -376,6 +376,10 @@ Route::middleware(['auth:sanctum', 'company.active', 'worker.office.access'])->g
     Route::get('/sales/advance-ledger/summary', [CustomerAdvanceApiController::class, 'summary']);
     Route::get('/sales/advance-ledger/entries', [CustomerAdvanceApiController::class, 'entries']);
     Route::post('/sales/advance-ledger/entries', [CustomerAdvanceApiController::class, 'store']);
+    Route::get('/sales/advance-ledger/vouchers', [CustomerAdvanceApiController::class, 'vouchers']);
+    Route::get('/sales/advance-ledger/vouchers/{id}', [CustomerAdvanceApiController::class, 'voucherShow'])->whereNumber('id');
+    Route::get('/sales/advance-ledger/vouchers/{id}/pdf-url', [CustomerAdvanceApiController::class, 'voucherPdfUrl'])->whereNumber('id');
+    Route::get('/sales/advance-ledger/vouchers/pdf/{id}', [CustomerAdvanceApiController::class, 'voucherPdf'])->whereNumber('id');
     Route::get('/sales/advance-ledger/pdf-url', [CustomerAdvanceApiController::class, 'pdfUrl']);
     Route::get('/sales/advance-ledger/pdf', [CustomerAdvanceApiController::class, 'pdf']);
 

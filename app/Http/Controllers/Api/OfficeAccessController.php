@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\CompanyOfficeAccessSetting;
 use App\Models\WorkerAllowedDevice;
+use App\Services\OfficeAccessGuard;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -158,10 +159,11 @@ class OfficeAccessController extends Controller
         ]);
     }
 
-    public function status(Request $request)
+    public function status(Request $request, OfficeAccessGuard $officeAccessGuard)
     {
         $user = $request->user();
         $setting = CompanyOfficeAccessSetting::where('company_id', $user->company_id)->first();
+        $decision = $officeAccessGuard->evaluate($request, $user);
         $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
         $device = $deviceId !== ''
             ? WorkerAllowedDevice::where('company_id', $user->company_id)
@@ -174,10 +176,17 @@ class OfficeAccessController extends Controller
             'success' => true,
             'data' => [
                 'is_company_admin' => $this->isCompanyAdmin($user),
-                'mobile_access_allowed' => (bool) $user->mobile_access_allowed,
+                'mobile_access_allowed' => $officeAccessGuard->isMobileAccessAllowed($user),
                 'setting' => $setting,
                 'device' => $device,
                 'emergency_override_active' => (bool) ($setting?->hasActiveEmergencyOverride()),
+                'access' => [
+                    'allowed' => (bool) $decision['allowed'],
+                    'message' => $decision['message'],
+                    'reason' => $decision['reason'],
+                    'distance_meters' => $decision['distance_meters'],
+                    'allowed_radius_meters' => $decision['allowed_radius_meters'],
+                ],
             ],
         ]);
     }

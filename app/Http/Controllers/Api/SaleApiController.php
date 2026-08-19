@@ -1705,43 +1705,37 @@ class SaleApiController extends Controller
 
             $resolvedRows = $incomingRows
                 ->map(function ($row) use ($companyId) {
-                    $itemSet = $this->resolveSaleUpdateItemSet($row, $companyId);
-                    if (!$itemSet) {
+                    $resolved = $this->resolveSaleUpdateItem($row, $companyId);
+                    if (!$resolved) {
                         return null;
                     }
 
                     return [
                         'row' => $row,
-                        'itemset' => $itemSet,
+                        'itemset' => $resolved['itemset'],
+                        'product' => $resolved['product'],
                     ];
                 })
                 ->filter()
-                ->unique(fn($pair) => (int) $pair['itemset']->id)
+                ->unique(function ($pair) {
+                    if ($pair['itemset']) {
+                        return 'set_' . (int) $pair['itemset']->id;
+                    }
+
+                    return 'item_' . (int) $pair['product']->id;
+                })
                 ->values();
 
             if ($resolvedRows->isEmpty()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'No valid item found. Use itemset_id/id or qr_code/code or huid/HUID.',
+                    'message' => 'No valid item found. Use itemset_id/id, qr_code/code, huid/HUID, or item_id/product_id.',
                 ], 422);
             }
 
-            $incomingItemsetIds = $resolvedRows
-                ->map(fn($pair) => (int) $pair['itemset']->id)
-                ->values();
-
-            $existingItems = $sale->saleItems->keyBy('itemset_id');
-            $existingItemsetIds = $existingItems->keys()->map(fn($id) => (int) $id)->values();
-
             $approvalIds = [];
 
-            $removedItemsetIds = $existingItemsetIds->diff($incomingItemsetIds)->values();
-            foreach ($removedItemsetIds as $itemsetId) {
-                $saleItem = $existingItems->get($itemsetId);
-                if (!$saleItem) {
-                    continue;
-                }
-
+            foreach ($sale->saleItems as $saleItem) {
                 if (!empty($saleItem->approval_item_id)) {
                     $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
                         $q->where('company_id', $companyId);
@@ -1753,9 +1747,11 @@ class SaleApiController extends Controller
                     }
                 }
 
-                ItemSet::where('company_id', $companyId)
-                    ->where('id', (int) $itemsetId)
-                    ->update(['is_sold' => 0]);
+                if (!empty($saleItem->itemset_id)) {
+                    ItemSet::where('company_id', $companyId)
+                        ->where('id', (int) $saleItem->itemset_id)
+                        ->update(['is_sold' => 0]);
+                }
 
                 $saleItem->delete();
             }
@@ -1765,9 +1761,9 @@ class SaleApiController extends Controller
             foreach ($resolvedRows as $pair) {
                 $row = $pair['row'];
                 $itemSet = $pair['itemset'];
-                $itemsetId = (int) $itemSet->id;
+                $product = $pair['product'];
+                $itemsetId = $itemSet ? (int) $itemSet->id : null;
 
-                $existingSaleItem = $existingItems->get($itemsetId);
                 $approvalItemId = (int) ($row['approval_item_id'] ?? 0);
                 $approvalItem = null;
 
@@ -1802,30 +1798,33 @@ class SaleApiController extends Controller
                     }
                 }
 
-                if (!$existingSaleItem && $approvalItemId <= 0 && (int) $itemSet->is_sold === 1) {
+                if ($itemSet && $approvalItemId <= 0 && (int) $itemSet->is_sold === 1) {
                     return response()->json([
                         'success' => false,
                         'message' => 'ItemSet not available for sale: ' . $itemsetId,
                     ], 422);
                 }
 
-                $grossWeight = (float) ($row['gross_weight'] ?? $itemSet->gross_weight ?? 0);
-                $otherWeight = (float) ($row['other_weight'] ?? $itemSet->other ?? 0);
+                $grossWeight = (float) ($row['gross_weight'] ?? $itemSet?->gross_weight ?? 0);
+                $otherWeight = (float) ($row['other_weight'] ?? $itemSet?->other ?? 0);
                 $netWeight = (float) ($row['net_weight'] ?? max(0, $grossWeight - $otherWeight));
-                $purity = (float) ($row['purity'] ?? 0);
-                $wastePercent = (float) ($row['waste_percent'] ?? 0);
+                $purity = (float) ($row['purity'] ?? $product?->outward_purity ?? 0);
+                $wastePercent = (float) ($row['waste_percent'] ?? $row['waste'] ?? 0);
                 $netPurity = (float) ($row['net_purity'] ?? ($purity - $wastePercent));
                 $fineWeight = (float) ($row['fine_weight'] ?? ($netWeight * $netPurity / 100));
                 $metalRate = (float) ($row['metal_rate'] ?? 0);
                 $metalAmount = (float) ($row['metal_amount'] ?? ($fineWeight * $metalRate));
-                $labourRate = (float) ($row['labour_rate'] ?? 0);
+                $labourRate = (float) ($row['labour_rate'] ?? $product?->labour_rate ?? 0);
                 $labourAmount = (float) ($row['labour_amount'] ?? ($netWeight * $labourRate));
                 $otherAmount = (float) ($row['other_amount'] ?? 0);
                 $lineTotal = (float) ($row['total_amount'] ?? ($metalAmount + $labourAmount + $otherAmount));
 
                 $payload = [
-                    'itemset_id' => $itemSet->id,
+                    'sale_id' => $sale->id,
+                    'itemset_id' => $itemsetId,
+                    'product_id' => (int) ($row['product_id'] ?? $row['item_id'] ?? $product?->id ?? $itemSet?->item_id ?? 0),
                     'approval_item_id' => $approvalItemId > 0 ? $approvalItemId : null,
+                    'qty' => (int) ($row['qty'] ?? 1),
                     'gross_weight' => $grossWeight,
                     'other_weight' => $otherWeight,
                     'net_weight' => $netWeight,
@@ -1841,26 +1840,9 @@ class SaleApiController extends Controller
                     'total_amount' => $lineTotal,
                 ];
 
-                if ($existingSaleItem) {
-                    $oldApprovalItemId = (int) ($existingSaleItem->approval_item_id ?? 0);
-                    $newApprovalItemId = (int) ($approvalItemId ?? 0);
-                    $existingSaleItem->update($payload);
+                SaleItem::create($payload);
 
-                    if ($oldApprovalItemId > 0 && $oldApprovalItemId !== $newApprovalItemId) {
-                        $oldApproval = ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
-                            $q->where('company_id', $companyId);
-                        })->find($oldApprovalItemId);
-                        if ($oldApproval) {
-                            $oldApproval->update(['status' => 'pending']);
-                            $approvalIds[] = (int) $oldApproval->approval_id;
-                        }
-                    }
-                } else {
-                    SaleItem::create(array_merge($payload, [
-                        'sale_id' => $sale->id,
-                        'product_id' => $row['product_id'] ?? $itemSet->item_id ?? null,
-                        'qty' => (int) ($row['qty'] ?? 1),
-                    ]));
+                if ($itemSet) {
                     $itemSet->update(['is_sold' => 1]);
                 }
 
@@ -2172,6 +2154,56 @@ class SaleApiController extends Controller
         $huid = trim((string) ($row['huid'] ?? $row['HUID'] ?? ''));
         if ($huid !== '') {
             return (clone $query)->where('HUID', $huid)->first();
+        }
+
+        return null;
+    }
+
+    private function resolveSaleUpdateItem(array $row, int $companyId): ?array
+    {
+        $itemSet = $this->resolveSaleUpdateItemSet($row, $companyId);
+        if ($itemSet) {
+            return [
+                'itemset' => $itemSet,
+                'product' => $itemSet->relationLoaded('item') ? $itemSet->item : $itemSet->item()->first(),
+            ];
+        }
+
+        $itemId = (int) ($row['item_id'] ?? $row['product_id'] ?? 0);
+        if ($itemId > 0) {
+            $item = Item::where('company_id', $companyId)->find($itemId);
+            if ($item) {
+                return [
+                    'itemset' => null,
+                    'product' => $item,
+                ];
+            }
+        }
+
+        $code = trim((string) ($row['item_code'] ?? $row['code'] ?? ''));
+        if ($code !== '') {
+            $item = Item::where('company_id', $companyId)
+                ->where('item_code', $code)
+                ->first();
+            if ($item) {
+                return [
+                    'itemset' => null,
+                    'product' => $item,
+                ];
+            }
+        }
+
+        $name = trim((string) ($row['item_name'] ?? $row['name'] ?? ''));
+        if ($name !== '') {
+            $item = Item::where('company_id', $companyId)
+                ->where('item_name', $name)
+                ->first();
+            if ($item) {
+                return [
+                    'itemset' => null,
+                    'product' => $item,
+                ];
+            }
         }
 
         return null;
