@@ -160,6 +160,7 @@ class CastingSortingController extends Controller
                 'integer',
                 Rule::exists('items', 'id')->where(fn($q) => $q->where('company_id', $company->id)),
             ],
+            'rows.*.stock_type' => ['nullable', Rule::in(['raw_material', 'finished_item', 'scrap', 'repair'])],
             'rows.*.weight' => ['nullable', 'numeric', 'min:0'],
             'rows.*.quantity' => ['nullable', 'integer', 'min:0'],
         ]);
@@ -186,6 +187,7 @@ class CastingSortingController extends Controller
                     'company_id' => $company->id,
                     'vacuum_voucher_id' => $voucher->id,
                     'item_id' => (int) $itemId,
+                    'stock_type' => $this->normalizeStockType($row['stock_type'] ?? null),
                     'weight' => $weight !== null && $weight !== '' ? (float) $weight : null,
                     'quantity' => $quantity !== null && $quantity !== '' ? (int) $quantity : null,
                     'sorted_by' => auth()->id(),
@@ -233,5 +235,14 @@ class CastingSortingController extends Controller
             ->get(['id', 'item_name', 'item_code']);
 
         return [$company, $voucher, $sortingItems, $items, $receiveCount];
+    }
+
+    private function normalizeStockType(?string $stockType): string
+    {
+        $stockType = trim((string) $stockType);
+
+        return in_array($stockType, ['raw_material', 'finished_item', 'scrap', 'repair'], true)
+            ? $stockType
+            : 'raw_material';
     }
 }

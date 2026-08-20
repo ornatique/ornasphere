@@ -17,6 +17,7 @@
         <thead>
             <tr>
                 <th>Item</th>
+                <th>Stock Type</th>
                 <th>Party</th>
                 <th>Qty Pcs</th>
                 <th>Gross Wt</th>
@@ -30,6 +31,7 @@
             @foreach($rows as $r)
             <tr>
                 <td>{{ $r->item_name }}</td>
+                <td>{{ $r->stock_type_name ?? '-' }}</td>
                 <td>{{ $r->customer_name ?? '-' }}</td>
                 <td>{{ (int)($r->qty_pcs ?? 0) }}</td>
                 <td>{{ number_format((float)($r->gross_weight ?? 0), 3, '.', '') }}</td>

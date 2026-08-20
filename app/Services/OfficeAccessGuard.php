@@ -7,6 +7,8 @@ use App\Models\User;
 use App\Models\WorkerAccessLog;
 use App\Models\WorkerAllowedDevice;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class OfficeAccessGuard
 {
@@ -16,7 +18,11 @@ class OfficeAccessGuard
             return $this->allowed('office_access_bypassed', ['should_log' => false]);
         }
 
-        if (!$user->company_id || $this->isCompanyAdmin($user)) {
+        if (!$user->company_id) {
+            return $this->allowed('company_not_assigned', ['should_log' => false]);
+        }
+
+        if ($this->isCompanyAdmin($user)) {
             return $this->allowed('company_admin_bypass', ['should_log' => false]);
         }
 
@@ -45,13 +51,19 @@ class OfficeAccessGuard
             return $this->allowed('emergency_override', compact('deviceId', 'latitude', 'longitude'));
         }
 
+        $device = null;
+
         if ($setting->device_approval_enabled) {
             if ($deviceId === '') {
-                return $this->blocked(
-                    'Device approval is required. Please send device_id.',
-                    'device_id_required',
-                    compact('latitude', 'longitude')
-                );
+                $deviceId = $this->singleApprovedDeviceId($user);
+
+                if ($deviceId === '') {
+                    return $this->blocked(
+                        'Device approval is required. Please send device_id.',
+                        'device_id_required',
+                        compact('latitude', 'longitude')
+                    );
+                }
             }
 
             $device = WorkerAllowedDevice::firstOrCreate(
@@ -68,12 +80,28 @@ class OfficeAccessGuard
                 ]
             );
 
-            $device->forceFill([
+            $devicePayload = [
                 'last_seen_at' => now(),
                 'device_name' => $request->input('device_name') ?: $request->header('X-Device-Name') ?: $device->device_name,
                 'platform' => $request->input('platform') ?: $request->header('X-Platform') ?: $device->platform,
                 'app_version' => $request->input('app_version') ?: $request->header('X-App-Version') ?: $device->app_version,
-            ])->save();
+            ];
+
+            if ($this->deviceLocationColumnsExist()) {
+                $devicePayload['last_latitude'] = $latitude ?? $device->last_latitude;
+                $devicePayload['last_longitude'] = $longitude ?? $device->last_longitude;
+            }
+
+            try {
+                $device->forceFill($devicePayload)->save();
+            } catch (\Throwable $exception) {
+                Log::warning('Worker device heartbeat update failed', [
+                    'user_id' => $user->id,
+                    'company_id' => $user->company_id,
+                    'device_id' => $deviceId,
+                    'message' => $exception->getMessage(),
+                ]);
+            }
 
             if (!$device->isApproved()) {
                 return $this->blocked(
@@ -85,6 +113,17 @@ class OfficeAccessGuard
         }
 
         if ($setting->geo_enabled) {
+            if (
+                ($latitude === null || $longitude === null)
+                && $device
+                && $this->deviceLocationColumnsExist()
+                && $device->last_latitude !== null
+                && $device->last_longitude !== null
+            ) {
+                $latitude = $latitude ?? (float) $device->last_latitude;
+                $longitude = $longitude ?? (float) $device->last_longitude;
+            }
+
             if ($latitude === null || $longitude === null) {
                 return $this->blocked(
                     'Office location access is required. Please send latitude and longitude.',
@@ -130,19 +169,29 @@ class OfficeAccessGuard
 
     public function log(Request $request, ?User $user, array $decision): void
     {
-        WorkerAccessLog::create([
-            'company_id' => $user?->company_id,
-            'user_id' => $user?->id,
-            'device_id' => $decision['device_id'] ?? null,
-            'latitude' => $decision['latitude'] ?? null,
-            'longitude' => $decision['longitude'] ?? null,
-            'distance_meters' => isset($decision['distance_meters']) ? round((float) $decision['distance_meters'], 2) : null,
-            'status' => $decision['allowed'] ? 'allowed' : 'blocked',
-            'reason' => $decision['reason'],
-            'path' => '/' . ltrim($request->path(), '/'),
-            'ip_address' => $request->ip(),
-            'user_agent' => substr((string) $request->userAgent(), 0, 500),
-        ]);
+        try {
+            WorkerAccessLog::create([
+                'company_id' => $user?->company_id,
+                'user_id' => $user?->id,
+                'device_id' => $decision['device_id'] ?? null,
+                'latitude' => $decision['latitude'] ?? null,
+                'longitude' => $decision['longitude'] ?? null,
+                'distance_meters' => isset($decision['distance_meters']) ? round((float) $decision['distance_meters'], 2) : null,
+                'status' => $decision['allowed'] ? 'allowed' : 'blocked',
+                'reason' => $decision['reason'],
+                'path' => '/' . ltrim($request->path(), '/'),
+                'ip_address' => $request->ip(),
+                'user_agent' => substr((string) $request->userAgent(), 0, 500),
+            ]);
+        } catch (\Throwable $exception) {
+            Log::warning('Worker access log insert failed', [
+                'user_id' => $user?->id,
+                'company_id' => $user?->company_id,
+                'path' => '/' . ltrim($request->path(), '/'),
+                'reason' => $decision['reason'] ?? null,
+                'message' => $exception->getMessage(),
+            ]);
+        }
     }
 
     public function blockedResponse(array $decision)
@@ -151,6 +200,9 @@ class OfficeAccessGuard
             'success' => false,
             'message' => $decision['message'],
             'reason' => $decision['reason'],
+            'device_id' => $decision['device_id'] ?? null,
+            'device_status' => $decision['device_status'] ?? null,
+            'device_row_id' => $decision['device_row_id'] ?? null,
             'distance_meters' => $decision['distance_meters'] ?? null,
             'allowed_radius_meters' => $decision['allowed_radius_meters'] ?? null,
         ], 403);
@@ -158,12 +210,22 @@ class OfficeAccessGuard
 
     public function deviceId(Request $request): string
     {
-        return trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        return trim((string) (
+            $request->input('device_id')
+            ?: $request->input('deviceId')
+            ?: $request->header('X-Device-Id')
+            ?: $request->header('X-Device-ID')
+            ?: $request->header('Device-Id')
+            ?: $request->header('Device-ID')
+            ?: $request->header('DeviceId')
+        ));
     }
 
     public function coordinate(Request $request, string $inputKey, string $headerKey): ?float
     {
-        $value = $request->input($inputKey, $request->header($headerKey));
+        $value = $request->input($inputKey);
+        $value ??= $request->header($headerKey);
+        $value ??= $request->header(str_replace('_', '-', $inputKey));
 
         return is_numeric($value) ? (float) $value : null;
     }
@@ -210,6 +272,29 @@ class OfficeAccessGuard
         return filter_var(config('office_access.enforced', false), FILTER_VALIDATE_BOOLEAN);
     }
 
+    private function deviceLocationColumnsExist(): bool
+    {
+        static $exists = null;
+
+        if ($exists === null) {
+            $exists = Schema::hasColumn('worker_allowed_devices', 'last_latitude')
+                && Schema::hasColumn('worker_allowed_devices', 'last_longitude');
+        }
+
+        return $exists;
+    }
+
+    private function singleApprovedDeviceId(User $user): string
+    {
+        $deviceIds = WorkerAllowedDevice::where('company_id', $user->company_id)
+            ->where('user_id', $user->id)
+            ->where('status', WorkerAllowedDevice::STATUS_APPROVED)
+            ->limit(2)
+            ->pluck('device_id');
+
+        return $deviceIds->count() === 1 ? (string) $deviceIds->first() : '';
+    }
+
     private function isMobileAccessBlocked(User $user): bool
     {
         $rawValue = $user->getRawOriginal('mobile_access_allowed');
@@ -239,6 +324,8 @@ class OfficeAccessGuard
             'distance_meters' => isset($context['distance']) ? round((float) $context['distance'], 2) : null,
             'allowed_radius_meters' => $context['allowed_radius_meters'] ?? null,
             'device' => $context['device'] ?? null,
+            'device_status' => isset($context['device']) ? $context['device']->status : null,
+            'device_row_id' => isset($context['device']) ? $context['device']->id : null,
             'should_log' => $context['should_log'] ?? true,
         ];
     }

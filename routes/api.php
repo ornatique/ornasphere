@@ -1,6 +1,4 @@
 <?php
-
-
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\UserController;
@@ -55,14 +53,20 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/office-access/settings', [OfficeAccessController::class, 'settings']);
     Route::post('/office-access/settings', [OfficeAccessController::class, 'updateSettings']);
     Route::get('/office-access/devices', [OfficeAccessController::class, 'devices']);
+    Route::post('/office-access/devices/approve-by-device', [OfficeAccessController::class, 'approveDeviceByRequest']);
+    Route::post('/office-access/devices/reject-by-device', [OfficeAccessController::class, 'rejectDeviceByRequest']);
+    Route::post('/office-access/devices/inactive-by-device', [OfficeAccessController::class, 'inactiveDeviceByRequest']);
     Route::post('/office-access/devices/{device}/status', [OfficeAccessController::class, 'updateDeviceStatus']);
+    Route::post('/office-access/devices/{device}/approve', [OfficeAccessController::class, 'approveDevice']);
+    Route::post('/office-access/devices/{device}/reject', [OfficeAccessController::class, 'rejectDevice']);
+    Route::post('/office-access/devices/{device}/inactive', [OfficeAccessController::class, 'inactiveDevice']);
     Route::post('/office-access/emergency-override', [OfficeAccessController::class, 'setEmergencyOverride']);
 });
 
 
 
 
-Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
+Route::middleware(['auth:sanctum', 'company.active', 'worker.office.access'])->group(function () {
 
     Route::get('/notifications/summary', [NotificationApiController::class, 'summary']);
     Route::get('/notifications', [NotificationApiController::class, 'index']);
@@ -301,9 +305,15 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/item-sets/finalize', [ItemSetController::class, 'finalize']);
     Route::get('/item-sets/qr-list', [ItemSetController::class, 'listset_data']);
     Route::get('/item-sets/bulk-list', [ItemSetController::class, 'bulkListsetData']);
+    Route::get('/item-sets/{id}/image', [ItemSetController::class, 'showImage'])->whereNumber('id');
+    Route::post('/item-sets/{id}/image', [ItemSetController::class, 'uploadImage'])->whereNumber('id');
+    Route::delete('/item-sets/{id}/image', [ItemSetController::class, 'removeImage'])->whereNumber('id');
 
     Route::get('itemsets_list/', [ItemSetController::class, 'listset_data']);     // list + filter
     Route::get('itemsets_bulk_list/', [ItemSetController::class, 'bulkListsetData']); // bulk grouped list
+    Route::get('itemsets_image/{id}', [ItemSetController::class, 'showImage'])->whereNumber('id');
+    Route::post('itemsets_upload_image/{id}', [ItemSetController::class, 'uploadImage'])->whereNumber('id');
+    Route::delete('itemsets_delete_image/{id}', [ItemSetController::class, 'removeImage'])->whereNumber('id');
     Route::get('itemsets_show/{id}', [ItemSetController::class, 'show']);  // edit data
     Route::post('itemsets_update/{id}', [ItemSetController::class, 'update']); // update
     Route::delete('itemsets_delete/{id}', [ItemSetController::class, 'destroy']); // delete

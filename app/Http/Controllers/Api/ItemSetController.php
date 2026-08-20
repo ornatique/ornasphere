@@ -7,9 +7,101 @@ use App\Models\Item;
 use App\Models\ItemSet;
 use App\Models\LabelConfig;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class ItemSetController extends Controller
 {
+    private function itemImageDisk(): string
+    {
+        return (string) config('filesystems.item_image_disk', 'public');
+    }
+
+    private function itemImageUrl(?ItemSet $itemSet): ?string
+    {
+        if (!$itemSet || !$itemSet->image_path) {
+            return null;
+        }
+
+        return Storage::disk($itemSet->image_disk ?: $this->itemImageDisk())->url($itemSet->image_path);
+    }
+
+    private function itemSetImagePayload(ItemSet $itemSet): array
+    {
+        return [
+            'id' => (int) $itemSet->id,
+            'item_id' => (int) $itemSet->item_id,
+            'item_name' => optional($itemSet->item)->item_name,
+            'label_code' => $itemSet->qr_code,
+            'image_url' => $this->itemImageUrl($itemSet),
+            'image_path' => $itemSet->image_path,
+            'image_mime' => $itemSet->image_mime,
+            'image_size' => $itemSet->image_size,
+            'image_uploaded_at' => $itemSet->image_uploaded_at?->format('d-m-Y h:i A'),
+        ];
+    }
+
+    private function prepareMediumImage(string $sourcePath, string $originalMime): array
+    {
+        if (!function_exists('imagecreatefromstring')) {
+            return [
+                'path' => $sourcePath,
+                'mime' => $originalMime,
+                'extension' => match ($originalMime) {
+                    'image/png' => 'png',
+                    'image/webp' => 'webp',
+                    default => 'jpg',
+                },
+                'cleanup' => false,
+            ];
+        }
+
+        $contents = file_get_contents($sourcePath);
+        $image = $contents ? @imagecreatefromstring($contents) : false;
+
+        if (!$image) {
+            return [
+                'path' => $sourcePath,
+                'mime' => $originalMime,
+                'extension' => 'jpg',
+                'cleanup' => false,
+            ];
+        }
+
+        $width = imagesx($image);
+        $height = imagesy($image);
+        $maxSide = 1200;
+        $ratio = min(1, $maxSide / max($width, $height));
+        $targetWidth = max(1, (int) round($width * $ratio));
+        $targetHeight = max(1, (int) round($height * $ratio));
+
+        $canvas = imagecreatetruecolor($targetWidth, $targetHeight);
+        $white = imagecolorallocate($canvas, 255, 255, 255);
+        imagefilledrectangle($canvas, 0, 0, $targetWidth, $targetHeight, $white);
+        imagecopyresampled($canvas, $image, 0, 0, 0, 0, $targetWidth, $targetHeight, $width, $height);
+
+        $tempPath = tempnam(sys_get_temp_dir(), 'item-image-');
+        $mime = 'image/jpeg';
+        $extension = 'jpg';
+
+        if (function_exists('imagewebp') && imagewebp($canvas, $tempPath, 82)) {
+            $mime = 'image/webp';
+            $extension = 'webp';
+        } else {
+            imagejpeg($canvas, $tempPath, 84);
+        }
+
+        imagedestroy($image);
+        imagedestroy($canvas);
+
+        return [
+            'path' => $tempPath,
+            'mime' => $mime,
+            'extension' => $extension,
+            'cleanup' => true,
+        ];
+    }
+
     private function configuredItemsQuery(int $companyId)
     {
         return Item::where('company_id', $companyId)
@@ -383,6 +475,8 @@ public function bulkSave(Request $request)
             $row->print_date_time = $row->printed_at
                 ? \Carbon\Carbon::parse($row->printed_at)->format('d-m-Y h:i A')
                 : null;
+            $row->image_url = $this->itemImageUrl($row);
+            $row->image_uploaded_at_formatted = $row->image_uploaded_at?->format('d-m-Y h:i A');
             return $row;
         });
 
@@ -473,7 +567,106 @@ public function bulkSave(Request $request)
 
         return response()->json([
             'status' => true,
-            'data' => $item
+            'data' => array_merge($item->toArray(), [
+                'image_url' => $this->itemImageUrl($item),
+                'image_uploaded_at_formatted' => $item->image_uploaded_at?->format('d-m-Y h:i A'),
+            ])
+        ]);
+    }
+
+    public function showImage(Request $request, $id)
+    {
+        $companyId = $request->user()->company_id;
+
+        $itemSet = ItemSet::with('item')
+            ->where('company_id', $companyId)
+            ->findOrFail($id);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Item set image details fetched successfully.',
+            'data' => $this->itemSetImagePayload($itemSet),
+        ]);
+    }
+
+    public function uploadImage(Request $request, $id)
+    {
+        $companyId = $request->user()->company_id;
+
+        $itemSet = ItemSet::with('item')
+            ->where('company_id', $companyId)
+            ->findOrFail($id);
+
+        $validated = $request->validate([
+            'image' => 'required|image|mimes:jpg,jpeg,png,webp|max:20480',
+        ]);
+
+        $file = $validated['image'];
+        $disk = $this->itemImageDisk();
+        $prepared = $this->prepareMediumImage($file->getRealPath(), $file->getMimeType() ?: 'image/jpeg');
+        $path = sprintf(
+            'item-images/company-%d/%s.%s',
+            $itemSet->company_id,
+            (string) Str::uuid(),
+            $prepared['extension']
+        );
+
+        $stream = fopen($prepared['path'], 'r');
+        Storage::disk($disk)->put($path, $stream, [
+            'ContentType' => $prepared['mime'],
+        ]);
+
+        if (is_resource($stream)) {
+            fclose($stream);
+        }
+
+        if (!empty($prepared['cleanup'])) {
+            @unlink($prepared['path']);
+        }
+
+        if ($itemSet->image_path) {
+            Storage::disk($itemSet->image_disk ?: $disk)->delete($itemSet->image_path);
+        }
+
+        $itemSet->update([
+            'image_disk' => $disk,
+            'image_path' => $path,
+            'image_mime' => $prepared['mime'],
+            'image_size' => Storage::disk($disk)->size($path),
+            'image_uploaded_at' => now(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Item set image uploaded successfully.',
+            'data' => $this->itemSetImagePayload($itemSet->fresh('item')),
+        ]);
+    }
+
+    public function removeImage(Request $request, $id)
+    {
+        $companyId = $request->user()->company_id;
+
+        $itemSet = ItemSet::with('item')
+            ->where('company_id', $companyId)
+            ->findOrFail($id);
+
+        if ($itemSet->image_path) {
+            Storage::disk($itemSet->image_disk ?: $this->itemImageDisk())->delete($itemSet->image_path);
+        }
+
+        $itemSet->update([
+            'image_disk' => null,
+            'image_path' => null,
+            'image_mime' => null,
+            'image_size' => null,
+            'image_uploaded_at' => null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Item set image removed successfully.',
+            'data' => $this->itemSetImagePayload($itemSet->fresh('item')),
         ]);
     }
 

@@ -41,6 +41,7 @@
                     <tr>
                         <th>#</th>
                         <th>Item</th>
+                        <th>Stock Type</th>
                         <th>Party</th>
                         <th>Qty Pcs</th>
                         <th>Gross Wt</th>
@@ -72,6 +73,7 @@ $(function () {
         columns: [
             { data: 'DT_RowIndex', orderable: false, searchable: false },
             { data: 'item_name', name: 'item_name' },
+            { data: 'stock_type_name', name: 'stock_type_name' },
             { data: 'customer_name', name: 'customer_name' },
             { data: 'qty_pcs', orderable: false, searchable: false },
             { data: 'gross_weight', orderable: false, searchable: false },

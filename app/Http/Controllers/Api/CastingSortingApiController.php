@@ -115,6 +115,7 @@ class CastingSortingApiController extends Controller
                 'integer',
                 Rule::exists('items', 'id')->where(fn($q) => $q->where('company_id', $companyId)),
             ],
+            'rows.*.stock_type' => ['nullable', Rule::in(['raw_material', 'finished_item', 'scrap', 'repair'])],
             'rows.*.weight' => ['nullable', 'numeric', 'min:0'],
             'rows.*.quantity' => ['nullable', 'integer', 'min:0'],
             'items' => ['nullable', 'array'],
@@ -123,6 +124,7 @@ class CastingSortingApiController extends Controller
                 'integer',
                 Rule::exists('items', 'id')->where(fn($q) => $q->where('company_id', $companyId)),
             ],
+            'items.*.stock_type' => ['nullable', Rule::in(['raw_material', 'finished_item', 'scrap', 'repair'])],
             'items.*.weight' => ['nullable', 'numeric', 'min:0'],
             'items.*.quantity' => ['nullable', 'integer', 'min:0'],
         ]);
@@ -151,6 +153,7 @@ class CastingSortingApiController extends Controller
                     'company_id' => $companyId,
                     'vacuum_voucher_id' => $voucher->id,
                     'item_id' => (int) $itemId,
+                    'stock_type' => $this->normalizeStockType($row['stock_type'] ?? null),
                     'weight' => $weight !== null && $weight !== '' ? (float) $weight : null,
                     'quantity' => $quantity !== null && $quantity !== '' ? (int) $quantity : null,
                     'sorted_by' => (int) $request->user()->id,
@@ -293,6 +296,8 @@ class CastingSortingApiController extends Controller
                 'item_id' => (int) $sortingItem->item_id,
                 'item_name' => $sortingItem->item?->item_name,
                 'item_code' => $sortingItem->item?->item_code,
+                'stock_type' => $sortingItem->stock_type ?: 'raw_material',
+                'stock_type_name' => $this->stockTypeName($sortingItem->stock_type),
                 'weight' => $sortingItem->weight !== null ? $this->decimalValue($sortingItem->weight, 3) : null,
                 'quantity' => $sortingItem->quantity !== null ? (int) $sortingItem->quantity : null,
                 'sorted_by' => $sortingItem->sorted_by ? (int) $sortingItem->sorted_by : null,
@@ -347,6 +352,8 @@ class CastingSortingApiController extends Controller
             'item_id' => null,
             'item_name' => null,
             'item_code' => null,
+            'stock_type' => 'raw_material',
+            'stock_type_name' => 'Raw Material',
             'weight' => null,
             'quantity' => null,
             'sorted_by' => null,
@@ -367,5 +374,24 @@ class CastingSortingApiController extends Controller
     private function decimalValue($value, int $precision): string
     {
         return number_format((float) ($value ?? 0), $precision, '.', '');
+    }
+
+    private function normalizeStockType(?string $stockType): string
+    {
+        $stockType = trim((string) $stockType);
+
+        return in_array($stockType, ['raw_material', 'finished_item', 'scrap', 'repair'], true)
+            ? $stockType
+            : 'raw_material';
+    }
+
+    private function stockTypeName(?string $stockType): string
+    {
+        return match ($stockType) {
+            'finished_item' => 'Finished Item',
+            'scrap' => 'Scrap',
+            'repair' => 'Repair',
+            default => 'Raw Material',
+        };
     }
 }

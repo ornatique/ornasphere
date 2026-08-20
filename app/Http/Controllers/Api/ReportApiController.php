@@ -125,6 +125,8 @@ class ReportApiController extends Controller
                 return [
                     'item_id' => (int) $row->item_id,
                     'item_name' => $row->item_name,
+                    'stock_type' => $row->stock_type,
+                    'stock_type_name' => $row->stock_type_name,
                     'customer_id' => $row->customer_id ? (int) $row->customer_id : null,
                     'customer_name' => $row->customer_name ?? '-',
                     'qty_pcs' => (int) ($row->qty_pcs ?? 0),
@@ -153,10 +155,11 @@ class ReportApiController extends Controller
 
         return response()->streamDownload(function () use ($rows) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Item', 'Party', 'Qty Pcs', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Labour Amt', 'Other Amt']);
+            fputcsv($out, ['Item', 'Stock Type', 'Party', 'Qty Pcs', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Labour Amt', 'Other Amt']);
             foreach ($rows as $r) {
                 fputcsv($out, [
                     $r->item_name,
+                    $r->stock_type_name,
                     $r->customer_name,
                     (int) ($r->qty_pcs ?? 0),
                     number_format((float) ($r->gross_weight ?? 0), 3, '.', ''),
@@ -1172,6 +1175,8 @@ class ReportApiController extends Controller
             ->select([
                 'item_sets.item_id',
                 'items.item_name',
+                DB::raw("'finished_item' as stock_type"),
+                DB::raw("'Finished Item' as stock_type_name"),
                 DB::raw('NULL as customer_id'),
                 DB::raw("'-' as customer_name"),
                 DB::raw('COUNT(item_sets.id) as qty_pcs'),
@@ -1198,6 +1203,8 @@ class ReportApiController extends Controller
             ->select([
                 DB::raw('COALESCE(cavi.product_id, 0) as item_id'),
                 DB::raw("COALESCE(items.item_name, cavi.item_name, 'Unknown Item') as item_name"),
+                DB::raw("'customer_received' as stock_type"),
+                DB::raw("'Customer Received' as stock_type_name"),
                 'cav.customer_id',
                 DB::raw('customers.name as customer_name'),
                 DB::raw('COUNT(cavi.id) as qty_pcs'),
@@ -1210,11 +1217,44 @@ class ReportApiController extends Controller
             ])
             ->groupBy('cavi.product_id', 'items.item_name', 'cavi.item_name', 'cav.customer_id', 'customers.name');
 
+        $castingSortingStock = DB::table('casting_sorting_items as csi')
+            ->join('items', 'items.id', '=', 'csi.item_id')
+            ->where('csi.company_id', $companyId)
+            ->when($request->filled('item_id'), function ($q) use ($request) {
+                $q->where('csi.item_id', (int) $request->item_id);
+            })
+            ->when($request->filled('customer_id'), function ($q) {
+                $q->whereRaw('1 = 0');
+            })
+            ->select([
+                'csi.item_id',
+                'items.item_name',
+                DB::raw("COALESCE(csi.stock_type, 'raw_material') as stock_type"),
+                DB::raw("CASE COALESCE(csi.stock_type, 'raw_material')
+                    WHEN 'finished_item' THEN 'Finished Item'
+                    WHEN 'scrap' THEN 'Scrap'
+                    WHEN 'repair' THEN 'Repair'
+                    ELSE 'Raw Material'
+                END as stock_type_name"),
+                DB::raw('NULL as customer_id'),
+                DB::raw("'-' as customer_name"),
+                DB::raw('SUM(COALESCE(csi.quantity,0)) as qty_pcs'),
+                DB::raw('SUM(COALESCE(csi.weight,0)) as gross_weight'),
+                DB::raw('SUM(COALESCE(csi.weight,0)) as net_weight'),
+                DB::raw('SUM(COALESCE(csi.weight,0)) as fine_weight'),
+                DB::raw('0 as labour_amount'),
+                DB::raw('0 as other_amount'),
+                DB::raw('MAX(csi.created_at) as created_at'),
+            ])
+            ->groupBy('csi.item_id', 'items.item_name', 'csi.stock_type');
+
         return DB::query()
-            ->fromSub($labelStock->unionAll($customerReceivedStock), 'stock_rows')
+            ->fromSub($labelStock->unionAll($customerReceivedStock)->unionAll($castingSortingStock), 'stock_rows')
             ->select([
                 'stock_rows.item_id',
                 'stock_rows.item_name',
+                'stock_rows.stock_type',
+                'stock_rows.stock_type_name',
                 'stock_rows.customer_id',
                 'stock_rows.customer_name',
                 DB::raw('SUM(stock_rows.qty_pcs) as qty_pcs'),
@@ -1225,7 +1265,7 @@ class ReportApiController extends Controller
                 DB::raw('SUM(stock_rows.other_amount) as other_amount'),
                 DB::raw('MAX(stock_rows.created_at) as created_at'),
             ])
-            ->groupBy('stock_rows.item_id', 'stock_rows.item_name', 'stock_rows.customer_id', 'stock_rows.customer_name');
+            ->groupBy('stock_rows.item_id', 'stock_rows.item_name', 'stock_rows.stock_type', 'stock_rows.stock_type_name', 'stock_rows.customer_id', 'stock_rows.customer_name');
     }
 
     private function approvalOutstandingBaseQuery(Request $request, int $companyId)

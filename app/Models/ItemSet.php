@@ -8,6 +8,7 @@ class ItemSet extends Model
 {
     protected $casts = [
         'printed_at' => 'datetime',
+        'image_uploaded_at' => 'datetime',
     ];
 
     protected $fillable = [
@@ -34,7 +35,12 @@ class ItemSet extends Model
         'serial_no',
         'is_printed',
         'is_sold',
-        'printed_at'
+        'printed_at',
+        'image_disk',
+        'image_path',
+        'image_mime',
+        'image_size',
+        'image_uploaded_at',
 
 
     ];

@@ -8,7 +8,9 @@ use Illuminate\Support\Facades\Hash;
 use App\Models\Permission;
 use App\Models\User;
 use App\Models\WorkerAllowedDevice;
+use App\Models\WorkerAccessLog;
 use App\Services\OfficeAccessGuard;
+use Illuminate\Support\Facades\Schema;
 use PragmaRX\Google2FA\Google2FA;
 
 class AuthController extends Controller
@@ -92,6 +94,8 @@ class AuthController extends Controller
             'device_name' => 'nullable|string|max:255',
             'platform' => 'nullable|string|max:100',
             'app_version' => 'nullable|string|max:100',
+            'latitude' => 'nullable|numeric|between:-90,90',
+            'longitude' => 'nullable|numeric|between:-180,180',
         ]);
 
         $user = User::find($request->user_id);
@@ -112,7 +116,10 @@ class AuthController extends Controller
         }
 
         $device = null;
-        $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        $deviceId = $officeAccessGuard->deviceId($request);
+        $latitude = $officeAccessGuard->coordinate($request, 'latitude', 'X-Latitude');
+        $longitude = $officeAccessGuard->coordinate($request, 'longitude', 'X-Longitude');
+
         if ($deviceId !== '' && $user->company_id) {
             $device = WorkerAllowedDevice::firstOrCreate(
                 [
@@ -123,13 +130,37 @@ class AuthController extends Controller
                 ['status' => WorkerAllowedDevice::STATUS_PENDING]
             );
 
-            $device->forceFill([
+            $devicePayload = [
                 'device_name' => $request->input('device_name') ?: $request->header('X-Device-Name') ?: $device->device_name,
                 'platform' => $request->input('platform') ?: $request->header('X-Platform') ?: $device->platform,
                 'app_version' => $request->input('app_version') ?: $request->header('X-App-Version') ?: $device->app_version,
                 'last_seen_at' => now(),
-            ])->save();
+            ];
+
+            $deviceLocationColumnsExist = Schema::hasColumn('worker_allowed_devices', 'last_latitude')
+                && Schema::hasColumn('worker_allowed_devices', 'last_longitude');
+
+            if ($deviceLocationColumnsExist) {
+                $devicePayload['last_latitude'] = $latitude ?? $device->last_latitude;
+                $devicePayload['last_longitude'] = $longitude ?? $device->last_longitude;
+            }
+
+            $device->forceFill($devicePayload)->save();
         }
+
+        WorkerAccessLog::create([
+            'company_id' => $user->company_id,
+            'user_id' => $user->id,
+            'device_id' => $deviceId !== '' ? $deviceId : null,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'distance_meters' => null,
+            'status' => 'allowed',
+            'reason' => 'otp_verified',
+            'path' => '/' . ltrim($request->path(), '/'),
+            'ip_address' => $request->ip(),
+            'user_agent' => substr((string) $request->userAgent(), 0, 500),
+        ]);
 
         $token = $user->createToken('api-token')->plainTextToken;
 
@@ -141,6 +172,8 @@ class AuthController extends Controller
                 'device_id' => $device->device_id,
                 'status' => $device->status,
                 'is_approved' => $device->isApproved(),
+                'last_latitude' => $deviceLocationColumnsExist ? $device->last_latitude : null,
+                'last_longitude' => $deviceLocationColumnsExist ? $device->last_longitude : null,
             ] : null,
             'mobile_access_allowed' => $officeAccessGuard->isMobileAccessAllowed($user),
             'office_access' => [

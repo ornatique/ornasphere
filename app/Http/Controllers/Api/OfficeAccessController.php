@@ -97,6 +97,36 @@ class OfficeAccessController extends Controller
         ]);
     }
 
+    public function approveDevice(Request $request, WorkerAllowedDevice $device)
+    {
+        return $this->setDeviceStatus($request, $device, WorkerAllowedDevice::STATUS_APPROVED);
+    }
+
+    public function rejectDevice(Request $request, WorkerAllowedDevice $device)
+    {
+        return $this->setDeviceStatus($request, $device, WorkerAllowedDevice::STATUS_REJECTED);
+    }
+
+    public function inactiveDevice(Request $request, WorkerAllowedDevice $device)
+    {
+        return $this->setDeviceStatus($request, $device, WorkerAllowedDevice::STATUS_INACTIVE);
+    }
+
+    public function approveDeviceByRequest(Request $request)
+    {
+        return $this->setDeviceStatusByRequest($request, WorkerAllowedDevice::STATUS_APPROVED);
+    }
+
+    public function rejectDeviceByRequest(Request $request)
+    {
+        return $this->setDeviceStatusByRequest($request, WorkerAllowedDevice::STATUS_REJECTED);
+    }
+
+    public function inactiveDeviceByRequest(Request $request)
+    {
+        return $this->setDeviceStatusByRequest($request, WorkerAllowedDevice::STATUS_INACTIVE);
+    }
+
     public function setEmergencyOverride(Request $request)
     {
         $this->authorizeCompanyAdmin($request);
@@ -201,6 +231,60 @@ class OfficeAccessController extends Controller
                 'allowed_radius_meters' => 100,
             ]
         );
+    }
+
+    private function setDeviceStatus(Request $request, WorkerAllowedDevice $device, string $status)
+    {
+        $this->authorizeCompanyAdmin($request);
+
+        if ((int) $device->company_id !== (int) $request->user()->company_id) {
+            abort(404);
+        }
+
+        $payload = ['status' => $status];
+
+        if ($status === WorkerAllowedDevice::STATUS_APPROVED) {
+            $payload['approved_at'] = now();
+            $payload['approved_by'] = $request->user()->id;
+        }
+
+        if ($status !== WorkerAllowedDevice::STATUS_APPROVED) {
+            $payload['approved_at'] = null;
+            $payload['approved_by'] = null;
+        }
+
+        $device->forceFill($payload)->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Device status updated successfully.',
+            'data' => $device->fresh(['user:id,name,email,role', 'approvedBy:id,name']),
+        ]);
+    }
+
+    private function setDeviceStatusByRequest(Request $request, string $status)
+    {
+        $this->authorizeCompanyAdmin($request);
+
+        $validated = $request->validate([
+            'user_id' => 'required|integer',
+            'device_id' => 'required|string|max:191',
+        ]);
+
+        $device = WorkerAllowedDevice::where('company_id', $request->user()->company_id)
+            ->where('user_id', (int) $validated['user_id'])
+            ->where('device_id', $validated['device_id'])
+            ->first();
+
+        if (!$device) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Device not found for this company/user/device_id.',
+                'code' => 'DEVICE_NOT_FOUND',
+            ], 404);
+        }
+
+        return $this->setDeviceStatus($request, $device, $status);
     }
 
     private function authorizeCompanyAdmin(Request $request): void

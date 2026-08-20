@@ -36,7 +36,8 @@
                         <thead>
                             <tr>
                                 <th style="width: 80px;">Sr. No</th>
-                                <th style="width: 420px;">Item Selected</th>
+                                <th style="width: 360px;">Item Selected</th>
+                                <th style="width: 220px;">Stock Type</th>
                                 <th style="width: 260px;">Weight</th>
                                 <th style="width: 220px;">Quantity</th>
                                 <th style="width: 120px;">Action</th>
@@ -48,32 +49,52 @@
                                 if ($rows === null) {
                                     $rows = $sortingItems->map(fn($row) => [
                                         'item_id' => $row->item_id,
+                                        'stock_type' => $row->stock_type ?: 'raw_material',
                                         'weight' => $row->weight,
                                         'quantity' => $row->quantity,
                                     ])->values()->all();
                                 }
                                 while (count($rows) < 10) {
-                                    $rows[] = ['item_id' => '', 'weight' => '', 'quantity' => ''];
+                                    $rows[] = ['item_id' => '', 'stock_type' => 'raw_material', 'weight' => '', 'quantity' => ''];
                                 }
                                 $lastSortingRow = $rows[count($rows) - 1] ?? [];
                                 $lastSortingRowHasData = !empty($lastSortingRow['item_id'] ?? '')
                                     || !empty($lastSortingRow['weight'] ?? '')
                                     || !empty($lastSortingRow['quantity'] ?? '');
                                 if (count($rows) >= 10 && $lastSortingRowHasData) {
-                                    $rows[] = ['item_id' => '', 'weight' => '', 'quantity' => ''];
+                                    $rows[] = ['item_id' => '', 'stock_type' => 'raw_material', 'weight' => '', 'quantity' => ''];
                                 }
                             @endphp
                             @foreach($rows as $index => $row)
+                            @php
+                                $selectedItem = $items->firstWhere('id', (int) ($row['item_id'] ?? 0));
+                                $selectedItemName = $selectedItem
+                                    ? $selectedItem->item_name . ($selectedItem->item_code ? ' - ' . $selectedItem->item_code : '')
+                                    : '';
+                            @endphp
                             <tr data-sorting-row>
                                 <td data-row-no>{{ $loop->iteration }}</td>
                                 <td>
-                                    <select name="rows[{{ $index }}][item_id]" class="form-control sorting-item-select">
-                                        <option value="">Select Item</option>
-                                        @foreach($items as $item)
-                                        <option value="{{ $item->id }}" @selected((string) ($row['item_id'] ?? '') === (string) $item->id)>
-                                            {{ $item->item_name }}{{ $item->item_code ? ' - ' . $item->item_code : '' }}
-                                        </option>
-                                        @endforeach
+                                    <div class="sorting-search-select" data-sorting-search-select>
+                                        <input type="hidden"
+                                            name="rows[{{ $index }}][item_id]"
+                                            value="{{ $row['item_id'] ?? '' }}"
+                                            data-sorting-item-value>
+                                        <input type="text"
+                                            class="form-control sorting-item-search"
+                                            value="{{ $selectedItemName }}"
+                                            placeholder="Search / Select Item"
+                                            autocomplete="off"
+                                            data-sorting-item-search>
+                                        <div class="sorting-options" data-sorting-options></div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <select name="rows[{{ $index }}][stock_type]" class="form-control" data-stock-type>
+                                        <option value="raw_material" @selected(($row['stock_type'] ?? 'raw_material') === 'raw_material')>Raw Material</option>
+                                        <option value="finished_item" @selected(($row['stock_type'] ?? '') === 'finished_item')>Finished Item</option>
+                                        <option value="scrap" @selected(($row['stock_type'] ?? '') === 'scrap')>Scrap</option>
+                                        <option value="repair" @selected(($row['stock_type'] ?? '') === 'repair')>Repair</option>
                                     </select>
                                 </td>
                                 <td>
@@ -104,7 +125,7 @@
                         </tbody>
                         <tfoot>
                             <tr>
-                                <th colspan="2">Total</th>
+                                <th colspan="3">Total</th>
                                 <th><span id="sorting-weight-total">0.000</span></th>
                                 <th><span id="sorting-quantity-total">0</span></th>
                                 <th></th>
@@ -136,18 +157,32 @@
     .casting-sorting-table thead th { position: sticky; top: 0; z-index: 2; background: #25263a; }
     .casting-sorting-table tfoot th { position: sticky; bottom: 0; z-index: 2; background: #25263a; }
     .casting-sorting-table th, .casting-sorting-table td { padding: 0.65rem 0.8rem; vertical-align: middle; }
-    .sorting-item-select { width: 380px; max-width: 100%; background: #fff; color: #1f2937; }
+    .sorting-search-select { position: relative; width: 380px; max-width: 100%; }
+    .sorting-item-search { width: 100%; background: #302d55; color: #fff; border-color: rgba(142, 162, 255, 0.45); }
+    .sorting-item-search:focus { background: #302d55; color: #fff; border-color: #8ea2ff; box-shadow: none; }
+    .sorting-options { display: none; position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 1055; max-height: 400px; overflow-y: auto; background: #302d55; border: 1px solid #8ea2ff; box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28); }
+    .sorting-options.is-open { display: block; }
+    .sorting-option { padding: 8px 12px; color: #fff; cursor: pointer; line-height: 1.25; }
+    .sorting-option:hover, .sorting-option.is-active { background: #2d6cdf; color: #fff; }
+    .sorting-option-muted { padding: 8px 12px; color: #d8d8ef; font-weight: 600; }
     @media (max-width: 991px) { .casting-sorting-summary { grid-template-columns: repeat(2, minmax(150px, 1fr)); } }
     @media (max-width: 575px) { .casting-sorting-summary { grid-template-columns: 1fr; } }
 </style>
 @endpush
 
 @push('scripts')
+@php
+    $sortingItemOptions = $items->map(function ($item) {
+        return [
+            'id' => $item->id,
+            'name' => $item->item_name . ($item->item_code ? ' - ' . $item->item_code : ''),
+            'item_name' => $item->item_name,
+            'item_code' => $item->item_code,
+        ];
+    })->values();
+@endphp
 <script>
-    const sortingItems = @json($items->map(fn($item) => [
-        'id' => $item->id,
-        'name' => $item->item_name . ($item->item_code ? ' - ' . $item->item_code : ''),
-    ])->values());
+    const sortingItems = @json($sortingItemOptions);
     let sortingRowIndex = {{ count($rows) }};
 
     function escapeHtml(value) {
@@ -156,10 +191,14 @@
         return span.innerHTML;
     }
 
-    function sortingItemOptions() {
-        return '<option value="">Select Item</option>' + sortingItems.map((item) => {
-            return `<option value="${item.id}">${escapeHtml(item.name)}</option>`;
-        }).join('');
+    function buildSortingSearchSelect(index) {
+        return `
+            <div class="sorting-search-select" data-sorting-search-select>
+                <input type="hidden" name="rows[${index}][item_id]" value="" data-sorting-item-value>
+                <input type="text" class="form-control sorting-item-search" value="" placeholder="Search / Select Item" autocomplete="off" data-sorting-item-search>
+                <div class="sorting-options" data-sorting-options></div>
+            </div>
+        `;
     }
 
     function buildSortingRow(index) {
@@ -168,8 +207,14 @@
         row.innerHTML = `
             <td data-row-no></td>
             <td>
-                <select name="rows[${index}][item_id]" class="form-control sorting-item-select" data-sorting-item>
-                    ${sortingItemOptions()}
+                ${buildSortingSearchSelect(index)}
+            </td>
+            <td>
+                <select name="rows[${index}][stock_type]" class="form-control" data-stock-type>
+                    <option value="raw_material" selected>Raw Material</option>
+                    <option value="finished_item">Finished Item</option>
+                    <option value="scrap">Scrap</option>
+                    <option value="repair">Repair</option>
                 </select>
             </td>
             <td>
@@ -186,7 +231,47 @@
     }
 
     function rowHasSortingData(row) {
-        return Array.from(row.querySelectorAll('input, select')).some((input) => input.value !== '');
+        return Array.from(row.querySelectorAll('input, select'))
+            .filter((input) => !input.matches('[data-stock-type], [data-sorting-item-search]'))
+            .some((input) => input.value !== '');
+    }
+
+    function closeSortingDropdowns(exceptWrapper = null) {
+        document.querySelectorAll('[data-sorting-search-select]').forEach((wrapper) => {
+            if (wrapper !== exceptWrapper) {
+                wrapper.querySelector('[data-sorting-options]')?.classList.remove('is-open');
+            }
+        });
+    }
+
+    function renderSortingOptions(wrapper, keyword = '') {
+        const optionsBox = wrapper.querySelector('[data-sorting-options]');
+        const hiddenInput = wrapper.querySelector('[data-sorting-item-value]');
+        const search = keyword.trim().toLowerCase();
+        const selectedId = hiddenInput.value;
+        const matches = sortingItems
+            .filter((item) => {
+                if (!search) {
+                    return true;
+                }
+
+                return [item.name, item.item_name, item.item_code]
+                    .filter(Boolean)
+                    .some((value) => String(value).toLowerCase().includes(search));
+            })
+            .slice(0, 80);
+
+        if (matches.length === 0) {
+            optionsBox.innerHTML = '<div class="sorting-option-muted">No item found</div>';
+        } else {
+            optionsBox.innerHTML = matches.map((item) => {
+                const activeClass = String(item.id) === String(selectedId) ? ' is-active' : '';
+                return `<div class="sorting-option${activeClass}" data-sorting-option data-id="${item.id}" data-name="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>`;
+            }).join('');
+        }
+
+        closeSortingDropdowns(wrapper);
+        optionsBox.classList.add('is-open');
     }
 
     function ensureBlankLastSortingRow() {
@@ -229,6 +314,8 @@
         const rows = document.querySelectorAll('#casting-sorting-rows [data-sorting-row]');
         if (rows.length <= 1) {
             event.target.closest('[data-sorting-row]').querySelectorAll('input, select').forEach((input) => input.value = '');
+            event.target.closest('[data-sorting-row]').querySelectorAll('[data-stock-type]').forEach((input) => input.value = 'raw_material');
+            event.target.closest('[data-sorting-row]').querySelectorAll('[data-sorting-options]').forEach((box) => box.classList.remove('is-open'));
         } else {
             event.target.closest('[data-sorting-row]').remove();
         }
@@ -237,16 +324,40 @@
     });
 
     document.addEventListener('input', function (event) {
+        if (event.target.matches('[data-sorting-item-search]')) {
+            const wrapper = event.target.closest('[data-sorting-search-select]');
+            wrapper.querySelector('[data-sorting-item-value]').value = '';
+            renderSortingOptions(wrapper, event.target.value);
+            refreshSortingRows();
+            return;
+        }
+
         if (event.target.matches('[data-sorting-weight], [data-sorting-quantity]')) {
             ensureBlankLastSortingRow();
             refreshSortingRows();
         }
     });
 
-    document.addEventListener('change', function (event) {
-        if (event.target.matches('.sorting-item-select')) {
+    document.addEventListener('focusin', function (event) {
+        if (event.target.matches('[data-sorting-item-search]')) {
+            renderSortingOptions(event.target.closest('[data-sorting-search-select]'), event.target.value);
+        }
+    });
+
+    document.addEventListener('click', function (event) {
+        const option = event.target.closest('[data-sorting-option]');
+        if (option) {
+            const wrapper = option.closest('[data-sorting-search-select]');
+            wrapper.querySelector('[data-sorting-item-value]').value = option.dataset.id;
+            wrapper.querySelector('[data-sorting-item-search]').value = option.dataset.name;
+            wrapper.querySelector('[data-sorting-options]').classList.remove('is-open');
             ensureBlankLastSortingRow();
             refreshSortingRows();
+            return;
+        }
+
+        if (!event.target.closest('[data-sorting-search-select]')) {
+            closeSortingDropdowns();
         }
     });
 

@@ -770,6 +770,15 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
         Route::post('/itemsets/{encryptedId}/update', [ItemSetController::class, 'update'])
             ->name('itemsets.update');
 
+        Route::get('/itemsets/{encryptedId}/image', [ItemSetController::class, 'showImage'])
+            ->name('itemsets.image.show');
+
+        Route::post('/itemsets/{encryptedId}/image', [ItemSetController::class, 'updateImage'])
+            ->name('itemsets.image.update');
+
+        Route::delete('/itemsets/{encryptedId}/image', [ItemSetController::class, 'removeImage'])
+            ->name('itemsets.image.remove');
+
         Route::delete('/itemsets/{encryptedId}', [ItemSetController::class, 'destroy'])
             ->name('itemsets.delete');
 

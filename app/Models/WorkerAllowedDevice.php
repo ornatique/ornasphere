@@ -22,11 +22,15 @@ class WorkerAllowedDevice extends Model
         'approved_at',
         'approved_by',
         'last_seen_at',
+        'last_latitude',
+        'last_longitude',
     ];
 
     protected $casts = [
         'approved_at' => 'datetime',
         'last_seen_at' => 'datetime',
+        'last_latitude' => 'decimal:7',
+        'last_longitude' => 'decimal:7',
     ];
 
     public function company()

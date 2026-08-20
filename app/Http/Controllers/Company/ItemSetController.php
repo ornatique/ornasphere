@@ -16,6 +16,8 @@ use Endroid\QrCode\Builder\Builder;
 use Yajra\DataTables\Facades\DataTables;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 
 
@@ -200,11 +202,21 @@ class ItemSetController extends Controller
                     $encryptedId = Crypt::encryptString((string) $row->id);
                     $editUrl = route('company.itemsets.edit', [$company->slug, $encryptedId]);
                     $deleteUrl = route('company.itemsets.delete', [$company->slug, $encryptedId]);
+                    $imageShowUrl = route('company.itemsets.image.show', [$company->slug, $encryptedId]);
+                    $imageUploadUrl = route('company.itemsets.image.update', [$company->slug, $encryptedId]);
+                    $imageRemoveUrl = route('company.itemsets.image.remove', [$company->slug, $encryptedId]);
+                    $imageLabel = $row->image_path ? 'View Image' : 'Upload Image';
 
                     return '
                         <button class="btn btn-sm btn-primary editBtn"
                             data-url="' . $editUrl . '">
                             Edit
+                        </button>
+                        <button class="btn btn-sm btn-info imageBtn"
+                            data-show-url="' . $imageShowUrl . '"
+                            data-upload-url="' . $imageUploadUrl . '"
+                            data-remove-url="' . $imageRemoveUrl . '">
+                            ' . $imageLabel . '
                         </button>
                         <button class="btn btn-sm btn-danger deleteBtn"
                             data-url="' . $deleteUrl . '">
@@ -824,10 +836,183 @@ class ItemSetController extends Controller
         return $pages;
     }
 
+    private function itemImageDisk(): string
+    {
+        return (string) config('filesystems.item_image_disk', 'public');
+    }
+
+    private function itemImageUrl(?ItemSet $item): ?string
+    {
+        if (!$item || !$item->image_path) {
+            return null;
+        }
+
+        return Storage::disk($item->image_disk ?: $this->itemImageDisk())->url($item->image_path);
+    }
+
+    private function findCompanyItemSet(string $slug, string $encryptedId): array
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $id = (int) Crypt::decryptString($encryptedId);
+
+        $item = ItemSet::with('item')
+            ->where('company_id', $company->id)
+            ->where('id', $id)
+            ->firstOrFail();
+
+        return [$company, $item];
+    }
+
+    private function prepareMediumImage(string $sourcePath, string $originalMime): array
+    {
+        if (!function_exists('imagecreatefromstring')) {
+            return [
+                'path' => $sourcePath,
+                'mime' => $originalMime,
+                'extension' => match ($originalMime) {
+                    'image/png' => 'png',
+                    'image/webp' => 'webp',
+                    default => 'jpg',
+                },
+                'cleanup' => false,
+            ];
+        }
+
+        $contents = file_get_contents($sourcePath);
+        $image = $contents ? @imagecreatefromstring($contents) : false;
+
+        if (!$image) {
+            return [
+                'path' => $sourcePath,
+                'mime' => $originalMime,
+                'extension' => 'jpg',
+                'cleanup' => false,
+            ];
+        }
+
+        $width = imagesx($image);
+        $height = imagesy($image);
+        $maxSide = 1200;
+        $ratio = min(1, $maxSide / max($width, $height));
+        $targetWidth = max(1, (int) round($width * $ratio));
+        $targetHeight = max(1, (int) round($height * $ratio));
+
+        $canvas = imagecreatetruecolor($targetWidth, $targetHeight);
+        $white = imagecolorallocate($canvas, 255, 255, 255);
+        imagefilledrectangle($canvas, 0, 0, $targetWidth, $targetHeight, $white);
+        imagecopyresampled($canvas, $image, 0, 0, 0, 0, $targetWidth, $targetHeight, $width, $height);
+
+        $tempPath = tempnam(sys_get_temp_dir(), 'item-image-');
+        $mime = 'image/jpeg';
+        $extension = 'jpg';
+
+        if (function_exists('imagewebp') && imagewebp($canvas, $tempPath, 82)) {
+            $mime = 'image/webp';
+            $extension = 'webp';
+        } else {
+            imagejpeg($canvas, $tempPath, 84);
+        }
+
+        imagedestroy($image);
+        imagedestroy($canvas);
+
+        return [
+            'path' => $tempPath,
+            'mime' => $mime,
+            'extension' => $extension,
+            'cleanup' => true,
+        ];
+    }
+
+    public function showImage($slug, $encryptedId)
+    {
+        [, $item] = $this->findCompanyItemSet($slug, $encryptedId);
+
+        return response()->json([
+            'success' => true,
+            'id' => $item->id,
+            'encrypted_id' => $encryptedId,
+            'item_name' => optional($item->item)->item_name ?? '-',
+            'label_code' => $item->qr_code,
+            'image_url' => $this->itemImageUrl($item),
+            'image_uploaded_at' => $item->image_uploaded_at?->format('d-m-Y h:i A'),
+            'image_size' => $item->image_size,
+            'image_mime' => $item->image_mime,
+        ]);
+    }
+
+    public function updateImage(Request $request, $slug, $encryptedId)
+    {
+        [, $item] = $this->findCompanyItemSet($slug, $encryptedId);
+
+        $validated = $request->validate([
+            'image' => 'required|image|mimes:jpg,jpeg,png,webp|max:20480',
+        ]);
+
+        $file = $validated['image'];
+        $disk = $this->itemImageDisk();
+        $prepared = $this->prepareMediumImage($file->getRealPath(), $file->getMimeType() ?: 'image/jpeg');
+        $path = sprintf(
+            'item-images/company-%d/%s.%s',
+            $item->company_id,
+            (string) Str::uuid(),
+            $prepared['extension']
+        );
+
+        $stream = fopen($prepared['path'], 'r');
+        Storage::disk($disk)->put($path, $stream, [
+            'ContentType' => $prepared['mime'],
+        ]);
+        if (is_resource($stream)) {
+            fclose($stream);
+        }
+
+        if (!empty($prepared['cleanup'])) {
+            @unlink($prepared['path']);
+        }
+
+        if ($item->image_path) {
+            Storage::disk($item->image_disk ?: $disk)->delete($item->image_path);
+        }
+
+        $item->update([
+            'image_disk' => $disk,
+            'image_path' => $path,
+            'image_mime' => $prepared['mime'],
+            'image_size' => Storage::disk($disk)->size($path),
+            'image_uploaded_at' => now(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Item image uploaded successfully.',
+            'image_url' => $this->itemImageUrl($item->fresh()),
+            'image_uploaded_at' => $item->fresh()->image_uploaded_at?->format('d-m-Y h:i A'),
+        ]);
+    }
+
+    public function removeImage($slug, $encryptedId)
+    {
+        [, $item] = $this->findCompanyItemSet($slug, $encryptedId);
+
+        if ($item->image_path) {
+            Storage::disk($item->image_disk ?: $this->itemImageDisk())->delete($item->image_path);
+        }
+
+        $item->update([
+            'image_disk' => null,
+            'image_path' => null,
+            'image_mime' => null,
+            'image_size' => null,
+            'image_uploaded_at' => null,
+        ]);
+
+        return response()->json(['success' => true]);
+    }
+
     public function edit($slug, $encryptedId)
     {
-        $id = (int) Crypt::decryptString($encryptedId);
-        $item = ItemSet::findOrFail($id);
+        [, $item] = $this->findCompanyItemSet($slug, $encryptedId);
 
         return response()->json([
             'id' => $item->id,
@@ -843,8 +1028,7 @@ class ItemSetController extends Controller
 
     public function update(Request $request, $slug, $encryptedId)
     {
-        $id = (int) Crypt::decryptString($encryptedId);
-        $item = ItemSet::findOrFail($id);
+        [, $item] = $this->findCompanyItemSet($slug, $encryptedId);
 
         $gross = (float) ($request->gross_weight ?? 0);
         $otherWeight = (float) ($request->other ?? 0);

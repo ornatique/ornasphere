@@ -46,9 +46,10 @@
         <thead>
             <tr>
                 <th style="width: 10%;">Sr. No</th>
-                <th style="width: 50%;">Item Selected</th>
-                <th class="num" style="width: 20%;">Weight</th>
-                <th class="num" style="width: 20%;">Quantity</th>
+                <th style="width: 42%;">Item Selected</th>
+                <th style="width: 18%;">Stock Type</th>
+                <th class="num" style="width: 15%;">Weight</th>
+                <th class="num" style="width: 15%;">Quantity</th>
             </tr>
         </thead>
         <tbody>
@@ -60,21 +61,28 @@
                 $quantityTotal += $quantity !== null ? (int) $quantity : 0;
                 $itemName = $sortingItem->item?->item_name ?? '-';
                 $itemCode = $sortingItem->item?->item_code;
+                $stockTypeName = match($sortingItem->stock_type) {
+                    'finished_item' => 'Finished Item',
+                    'scrap' => 'Scrap',
+                    'repair' => 'Repair',
+                    default => 'Raw Material',
+                };
             @endphp
             <tr>
                 <td>{{ $loop->iteration }}</td>
                 <td>{{ $itemName }}{{ $itemCode ? ' - ' . $itemCode : '' }}</td>
+                <td>{{ $stockTypeName }}</td>
                 <td class="num">{{ $weight !== null ? number_format((float) $weight, 3, '.', '') : '-' }}</td>
                 <td class="num">{{ $quantity !== null ? (int) $quantity : '-' }}</td>
             </tr>
             @empty
             <tr>
-                <td colspan="4" class="center">No casting sorting rows found</td>
+                <td colspan="5" class="center">No casting sorting rows found</td>
             </tr>
             @endforelse
             @if($sortingItems->isNotEmpty())
             <tr class="total-row">
-                <td colspan="2">Total</td>
+                <td colspan="3">Total</td>
                 <td class="num">{{ number_format($weightTotal, 3, '.', '') }}</td>
                 <td class="num">{{ $quantityTotal }}</td>
             </tr>

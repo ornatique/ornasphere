@@ -9,10 +9,12 @@ use Symfony\Component\HttpFoundation\Response;
 
 class CheckWorkerOfficeAccess
 {
-    public function handle(Request $request, Closure $next, OfficeAccessGuard $guard): Response
+    public function handle(Request $request, Closure $next): Response
     {
+        $guard = app(OfficeAccessGuard::class);
         $user = $request->user();
         $decision = $user ? $guard->evaluate($request, $user) : ['allowed' => true];
+        $request->attributes->set('office_access_decision', $decision);
 
         if (!$decision['allowed']) {
             if ($decision['should_log'] ?? true) {

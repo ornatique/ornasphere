@@ -153,6 +153,66 @@
         </div>
     </div>
 </div>
+
+<div class="modal fade" id="imageModal">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark text-white border-0">
+
+            <div class="modal-header border-bottom">
+                <h5 class="modal-title">Item Image</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+
+            <div class="modal-body">
+                <input type="hidden" id="image_show_url">
+                <input type="hidden" id="image_upload_url">
+                <input type="hidden" id="image_remove_url">
+
+                <div class="row">
+                    <div class="col-md-7 mb-3">
+                        <div class="item-image-preview-wrap">
+                            <img id="item_image_preview" class="item-image-preview" alt="Item image preview">
+                            <div id="item_image_empty" class="item-image-empty">No image uploaded</div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-5 mb-3">
+                        <div class="mb-3">
+                            <label>Item</label>
+                            <input type="text" id="image_item_name" class="form-control text-white border-0" readonly>
+                        </div>
+
+                        <div class="mb-3">
+                            <label>Label Code</label>
+                            <input type="text" id="image_label_code" class="form-control text-white border-0" readonly>
+                        </div>
+
+                        <div class="mb-3">
+                            <label>Upload Image</label>
+                            <input type="file" id="item_image_file" class="form-control text-white border-0" accept="image/jpeg,image/png,image/webp">
+                            <small class="text-muted d-block mt-1">JPG, PNG or WebP up to 20 MB. Stored as compressed WebP.</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label>Uploaded</label>
+                            <input type="text" id="image_uploaded_at" class="form-control text-white border-0" readonly>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="image_upload_error" class="alert alert-danger d-none mb-0"></div>
+                <div id="image_upload_success" class="alert alert-success d-none mb-0"></div>
+            </div>
+
+            <div class="modal-footer border-top">
+                <button class="btn btn-danger me-auto" id="removeImageBtn" type="button">Remove Image</button>
+                <button class="btn btn-light" data-bs-dismiss="modal" type="button">Cancel</button>
+                <button class="btn btn-success" id="uploadImageBtn" type="button">Upload Image</button>
+            </div>
+
+        </div>
+    </div>
+</div>
 @endsection
 
 @push('styles')
@@ -198,6 +258,31 @@
     #bulk-itemset-table td:nth-child(7) {
         width: 110px;
         text-align: center;
+    }
+
+    .item-image-preview-wrap {
+        height: min(56vh, 460px);
+        min-height: 320px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.04);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+
+    .item-image-preview {
+        display: none;
+        width: 100%;
+        height: 100%;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        object-position: center;
+    }
+
+    .item-image-empty {
+        color: rgba(255, 255, 255, 0.62);
     }
 </style>
 @endpush
@@ -459,6 +544,134 @@
 
         });
 
+    });
+
+    function resetImageMessages() {
+        $('#image_upload_error').addClass('d-none').text('');
+        $('#image_upload_success').addClass('d-none').text('');
+    }
+
+    function setImagePreview(url) {
+        if (url) {
+            $('#item_image_preview').attr('src', url).show();
+            $('#item_image_empty').hide();
+            $('#removeImageBtn').prop('disabled', false).show();
+            return;
+        }
+
+        $('#item_image_preview').removeAttr('src').hide();
+        $('#item_image_empty').show();
+        $('#removeImageBtn').prop('disabled', true).hide();
+    }
+
+    function loadItemImage() {
+        resetImageMessages();
+        $('#item_image_file').val('');
+
+        $.get($('#image_show_url').val(), function(data) {
+            $('#image_item_name').val(data.item_name || '-');
+            $('#image_label_code').val(data.label_code || '-');
+            $('#image_uploaded_at').val(data.image_uploaded_at || '-');
+            setImagePreview(data.image_url || '');
+            $('#imageModal').modal('show');
+        }).fail(function() {
+            $('#image_upload_error').removeClass('d-none').text('Unable to load item image details.');
+            $('#imageModal').modal('show');
+        });
+    }
+
+    $(document).on('click', '.imageBtn', function() {
+        $('#image_show_url').val($(this).data('show-url'));
+        $('#image_upload_url').val($(this).data('upload-url'));
+        $('#image_remove_url').val($(this).data('remove-url'));
+        loadItemImage();
+    });
+
+    $('#item_image_file').on('change', function() {
+        resetImageMessages();
+
+        const file = this.files && this.files[0] ? this.files[0] : null;
+        if (!file) {
+            loadItemImage();
+            return;
+        }
+
+        if (!file.type.match(/^image\/(jpeg|png|webp)$/)) {
+            $(this).val('');
+            $('#image_upload_error').removeClass('d-none').text('Please select a JPG, PNG or WebP image.');
+            return;
+        }
+
+        setImagePreview(URL.createObjectURL(file));
+    });
+
+    $('#uploadImageBtn').on('click', function() {
+        resetImageMessages();
+
+        const fileInput = $('#item_image_file')[0];
+        if (!fileInput.files || !fileInput.files[0]) {
+            $('#image_upload_error').removeClass('d-none').text('Please choose an image to upload.');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('_token', "{{ csrf_token() }}");
+        formData.append('image', fileInput.files[0]);
+
+        $('#uploadImageBtn').prop('disabled', true).text('Uploading...');
+
+        $.ajax({
+            url: $('#image_upload_url').val(),
+            method: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function(data) {
+                $('#item_image_file').val('');
+                $('#image_uploaded_at').val(data.image_uploaded_at || '-');
+                setImagePreview(data.image_url || '');
+                $('#image_upload_success').removeClass('d-none').text(data.message || 'Image uploaded successfully.');
+                table.draw(false);
+                $('#imageModal').modal('hide');
+            },
+            error: function(xhr) {
+                const message = xhr.responseJSON?.message || xhr.responseJSON?.errors?.image?.[0] || 'Image upload failed.';
+                $('#image_upload_error').removeClass('d-none').text(message);
+            },
+            complete: function() {
+                $('#uploadImageBtn').prop('disabled', false).text('Upload Image');
+            }
+        });
+    });
+
+    $('#removeImageBtn').on('click', function() {
+        if (!confirm('Remove this item image?')) {
+            return;
+        }
+
+        resetImageMessages();
+        $('#removeImageBtn').prop('disabled', true).text('Removing...');
+
+        $.ajax({
+            url: $('#image_remove_url').val(),
+            method: 'DELETE',
+            data: {
+                _token: "{{ csrf_token() }}"
+            },
+            success: function() {
+                $('#item_image_file').val('');
+                $('#image_uploaded_at').val('-');
+                setImagePreview('');
+                $('#image_upload_success').removeClass('d-none').text('Image removed successfully.');
+                table.draw(false);
+            },
+            error: function(xhr) {
+                $('#image_upload_error').removeClass('d-none').text(xhr.responseJSON?.message || 'Unable to remove image.');
+            },
+            complete: function() {
+                $('#removeImageBtn').text('Remove Image');
+            }
+        });
     });
 </script>
 @endpush
