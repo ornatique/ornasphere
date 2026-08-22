@@ -47,6 +47,36 @@ class CompanyActivityObserver
             return;
         }
 
+        if ($model instanceof Customer) {
+            $tracked = [
+                'name',
+                'category_person_id',
+                'email',
+                'mobile_no',
+                'address',
+                'city',
+                'area',
+                'landmark',
+                'pincode',
+                'contact_person1_name',
+                'contact_person1_phone',
+                'contact_person2_name',
+                'contact_person2_phone',
+                'gst_no',
+                'pan_no',
+                'aadhaar_no',
+                'birth_date',
+                'anniversary_date',
+                'reference',
+                'remarks',
+                'is_active',
+            ];
+
+            if (!array_intersect($changes, $tracked)) {
+                return;
+            }
+        }
+
         if ($model instanceof ItemSet) {
             $tracked = [
                 'item_id',

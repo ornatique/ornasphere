@@ -91,10 +91,11 @@
                 </div>
 
                 <div class="row mb-3">
-                    <div class="col-md-3"><strong>Issue Net Wt:</strong><br>{{ number_format($totalIssueNet, 3, '.', '') }}</div>
-                    <div class="col-md-3"><strong>Receive Net Wt:</strong><br><span id="topReceiveNet">0.000</span></div>
-                    <div class="col-md-3"><strong>Pending Net Wt:</strong><br><span id="topPendingNet">0.000</span></div>
-                    <div class="col-md-3"><strong>Total Amt:</strong><br>{{ number_format((float) ($row->total_amt_sum ?? 0), 2, '.', '') }}</div>
+                    <div class="col-md-2"><strong>Issue Net Wt:</strong><br>{{ number_format($totalIssueNet, 3, '.', '') }}</div>
+                    <div class="col-md-2"><strong>Receive Net Wt:</strong><br><span id="topReceiveNet">0.000</span></div>
+                    <div class="col-md-2"><strong>Pending Net Wt:</strong><br><span id="topPendingNet">0.000</span></div>
+                    <div class="col-md-2"><strong>Extra Net Wt:</strong><br><span id="topExtraNet">0.000</span></div>
+                    <div class="col-md-2"><strong>Total Amt:</strong><br>{{ number_format((float) ($row->total_amt_sum ?? 0), 2, '.', '') }}</div>
                 </div>
 
                 <div class="worker-voucher-select-wrap mb-4">
@@ -124,7 +125,9 @@
                                 <th>Fine Wt</th>
                                 <th>Qty Pcs</th>
                                 <th>Pending Net Wt</th>
+                                <th>Extra Net Wt</th>
                                 <th>Remark</th>
+                                <th>Action</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -140,10 +143,11 @@
                                     $otherChargeDetails = $receiveRow['other_charge_details'] ?? '';
                                     $receiveNet = max(0, $receiveGross - $otherWt);
                                     $receiveFine = (float) ($receiveRow['receive_fine_wt'] ?? ($receiveNet * $purity / 100));
-                                    $pendingNet = $issueNet - $receiveNet;
+                                    $pendingNet = max(0, $issueNet - $receiveNet);
+                                    $extraNet = max(0, $receiveNet - $issueNet);
                                 @endphp
                                 <tr class="receive-row">
-                                    <td>{{ $index + 1 }}</td>
+                                    <td class="receive-sr">{{ $index + 1 }}</td>
                                     <td>
                                         <select name="items[{{ $index }}][item_id]" class="form-select receive-item-select">
                                             <option value="">Select Item</option>
@@ -185,7 +189,13 @@
                                         <input type="text" class="form-control pending-net-wt" value="{{ number_format($pendingNet, 3, '.', '') }}" readonly>
                                     </td>
                                     <td>
+                                        <input type="text" class="form-control extra-net-wt" value="{{ number_format($extraNet, 3, '.', '') }}" readonly>
+                                    </td>
+                                    <td>
                                         <input type="text" name="items[{{ $index }}][remarks]" class="form-control" value="{{ $receiveRow['remarks'] ?? '' }}">
+                                    </td>
+                                    <td>
+                                        <button type="button" class="btn btn-sm btn-danger remove-receive-row">Delete</button>
                                     </td>
                                 </tr>
                             @endforeach
@@ -201,6 +211,8 @@
                                 <th id="totalReceiveFine">0.000</th>
                                 <th id="totalReceiveQty">0</th>
                                 <th id="totalPendingNet">0.000</th>
+                                <th id="totalExtraNet">0.000</th>
+                                <th></th>
                                 <th></th>
                             </tr>
                         </tfoot>
@@ -762,13 +774,15 @@ window.initJobworkReceivePage = function () {
         const other = numberValue(row.querySelector('.other-wt')?.value);
         const receiveNet = Math.max(0, gross - other);
         const receiveFine = receiveNet * purity / 100;
-        const pendingNet = issueNet - receiveNet;
+        const pendingNet = Math.max(0, issueNet - receiveNet);
+        const extraNet = Math.max(0, receiveNet - issueNet);
 
         row.querySelector('.receive-net-wt').value = fixed(receiveNet);
         row.querySelector('.receive-net-view').value = fixed(receiveNet);
         row.querySelector('.receive-fine-wt').value = fixed(receiveFine);
         row.querySelector('.receive-fine-view').value = fixed(receiveFine);
         row.querySelector('.pending-net-wt').value = fixed(pendingNet);
+        row.querySelector('.extra-net-wt').value = fixed(extraNet);
     }
 
     function rowHasData(row) {
@@ -808,6 +822,12 @@ window.initJobworkReceivePage = function () {
                 $('#receiveOtherModal').modal('show');
             }
         });
+
+        row.querySelector('.remove-receive-row')?.addEventListener('click', function () {
+            row.remove();
+            renumberRows();
+            recalculateTotals();
+        });
     }
 
     function createReceiveRow() {
@@ -840,7 +860,9 @@ window.initJobworkReceivePage = function () {
             </td>
             <td><input type="number" step="1" min="0" name="items[${index}][receive_qty_pcs]" class="form-control receive-qty-pcs" value="0"></td>
             <td><input type="text" class="form-control pending-net-wt" value="0.000" readonly></td>
+            <td><input type="text" class="form-control extra-net-wt" value="0.000" readonly></td>
             <td><input type="text" name="items[${index}][remarks]" class="form-control" value=""></td>
+            <td><button type="button" class="btn btn-sm btn-danger remove-receive-row">Delete</button></td>
         `;
         tbody.appendChild(row);
         bindRow(row);
@@ -862,15 +884,18 @@ window.initJobworkReceivePage = function () {
             receiveQty += numberValue(row.querySelector('.receive-qty-pcs')?.value);
         });
 
-        const pendingNet = totalIssueNet - receiveNet;
+        const pendingNet = Math.max(0, totalIssueNet - receiveNet);
+        const extraNet = Math.max(0, receiveNet - totalIssueNet);
 
         document.getElementById('totalReceiveGross').textContent = fixed(receiveGross);
         document.getElementById('totalReceiveNet').textContent = fixed(receiveNet);
         document.getElementById('totalReceiveFine').textContent = fixed(receiveFine);
         document.getElementById('totalReceiveQty').textContent = String(Math.round(receiveQty));
         document.getElementById('totalPendingNet').textContent = fixed(pendingNet);
+        document.getElementById('totalExtraNet').textContent = fixed(extraNet);
         document.getElementById('topReceiveNet').textContent = fixed(receiveNet);
         document.getElementById('topPendingNet').textContent = fixed(pendingNet);
+        document.getElementById('topExtraNet').textContent = fixed(extraNet);
     }
 
     document.getElementById('receiveOtherChargeTable')?.addEventListener('click', function (event) {

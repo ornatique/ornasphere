@@ -17,14 +17,10 @@ class VacuumBuchController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        $fromDate = $request->get('from_date', now()->subDays(6)->toDateString());
-        $toDate = $request->get('to_date', now()->toDateString());
 
         if ($request->ajax()) {
             $rows = VacuumBuch::query()
                 ->where('company_id', $company->id)
-                ->when($fromDate, fn($q) => $q->whereDate('created_at', '>=', $fromDate))
-                ->when($toDate, fn($q) => $q->whereDate('created_at', '<=', $toDate))
                 ->with(['createdByUser:id,name'])
                 ->select('vacuum_buchs.*');
 
@@ -50,7 +46,7 @@ class VacuumBuchController extends Controller
                 ->make(true);
         }
 
-        return view('company.vacuum_buchs.index', compact('company', 'fromDate', 'toDate'));
+        return view('company.vacuum_buchs.index', compact('company'));
     }
 
     public function create($slug)

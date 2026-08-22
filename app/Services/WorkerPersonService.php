@@ -110,14 +110,17 @@ class WorkerPersonService
                     $person = self::findPersonForWorker($worker);
                     $data = self::personDataFromWorker($worker, (int) $category->id, $person?->id);
 
-                    if ($person) {
-                        $person->update($data);
-                    } else {
-                        $person = Customer::create($data);
-                    }
+                    $person = Customer::withoutEvents(function () use ($person, $data) {
+                        if ($person) {
+                            $person->update($data);
+                            return $person;
+                        }
+
+                        return Customer::create($data);
+                    });
 
                     if (self::hasJobWorkerPersonColumn() && (int) $worker->person_id !== (int) $person->id) {
-                        $worker->update(['person_id' => $person->id]);
+                        JobWorker::withoutEvents(fn () => $worker->update(['person_id' => $person->id]));
                     }
                 }
             }, 'id');

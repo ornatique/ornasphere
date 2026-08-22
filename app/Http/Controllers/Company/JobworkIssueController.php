@@ -192,24 +192,7 @@ class JobworkIssueController extends Controller
                 'modified_count' => ((int) $issue->modified_count) + 1,
             ]);
 
-            $issue->items()->delete();
-
-            foreach ($validated['items'] as $row) {
-                $issue->items()->create([
-                    'item_id' => $row['item_id'],
-                    'other_charge_id' => $row['other_charge_id'] ?? null,
-                    'gross_wt' => (float) ($row['gross_wt'] ?? 0),
-                    'other_wt' => (float) ($row['other_wt'] ?? 0),
-                    'other_amt' => (float) ($row['other_amt'] ?? 0),
-                    'purity' => (float) ($row['purity'] ?? 0),
-                    'net_purity' => (float) ($row['net_purity'] ?? 0),
-                    'net_wt' => (float) ($row['net_wt'] ?? 0),
-                    'fine_wt' => (float) ($row['fine_wt'] ?? 0),
-                    'qty_pcs' => (int) ($row['qty_pcs'] ?? 0),
-                    'remarks' => $row['remarks'] ?? null,
-                    'total_amt' => (float) ($row['total_amt'] ?? 0),
-                ]);
-            }
+            $this->syncIssueItems($issue, $validated['items']);
         });
 
         return redirect()
@@ -374,6 +357,11 @@ class JobworkIssueController extends Controller
             ],
             'remarks' => ['nullable', 'string'],
             'items' => ['required', 'array', 'min:1'],
+            'items.*.id' => [
+                'nullable',
+                'integer',
+                Rule::exists('jobwork_issue_items', 'id')->where(fn($q) => $q->where('jobwork_issue_id', $issueId ?: 0)),
+            ],
             'items.*.item_id' => [
                 'required',
                 'integer',
@@ -415,5 +403,56 @@ class JobworkIssueController extends Controller
         }
 
         return $prefix . $next;
+    }
+
+    private function syncIssueItems(JobworkIssue $issue, array $items): void
+    {
+        $keptIds = [];
+
+        foreach ($items as $row) {
+            $payload = [
+                'item_id' => $row['item_id'],
+                'other_charge_id' => $row['other_charge_id'] ?? null,
+                'gross_wt' => (float) ($row['gross_wt'] ?? 0),
+                'other_wt' => (float) ($row['other_wt'] ?? 0),
+                'other_amt' => (float) ($row['other_amt'] ?? 0),
+                'purity' => (float) ($row['purity'] ?? 0),
+                'net_purity' => (float) ($row['net_purity'] ?? 0),
+                'net_wt' => (float) ($row['net_wt'] ?? 0),
+                'fine_wt' => (float) ($row['fine_wt'] ?? 0),
+                'qty_pcs' => (int) ($row['qty_pcs'] ?? 0),
+                'remarks' => $row['remarks'] ?? null,
+                'total_amt' => (float) ($row['total_amt'] ?? 0),
+            ];
+
+            $itemId = (int) ($row['id'] ?? 0);
+            if ($itemId > 0) {
+                $item = $issue->items()->where('id', $itemId)->first();
+                if ($item) {
+                    $item->update($payload);
+                    $keptIds[] = $item->id;
+                    continue;
+                }
+            }
+
+            $created = $issue->items()->create($payload);
+            $keptIds[] = $created->id;
+        }
+
+        $removeQuery = $issue->items();
+        if ($keptIds) {
+            $removeQuery->whereNotIn('id', $keptIds);
+        }
+
+        $removeIds = $removeQuery->pluck('id')->map(fn($id) => (int) $id)->all();
+        if (!$removeIds) {
+            return;
+        }
+
+        DB::table('jobwork_receive_items')
+            ->whereIn('jobwork_issue_item_id', $removeIds)
+            ->delete();
+
+        $issue->items()->whereIn('id', $removeIds)->delete();
     }
 }

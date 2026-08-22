@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\JobworkIssue;
+use App\Models\JobworkIssueItem;
 use App\Models\OtherCharge;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
@@ -191,23 +192,7 @@ class JobworkIssueApiController extends Controller
                 'modified_count' => ((int) $issue->modified_count) + 1,
             ]);
 
-            $issue->items()->delete();
-            foreach ($validated['items'] as $item) {
-                $issue->items()->create([
-                    'item_id' => $item['item_id'],
-                    'other_charge_id' => $item['other_charge_id'] ?? null,
-                    'gross_wt' => (float) ($item['gross_wt'] ?? 0),
-                    'other_wt' => (float) ($item['other_wt'] ?? 0),
-                    'other_amt' => (float) ($item['other_amt'] ?? 0),
-                    'purity' => (float) ($item['purity'] ?? 0),
-                    'net_purity' => (float) ($item['net_purity'] ?? 0),
-                    'net_wt' => (float) ($item['net_wt'] ?? 0),
-                    'fine_wt' => (float) ($item['fine_wt'] ?? 0),
-                    'qty_pcs' => (int) ($item['qty_pcs'] ?? 0),
-                    'remarks' => $item['remarks'] ?? null,
-                    'total_amt' => (float) ($item['total_amt'] ?? 0),
-                ]);
-            }
+            $this->syncIssueItems($issue, $validated['items']);
 
             return $issue->load('items.item:id,item_name', 'jobWorker:id,name', 'productionStep:id,name');
         });
@@ -226,6 +211,45 @@ class JobworkIssueApiController extends Controller
 
         $issue->delete();
         return response()->json(['success' => true, 'message' => 'Jobwork Issue deleted successfully.']);
+    }
+
+    public function destroyItem(Request $request, $id, $itemId)
+    {
+        $companyId = (int) $request->user()->company_id;
+        $issue = JobworkIssue::where('company_id', $companyId)->find($id);
+
+        if (!$issue) {
+            return response()->json(['success' => false, 'message' => 'Jobwork Issue not found.'], 404);
+        }
+
+        $item = JobworkIssueItem::where('jobwork_issue_id', $issue->id)->find($itemId);
+        if (!$item) {
+            return response()->json(['success' => false, 'message' => 'Jobwork Issue item not found.'], 404);
+        }
+
+        if ($issue->items()->count() <= 1) {
+            return response()->json(['success' => false, 'message' => 'At least one issue item is required.'], 422);
+        }
+
+        DB::transaction(function () use ($issue, $item) {
+            DB::table('jobwork_receive_items')
+                ->where('jobwork_issue_item_id', $item->id)
+                ->delete();
+
+            $item->delete();
+            $issue->update([
+                'modified_count' => ((int) $issue->modified_count) + 1,
+            ]);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Jobwork Issue item deleted successfully.',
+            'data' => [
+                'jobwork_issue_id' => (int) $issue->id,
+                'deleted_item_id' => (int) $itemId,
+            ],
+        ]);
     }
 
     public function exportSingleExcel(Request $request, $id): StreamedResponse
@@ -298,6 +322,11 @@ class JobworkIssueApiController extends Controller
             ],
             'remarks' => ['nullable', 'string'],
             'items' => ['required', 'array', 'min:1'],
+            'items.*.id' => [
+                'nullable',
+                'integer',
+                Rule::exists('jobwork_issue_items', 'id')->where(fn($q) => $q->where('jobwork_issue_id', $id ?: 0)),
+            ],
             'items.*.item_id' => [
                 'required',
                 'integer',
@@ -389,6 +418,57 @@ class JobworkIssueApiController extends Controller
         }
 
         $request->merge(['items' => $items]);
+    }
+
+    private function syncIssueItems(JobworkIssue $issue, array $items): void
+    {
+        $keptIds = [];
+
+        foreach ($items as $item) {
+            $payload = [
+                'item_id' => $item['item_id'],
+                'other_charge_id' => $item['other_charge_id'] ?? null,
+                'gross_wt' => (float) ($item['gross_wt'] ?? 0),
+                'other_wt' => (float) ($item['other_wt'] ?? 0),
+                'other_amt' => (float) ($item['other_amt'] ?? 0),
+                'purity' => (float) ($item['purity'] ?? 0),
+                'net_purity' => (float) ($item['net_purity'] ?? 0),
+                'net_wt' => (float) ($item['net_wt'] ?? 0),
+                'fine_wt' => (float) ($item['fine_wt'] ?? 0),
+                'qty_pcs' => (int) ($item['qty_pcs'] ?? 0),
+                'remarks' => $item['remarks'] ?? null,
+                'total_amt' => (float) ($item['total_amt'] ?? 0),
+            ];
+
+            $itemId = (int) ($item['id'] ?? 0);
+            if ($itemId > 0) {
+                $existing = $issue->items()->where('id', $itemId)->first();
+                if ($existing) {
+                    $existing->update($payload);
+                    $keptIds[] = $existing->id;
+                    continue;
+                }
+            }
+
+            $created = $issue->items()->create($payload);
+            $keptIds[] = $created->id;
+        }
+
+        $removeQuery = $issue->items();
+        if ($keptIds) {
+            $removeQuery->whereNotIn('id', $keptIds);
+        }
+
+        $removeIds = $removeQuery->pluck('id')->map(fn($id) => (int) $id)->all();
+        if (!$removeIds) {
+            return;
+        }
+
+        DB::table('jobwork_receive_items')
+            ->whereIn('jobwork_issue_item_id', $removeIds)
+            ->delete();
+
+        $issue->items()->whereIn('id', $removeIds)->delete();
     }
 
     private function baseQuery(Request $request, int $companyId)

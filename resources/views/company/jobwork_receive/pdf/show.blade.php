@@ -22,6 +22,7 @@
     $totalReceiveNet = 0;
     $totalReceiveFine = 0;
     $totalReceiveQty = 0;
+    $totalIssueNet = (float) ($row->net_wt_sum ?? 0);
 @endphp
 <h2>Jobwork Receive</h2>
 <h4>{{ $company->name }}</h4>
@@ -35,7 +36,7 @@
     </tr>
     <tr>
         <td><strong>Production Step:</strong><br>{{ $row->productionStep?->name ?? '-' }}</td>
-        <td><strong>Issue Net Wt:</strong><br>{{ number_format((float) ($row->net_wt_sum ?? 0), 3, '.', '') }}</td>
+        <td><strong>Issue Net Wt:</strong><br>{{ number_format($totalIssueNet, 3, '.', '') }}</td>
         <td><strong>Printed At:</strong><br>{{ now()->format('d-m-Y h:i A') }}</td>
         <td><strong>Printed By:</strong><br>{{ auth()->user()->name ?? '-' }}</td>
     </tr>
@@ -74,7 +75,7 @@
                 $otherWt = (float) ($saved?->other_wt ?? max(0, $receiveGross - $receiveNet));
                 $receiveFine = (float) ($saved?->receive_fine_wt ?? 0);
                 $receiveQty = (int) ($saved?->receive_qty_pcs ?? 0);
-                $pendingNet = (float) ($saved?->loss_wt ?? ((float) ($issueItem->net_wt ?? 0) - $receiveNet));
+                $pendingNet = max(0, (float) ($saved?->loss_wt ?? ((float) ($issueItem->net_wt ?? 0) - $receiveNet)));
                 $totalReceiveGross += $receiveGross;
                 $totalOtherWt += $otherWt;
                 $totalReceiveNet += $receiveNet;
@@ -96,13 +97,18 @@
         @endforeach
         <tr class="total">
             <td colspan="2" class="right">Total</td>
-            <td class="right">{{ number_format((float) ($row->net_wt_sum ?? 0), 3, '.', '') }}</td>
+            <td class="right">{{ number_format($totalIssueNet, 3, '.', '') }}</td>
             <td class="right">{{ number_format($totalReceiveGross, 3, '.', '') }}</td>
             <td class="right">{{ number_format($totalOtherWt, 3, '.', '') }}</td>
             <td class="right">{{ number_format($totalReceiveNet, 3, '.', '') }}</td>
             <td class="right">{{ number_format($totalReceiveFine, 3, '.', '') }}</td>
             <td class="right">{{ $totalReceiveQty }}</td>
-            <td class="right">{{ number_format((float) ($row->net_wt_sum ?? 0) - $totalReceiveNet, 3, '.', '') }}</td>
+            <td class="right">
+                {{ number_format(max(0, $totalIssueNet - $totalReceiveNet), 3, '.', '') }}
+                @if($totalReceiveNet > $totalIssueNet)
+                    <br>Extra: {{ number_format($totalReceiveNet - $totalIssueNet, 3, '.', '') }}
+                @endif
+            </td>
             <td></td>
         </tr>
     </tbody>

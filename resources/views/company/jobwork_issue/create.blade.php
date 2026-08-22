@@ -73,12 +73,14 @@
                                 <th>Net Purity</th>
                                 <th>Remarks</th>
                                 <th>Total Amt</th>
+                                <th>Action</th>
                             </tr>
                         </thead>
                         <tbody>
                             @php
                             $oldItems = old('items', isset($data) ? $data->items->map(function($i){
                                 return [
+                                    'id' => $i->id,
                                     'item_id' => $i->item_id,
                                     'other_charge_id' => $i->other_charge_id,
                                     'gross_wt' => $i->gross_wt,
@@ -99,6 +101,7 @@
                                 @foreach($oldItems as $idx => $row)
                                 <tr>
                                     <td>
+                                        <input type="hidden" name="items[{{ $idx }}][id]" value="{{ $row['id'] ?? '' }}">
                                         <select name="items[{{ $idx }}][item_id]" class="form-select item-select" required>
                                             <option value="">Select Item</option>
                                             @foreach($items as $item)
@@ -130,11 +133,13 @@
                                     <td><input type="number" step="0.001" name="items[{{ $idx }}][net_purity]" class="form-control net-purity" value="{{ $row['net_purity'] ?? 0 }}" readonly></td>
                                     <td><input type="text" name="items[{{ $idx }}][remarks]" class="form-control row-remarks" value="{{ $row['remarks'] ?? '' }}"></td>
                                     <td><input type="number" step="0.01" name="items[{{ $idx }}][total_amt]" class="form-control total-amt" value="{{ $row['total_amt'] ?? 0 }}"></td>
+                                    <td><button type="button" class="btn btn-sm btn-danger remove-row-btn">Delete</button></td>
                                 </tr>
                                 @endforeach
                             @else
                                 <tr>
                                     <td>
+                                        <input type="hidden" name="items[0][id]" value="">
                                         <select name="items[0][item_id]" class="form-select item-select" required>
                                             <option value="">Select Item</option>
                                             @foreach($items as $item)
@@ -161,6 +166,7 @@
                                     <td><input type="number" step="0.001" name="items[0][net_purity]" class="form-control net-purity" value="0" readonly></td>
                                     <td><input type="text" name="items[0][remarks]" class="form-control row-remarks"></td>
                                     <td><input type="number" step="0.01" name="items[0][total_amt]" class="form-control total-amt" value="0"></td>
+                                    <td><button type="button" class="btn btn-sm btn-danger remove-row-btn">Delete</button></td>
                                 </tr>
                             @endif
                         </tbody>
@@ -243,7 +249,9 @@
     #itemsTable th:nth-child(8),
     #itemsTable td:nth-child(8),
     #itemsTable th:nth-child(10),
-    #itemsTable td:nth-child(10) {
+    #itemsTable td:nth-child(10),
+    #itemsTable th:nth-child(11),
+    #itemsTable td:nth-child(11) {
         width: 140px;
     }
 
@@ -437,6 +445,7 @@ function appendRow() {
     const row = `
         <tr>
             <td>
+                <input type="hidden" name="items[${rowIndex}][id]" value="">
                 <select name="items[${rowIndex}][item_id]" class="form-select item-select" required>
                     <option value="">Select Item</option>
                     @foreach($items as $item)
@@ -460,6 +469,7 @@ function appendRow() {
             <td><input type="number" step="0.001" name="items[${rowIndex}][net_purity]" class="form-control net-purity" value="0" readonly></td>
             <td><input type="text" name="items[${rowIndex}][remarks]" class="form-control row-remarks"></td>
             <td><input type="number" step="0.01" name="items[${rowIndex}][total_amt]" class="form-control total-amt" value="0"></td>
+            <td><button type="button" class="btn btn-sm btn-danger remove-row-btn">Delete</button></td>
         </tr>`;
 
     const $row = $(row);
@@ -608,6 +618,16 @@ $(document).on('change', '.item-select', function () {
 
 $(document).on('input', '.gross-wt', function () {
     recalcRow($(this).closest('tr'));
+});
+
+$(document).on('click', '.remove-row-btn', function () {
+    const $rows = $('#itemsTable tbody tr');
+    if ($rows.length <= 1) {
+        alert('At least one issue row is required.');
+        return;
+    }
+
+    $(this).closest('tr').remove();
 });
 
 $(document).on('keydown', '#itemsTable tbody tr:last-child select, #itemsTable tbody tr:last-child input', function (e) {

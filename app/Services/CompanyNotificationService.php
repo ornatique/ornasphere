@@ -61,6 +61,13 @@ class CompanyNotificationService
             return;
         }
 
+        $subjectType = $subject ? $subject::class : null;
+        $subjectId = $subject?->getKey();
+
+        if (self::hasRecentDuplicate($actor->company_id, $module, $action, $subjectType, $subjectId, $message)) {
+            return;
+        }
+
         CompanyActivityNotification::create([
             'company_id' => $actor->company_id,
             'actor_user_id' => $actor->id,
@@ -70,8 +77,8 @@ class CompanyNotificationService
             'message' => $message,
             'route_name' => $routeName,
             'route_params' => $routeParams ?: null,
-            'subject_type' => $subject ? $subject::class : null,
-            'subject_id' => $subject?->getKey(),
+            'subject_type' => $subjectType,
+            'subject_id' => $subjectId,
         ]);
     }
 
@@ -89,10 +96,10 @@ class CompanyNotificationService
         $moduleCounts = CompanyActivityNotification::query()
             ->where('company_id', $user->company_id)
             ->whereNull('read_at')
-            ->selectRaw('module, COUNT(*) as total')
-            ->groupBy('module')
-            ->pluck('total', 'module')
-            ->map(fn ($count) => (int) $count)
+            ->select('module')
+            ->groupBy('module', 'action', 'subject_type', 'subject_id', 'message')
+            ->get()
+            ->countBy('module')
             ->all();
 
         $latest = self::latest($user, 20, true);
@@ -111,9 +118,15 @@ class CompanyNotificationService
             return collect();
         }
 
-        return CompanyActivityNotification::with('actor:id,name')
+        $ids = CompanyActivityNotification::query()
             ->where('company_id', $user->company_id)
             ->when($unreadOnly, fn ($query) => $query->whereNull('read_at'))
+            ->selectRaw('MAX(id) as id')
+            ->groupBy('module', 'action', 'subject_type', 'subject_id', 'message');
+
+        return CompanyActivityNotification::with('actor:id,name')
+            ->where('company_id', $user->company_id)
+            ->whereIn('id', $ids)
             ->latest()
             ->limit(max(1, min($limit, 100)))
             ->get();
@@ -208,6 +221,23 @@ class CompanyNotificationService
         }
 
         return array_values(array_unique($expanded));
+    }
+
+    private static function hasRecentDuplicate(int $companyId, string $module, string $action, ?string $subjectType, mixed $subjectId, ?string $message): bool
+    {
+        if (!$subjectType || !$subjectId) {
+            return false;
+        }
+
+        return CompanyActivityNotification::query()
+            ->where('company_id', $companyId)
+            ->where('module', $module)
+            ->where('action', $action)
+            ->where('subject_type', $subjectType)
+            ->where('subject_id', $subjectId)
+            ->where('message', $message)
+            ->where('created_at', '>=', now()->subMinutes(10))
+            ->exists();
     }
 
     public static function isReady(): bool

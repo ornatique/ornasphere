@@ -66,7 +66,7 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
 
 
 
-Route::middleware(['auth:sanctum', 'company.active', 'worker.office.access'])->group(function () {
+Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
 
     Route::get('/notifications/summary', [NotificationApiController::class, 'summary']);
     Route::get('/notifications', [NotificationApiController::class, 'index']);
@@ -138,6 +138,7 @@ Route::middleware(['auth:sanctum', 'company.active', 'worker.office.access'])->g
     Route::get('/jobwork-issues/export/pdf', [JobworkIssueApiController::class, 'exportPdf']);
     Route::get('/jobwork-issues/export/excel/{id}', [JobworkIssueApiController::class, 'exportSingleExcel']);
     Route::get('/jobwork-issues/export/pdf/{id}', [JobworkIssueApiController::class, 'exportSinglePdf']);
+    Route::delete('/jobwork-issues/{id}/items/{itemId}', [JobworkIssueApiController::class, 'destroyItem'])->whereNumber(['id', 'itemId']);
     Route::get('/jobwork-issues/{id}', [JobworkIssueApiController::class, 'show']);
     Route::put('/jobwork-issues/{id}', [JobworkIssueApiController::class, 'update']);
     Route::delete('/jobwork-issues/{id}', [JobworkIssueApiController::class, 'destroy']);
@@ -147,10 +148,12 @@ Route::middleware(['auth:sanctum', 'company.active', 'worker.office.access'])->g
     Route::post('/create-jobwork-issues', [JobworkIssueApiController::class, 'store']);
     Route::put('/update-jobwork-issues/{id}', [JobworkIssueApiController::class, 'update']);
     Route::delete('/delete-jobwork-issues/{id}', [JobworkIssueApiController::class, 'destroy']);
+    Route::delete('/delete-jobwork-issue-items/{id}/{itemId}', [JobworkIssueApiController::class, 'destroyItem'])->whereNumber(['id', 'itemId']);
 
     Route::get('/jobwork-receive', [JobworkReceiveApiController::class, 'index']);
     Route::get('/jobwork-receive/other-charges', [JobworkReceiveApiController::class, 'otherCharges']);
     Route::get('/jobwork-receive/pdf/{id}', [JobworkReceiveApiController::class, 'pdf'])->whereNumber('id');
+    Route::delete('/jobwork-receive/{id}/items/{itemId}', [JobworkReceiveApiController::class, 'destroyItem'])->whereNumber(['id', 'itemId']);
     Route::get('/jobwork-receive/{id}', [JobworkReceiveApiController::class, 'show'])->whereNumber('id');
     Route::put('/jobwork-receive/{id}', [JobworkReceiveApiController::class, 'update'])->whereNumber('id');
     Route::post('/jobwork-receive/{id}', [JobworkReceiveApiController::class, 'update'])->whereNumber('id');
@@ -159,6 +162,7 @@ Route::middleware(['auth:sanctum', 'company.active', 'worker.office.access'])->g
     Route::get('/jobwork_receive_show/{id}', [JobworkReceiveApiController::class, 'show'])->whereNumber('id');
     Route::get('/jobwork_receive_pdf/{id}', [JobworkReceiveApiController::class, 'pdf'])->whereNumber('id');
     Route::post('/update_jobwork_receive/{id}', [JobworkReceiveApiController::class, 'update'])->whereNumber('id');
+    Route::delete('/delete_jobwork_receive_items/{id}/{itemId}', [JobworkReceiveApiController::class, 'destroyItem'])->whereNumber(['id', 'itemId']);
 
     Route::get('/vacuum-buchs', [VacuumBuchApiController::class, 'index']);
     Route::get('/vacuum-buchs/options', [VacuumBuchApiController::class, 'options']);

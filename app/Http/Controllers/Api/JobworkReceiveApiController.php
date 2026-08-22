@@ -7,6 +7,7 @@ use App\Models\Company;
 use App\Models\Item;
 use App\Models\JobworkIssue;
 use App\Models\JobworkReceive;
+use App\Models\JobworkReceiveItem;
 use App\Models\OtherCharge;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
@@ -58,7 +59,7 @@ class JobworkReceiveApiController extends Controller
         $validated = $request->validate([
             'receive_date' => ['required', 'date'],
             'remarks' => ['nullable', 'string'],
-            'items' => ['required', 'array', 'min:1'],
+            'items' => ['nullable', 'array'],
             'items.*.item_id' => [
                 'nullable',
                 'integer',
@@ -83,49 +84,8 @@ class JobworkReceiveApiController extends Controller
                 'modified_count' => ((int) $receive->modified_count) + 1,
             ]);
 
-            $issueItemByItem = $issue->items->keyBy('item_id');
-            $issueNetByItem = $issue->items
-                ->groupBy('item_id')
-                ->map(fn($items) => (float) $items->sum('net_wt'));
-
             $receive->items()->delete();
-
-            foreach ($validated['items'] as $item) {
-                if (empty($item['item_id'])) {
-                    continue;
-                }
-
-                $itemId = (int) $item['item_id'];
-                $issueItem = $issueItemByItem->get($itemId);
-                $receiveGross = (float) ($item['receive_gross_wt'] ?? 0);
-                $otherWt = (float) ($item['other_wt'] ?? 0);
-                $receiveNet = max(0, $receiveGross - $otherWt);
-
-                if ($receiveGross <= 0 && isset($item['receive_net_wt'])) {
-                    $receiveNet = (float) $item['receive_net_wt'];
-                }
-
-                $receiveQty = (int) ($item['receive_qty_pcs'] ?? 0);
-                $remarks = $item['remarks'] ?? null;
-
-                if ($receiveGross <= 0 && $receiveNet <= 0 && $receiveQty <= 0 && blank($remarks)) {
-                    continue;
-                }
-
-                $receive->items()->create([
-                    'jobwork_issue_item_id' => $issueItem?->id,
-                    'item_id' => $itemId,
-                    'receive_gross_wt' => $receiveGross,
-                    'other_wt' => $otherWt,
-                    'other_amt' => (float) ($item['other_amt'] ?? 0),
-                    'other_charge_details' => $this->normalizeOtherChargeDetails($item['other_charge_details'] ?? null),
-                    'receive_net_wt' => $receiveNet,
-                    'receive_fine_wt' => (float) ($item['receive_fine_wt'] ?? 0),
-                    'receive_qty_pcs' => $receiveQty,
-                    'loss_wt' => (float) ($issueNetByItem->get($itemId, 0)) - $receiveNet,
-                    'remarks' => $remarks,
-                ]);
-            }
+            $this->createReceiveItems($receive, $issue, $validated['items'] ?? []);
 
             return $receive->load(['items.item:id,item_name', 'items.jobworkIssueItem.item:id,item_name']);
         });
@@ -134,6 +94,46 @@ class JobworkReceiveApiController extends Controller
             'success' => true,
             'message' => 'Jobwork Receive updated successfully.',
             'data' => $this->formatVoucher($issue->fresh(['items.item:id,item_name', 'jobWorker:id,name', 'productionStep:id,name']), $receive),
+        ]);
+    }
+
+    public function destroyItem(Request $request, $id, $itemId)
+    {
+        $companyId = (int) $request->user()->company_id;
+        $issue = $this->findIssue($companyId, (int) $id);
+
+        if (!$issue) {
+            return response()->json(['success' => false, 'message' => 'Jobwork Receive voucher not found.'], 404);
+        }
+
+        $receive = JobworkReceive::where('company_id', $companyId)
+            ->where('jobwork_issue_id', $issue->id)
+            ->first();
+
+        if (!$receive) {
+            return response()->json(['success' => false, 'message' => 'Jobwork Receive not found.'], 404);
+        }
+
+        $item = JobworkReceiveItem::where('jobwork_receive_id', $receive->id)->find($itemId);
+        if (!$item) {
+            return response()->json(['success' => false, 'message' => 'Jobwork Receive item not found.'], 404);
+        }
+
+        DB::transaction(function () use ($receive, $item) {
+            $item->delete();
+            $receive->update([
+                'modified_count' => ((int) $receive->modified_count) + 1,
+            ]);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Jobwork Receive item deleted successfully.',
+            'data' => [
+                'jobwork_issue_id' => (int) $issue->id,
+                'jobwork_receive_id' => (int) $receive->id,
+                'deleted_item_id' => (int) $itemId,
+            ],
         ]);
     }
 
@@ -227,6 +227,7 @@ class JobworkReceiveApiController extends Controller
         $issueNet = (float) ($row->issue_net_wt_sum ?? 0);
         $receiveNet = (float) ($row->receive?->receive_net_wt_sum ?? 0);
         $pendingNet = max(0, $issueNet - $receiveNet);
+        $extraNet = max(0, $receiveNet - $issueNet);
         $assigned = (int) ($row->receive?->assigned_receive_count ?? 0);
         $total = (int) ($row->items_count ?? 0);
 
@@ -247,6 +248,7 @@ class JobworkReceiveApiController extends Controller
             'issue_net_wt' => $this->decimalValue($issueNet, 3),
             'receive_net_wt' => $this->decimalValue($receiveNet, 3),
             'pending_net_wt' => $this->decimalValue($pendingNet, 3),
+            'extra_net_wt' => $this->decimalValue($extraNet, 3),
             'loss_wt' => $this->decimalValue($row->receive?->loss_wt_sum, 3),
             'status' => $issueNet > 0 && $pendingNet <= 0.0005 ? 'completed' : ($receiveNet > 0 ? 'partial' : 'pending'),
         ];
@@ -257,23 +259,24 @@ class JobworkReceiveApiController extends Controller
         $issueItemOptions = $this->issueItemOptions($issue);
         $receiveRows = $receive->items
             ->filter(fn($item) => $item->item_id || $item->jobworkIssueItem)
-            ->groupBy(fn($item) => $item->item_id ?: $item->jobworkIssueItem?->item_id)
-            ->map(function ($items) {
-                $first = $items->first();
-                $itemId = $first->item_id ?: $first->jobworkIssueItem?->item_id;
+            ->map(function ($item) {
+                $itemId = $item->item_id ?: $item->jobworkIssueItem?->item_id;
 
                 return [
+                    'id' => (int) $item->id,
+                    'jobwork_receive_item_id' => (int) $item->id,
+                    'jobwork_issue_item_id' => $item->jobwork_issue_item_id ? (int) $item->jobwork_issue_item_id : null,
                     'item_id' => $itemId ? (int) $itemId : null,
-                    'item_name' => $first->item?->item_name ?? $first->jobworkIssueItem?->item?->item_name,
-                    'receive_gross_wt' => $this->decimalValue($items->sum('receive_gross_wt'), 3),
-                    'other_wt' => $this->decimalValue($items->sum('other_wt'), 3),
-                    'other_amt' => $this->decimalValue($items->sum('other_amt'), 2),
-                    'other_charge_details' => $this->decodeOtherChargeDetails($items->pluck('other_charge_details')->filter()->first()),
-                    'receive_net_wt' => $this->decimalValue($items->sum('receive_net_wt'), 3),
-                    'receive_fine_wt' => $this->decimalValue($items->sum('receive_fine_wt'), 3),
-                    'receive_qty_pcs' => (int) $items->sum('receive_qty_pcs'),
-                    'loss_wt' => $this->decimalValue($items->sum('loss_wt'), 3),
-                    'remarks' => $items->pluck('remarks')->filter()->implode(', '),
+                    'item_name' => $item->item?->item_name ?? $item->jobworkIssueItem?->item?->item_name,
+                    'receive_gross_wt' => $this->decimalValue($item->receive_gross_wt, 3),
+                    'other_wt' => $this->decimalValue($item->other_wt, 3),
+                    'other_amt' => $this->decimalValue($item->other_amt, 2),
+                    'other_charge_details' => $this->decodeOtherChargeDetails($item->other_charge_details),
+                    'receive_net_wt' => $this->decimalValue($item->receive_net_wt, 3),
+                    'receive_fine_wt' => $this->decimalValue($item->receive_fine_wt, 3),
+                    'receive_qty_pcs' => (int) ($item->receive_qty_pcs ?? 0),
+                    'loss_wt' => $this->decimalValue($item->loss_wt, 3),
+                    'remarks' => $item->remarks,
                 ];
             })
             ->values();
@@ -294,7 +297,8 @@ class JobworkReceiveApiController extends Controller
             'production_step_name' => $issue->productionStep?->name,
             'issue_net_wt_total' => $this->decimalValue($totalIssueNet, 3),
             'receive_net_wt_total' => $this->decimalValue($totalReceiveNet, 3),
-            'pending_net_wt_total' => $this->decimalValue($totalIssueNet - $totalReceiveNet, 3),
+            'pending_net_wt_total' => $this->decimalValue(max(0, $totalIssueNet - $totalReceiveNet), 3),
+            'extra_net_wt_total' => $this->decimalValue(max(0, $totalReceiveNet - $totalIssueNet), 3),
             'remarks' => $receive->remarks,
             'item_options' => $issueItemOptions,
             'other_charges' => $this->otherChargeOptions((int) $issue->company_id),
@@ -369,6 +373,70 @@ class JobworkReceiveApiController extends Controller
         }
 
         return (string) $value;
+    }
+
+    private function createReceiveItems(JobworkReceive $receive, JobworkIssue $issue, array $items): void
+    {
+        $issueItemByItem = $issue->items->keyBy('item_id');
+        $issueNetByItem = $issue->items
+            ->groupBy('item_id')
+            ->map(fn($rows) => (float) $rows->sum('net_wt'));
+
+        $preparedRows = collect($items)
+            ->filter(fn($item) => !empty($item['item_id']))
+            ->map(function ($item) {
+                $receiveGross = (float) ($item['receive_gross_wt'] ?? 0);
+                $otherWt = (float) ($item['other_wt'] ?? 0);
+                $receiveNet = max(0, $receiveGross - $otherWt);
+
+                if ($receiveGross <= 0 && isset($item['receive_net_wt'])) {
+                    $receiveNet = max(0, (float) $item['receive_net_wt']);
+                }
+
+                return [
+                    'source' => $item,
+                    'item_id' => (int) $item['item_id'],
+                    'receive_gross_wt' => $receiveGross,
+                    'other_wt' => $otherWt,
+                    'receive_net_wt' => $receiveNet,
+                    'receive_qty_pcs' => (int) ($item['receive_qty_pcs'] ?? 0),
+                    'remarks' => $item['remarks'] ?? null,
+                ];
+            })
+            ->filter(function ($row) {
+                return $row['receive_gross_wt'] > 0
+                    || $row['receive_net_wt'] > 0
+                    || $row['receive_qty_pcs'] > 0
+                    || filled($row['remarks']);
+            })
+            ->values();
+
+        $lossByItem = $preparedRows
+            ->groupBy('item_id')
+            ->map(fn($rows, $itemId) => max(0, (float) ($issueNetByItem->get($itemId, 0)) - (float) $rows->sum('receive_net_wt')));
+        $lossAssigned = [];
+
+        foreach ($preparedRows as $prepared) {
+            $item = $prepared['source'];
+            $itemId = $prepared['item_id'];
+            $issueItem = $issueItemByItem->get($itemId);
+            $loss = empty($lossAssigned[$itemId]) ? (float) ($lossByItem->get($itemId, 0) ?? 0) : 0.0;
+            $lossAssigned[$itemId] = true;
+
+            $receive->items()->create([
+                'jobwork_issue_item_id' => $issueItem?->id,
+                'item_id' => $itemId,
+                'receive_gross_wt' => $prepared['receive_gross_wt'],
+                'other_wt' => $prepared['other_wt'],
+                'other_amt' => (float) ($item['other_amt'] ?? 0),
+                'other_charge_details' => $this->normalizeOtherChargeDetails($item['other_charge_details'] ?? null),
+                'receive_net_wt' => $prepared['receive_net_wt'],
+                'receive_fine_wt' => (float) ($item['receive_fine_wt'] ?? 0),
+                'receive_qty_pcs' => $prepared['receive_qty_pcs'],
+                'loss_wt' => $loss,
+                'remarks' => $prepared['remarks'],
+            ]);
+        }
     }
 
     private function decodeOtherChargeDetails(?string $value): array
