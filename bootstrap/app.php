@@ -160,7 +160,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 'url' => $request->fullUrl(),
                 'method' => $request->method(),
                 'ip' => $request->ip(),
-                'user_id' => optional($request->user())->id,
+                'authenticated' => $request->bearerToken() ? 'bearer_token_present' : 'unknown',
             ]);
 
             $message = strtolower((string) $e->getMessage());
@@ -273,7 +273,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 'url' => $request->fullUrl(),
                 'method' => $request->method(),
                 'ip' => $request->ip(),
-                'user_id' => optional($request->user())->id,
+                'authenticated' => $request->bearerToken() ? 'bearer_token_present' : 'unknown',
             ]);
 
             if ($isApi($request)) {

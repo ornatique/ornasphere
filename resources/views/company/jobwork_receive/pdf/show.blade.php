@@ -4,15 +4,31 @@
     <meta charset="utf-8">
     <title>Jobwork Receive {{ $row->voucher_no }}</title>
     <style>
-        body { font-family: DejaVu Sans, sans-serif; font-size: 10px; color: #111; }
-        h2, h4 { text-align: center; margin: 0 0 6px; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { border: 1px solid #333; padding: 5px; vertical-align: top; }
-        th { background: #eee; }
+        @page {
+            margin: 8px;
+        }
+
+        body { font-family: DejaVu Sans, sans-serif; font-size: 8px; color: #111; margin: 0; }
+        h2 { text-align: center; margin: 0 0 4px; font-size: 14px; }
+        h4 { text-align: center; margin: 0 0 6px; font-size: 10px; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th, td { border: 1px solid #333; padding: 3px 4px; vertical-align: top; }
+        th { background: #eee; font-weight: 700; }
         .meta td { width: 25%; }
         .right { text-align: right; }
         .total td { font-weight: bold; background: #f2f2f2; }
-        .mb { margin-bottom: 12px; }
+        .mb { margin-bottom: 8px; }
+        .items th:nth-child(1), .items td:nth-child(1) { width: 6%; }
+        .items th:nth-child(2), .items td:nth-child(2) { width: 14%; }
+        .items th:nth-child(3), .items td:nth-child(3) { width: 11%; }
+        .items th:nth-child(4), .items td:nth-child(4) { width: 13%; }
+        .items th:nth-child(5), .items td:nth-child(5) { width: 10%; }
+        .items th:nth-child(6), .items td:nth-child(6) { width: 12%; }
+        .items th:nth-child(7), .items td:nth-child(7) { width: 12%; }
+        .items th:nth-child(8), .items td:nth-child(8) { width: 8%; }
+        .items th:nth-child(9), .items td:nth-child(9) { width: 12%; }
+        .items th:nth-child(10), .items td:nth-child(10) { width: 10%; }
+        .nowrap { white-space: nowrap; }
     </style>
 </head>
 <body>
@@ -50,18 +66,18 @@
 </table>
 
 <h4>Jobwork Receive</h4>
-<table>
+<table class="items">
     <thead>
         <tr>
             <th>Sr. No</th>
             <th>Item</th>
-            <th class="right">Issue Net Wt</th>
-            <th class="right">Receive Gross Wt</th>
+            <th class="right">Issue Net</th>
+            <th class="right">Receive Gross</th>
             <th class="right">Other Wt</th>
-            <th class="right">Receive Net Wt</th>
-            <th class="right">Receive Fine Wt</th>
-            <th class="right">Receive Qty</th>
-            <th class="right">Pending Net Wt</th>
+            <th class="right">Receive Net</th>
+            <th class="right">Receive Fine</th>
+            <th class="right">Qty</th>
+            <th class="right">Pending Net</th>
             <th>Remark</th>
         </tr>
     </thead>

@@ -457,6 +457,10 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
         Route::post('/items', [ItemController::class, 'store'])
             ->name('items.store');
 
+        Route::get('/items/{item}/purity', [ItemController::class, 'purity'])
+            ->whereNumber('item')
+            ->name('items.purity');
+
         Route::get('/items/{encryptedId}/edit', [ItemController::class, 'edit'])
             ->name('items.edit');
         

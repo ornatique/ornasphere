@@ -302,7 +302,7 @@ class JobworkIssueApiController extends Controller
             ->findOrFail($id);
 
         return Pdf::loadView('company.jobwork_issue.pdf.show', compact('company', 'row'))
-            ->setPaper('a4', 'landscape')
+            ->setPaper('a4', 'portrait')
             ->download('jobwork_issue_' . $row->voucher_no . '.pdf');
     }
 

@@ -59,7 +59,7 @@
                     </div>
                 </div>
 
-                <div class="table-responsive mt-3">
+                <div class="table-responsive mt-3 jobwork-items-scroll">
                     <table class="table table-bordered" id="itemsTable">
                         <thead>
                             <tr>
@@ -224,6 +224,31 @@
     #itemsTable {
         min-width: 1680px;
         table-layout: fixed;
+    }
+
+    .jobwork-items-scroll {
+        max-height: calc(100vh - 255px);
+        overflow: auto;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .jobwork-items-scroll #itemsTable {
+        margin-bottom: 0;
+    }
+
+    .jobwork-items-scroll #itemsTable thead th {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        background: #24243a;
+    }
+
+    .card-footer {
+        position: sticky;
+        bottom: 0;
+        z-index: 8;
+        background: #24243a;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
     }
 
     #itemsTable th,

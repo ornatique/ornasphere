@@ -135,6 +135,28 @@ class ItemController extends Controller
         return view('company.items.edit', compact('company', 'item'));
     }
 
+    public function purity($slug, Item $item)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        if ((int) $item->company_id !== (int) $company->id) {
+            abort(404);
+        }
+
+        $purity = (float) ($item->outward_purity ?: $item->inward_purity ?: 0);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => (int) $item->id,
+                'item_name' => $item->item_name,
+                'outward_purity' => number_format((float) ($item->outward_purity ?? 0), 3, '.', ''),
+                'inward_purity' => number_format((float) ($item->inward_purity ?? 0), 3, '.', ''),
+                'purity' => number_format($purity, 3, '.', ''),
+            ],
+        ]);
+    }
+
     // ================= UPDATE =================
     public function update(Request $request, $slug, $encryptedId)
     {

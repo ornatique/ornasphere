@@ -42,6 +42,7 @@
         'issueItemOptions' => $receiveItemOptions,
         'totalIssueNet' => number_format($totalIssueNet, 3, '.', ''),
         'otherChargeOptions' => $otherCharges ?? [],
+        'itemPurityUrlTemplate' => url('/company/' . $company->slug . '/items/__ITEM_ID__/purity'),
     ];
 @endphp
 <div id="jobworkReceiveAjaxContent">
@@ -117,7 +118,6 @@
                             <tr>
                                 <th>Sr. No</th>
                                 <th>Item</th>
-                                <th>Issue Net Wt</th>
                                 <th>Purity</th>
                                 <th>Gross Wt</th>
                                 <th>Other</th>
@@ -161,8 +161,8 @@
                                                 </option>
                                             @endforeach
                                         </select>
+                                        <input type="hidden" class="issue-net-wt" data-value="{{ number_format($issueNet, 3, '.', '') }}" value="{{ number_format($issueNet, 3, '.', '') }}">
                                     </td>
-                                    <td class="issue-net-wt" data-value="{{ number_format($issueNet, 3, '.', '') }}">{{ number_format($issueNet, 3, '.', '') }}</td>
                                     <td><input type="number" step="0.001" class="form-control receive-purity" value="{{ number_format($purity, 3, '.', '') }}" readonly></td>
                                     <td>
                                         <input type="number" step="0.001" min="0" name="items[{{ $index }}][receive_gross_wt]" class="form-control receive-gross-wt" value="{{ number_format($receiveGross, 3, '.', '') }}">
@@ -203,7 +203,6 @@
                         <tfoot>
                             <tr>
                                 <th colspan="2">Total</th>
-                                <th>{{ number_format($totalIssueNet, 3, '.', '') }}</th>
                                 <th></th>
                                 <th id="totalReceiveGross">0.000</th>
                                 <th></th>
@@ -283,12 +282,12 @@
     }
 
     .jobwork-receive-table {
-        min-width: 1500px;
+        min-width: 1350px;
         margin-bottom: 0;
     }
 
     .receive-list-scroll {
-        max-height: 560px;
+        max-height: clamp(260px, calc(100vh - 430px), 560px);
         overflow: auto;
         border: 1px solid rgba(255, 255, 255, 0.08);
     }
@@ -305,6 +304,14 @@
         bottom: 0;
         z-index: 2;
         background: #25263b;
+    }
+
+    #jobworkReceiveAjaxContent .card-footer {
+        position: sticky;
+        bottom: 0;
+        z-index: 8;
+        background: #24243a;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
     }
 
     .jobwork-receive-table th,
@@ -581,6 +588,10 @@ window.initJobworkReceivePage = function () {
         });
     }
 
+    function itemPurityUrl(itemId) {
+        return String(pageData.itemPurityUrlTemplate || '').replace('__ITEM_ID__', encodeURIComponent(itemId));
+    }
+
     function initWorkerVoucherSelect() {
         const select = document.getElementById('workerVoucherSelect');
 
@@ -762,8 +773,46 @@ window.initJobworkReceivePage = function () {
         const purity = option && option.value ? numberValue(option.dataset.purity) : 0;
 
         row.querySelector('.issue-net-wt').dataset.value = fixed(issueNet);
-        row.querySelector('.issue-net-wt').textContent = fixed(issueNet);
+        row.querySelector('.issue-net-wt').value = fixed(issueNet);
         row.querySelector('.receive-purity').value = fixed(purity);
+    }
+
+    async function loadSelectedItemPurity(row) {
+        const select = row.querySelector('.receive-item-select');
+        const itemId = select?.value || '';
+
+        if (!itemId || !pageData.itemPurityUrlTemplate) {
+            return;
+        }
+
+        const requestKey = `${itemId}-${Date.now()}`;
+        row.dataset.purityRequestKey = requestKey;
+
+        try {
+            const response = await fetch(itemPurityUrl(itemId), {
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                credentials: 'same-origin'
+            });
+
+            if (!response.ok || row.dataset.purityRequestKey !== requestKey) {
+                return;
+            }
+
+            const payload = await response.json();
+            const purity = numberValue(payload?.data?.purity);
+            const option = selectedOption(row);
+
+            if (option && option.value === itemId && purity > 0) {
+                option.dataset.purity = fixed(purity);
+                row.querySelector('.receive-purity').value = fixed(purity);
+                recalculateTotals();
+            }
+        } catch (error) {
+            // Existing dropdown purity remains the fallback when lookup fails.
+        }
     }
 
     function recalculateRow(row) {
@@ -804,6 +853,8 @@ window.initJobworkReceivePage = function () {
 
     function bindRow(row) {
         row.querySelector('.receive-item-select')?.addEventListener('change', function () {
+            updateIssueData(row);
+            loadSelectedItemPurity(row);
             recalculateTotals();
         });
 
@@ -839,8 +890,8 @@ window.initJobworkReceivePage = function () {
             <td class="receive-sr">${index + 1}</td>
             <td>
                 <select name="items[${index}][item_id]" class="form-select receive-item-select">${optionHtml()}</select>
+                <input type="hidden" class="issue-net-wt" data-value="0.000" value="0.000">
             </td>
-            <td class="issue-net-wt" data-value="0.000">0.000</td>
             <td><input type="number" step="0.001" class="form-control receive-purity" value="0.000" readonly></td>
             <td><input type="number" step="0.001" min="0" name="items[${index}][receive_gross_wt]" class="form-control receive-gross-wt" value="0.000"></td>
             <td>

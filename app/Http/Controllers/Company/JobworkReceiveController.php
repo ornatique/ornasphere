@@ -114,7 +114,7 @@ class JobworkReceiveController extends Controller
         $workerIssueVouchers = $this->workerIssueVouchers($company, $row);
 
         return Pdf::loadView('company.jobwork_receive.pdf.show', compact('company', 'row', 'receive', 'workerIssueVouchers'))
-            ->setPaper('a4', 'landscape')
+            ->setPaper('a4', 'portrait')
             ->download('jobwork_receive_' . $row->voucher_no . '.pdf');
     }
 
@@ -258,7 +258,9 @@ class JobworkReceiveController extends Controller
                 $first = $items->first();
                 $issueNet = (float) $items->sum('net_wt');
                 $issueQty = (int) $items->sum('qty_pcs');
-                $purity = (float) ($first->net_purity ?: $first->purity ?: 0);
+                $issuePurity = (float) ($first->net_purity ?: $first->purity ?: 0);
+                $itemPurity = (float) ($first->item?->outward_purity ?: $first->item?->inward_purity ?: 0);
+                $purity = $issuePurity > 0 ? $issuePurity : $itemPurity;
 
                 return [
                     'id' => $first->id,
@@ -279,10 +281,12 @@ class JobworkReceiveController extends Controller
 
         return Item::where('company_id', $company->id)
             ->orderBy('item_name')
-            ->get(['id', 'item_name', 'outward_purity'])
+            ->get(['id', 'item_name', 'outward_purity', 'inward_purity'])
             ->map(function ($item) use ($issueByItemId) {
                 $issue = $issueByItemId->get($item->id);
-                $purity = (float) ($issue['purity'] ?? $item->outward_purity ?? 0);
+                $issuePurity = (float) ($issue['purity'] ?? 0);
+                $itemPurity = (float) ($item->outward_purity ?: $item->inward_purity ?: 0);
+                $purity = $issuePurity > 0 ? $issuePurity : $itemPurity;
 
                 return [
                     'id' => $item->id,

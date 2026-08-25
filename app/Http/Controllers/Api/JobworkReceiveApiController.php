@@ -151,7 +151,7 @@ class JobworkReceiveApiController extends Controller
         $workerIssueVouchers = collect();
 
         return Pdf::loadView('company.jobwork_receive.pdf.show', compact('company', 'row', 'receive', 'workerIssueVouchers'))
-            ->setPaper('a4', 'landscape')
+            ->setPaper('a4', 'portrait')
             ->download('jobwork_receive_' . $row->voucher_no . '.pdf');
     }
 
@@ -312,27 +312,35 @@ class JobworkReceiveApiController extends Controller
             ->groupBy('item_id')
             ->map(function ($items) {
                 $first = $items->first();
+                $issuePurity = (float) ($first->net_purity ?: $first->purity ?: 0);
+                $itemPurity = (float) ($first->item?->outward_purity ?: $first->item?->inward_purity ?: 0);
+                $purity = $issuePurity > 0 ? $issuePurity : $itemPurity;
+
                 return [
                     'item_id' => (int) $first->item_id,
                     'item_name' => $first->item?->item_name ?? '-',
                     'issue_net_wt' => $this->decimalValue($items->sum('net_wt'), 3),
                     'issue_qty' => (int) $items->sum('qty_pcs'),
-                    'purity' => $this->decimalValue($first->net_purity ?: $first->purity ?: 0, 3),
+                    'purity' => $this->decimalValue($purity, 3),
                 ];
             });
 
         return Item::where('company_id', $issue->company_id)
             ->orderBy('item_name')
-            ->get(['id', 'item_name', 'outward_purity'])
+            ->get(['id', 'item_name', 'outward_purity', 'inward_purity'])
             ->map(function ($item) use ($issueByItemId) {
                 $issue = $issueByItemId->get($item->id);
+                $issuePurity = (float) ($issue['purity'] ?? 0);
+                $itemPurity = (float) ($item->outward_purity ?: $item->inward_purity ?: 0);
+                $purity = $issuePurity > 0 ? $issuePurity : $itemPurity;
+
                 return [
                     'id' => (int) $item->id,
                     'item_id' => (int) $item->id,
                     'item_name' => $item->item_name,
                     'issue_net_wt' => $this->decimalValue($issue['issue_net_wt'] ?? 0, 3),
                     'issue_qty' => (int) ($issue['issue_qty'] ?? 0),
-                    'purity' => $this->decimalValue($issue['purity'] ?? $item->outward_purity ?? 0, 3),
+                    'purity' => $this->decimalValue($purity, 3),
                 ];
             })
             ->values();

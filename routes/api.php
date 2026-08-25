@@ -42,6 +42,7 @@ use App\Http\Controllers\Api\OfficeAccessController;
 
 Route::post('/company/login', [AuthController::class, 'login']);
 Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
+Route::get('/live-metal-rates', [MetalRateApiController::class, 'index']);
 
 Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/company/logout', [AuthController::class, 'logout']);
@@ -76,7 +77,6 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/app-theme', [AppThemeApiController::class, 'active']);
     Route::get('/app/themes/active', [AppThemeApiController::class, 'active']);
     Route::get('/metal-rates', [MetalRateApiController::class, 'index']);
-    Route::get('/live-metal-rates', [MetalRateApiController::class, 'index']);
 
     Route::get('/users', [CompanyUserController::class, 'index']);
     Route::post('/create_users', [CompanyUserController::class, 'store']);

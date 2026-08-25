@@ -32,8 +32,8 @@
                 <div class="col-md-4"><strong>Created:</strong> {{ optional($row->created_at)->format('d-m-Y h:i A') }}</div>
             </div>
 
-            <div class="table-responsive">
-                <table class="table table-bordered">
+            <div class="table-responsive jobwork-details-scroll">
+                <table class="table table-bordered jobwork-details-table">
                     <thead>
                         <tr>
                             <th>#</th>
@@ -78,3 +78,70 @@
     </div>
 </div>
 @endsection
+
+@push('styles')
+<style>
+    .jobwork-details-scroll {
+        max-height: calc(100vh - 285px);
+        overflow: auto;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .jobwork-details-table {
+        min-width: 1450px;
+        margin-bottom: 0;
+        table-layout: fixed;
+    }
+
+    .jobwork-details-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        background: #24243a;
+    }
+
+    .jobwork-details-table th,
+    .jobwork-details-table td {
+        vertical-align: middle;
+    }
+
+    .jobwork-details-table th:nth-child(1),
+    .jobwork-details-table td:nth-child(1) {
+        width: 70px;
+    }
+
+    .jobwork-details-table th:nth-child(2),
+    .jobwork-details-table td:nth-child(2) {
+        width: 170px;
+    }
+
+    .jobwork-details-table th:nth-child(3),
+    .jobwork-details-table td:nth-child(3),
+    .jobwork-details-table th:nth-child(12),
+    .jobwork-details-table td:nth-child(12) {
+        width: 190px;
+    }
+
+    .jobwork-details-table th:nth-child(4),
+    .jobwork-details-table td:nth-child(4),
+    .jobwork-details-table th:nth-child(5),
+    .jobwork-details-table td:nth-child(5),
+    .jobwork-details-table th:nth-child(6),
+    .jobwork-details-table td:nth-child(6),
+    .jobwork-details-table th:nth-child(7),
+    .jobwork-details-table td:nth-child(7),
+    .jobwork-details-table th:nth-child(9),
+    .jobwork-details-table td:nth-child(9),
+    .jobwork-details-table th:nth-child(10),
+    .jobwork-details-table td:nth-child(10),
+    .jobwork-details-table th:nth-child(11),
+    .jobwork-details-table td:nth-child(11) {
+        width: 130px;
+    }
+
+    .jobwork-details-table th:nth-child(8),
+    .jobwork-details-table td:nth-child(8) {
+        width: 90px;
+    }
+</style>
+@endpush

@@ -4,20 +4,31 @@
     <meta charset="utf-8">
     <title>Jobwork Issue {{ $row->voucher_no }}</title>
     <style>
+        @page {
+            margin: 5px;
+        }
+
         body {
             font-family: DejaVu Sans, sans-serif;
             font-size: 9px;
-            margin: 8px;
+            margin: 0;
             color: #111;
         }
         .sheet-table {
             width: 100%;
             border-collapse: collapse;
+            table-layout: fixed;
         }
-        .sheet-table td {
+        .sheet-table > tbody > tr > td {
             width: 50%;
             vertical-align: top;
-            padding: 0 4px;
+            padding: 0;
+        }
+        .sheet-table > tbody > tr > td:first-child {
+            padding-right: 2.5px;
+        }
+        .sheet-table > tbody > tr > td:last-child {
+            padding-left: 2.5px;
         }
         .copy {
             width: 100%;
@@ -27,8 +38,9 @@
             text-align: center;
             font-weight: 700;
             border-bottom: 1px solid #111;
-            padding: 3px 0;
-            font-size: 10px;
+            padding: 4px 0;
+            font-size: 11px;
+            letter-spacing: 0;
         }
         .meta-grid {
             width: 100%;
@@ -36,19 +48,19 @@
         }
         .meta-grid td {
             border-bottom: 1px solid #111;
-            padding: 2px 4px;
+            padding: 3px 4px;
             vertical-align: top;
             font-size: 9px;
         }
         .meta-grid td.right {
             text-align: left;
-            width: 32%;
+            width: 35%;
             border-left: 1px solid #111;
         }
         .kv {
             font-weight: 700;
             display: inline-block;
-            min-width: 22px;
+            min-width: 24px;
         }
         .items {
             width: 100%;
@@ -57,13 +69,14 @@
         }
         .items th, .items td {
             border: 1px solid #111;
-            padding: 2px 3px;
+            padding: 3px 4px;
             text-align: left;
             vertical-align: top;
             font-size: 9px;
         }
         .items th {
             font-weight: 700;
+            background: #f2f2f2;
         }
         .num {
             text-align: right;
@@ -78,7 +91,7 @@
         }
         .footer-grid td {
             border: 1px solid #111;
-            padding: 2px 4px;
+            padding: 3px 4px;
             vertical-align: top;
             font-size: 9px;
         }
@@ -97,7 +110,7 @@
         .f-label {
             font-weight: 700;
             display: inline-block;
-            min-width: 78px;
+            min-width: 66px;
         }
     </style>
 </head>
@@ -123,11 +136,11 @@
                 <table class="items">
                     <thead>
                         <tr>
-                            <th style="width:6%;">Sr</th>
-                            <th style="width:40%;">Item</th>
-                            <th style="width:14%;" class="num">Purity</th>
+                            <th style="width:7%;">Sr</th>
+                            <th style="width:39%;">Item</th>
+                            <th style="width:13%;" class="num">Purity</th>
                             <th style="width:14%;" class="num">Gross Wt</th>
-                            <th style="width:13%;" class="num">Net Wt</th>
+                            <th style="width:14%;" class="num">Net Wt</th>
                             <th style="width:13%;" class="num">Fine Wt</th>
                         </tr>
                     </thead>
