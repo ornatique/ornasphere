@@ -49,6 +49,22 @@ class Item extends Model
     {
         return $this->hasOne(LabelConfig::class);
     }
+
+    public function itemSets()
+    {
+        return $this->hasMany(ItemSet::class, 'item_id');
+    }
+
+    public function itemLabels()
+    {
+        return $this->hasMany(ItemLabel::class, 'item_id');
+    }
+
+    public function isInUseInLabelStock(): bool
+    {
+        return $this->itemSets()->exists() || $this->itemLabels()->exists();
+    }
+
     public function approvalItems()
     {
         return $this->hasMany(ApprovalItem::class, 'item_id');

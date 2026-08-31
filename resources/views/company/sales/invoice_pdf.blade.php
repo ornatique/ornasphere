@@ -32,6 +32,12 @@
         .text-right { text-align: right; }
         .text-center { text-align: center; }
         .grand-total { text-align: right; font-weight: 700; padding: 6px 8px 8px; }
+        .grand-total-grid { width: 300px; margin-left: auto; border-collapse: collapse; table-layout: fixed; }
+        .grand-total-grid td { border: 0; padding: 1px 8px; white-space: nowrap; line-height: 1.15; }
+        .grand-total-grid .grand-label { width: 94px; padding-left: 0; text-align: right; vertical-align: middle; }
+        .grand-total-grid .grand-head { text-align: center; font-size: 10px; padding-bottom: 2px; border-bottom: 1px solid #000; }
+        .grand-total-grid .grand-metal { border-left: 1px solid #000; }
+        .grand-total .grand-number { font-size: 11.5px; text-align: center; padding-top: 0; }
         .unit-circle {
             display: inline-block;
             min-width: 14px;
@@ -140,7 +146,6 @@
             <td style="width:44%;">
                 <div><strong>Estimate No</strong> : {{ $sale->voucher_no }}</div>
                 <div style="margin-top:4px;"><strong>Date</strong> : {{ \Carbon\Carbon::parse($sale->sale_date)->format('d-m-Y') }}</div>
-                <div style="margin-top:4px;"><strong>Contact No</strong> : {{ $contact }}</div>
             </td>
         </tr>
     </table>
@@ -234,102 +239,104 @@
                 <th></th>
                 <th class="text-right">{{ number_format($sumFine, 3) }} <span class="unit-circle">F</span></th>
                 <th class="text-right">{{ number_format($sumMetalRate, 2) }}</th>
-                <th class="text-right">{{ number_format($sumLabourRate, 2) }}</th>
+                <th></th>
                 <th class="text-right">Rs {{ number_format($sumOther, 2) }}</th>
                 <th class="text-right">Rs {{ number_format($sumTotal, 2) }}</th>
             </tr>
         </tfoot>
     </table>
 
-    <div class="grand-total">Grand Total : Rs {{ number_format($cashPayable, 2) }}</div>
     @php
-        $showGoldBox = $goldAbs > 0.000001;
-        $showSilverBox = $silverBalanceAbs > 0.000001;
-        $showOtherBox = $otherAbs > 0.000001;
+        $grandTotalType = $cashPayable >= 0 ? 'DR' : 'CR';
+        $fineDebit = $silverDebit > 0.000001 ? $silverDebit : (($sumFine > 0.000001 && $sumMetalRate <= 0.000001) ? $sumFine : 0);
+        $silverOpening = (float)($saleAdvanceUsage['silver_opening'] ?? ($silverBalance + $silverUsed));
+        $hasCustomerAccountActivity =
+            abs($advCashRaw) > 0.000001 ||
+            abs($goldRaw) > 0.000001 ||
+            abs($silverOpening) > 0.000001 ||
+            abs($otherRaw) > 0.000001 ||
+            abs($silverUsed) > 0.000001 ||
+            $receivedAmount > 0.000001 ||
+            (float)($sale->paid_amount ?? 0) > 0.000001 ||
+            $paymentRows->isNotEmpty();
+
         $metalSummaryBoxes = [];
-        if ($showGoldBox) {
+        if (abs($goldRaw) > 0.000001) {
             $metalSummaryBoxes[] = ['label' => 'Adv Gold(Fine)', 'value' => number_format($goldAbs, 3), 'status' => $goldType];
         }
-        if ($showSilverBox) {
-            $metalSummaryBoxes[] = ['label' => 'Adv Silver(Fine)', 'value' => number_format($silverBalanceAbs, 3), 'status' => $silverBalanceType];
+        if (abs($silverOpening) > 0.000001 || abs($silverUsed) > 0.000001) {
+            $metalSummaryBoxes[] = [
+                'label' => 'Adv Silver(Fine)',
+                'value' => number_format(abs($silverOpening), 3),
+                'status' => $silverOpening < 0 ? 'Debit' : 'Credit',
+            ];
         }
         $metalSummaryBoxes[] = ['label' => 'Silver Debit / Credit', 'value' => number_format($silverDebit, 3) . '/' . number_format($silverCredit, 3), 'status' => ''];
-        if ($showOtherBox) {
+        if (abs($otherRaw) > 0.000001) {
             $metalSummaryBoxes[] = ['label' => 'Adv Other(Fine)', 'value' => number_format($otherAbs, 3), 'status' => $otherType];
         }
         while (count($metalSummaryBoxes) < 4) {
             $metalSummaryBoxes[] = null;
         }
     @endphp
-    <table class="summary-grid">
-        <tr>
-            <td>
-                <div class="metric-card">
-                    <table class="metric-top"><tr><td class="metric-label">Received</td><td class="metric-value">Rs {{ number_format($receivedAmount, 2) }}</td></tr></table>
-                </div>
-            </td>
-            <td>
-                <div class="metric-card">
-                    <table class="metric-top"><tr><td class="metric-label">Refund Paid</td><td class="metric-value">Rs {{ number_format((float)($sale->paid_amount ?? 0), 2) }}</td></tr></table>
-                </div>
-            </td>
-            <td>
-                <div class="metric-card">
-                    <table class="metric-top"><tr><td class="metric-label">Pending {{ $pendingType }}</td><td class="metric-value">Rs {{ number_format($pendingAmount, 2) }}</td></tr></table>
-                </div>
-            </td>
-            <td>
-                <div class="metric-card">
-                    <table class="metric-top"><tr><td class="metric-label">Adv Cash</td><td class="metric-value">Rs {{ number_format($advCashAbs, 2) }}</td></tr></table>
-                    <div class="metric-status">{{ $advCashType }}</div>
-                </div>
-            </td>
-        </tr>
-        <tr>
-            @foreach($metalSummaryBoxes as $box)
-                <td>
-                    @if($box)
-                        <div class="metric-card">
-                            <table class="metric-top"><tr><td class="metric-label">{{ $box['label'] }}</td><td class="metric-value">{{ $box['value'] }}</td></tr></table>
-                            @if($box['status'] !== '')
-                                <div class="metric-status">{{ $box['status'] }}</div>
-                            @endif
-                        </div>
+    <div class="grand-total">
+        <table class="grand-total-grid">
+            <tr>
+                <td class="grand-label" rowspan="2">Grand Total :</td>
+                <td class="grand-head">Amount</td>
+                <td class="grand-head grand-metal">Metal</td>
+            </tr>
+            <tr>
+                <td class="grand-number">{{ $grandTotalType === 'DR' ? 'Dr.' : 'Cr.' }} {{ number_format(abs($cashPayable), 2) }}</td>
+                <td class="grand-number grand-metal">
+                    @if($fineDebit > 0.000001)
+                        Dr. {{ number_format($fineDebit, 3) }} <span class="unit-circle">F</span>
+                    @else
+                        -
                     @endif
                 </td>
-            @endforeach
-        </tr>
-    </table>
-    @if($paymentRows->isNotEmpty())
-        <table class="payment-grid">
-            <thead>
-                <tr>
-                    <th style="width:25%;">Credit Date</th>
-                    <th style="width:20%;">Payment Mode</th>
-                    <th style="width:35%;">Reference No</th>
-                    <th style="width:20%;" class="text-right">Credit Amount</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach($paymentRows as $paymentRow)
-                    <tr>
-                        <td>{{ $paymentRow['date'] }}</td>
-                        <td>{{ $paymentRow['mode'] !== '' ? ucfirst($paymentRow['mode']) : '-' }}</td>
-                        <td>{{ $paymentRow['reference'] !== '' ? $paymentRow['reference'] : '-' }}</td>
-                        <td class="text-right">Rs {{ number_format($paymentRow['amount'], 2) }}</td>
-                    </tr>
-                @endforeach
-                <tr>
-                    <td colspan="3" class="text-right"><strong>Credit Total</strong></td>
-                    <td class="text-right"><strong>Rs {{ number_format($paymentTotal, 2) }}</strong></td>
-                </tr>
-                <tr>
-                    <td colspan="3" class="text-right"><strong>Pending Amount</strong></td>
-                    <td class="text-right">
-                        <strong>Rs {{ number_format(max(0, $cashPayable - $paymentTotal), 2) }}</strong>
+            </tr>
+        </table>
+    </div>
+    @if($hasCustomerAccountActivity)
+        <table class="summary-grid">
+            <tr>
+                <td>
+                    <div class="metric-card">
+                        <table class="metric-top"><tr><td class="metric-label">Received</td><td class="metric-value">Rs {{ number_format($receivedAmount, 2) }}</td></tr></table>
+                    </div>
+                </td>
+                <td>
+                    <div class="metric-card">
+                        <table class="metric-top"><tr><td class="metric-label">Refund Paid</td><td class="metric-value">Rs {{ number_format((float)($sale->paid_amount ?? 0), 2) }}</td></tr></table>
+                    </div>
+                </td>
+                <td>
+                    <div class="metric-card">
+                        <table class="metric-top"><tr><td class="metric-label">Pending {{ $pendingType }}</td><td class="metric-value">Rs {{ number_format($pendingAmount, 2) }}</td></tr></table>
+                    </div>
+                </td>
+                <td>
+                    <div class="metric-card">
+                        <table class="metric-top"><tr><td class="metric-label">Adv Cash</td><td class="metric-value">Rs {{ number_format($advCashAbs, 2) }}</td></tr></table>
+                        <div class="metric-status">{{ $advCashType }}</div>
+                    </div>
+                </td>
+            </tr>
+            <tr>
+                @foreach($metalSummaryBoxes as $box)
+                    <td>
+                        @if($box)
+                            <div class="metric-card">
+                                <table class="metric-top"><tr><td class="metric-label">{{ $box['label'] }}</td><td class="metric-value">{{ $box['value'] }}</td></tr></table>
+                                @if($box['status'] !== '')
+                                    <div class="metric-status">{{ $box['status'] }}</div>
+                                @endif
+                            </div>
+                        @endif
                     </td>
-                </tr>
-            </tbody>
+                @endforeach
+            </tr>
         </table>
     @endif
 </div>

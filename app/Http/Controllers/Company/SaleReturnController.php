@@ -82,6 +82,7 @@ class SaleReturnController extends Controller
         }
 
         $customers = Customer::where('company_id', $company->id)
+            ->saleParties()
             ->where('is_active', 1)
             ->orderBy('name')
             ->get();
@@ -215,6 +216,7 @@ class SaleReturnController extends Controller
         $company = Company::where('slug', $slug)->firstOrFail();
 
         $customers = Customer::where('company_id', $company->id)
+            ->saleParties()
             ->where('is_active', 1)
             ->orderBy('name')
             ->get();

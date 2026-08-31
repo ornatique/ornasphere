@@ -40,6 +40,7 @@ class SaleApiController extends Controller
             ->withSum('saleItems as total_labour_amount', 'labour_amount')
             ->withSum('saleItems as total_other_amount', 'other_amount')
             ->where('company_id', $companyId)
+            ->whereHas('customer', fn($customer) => $customer->saleParties())
             ->latest()
             ->get();
 
@@ -158,6 +159,7 @@ class SaleApiController extends Controller
             ->withSum('saleItems as sum_labour_amount', 'labour_amount')
             ->withSum('saleItems as sum_other_amount', 'other_amount')
             ->where('company_id', $companyId)
+            ->whereHas('customer', fn($customer) => $customer->saleParties())
             ->whereBetween('sale_date', [
                 Carbon::parse($fromDate)->startOfDay(),
                 Carbon::parse($toDate)->endOfDay(),
@@ -202,6 +204,7 @@ class SaleApiController extends Controller
 
         $customers = Customer::where('company_id', $companyId)
             ->where('is_active', 1)
+            ->saleParties()
             ->orderBy('name')
             ->get()
             ->map(function ($customer) use ($companyId) {
@@ -739,17 +742,83 @@ class SaleApiController extends Controller
     public function qrListApi(Request $request)
     {
         $user = auth()->user();
+        $perPage = max(1, min((int) $request->input('per_page', 100), 500));
+        $includeQrImage = $request->boolean('include_qr_image');
 
-        $itemSets = ItemSet::with('item:id,item_name')
+        $query = ItemSet::with('item:id,item_name')
             ->where('company_id', $user->company_id)
             ->where('is_final', 1)
-            ->whereNotNull('qr_code')
+            ->whereNotNull('qr_code');
+
+        if ($request->filled('item_id')) {
+            $query->where('item_id', (int) $request->item_id);
+        }
+
+        if ($request->filled('search')) {
+            $search = trim((string) $request->search);
+            $query->where(function ($q) use ($search) {
+                $q->where('qr_code', 'like', "%{$search}%")
+                    ->orWhere('barcode', 'like', "%{$search}%")
+                    ->orWhere('HUID', 'like', "%{$search}%")
+                    ->orWhereHas('item', function ($itemQuery) use ($search) {
+                        $itemQuery->where('item_name', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        if ($request->filled('from_date') && $request->filled('to_date')) {
+            $query->whereDate('created_at', '>=', $request->from_date)
+                ->whereDate('created_at', '<=', $request->to_date);
+        }
+
+        $paginator = $query
+            ->select([
+                'id',
+                'company_id',
+                'item_id',
+                'serial_no',
+                'qr_code',
+                'barcode',
+                'HUID',
+                'gross_weight',
+                'other',
+                'net_weight',
+                'sale_labour_formula',
+                'sale_labour_rate',
+                'sale_labour_amount',
+                'sale_other',
+                'is_printed',
+                'created_at',
+                'printed_at',
+            ])
             ->orderByRaw('CASE WHEN printed_at IS NULL THEN 0 ELSE 1 END ASC')
             ->orderByDesc(DB::raw('COALESCE(printed_at, created_at)'))
             ->orderByDesc('serial_no')
             ->orderByDesc('id')
-            ->get()
-            ->map(function ($set) {
+            ->paginate($perPage);
+
+        $rows = $paginator->getCollection()->map(function ($set) use ($includeQrImage) {
+            $row = [
+                'id' => $set->id,
+                'item_id' => (int) $set->item_id,
+                'item_name' => $set->item ? $set->item->item_name : 'N/A',
+                'serial_no' => $set->serial_no,
+                'qr_code' => $set->qr_code,
+                'barcode' => $set->barcode,
+                'huid' => $set->HUID,
+                'gross_weight' => (float) ($set->gross_weight ?? 0),
+                'other_weight' => (float) ($set->other ?? 0),
+                'net_weight' => (float) ($set->net_weight ?? 0),
+                'sale_labour_formula' => $set->sale_labour_formula ?? null,
+                'labour_rate' => (float) ($set->sale_labour_rate ?? 0),
+                'labour_amount' => (float) ($set->sale_labour_amount ?? 0),
+                'sale_other' => (float) ($set->sale_other ?? 0),
+                'is_printed' => (int) ($set->is_printed ?? 0),
+                'created_at' => $set->created_at ? \Carbon\Carbon::parse($set->created_at)->format('d-m-Y h:i A') : null,
+                'printed_at' => $set->printed_at ? \Carbon\Carbon::parse($set->printed_at)->format('d-m-Y h:i A') : null,
+            ];
+
+            if ($includeQrImage) {
                 $builder = new Builder(
                     writer: new PngWriter(),
                     data: $set->qr_code,
@@ -757,31 +826,23 @@ class SaleApiController extends Controller
                     margin: 5
                 );
 
-                $result = $builder->build();
-                $base64 = base64_encode($result->getString());
+                $row['qr_image'] = 'data:image/png;base64,' . base64_encode($builder->build()->getString());
+            }
 
-                return [
-                    'id' => $set->id,
-                    'item_name' => $set->item ? $set->item->item_name : 'N/A',
-                    'serial_no' => $set->serial_no,
-                    'qr_code' => $set->qr_code,
-                    'gross_weight' => (float) ($set->gross_weight ?? 0),
-                    'other_weight' => (float) ($set->other ?? 0),
-                    'net_weight' => (float) ($set->net_weight ?? 0),
-                    'sale_labour_formula' => $set->sale_labour_formula ?? null,
-                    'labour_rate' => (float) ($set->sale_labour_rate ?? 0),
-                    'labour_amount' => (float) ($set->sale_labour_amount ?? 0),
-                    'sale_other' => (float) ($set->sale_other ?? 0),
-                    'is_printed' => (int) ($set->is_printed ?? 0),
-                    'created_at' => $set->created_at ? \Carbon\Carbon::parse($set->created_at)->format('d-m-Y h:i A') : null,
-                    'printed_at' => $set->printed_at ? \Carbon\Carbon::parse($set->printed_at)->format('d-m-Y h:i A') : null,
-                    'qr_image' => 'data:image/png;base64,' . $base64,
-                ];
-            });
+            return $row;
+        })->values();
 
         return response()->json([
             'success' => true,
-            'data' => $itemSets
+            'data' => $rows,
+            'pagination' => [
+                'current_page' => $paginator->currentPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'last_page' => $paginator->lastPage(),
+                'has_more' => $paginator->hasMorePages(),
+            ],
+            'qr_image_included' => $includeQrImage,
         ]);
     }
 
@@ -997,6 +1058,7 @@ class SaleApiController extends Controller
 
             $customerExists = Customer::where('company_id', $user->company_id)
                 ->where('id', (int) $request->customer_id)
+                ->saleParties()
                 ->exists();
             if (!$customerExists) {
                 return response()->json([
@@ -1379,6 +1441,7 @@ class SaleApiController extends Controller
 
         $customerExists = Customer::where('company_id', $companyId)
             ->where('id', $customerId)
+            ->saleParties()
             ->exists();
         if (!$customerExists) {
             return response()->json([
@@ -1636,6 +1699,7 @@ class SaleApiController extends Controller
 
             $customerExists = Customer::where('company_id', $companyId)
                 ->where('id', (int) $request->customer_id)
+                ->saleParties()
                 ->exists();
             if (!$customerExists) {
                 return response()->json([

@@ -81,6 +81,14 @@ $(function () {
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     $('#from_date').val(today);
     $('#to_date').val(today);
+    if ($.fn.select2) {
+        $('#customer_id').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'All Persons',
+            allowClear: true
+        });
+    }
 
     const table = $('#purchaseReceiverSummaryTable').DataTable({
         processing: true,
@@ -130,7 +138,7 @@ $(function () {
     $('#reset').on('click', function () {
         $('#from_date').val(today);
         $('#to_date').val(today);
-        $('#customer_id').val('');
+        $('#customer_id').val('').trigger('change.select2');
         table.draw();
     });
 

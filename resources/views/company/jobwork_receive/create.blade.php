@@ -23,7 +23,7 @@
                 </div>
                 <div class="col-md-3">
                     <label class="form-label mb-1">Worker Name</label>
-                    <select id="worker_id" class="form-control filter-control">
+                    <select id="worker_id" class="form-control filter-control searchable-worker-select">
                         <option value="">Select Worker</option>
                         @foreach($jobWorkers as $worker)
                             <option value="{{ $worker->id }}">{{ $worker->name }}</option>
@@ -67,6 +67,15 @@
 
 @push('scripts')
 <script>
+    if ($.fn.select2) {
+        $('#worker_id').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'Select Worker',
+            allowClear: true
+        });
+    }
+
     const table = $('#jobworkReceiveCreateTable').DataTable({
         processing: true,
         serverSide: true,
@@ -120,7 +129,7 @@
     $('#resetBtn').on('click', function() {
         $('#from_date').val('');
         $('#to_date').val('');
-        $('#worker_id').val('');
+        $('#worker_id').val('').trigger('change.select2');
         loadWorkerVouchers();
     });
 </script>

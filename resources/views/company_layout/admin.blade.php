@@ -96,6 +96,28 @@
     transform: none;
   }
 
+  .select2-container--default .select2-dropdown,
+  .select2-container--bootstrap4 .select2-dropdown {
+    background: #fff;
+    color: #111;
+  }
+
+  .select2-container--default .select2-search--dropdown .select2-search__field,
+  .select2-container--bootstrap4 .select2-search--dropdown .select2-search__field {
+    color: #111;
+    background: #fff;
+  }
+
+  .select2-container--default .select2-results__option,
+  .select2-container--bootstrap4 .select2-results__option {
+    color: #111;
+  }
+
+  .select2-container--default .select2-results__option--highlighted[aria-selected],
+  .select2-container--bootstrap4 .select2-results__option--highlighted[aria-selected] {
+    color: #fff;
+  }
+
   .content-wrapper .dataTables_scrollBody,
   .content-wrapper .table-responsive,
   .content-wrapper .sales-list-grid-wrap,

@@ -24,7 +24,8 @@ class ItemController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
 
         $items = Item::where('company_id', $company->id)
-            ->select('items.*');
+            ->select('items.*')
+            ->withCount(['itemSets', 'itemLabels']);
 
         return datatables()->of($items)
             ->addIndexColumn()
@@ -51,10 +52,15 @@ class ItemController extends Controller
 
                 $editUrl = route('company.items.edit', [$company->slug, $encryptedId]);
                 $deleteUrl = route('company.items.destroy', [$company->slug, $encryptedId]);
+                $isInUse = ((int) ($item->item_sets_count ?? 0) + (int) ($item->item_labels_count ?? 0)) > 0;
+
+                $deleteButton = $isInUse
+                    ? '<span class="btn btn-sm btn-secondary disabled" title="This item is used in label stock">In Use</span>'
+                    : '<button class="btn btn-sm btn-danger deleteItem" data-url="' . $deleteUrl . '">Delete</button>';
 
                 return '
                 <a href="' . $editUrl . '" class="btn btn-sm btn-primary">Edit</a>
-                <button class="btn btn-sm btn-danger deleteItem" data-url="' . $deleteUrl . '">Delete</button>
+                ' . $deleteButton . '
             ';
             })
             ->rawColumns(['status', 'action'])
@@ -222,6 +228,13 @@ class ItemController extends Controller
         $item = Item::where('id', $itemId)
             ->where('company_id', $company->id)
             ->firstOrFail();
+
+        if ($item->isInUseInLabelStock()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'This item is in use in label stock and cannot be deleted.'
+            ], 422);
+        }
 
         $item->delete();
 

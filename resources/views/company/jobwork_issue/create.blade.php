@@ -34,7 +34,7 @@
                     <div class="col-md-4">
                         <div class="form-group">
                             <label>Jobworker *</label>
-                            <select name="job_worker_id" class="form-select" required>
+                            <select name="job_worker_id" id="jobWorkerSelect" class="form-select searchable-select" required>
                                 <option value="">Select Person</option>
                                 @foreach($jobWorkers as $w)
                                 <option value="{{ $w->id }}" {{ (string) old('job_worker_id', $data->job_worker_id ?? '') === (string) $w->id ? 'selected' : '' }}>
@@ -47,7 +47,7 @@
                     <div class="col-md-4">
                         <div class="form-group">
                             <label>Production Step *</label>
-                            <select name="production_step_id" class="form-select" required>
+                            <select name="production_step_id" id="productionStepSelect" class="form-select searchable-select" required>
                                 <option value="">Select Value</option>
                                 @foreach($productionSteps as $s)
                                 <option value="{{ $s->id }}" {{ (string) old('production_step_id', $data->production_step_id ?? '') === (string) $s->id ? 'selected' : '' }}>
@@ -377,6 +377,22 @@ let currentRow = null;
 let otherChargeOptions = @json($otherChargeOptions);
 
 const otherChargeModal = new bootstrap.Modal(document.getElementById('otherChargeModal'));
+
+if ($.fn.select2) {
+    $('#jobWorkerSelect').select2({
+        theme: 'bootstrap4',
+        width: '100%',
+        placeholder: 'Select Person',
+        allowClear: true
+    });
+
+    $('#productionStepSelect').select2({
+        theme: 'bootstrap4',
+        width: '100%',
+        placeholder: 'Select Value',
+        allowClear: true
+    });
+}
 
 const toNum = (v, d = 0) => {
     const n = parseFloat(v);

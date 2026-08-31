@@ -380,6 +380,8 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
 
         Route::get('/jobwork-receive', [JobworkReceiveController::class, 'index'])
             ->name('jobwork-receive.index');
+        Route::get('/jobwork-receive/pdf', [JobworkReceiveController::class, 'exportPdf'])
+            ->name('jobwork-receive.export-pdf');
         Route::get('/jobwork-receive/create', [JobworkReceiveController::class, 'create'])
             ->name('jobwork-receive.create');
         Route::get('/jobwork-receive/{encryptedId}/view', [JobworkReceiveController::class, 'show'])
@@ -1086,6 +1088,12 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
                 ->name('purchase-receiver-summary.export.pdf');
             Route::get('/stock-position', [ReportController::class, 'stockPosition'])
                 ->name('stock-position.index');
+            Route::get('/stock-position/details', [ReportController::class, 'stockPositionDetails'])
+                ->name('stock-position.details');
+            Route::get('/stock-position/details/excel', [ReportController::class, 'stockPositionDetailsExcel'])
+                ->name('stock-position.details.excel');
+            Route::get('/stock-position/details/pdf', [ReportController::class, 'stockPositionDetailsPdf'])
+                ->name('stock-position.details.pdf');
             Route::get('/stock-position/export/excel', [ReportController::class, 'stockPositionExcel'])
                 ->name('stock-position.export.excel');
             Route::get('/stock-position/export/pdf', [ReportController::class, 'stockPositionPdf'])

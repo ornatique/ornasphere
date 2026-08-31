@@ -23,7 +23,7 @@ class JobworkReceiveController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
 
         if ($request->ajax()) {
-            return $this->receiveVoucherDataTable($this->baseQuery($company, $request), $company, false);
+            return $this->receiveVoucherDataTable($this->baseQuery($company, $request), $company);
         }
 
         $jobWorkers = $this->jobWorkers($company);
@@ -118,11 +118,25 @@ class JobworkReceiveController extends Controller
             ->download('jobwork_receive_' . $row->voucher_no . '.pdf');
     }
 
+    public function exportPdf(Request $request, string $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $rows = $this->baseQuery($company, $request)->get();
+
+        return Pdf::loadView('company.jobwork_receive.pdf.index', compact('company', 'rows'))
+            ->setPaper('a4', 'landscape')
+            ->download('jobwork_receive_report.pdf');
+    }
+
     private function baseQuery(Company $company, Request $request)
     {
         $fromDate = $request->input('from_date');
         $toDate = $request->input('to_date');
         $workerId = $request->input('worker_id');
+        $status = $request->input('status');
+        $searchText = trim((string) $request->input('search_text', ''));
+        $issueNetSql = '(select coalesce(sum(jii.net_wt), 0) from jobwork_issue_items jii where jii.jobwork_issue_id = jobwork_issues.id)';
+        $receiveNetSql = '(select coalesce(sum(jri.receive_net_wt), 0) from jobwork_receives jr inner join jobwork_receive_items jri on jri.jobwork_receive_id = jr.id where jr.jobwork_issue_id = jobwork_issues.id)';
 
         return JobworkIssue::query()
             ->where('company_id', $company->id)
@@ -146,6 +160,20 @@ class JobworkReceiveController extends Controller
             ->when($fromDate, fn($q) => $q->whereDate('jobwork_date', '>=', $fromDate))
             ->when($toDate, fn($q) => $q->whereDate('jobwork_date', '<=', $toDate))
             ->when($workerId, fn($q) => $q->where('job_worker_id', (int) $workerId))
+            ->when($searchText !== '', fn($q) => $q->where(function ($query) use ($searchText) {
+                $query->where('voucher_no', 'like', '%' . $searchText . '%')
+                    ->orWhereHas('jobWorker', fn($workerQuery) => $workerQuery->where('name', 'like', '%' . $searchText . '%'))
+                    ->orWhereHas('productionStep', fn($stepQuery) => $stepQuery->where('name', 'like', '%' . $searchText . '%'));
+            }))
+            ->when($status === 'pending', fn($q) => $q
+                ->whereRaw($issueNetSql . ' > 0')
+                ->whereRaw($receiveNetSql . ' <= 0.0005'))
+            ->when($status === 'partial', fn($q) => $q
+                ->whereRaw($receiveNetSql . ' > 0.0005')
+                ->whereRaw('(' . $issueNetSql . ' - ' . $receiveNetSql . ') > 0.0005'))
+            ->when($status === 'completed', fn($q) => $q
+                ->whereRaw($issueNetSql . ' > 0')
+                ->whereRaw('(' . $issueNetSql . ' - ' . $receiveNetSql . ') <= 0.0005'))
             ->latest('jobwork_date')
             ->latest('id');
     }

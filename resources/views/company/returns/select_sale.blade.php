@@ -273,6 +273,15 @@
 @push('scripts')
 <script>
 $(function() {
+    if ($.fn.select2) {
+        $('#filter_customer').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'Select Customer',
+            allowClear: true
+        });
+    }
+
     const selectedApprovalItemIds = new Set();
     const selectedRows = {};
     let modalRowId = null;

@@ -83,7 +83,7 @@
                 <div class="col-md-3">
                     <label>Customer</label>
                     <select id="customer_id" class="form-select">
-                        <option value="">All Persons</option>
+                        <option value="">All Customers</option>
                         @foreach($customers as $customer)
                         <option value="{{ $customer->id }}">
                             {{ $customer->name }}
@@ -147,6 +147,14 @@
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     $('#from_date').val(today);
     $('#to_date').val(today);
+    if ($.fn.select2) {
+        $('#customer_id').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'All Customers',
+            allowClear: true
+        });
+    }
 
     let table = $('#approvalTable').DataTable({
         processing: true,
@@ -252,7 +260,7 @@
     });
 
     $('#clearBtn').click(function() {
-        $('#customer_id').val('');
+        $('#customer_id').val('').trigger('change.select2');
         $('#from_date').val(today);
         $('#to_date').val(today);
         updateApprovalPdfLink();
@@ -272,6 +280,6 @@
     $('#customer_id, #from_date, #to_date').on('change', updateApprovalPdfLink);
 
     updateApprovalPdfLink();
-    $('#customer_id').val('').trigger('change');
+    $('#customer_id').val('').trigger('change.select2');
 </script>
 @endpush

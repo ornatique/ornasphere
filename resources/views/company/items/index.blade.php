@@ -115,6 +115,9 @@
                 },
                 success: function(response) {
                     table.ajax.reload(null, false);
+                },
+                error: function(xhr) {
+                    alert(xhr.responseJSON?.message || 'Unable to delete item.');
                 }
             });
 

@@ -47,6 +47,16 @@ class Customer extends Model
         return $this->hasOne(JobWorker::class, 'person_id');
     }
 
+    public function scopeSaleParties($query)
+    {
+        return $query->where(function ($q) {
+            $q->whereDoesntHave('categoryPerson')
+                ->orWhereHas('categoryPerson', function ($category) {
+                    $category->whereRaw('LOWER(TRIM(category_name)) <> ?', ['worker']);
+                });
+        });
+    }
+
     public function advanceLedgers()
     {
         return $this->hasMany(CustomerAdvanceLedger::class);

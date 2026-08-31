@@ -14,6 +14,7 @@ class ItemController extends Controller
         $companyId = $request->user()->company_id;
 
         $items = Item::where('company_id', $companyId)
+            ->withCount(['itemSets', 'itemLabels'])
             ->when(
                 $request->boolean('label_configured_only') || $request->boolean('has_label_config'),
                 function ($query) use ($companyId) {
@@ -23,7 +24,13 @@ class ItemController extends Controller
                 }
             )
             ->latest()
-            ->get();
+            ->get()
+            ->map(function ($item) {
+                $item->is_in_use = ((int) ($item->item_sets_count ?? 0) + (int) ($item->item_labels_count ?? 0)) > 0;
+                $item->delete_status = $item->is_in_use ? 'in_use' : 'deletable';
+
+                return $item;
+            });
 
         return response()->json([
             'success' => true,
@@ -37,6 +44,7 @@ class ItemController extends Controller
         $companyId = $request->user()->company_id;
 
         $item = Item::where('company_id', $companyId)
+            ->withCount(['itemSets', 'itemLabels'])
             ->where('id', $id)
             ->first();
 
@@ -49,7 +57,10 @@ class ItemController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $item
+            'data' => tap($item, function ($row) {
+                $row->is_in_use = ((int) ($row->item_sets_count ?? 0) + (int) ($row->item_labels_count ?? 0)) > 0;
+                $row->delete_status = $row->is_in_use ? 'in_use' : 'deletable';
+            })
         ]);
     }
 
@@ -150,6 +161,14 @@ class ItemController extends Controller
                 'success' => false,
                 'message' => 'Item not found'
             ], 404);
+        }
+
+        if ($item->isInUseInLabelStock()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This item is in use in label stock and cannot be deleted.',
+                'code' => 'ITEM_IN_USE',
+            ], 422);
         }
 
         $item->delete();

@@ -256,6 +256,28 @@ $(function () {
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     $('#from_date').val(today);
     $('#to_date').val(today);
+    if ($.fn.select2) {
+        $('#customer_id').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'All Parties',
+            allowClear: true
+        });
+
+        $('#city').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'All Cities',
+            allowClear: true
+        });
+
+        $('#payment_mode').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'All Modes',
+            allowClear: true
+        });
+    }
 
     function syncFilterInputs() {
         if ($('#use_default_report').is(':checked')) {
@@ -272,7 +294,7 @@ $(function () {
         ];
         toggleMap.forEach(([toggle, inputs]) => {
             const enabled = $(toggle).is(':checked');
-            inputs.forEach(sel => $(sel).prop('disabled', !enabled));
+            inputs.forEach(sel => $(sel).prop('disabled', !enabled).trigger('change.select2'));
         });
     }
 
@@ -344,9 +366,9 @@ $(function () {
         syncFilterInputs();
         $('#from_date').val(today);
         $('#to_date').val(today);
-        $('#customer_id').val('');
-        $('#city').val('');
-        $('#payment_mode').val('');
+        $('#customer_id').val('').trigger('change.select2');
+        $('#city').val('').trigger('change.select2');
+        $('#payment_mode').val('').trigger('change.select2');
         $('#weight_from').val('');
         $('#weight_to').val('');
         $('#amount_from').val('');

@@ -147,17 +147,17 @@
                                 <th>Gross Wt</th>
                                 <th>Other Wt</th>
                                 <th>Net Wt</th>
-                                <th>Purity</th>
-                                <th>Waste %</th>
+                                <th>Purity <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="purity" title="Apply first row purity to all rows">All</button></th>
+                                <th>Waste % <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="waste_percent" title="Apply first row waste to all rows">All</button></th>
                                 <th>Net Purity</th>
                                 <th>Fine Wt</th>
-                                <th>Metal Rate</th>
-                                <th>Apply</th>
+                                <th>Metal Rate <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="metal_rate" title="Apply first row metal rate to all rows">All</button></th>
+                                <th>Apply <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="apply_metal" title="Apply first row metal checkbox to all rows">All</button></th>
                                 <th>Metal Amt</th>
-                                <th>Labour Rate</th>
-                                <th>Apply</th>
+                                <th>Labour Rate <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="labour_rate" title="Apply first row labour rate to all rows">All</button></th>
+                                <th>Apply <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="apply_labour" title="Apply first row labour checkbox to all rows">All</button></th>
                                 <th>Labour Amt</th>
-                                <th>Other Amt</th>
+                                <th>Other Amt <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="other_amount" title="Apply first row other amount to all rows">All</button></th>
                                 <th>Total Amt</th>
                                 <th>Remarks</th>
                                 <th>Action</th>
@@ -661,6 +661,14 @@
     #saleTable input.purity,
     #saleTable input.waste-percent {
         min-width: 125px;
+    }
+
+    #saleTable .apply-first-column {
+        margin-left: 6px;
+        padding: 2px 8px;
+        font-size: 11px;
+        line-height: 1.2;
+        white-space: nowrap;
     }
 
     .other-amount-wrap {
@@ -1208,6 +1216,45 @@ $(function () {
             const rowKey = String(this.id || '').replace('row_', '');
             if (!rowKey || !selectedRows[rowKey]) return;
             $(`.labour-rate[data-id="${rowKey}"]`).val(nfix(rateValue, 2));
+            recalcRow(rowKey);
+        });
+    }
+
+    function applyFirstRowColumnToAll(column) {
+        const firstRowKey = getFirstRowKey();
+        if (!firstRowKey || !selectedRows[firstRowKey]) return;
+
+        const config = {
+            purity: { selector: '.purity', decimals: 3 },
+            waste_percent: { selector: '.waste-percent', decimals: 3 },
+            metal_rate: { selector: '.metal-rate', decimals: 2 },
+            labour_rate: { selector: '.labour-rate', decimals: 2 },
+            other_amount: { selector: '.other-amount', decimals: 2 },
+            apply_metal: { selector: '.apply-metal', checkbox: true },
+            apply_labour: { selector: '.apply-labour', checkbox: true },
+        }[column];
+
+        if (!config) return;
+
+        const $source = $(`${config.selector}[data-id="${firstRowKey}"]`);
+        const sourceValue = config.checkbox ? $source.is(':checked') : toNum($source.val() || 0);
+
+        $('#saleBody tr').each(function() {
+            const rowKey = String(this.id || '').replace('row_', '');
+            if (!rowKey || !selectedRows[rowKey]) return;
+
+            const $target = $(`${config.selector}[data-id="${rowKey}"]`);
+            if (config.checkbox) {
+                $target.prop('checked', sourceValue);
+            } else {
+                $target.val(nfix(sourceValue, config.decimals));
+            }
+
+            if (column === 'other_amount' && rowKey !== firstRowKey) {
+                selectedRows[rowKey].other_charges = [];
+                $(`.other-charge-details[data-id="${rowKey}"]`).val('');
+            }
+
             recalcRow(rowKey);
         });
     }
@@ -1817,6 +1864,12 @@ $(function () {
         if (changedKey && firstRowKey && changedKey === firstRowKey) {
             applyLabourRateToAll(toNum($(this).val() || 0));
         }
+    });
+
+    $(document).on('click', '.apply-first-column', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        applyFirstRowColumnToAll(String($(this).data('column') || ''));
     });
 
     $(document).on('input', '.remarks', function() {

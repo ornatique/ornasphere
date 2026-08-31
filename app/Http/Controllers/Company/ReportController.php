@@ -391,12 +391,23 @@ class ReportController extends Controller
                 ->filterColumn('stock_type_name', function ($query, $keyword) {
                     $query->where('stock_rows.stock_type_name', 'like', '%' . $keyword . '%');
                 })
+                ->addColumn('item_name_link', function ($row) use ($company) {
+                    $url = route('company.reports.stock-position.details', [
+                        $company->slug,
+                        'item_id' => $row->item_id,
+                        'stock_type' => $row->stock_type,
+                        'customer_id' => $row->customer_id,
+                    ]);
+
+                    return '<a href="' . e($url) . '" class="text-info fw-semibold">' . e($row->item_name ?: '-') . '</a>';
+                })
                 ->editColumn('qty_pcs', fn($row) => (int) ($row->qty_pcs ?? 0))
                 ->editColumn('gross_weight', fn($row) => number_format((float) ($row->gross_weight ?? 0), 3))
                 ->editColumn('net_weight', fn($row) => number_format((float) ($row->net_weight ?? 0), 3))
                 ->editColumn('fine_weight', fn($row) => number_format((float) ($row->fine_weight ?? 0), 3))
                 ->editColumn('labour_amount', fn($row) => number_format((float) ($row->labour_amount ?? 0), 2))
                 ->editColumn('other_amount', fn($row) => number_format((float) ($row->other_amount ?? 0), 2))
+                ->rawColumns(['item_name_link'])
                 ->make(true);
         }
 
@@ -451,6 +462,86 @@ class ReportController extends Controller
         return Pdf::loadView('company.reports.pdf.stock_position', compact('company', 'rows'))
             ->setPaper('a4', 'portrait')
             ->download('stock_position_report.pdf');
+    }
+
+    public function stockPositionDetails(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $rows = $this->stockPositionDetailRows($company, $request);
+        $summary = $this->stockPositionDetailSummary($rows);
+        $itemName = optional($rows->first())->item_name ?: 'Stock Details';
+        $stockTypeName = $this->stockPositionStockTypeName($request->input('stock_type'));
+        $customerName = optional($rows->first())->customer_name ?: '-';
+
+        return view('company.reports.stock_position_details', compact(
+            'company',
+            'rows',
+            'summary',
+            'itemName',
+            'stockTypeName',
+            'customerName'
+        ));
+    }
+
+    public function stockPositionDetailsPdf(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $rows = $this->stockPositionDetailRows($company, $request);
+        $summary = $this->stockPositionDetailSummary($rows);
+        $itemName = optional($rows->first())->item_name ?: 'Stock Details';
+        $stockTypeName = $this->stockPositionStockTypeName($request->input('stock_type'));
+        $customerName = optional($rows->first())->customer_name ?: '-';
+
+        return Pdf::loadView('company.reports.pdf.stock_position_details', compact(
+            'company',
+            'rows',
+            'summary',
+            'itemName',
+            'stockTypeName',
+            'customerName'
+        ))
+            ->setPaper('a4', 'portrait')
+            ->download('stock_position_details.pdf');
+    }
+
+    public function stockPositionDetailsExcel(Request $request, $slug): StreamedResponse
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $rows = $this->stockPositionDetailRows($company, $request);
+        $summary = $this->stockPositionDetailSummary($rows);
+
+        return response()->streamDownload(function () use ($rows, $summary) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, ['#', 'Date', 'Label Code', 'Item', 'Qty Pcs', 'Gross Wt', 'Net Wt', 'Fine Wt']);
+
+            foreach ($rows as $index => $row) {
+                fputcsv($out, [
+                    $index + 1,
+                    $row->source_date ? Carbon::parse($row->source_date)->format('d-m-Y h:i A') : '-',
+                    $row->label_code ?? '-',
+                    $row->item_name ?? '-',
+                    (int) ($row->qty_pcs ?? 0),
+                    number_format((float) ($row->gross_weight ?? 0), 3, '.', ''),
+                    number_format((float) ($row->net_weight ?? 0), 3, '.', ''),
+                    number_format((float) ($row->fine_weight ?? 0), 3, '.', ''),
+                ]);
+            }
+
+            fputcsv($out, []);
+            fputcsv($out, [
+                'Total',
+                '',
+                '',
+                '',
+                (int) $summary['qty_pcs'],
+                number_format((float) $summary['gross_weight'], 3, '.', ''),
+                number_format((float) $summary['net_weight'], 3, '.', ''),
+                number_format((float) $summary['fine_weight'], 3, '.', ''),
+            ]);
+            fclose($out);
+        }, 'stock_position_details.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
     }
 
     public function workerLoss(Request $request, $slug)
@@ -1280,6 +1371,161 @@ class ReportController extends Controller
                 DB::raw('SUM(stock_rows.other_amount) as other_amount'),
             ])
             ->groupBy('stock_rows.item_id', 'stock_rows.item_name', 'stock_rows.stock_type', 'stock_rows.stock_type_name', 'stock_rows.customer_id', 'stock_rows.customer_name');
+    }
+
+    private function stockPositionDetailRows(Company $company, Request $request): Collection
+    {
+        $itemId = (int) $request->input('item_id');
+        $stockType = $this->stockPositionNormalizeStockType($request->input('stock_type'));
+        $customerId = $request->filled('customer_id') ? (int) $request->input('customer_id') : null;
+        $rows = collect();
+
+        if ($itemId <= 0) {
+            return $rows;
+        }
+
+        if ($stockType === 'finished_item' && $customerId === null) {
+            $rows = $rows->merge(
+                ItemSet::query()
+                    ->join('items', 'items.id', '=', 'item_sets.item_id')
+                    ->where('item_sets.company_id', $company->id)
+                    ->where('item_sets.item_id', $itemId)
+                    ->where('item_sets.is_final', 1)
+                    ->where('item_sets.is_sold', 0)
+                    ->select([
+                        DB::raw("'Label Stock' as source"),
+                        DB::raw('item_sets.created_at as source_date'),
+                        DB::raw('COALESCE(item_sets.qr_code, item_sets.barcode) as reference_no'),
+                        'items.item_name',
+                        DB::raw("'Finished Item' as stock_type_name"),
+                        DB::raw("'-' as customer_name"),
+                        DB::raw('COALESCE(item_sets.qr_code, item_sets.barcode) as label_code'),
+                        'item_sets.HUID as huid',
+                        'item_sets.size',
+                        DB::raw('1 as qty_pcs'),
+                        'item_sets.gross_weight',
+                        DB::raw('item_sets.other as other_weight'),
+                        'item_sets.net_weight',
+                        DB::raw('item_sets.net_weight as fine_weight'),
+                        'item_sets.sale_labour_amount as labour_amount',
+                        'item_sets.sale_other as other_amount',
+                        DB::raw('NULL as remarks'),
+                    ])
+                    ->orderBy('item_sets.qr_code')
+                    ->get()
+            );
+        }
+
+        if ($stockType === 'customer_received') {
+            $rows = $rows->merge(
+                DB::table('customer_advance_voucher_items as cavi')
+                    ->join('customer_advance_vouchers as cav', 'cav.id', '=', 'cavi.voucher_id')
+                    ->join('customers', 'customers.id', '=', 'cav.customer_id')
+                    ->leftJoin('items', 'items.id', '=', 'cavi.product_id')
+                    ->where('cav.company_id', $company->id)
+                    ->where('cavi.product_id', $itemId)
+                    ->when($customerId !== null, fn($q) => $q->where('cav.customer_id', $customerId))
+                    ->select([
+                        DB::raw("'Customer Received' as source"),
+                        DB::raw('cav.voucher_date as source_date'),
+                        'cav.voucher_no as reference_no',
+                        DB::raw("COALESCE(items.item_name, cavi.item_name, 'Unknown Item') as item_name"),
+                        DB::raw("'Customer Received' as stock_type_name"),
+                        'customers.name as customer_name',
+                        'cavi.label_code',
+                        'cavi.huid',
+                        DB::raw('NULL as size'),
+                        DB::raw('1 as qty_pcs'),
+                        'cavi.gross_weight',
+                        'cavi.other_weight',
+                        'cavi.net_weight',
+                        'cavi.fine_weight',
+                        'cavi.labour_amount',
+                        'cavi.other_amount',
+                        'cavi.remarks',
+                    ])
+                    ->orderByDesc('cav.voucher_date')
+                    ->orderByDesc('cavi.id')
+                    ->get()
+            );
+        }
+
+        if (in_array($stockType, ['raw_material', 'finished_item', 'scrap', 'repair'], true) && $customerId === null) {
+            $rows = $rows->merge(
+                DB::table('casting_sorting_items as csi')
+                    ->join('items', 'items.id', '=', 'csi.item_id')
+                    ->leftJoin('vacuum_vouchers as vv', 'vv.id', '=', 'csi.vacuum_voucher_id')
+                    ->where('csi.company_id', $company->id)
+                    ->where('csi.item_id', $itemId)
+                    ->where(DB::raw("COALESCE(csi.stock_type, 'raw_material')"), $stockType)
+                    ->select([
+                        DB::raw("'Casting Sorting' as source"),
+                        DB::raw('COALESCE(csi.sorted_at, csi.created_at) as source_date'),
+                        'vv.voucher_no as reference_no',
+                        'items.item_name',
+                        DB::raw($this->stockPositionStockTypeNameSql('csi.stock_type') . ' as stock_type_name'),
+                        DB::raw("'-' as customer_name"),
+                        DB::raw('NULL as label_code'),
+                        DB::raw('NULL as huid'),
+                        DB::raw('NULL as size'),
+                        DB::raw('COALESCE(csi.quantity, 0) as qty_pcs'),
+                        DB::raw('COALESCE(csi.weight, 0) as gross_weight'),
+                        DB::raw('0 as other_weight'),
+                        DB::raw('COALESCE(csi.weight, 0) as net_weight'),
+                        DB::raw('COALESCE(csi.weight, 0) as fine_weight'),
+                        DB::raw('0 as labour_amount'),
+                        DB::raw('0 as other_amount'),
+                        DB::raw('NULL as remarks'),
+                    ])
+                    ->orderByDesc(DB::raw('COALESCE(csi.sorted_at, csi.created_at)'))
+                    ->orderByDesc('csi.id')
+                    ->get()
+            );
+        }
+
+        return $rows->sortByDesc(fn($row) => (string) ($row->source_date ?? ''))->values();
+    }
+
+    private function stockPositionDetailSummary(Collection $rows): array
+    {
+        return [
+            'qty_pcs' => (int) $rows->sum(fn($row) => (int) ($row->qty_pcs ?? 0)),
+            'gross_weight' => (float) $rows->sum(fn($row) => (float) ($row->gross_weight ?? 0)),
+            'net_weight' => (float) $rows->sum(fn($row) => (float) ($row->net_weight ?? 0)),
+            'fine_weight' => (float) $rows->sum(fn($row) => (float) ($row->fine_weight ?? 0)),
+            'labour_amount' => (float) $rows->sum(fn($row) => (float) ($row->labour_amount ?? 0)),
+            'other_amount' => (float) $rows->sum(fn($row) => (float) ($row->other_amount ?? 0)),
+        ];
+    }
+
+    private function stockPositionNormalizeStockType(?string $stockType): string
+    {
+        $stockType = trim((string) $stockType);
+
+        return in_array($stockType, ['finished_item', 'customer_received', 'raw_material', 'scrap', 'repair'], true)
+            ? $stockType
+            : 'finished_item';
+    }
+
+    private function stockPositionStockTypeName(?string $stockType): string
+    {
+        return match ($this->stockPositionNormalizeStockType($stockType)) {
+            'customer_received' => 'Customer Received',
+            'raw_material' => 'Raw Material',
+            'scrap' => 'Scrap',
+            'repair' => 'Repair',
+            default => 'Finished Item',
+        };
+    }
+
+    private function stockPositionStockTypeNameSql(string $column): string
+    {
+        return "CASE COALESCE({$column}, 'raw_material')
+            WHEN 'finished_item' THEN 'Finished Item'
+            WHEN 'scrap' THEN 'Scrap'
+            WHEN 'repair' THEN 'Repair'
+            ELSE 'Raw Material'
+        END";
     }
 
     private function workerLossBaseQuery(Company $company, Request $request)

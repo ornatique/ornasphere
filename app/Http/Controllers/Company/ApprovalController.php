@@ -26,7 +26,9 @@ class ApprovalController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
 
         $customers = Customer::where('company_id', $company->id)
+            ->saleParties()
             ->where('is_active', 1)
+            ->orderBy('name')
             ->get();
 
         if ($request->ajax()) {
@@ -79,6 +81,9 @@ class ApprovalController extends Controller
                     }
                 ], 'total_amount')
                 ->where('company_id', $company->id)
+                ->whereHas('customer', function ($customer) {
+                    $customer->saleParties();
+                })
                 ->orderByDesc('approval_date')
                 ->orderByDesc('id');
 
@@ -241,6 +246,9 @@ class ApprovalController extends Controller
                 }
             ], 'total_amount')
             ->where('company_id', $company->id)
+            ->whereHas('customer', function ($customer) {
+                $customer->saleParties();
+            })
             ->orderByDesc('approval_date')
             ->orderByDesc('id');
 
@@ -305,7 +313,9 @@ class ApprovalController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
 
         $customers = Customer::where('company_id', $company->id)
+            ->saleParties()
             ->where('is_active', 1)
+            ->orderBy('name')
             ->get();
 
         return view('company.approval.create', compact('company', 'customers'));
@@ -327,7 +337,9 @@ class ApprovalController extends Controller
         }
 
         $customers = Customer::where('company_id', $company->id)
+            ->saleParties()
             ->where('is_active', 1)
+            ->orderBy('name')
             ->get();
 
         $editableItems = $approval->items
@@ -481,6 +493,19 @@ class ApprovalController extends Controller
         DB::beginTransaction();
 
         try {
+            $request->validate([
+                'customer_id' => 'required|integer|exists:customers,id',
+                'items' => 'required|array|min:1',
+            ]);
+
+            $customerExists = Customer::where('company_id', $company->id)
+                ->saleParties()
+                ->where('id', (int) $request->customer_id)
+                ->exists();
+            if (!$customerExists) {
+                throw new \Exception('Invalid customer for this company.');
+            }
+
             $approval = ApprovalHeader::create([
                 'company_id' => $company->id,
                 'customer_id' => $request->customer_id,
@@ -589,6 +614,7 @@ class ApprovalController extends Controller
             ]);
 
             $customerExists = Customer::where('company_id', $company->id)
+                ->saleParties()
                 ->where('id', (int) $request->customer_id)
                 ->exists();
             if (!$customerExists) {
@@ -959,6 +985,9 @@ class ApprovalController extends Controller
 
         $approvals = ApprovalHeader::with('customer')
             ->where('company_id', $company->id)
+            ->whereHas('customer', function ($customer) {
+                $customer->saleParties();
+            })
             ->latest()
             ->get();
 

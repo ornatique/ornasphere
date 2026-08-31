@@ -33,6 +33,7 @@
         .copy {
             width: 100%;
             border: 1px solid #111;
+            overflow: hidden;
         }
         .title {
             text-align: center;
@@ -73,6 +74,9 @@
             text-align: left;
             vertical-align: top;
             font-size: 9px;
+            box-sizing: border-box;
+            overflow: hidden;
+            word-break: break-word;
         }
         .items th {
             font-weight: 700;
@@ -115,6 +119,12 @@
     </style>
 </head>
 <body>
+    @php
+        $issueTime = optional($row->created_at)->format('h:i A');
+        $issueDateTime = $row->jobwork_date
+            ? trim($row->jobwork_date->format('d-m-Y') . ' ' . $issueTime)
+            : optional($row->created_at)->format('d-m-Y h:i A');
+    @endphp
     <table class="sheet-table">
         <tr>
             @for($c = 1; $c <= 2; $c++)
@@ -129,7 +139,7 @@
                     </tr>
                     <tr>
                         <td><span class="kv">Step</span> : {{ $row->productionStep?->name ?? '-' }}</td>
-                        <td class="right"><span class="kv">Date</span> : {{ optional($row->jobwork_date)->format('d-m-y') }}</td>
+                        <td class="right"><span class="kv">Date</span> : {{ $issueDateTime ?: '-' }}</td>
                     </tr>
                 </table>
 
@@ -137,11 +147,11 @@
                     <thead>
                         <tr>
                             <th style="width:7%;">Sr</th>
-                            <th style="width:39%;">Item</th>
+                            <th style="width:34%;">Item</th>
                             <th style="width:13%;" class="num">Purity</th>
-                            <th style="width:14%;" class="num">Gross Wt</th>
-                            <th style="width:14%;" class="num">Net Wt</th>
-                            <th style="width:13%;" class="num">Fine Wt</th>
+                            <th style="width:16%;" class="num">Gross Wt</th>
+                            <th style="width:16%;" class="num">Net Wt</th>
+                            <th style="width:14%;" class="num">Fine Wt</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -149,7 +159,10 @@
                             <tr>
                                 <td>{{ $index + 1 }}</td>
                                 <td>
-                                    {{ $item->item?->item_name ?? '-' }}
+                                    @php
+                                        $itemName = (string) ($item->item?->item_name ?? '-');
+                                    @endphp
+                                    {{ strlen($itemName) > 15 ? substr($itemName, 0, 15) . '...' : $itemName }}
                                     @if(!empty($item->remarks))
                                         <div class="item-remark">Remark: {{ $item->remarks }}</div>
                                     @endif

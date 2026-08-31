@@ -297,6 +297,15 @@
 @push('scripts')
 <script>
 $(function () {
+    if ($.fn.select2) {
+        $('#customer_id').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'Select Customer',
+            allowClear: true
+        });
+    }
+
     const isEdit = {{ !empty($isEdit) ? 'true' : 'false' }};
     const saveUrl = isEdit
         ? "{{ !empty($approval) ? route('company.approval.update', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $approval->id)]) : '' }}"

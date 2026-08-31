@@ -25,6 +25,7 @@ class ApprovalApiController extends Controller
         $companyId = $request->user()->company_id;
 
         $customers = Customer::where('company_id', $companyId)
+            ->saleParties()
             ->where('is_active', 1)
             ->orderBy('name')
             ->get();
@@ -94,7 +95,10 @@ class ApprovalApiController extends Controller
                     $q->where('status', '!=', 'returned');
                 }
             ], 'total_amount')
-            ->where('company_id', $companyId);
+            ->where('company_id', $companyId)
+            ->whereHas('customer', function ($customer) {
+                $customer->saleParties();
+            });
 
         if ($request->filled('customer_id')) {
             $query->where('customer_id', $request->customer_id);
@@ -373,6 +377,7 @@ class ApprovalApiController extends Controller
 
         try {
             $customerExists = Customer::where('company_id', $companyId)
+                ->saleParties()
                 ->where('id', $customerId)
                 ->exists();
             if (!$customerExists) {
@@ -543,6 +548,7 @@ class ApprovalApiController extends Controller
         ]);
 
         $customerExists = Customer::where('company_id', $companyId)
+            ->saleParties()
             ->where('id', (int) $request->customer_id)
             ->exists();
 
@@ -685,6 +691,7 @@ class ApprovalApiController extends Controller
             'remarks' => 'nullable|string',
         ]);
         $customerExists = Customer::where('company_id', $companyId)
+            ->saleParties()
             ->where('id', (int) $request->customer_id)
             ->exists();
         if (!$customerExists) {
@@ -932,6 +939,7 @@ class ApprovalApiController extends Controller
         ]);
 
         $customerExists = Customer::where('company_id', $companyId)
+            ->saleParties()
             ->where('id', (int) $request->customer_id)
             ->exists();
         if (!$customerExists) {
@@ -1181,6 +1189,9 @@ class ApprovalApiController extends Controller
                 }
             ], 'total_amount')
             ->where('company_id', $company->id)
+            ->whereHas('customer', function ($customer) {
+                $customer->saleParties();
+            })
             ->orderByDesc('approval_date')
             ->orderByDesc('id');
 

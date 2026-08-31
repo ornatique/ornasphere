@@ -319,6 +319,28 @@ $(function () {
     const $voucherInput = $('#voucher_no');
     const $voucherResults = $('#voucher_results');
     let voucherSuggestTimer = null;
+    if ($.fn.select2) {
+        $('#worker_id').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'All Workers',
+            allowClear: true
+        });
+
+        $('#stage').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'All Stages',
+            allowClear: true
+        });
+
+        $('#loss_type').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'All',
+            allowClear: true
+        });
+    }
 
     const table = $('#workerLossTable').DataTable({
         processing: true,
@@ -369,10 +391,10 @@ $(function () {
     $('#reset').on('click', function () {
         $('#from_date').val(defaultFromDate);
         $('#to_date').val(defaultToDate);
-        $('#worker_id').val('');
+        $('#worker_id').val('').trigger('change.select2');
         $('#voucher_no').val('');
-        $('#stage').val('');
-        $('#loss_type').val('');
+        $('#stage').val('').trigger('change.select2');
+        $('#loss_type').val('').trigger('change.select2');
         $('#only_loss').prop('checked', false);
         $voucherResults.hide().empty();
         table.draw();

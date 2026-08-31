@@ -45,7 +45,8 @@ class SaleController extends Controller
                 ->withSum('saleItems as sum_metal_amount', 'metal_amount')
                 ->withSum('saleItems as sum_labour_amount', 'labour_amount')
                 ->withSum('saleItems as sum_other_amount', 'other_amount')
-                ->where('company_id', $company->id);
+                ->where('company_id', $company->id)
+                ->whereHas('customer', fn($customer) => $customer->saleParties());
 
             if ($request->filled('customer_id')) {
                 $query->where('customer_id', (int) $request->customer_id);
@@ -148,6 +149,7 @@ class SaleController extends Controller
         // ✅ NORMAL VIEW
         $customers = Customer::where('company_id', $company->id)
             ->where('is_active', 1)
+            ->saleParties()
             ->orderBy('name')
             ->get();
 
@@ -194,6 +196,7 @@ class SaleController extends Controller
             ->withSum('saleItems as sum_labour_amount', 'labour_amount')
             ->withSum('saleItems as sum_other_amount', 'other_amount')
             ->where('company_id', $companyId)
+            ->whereHas('customer', fn($customer) => $customer->saleParties())
             ->whereBetween('sale_date', [
                 Carbon::parse($fromDate)->startOfDay(),
                 Carbon::parse($toDate)->endOfDay(),
@@ -296,6 +299,7 @@ class SaleController extends Controller
 
         $customers = Customer::where('company_id', $company->id)
             ->where('is_active', 1)
+            ->saleParties()
             ->get();
 
         $itemsets = ItemSet::with('item')
@@ -325,6 +329,7 @@ class SaleController extends Controller
 
         $customers = Customer::where('company_id', $company->id)
             ->where('is_active', 1)
+            ->saleParties()
             ->get();
 
         $itemsets = ItemSet::with('item')
@@ -655,6 +660,7 @@ class SaleController extends Controller
 
             $customerExists = Customer::where('company_id', $company->id)
                 ->where('id', (int) $request->customer_id)
+                ->saleParties()
                 ->exists();
 
             if (!$customerExists) {
@@ -850,6 +856,7 @@ class SaleController extends Controller
 
             $customerExists = Customer::where('company_id', $company->id)
                 ->where('id', (int) $request->customer_id)
+                ->saleParties()
                 ->exists();
             if (!$customerExists) {
                 throw new \Exception('Invalid customer for this company.');

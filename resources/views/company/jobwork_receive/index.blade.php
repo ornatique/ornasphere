@@ -9,27 +9,41 @@
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
             <h4 class="card-title">Jobwork Receive Voucher List</h4>
-            <a href="{{ route('company.jobwork-receive.create', $company->slug) }}" class="btn btn-primary">
-                + Receive Jobwork
-            </a>
+            <div class="d-flex flex-wrap gap-2">
+                <a href="{{ route('company.jobwork-receive.export-pdf', $company->slug) }}" id="exportPdfBtn" class="btn btn-danger">
+                    PDF
+                </a>
+                <a href="{{ route('company.jobwork-receive.create', $company->slug) }}" class="btn btn-primary">
+                    + Receive Jobwork
+                </a>
+            </div>
         </div>
         <div class="card-body">
-            <form class="row g-2 mb-3 align-items-end jobwork-receive-filter">
-                <div class="col-md-3">
+            <form class="d-flex flex-wrap gap-2 mb-3 align-items-end jobwork-receive-filter">
+                <div class="filter-date-col">
                     <label class="form-label mb-1">From Date</label>
                     <input type="date" id="from_date" class="form-control" value="{{ $defaultFromDate }}">
                 </div>
-                <div class="col-md-3">
+                <div class="filter-date-col">
                     <label class="form-label mb-1">To Date</label>
                     <input type="date" id="to_date" class="form-control" value="{{ $defaultToDate }}">
                 </div>
-                <div class="col-md-3">
+                <div class="filter-worker-col">
                     <label class="form-label mb-1">Worker Name</label>
-                    <select id="worker_id" class="form-control filter-control">
+                    <select id="worker_id" class="form-control filter-control searchable-worker-select">
                         <option value="">All Workers</option>
                         @foreach($jobWorkers as $worker)
                             <option value="{{ $worker->id }}">{{ $worker->name }}</option>
                         @endforeach
+                    </select>
+                </div>
+                <div class="filter-status-col">
+                    <label class="form-label mb-1">Status</label>
+                    <select id="status" class="form-control filter-control">
+                        <option value="">All Status</option>
+                        <option value="pending">Pending</option>
+                        <option value="partial">Partial</option>
+                        <option value="completed">Completed</option>
                     </select>
                 </div>
                 <div class="filter-action-col d-grid">
@@ -65,6 +79,15 @@
 
 @push('scripts')
 <script>
+    if ($.fn.select2) {
+        $('#worker_id').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'All Workers',
+            allowClear: true
+        });
+    }
+
     const table = $('#jobworkReceiveTable').DataTable({
         processing: true,
         serverSide: true,
@@ -74,6 +97,7 @@
                 d.from_date = $('#from_date').val();
                 d.to_date = $('#to_date').val();
                 d.worker_id = $('#worker_id').val();
+                d.status = $('#status').val();
             }
         },
         order: [],
@@ -98,8 +122,23 @@
     $('#resetBtn').on('click', function() {
         $('#from_date').val('');
         $('#to_date').val('');
-        $('#worker_id').val('');
+        $('#worker_id').val('').trigger('change.select2');
+        $('#status').val('');
         table.ajax.reload();
+    });
+
+    $('#exportPdfBtn').on('click', function(e) {
+        e.preventDefault();
+
+        const params = new URLSearchParams({
+            from_date: $('#from_date').val() || '',
+            to_date: $('#to_date').val() || '',
+            worker_id: $('#worker_id').val() || '',
+            status: $('#status').val() || '',
+            search_text: table.search() || '',
+        });
+
+        window.location.href = this.href + '?' + params.toString();
     });
 </script>
 @endpush
@@ -109,6 +148,22 @@
     .jobwork-receive-filter .form-control,
     .jobwork-receive-filter .btn {
         min-height: 48px;
+    }
+
+    .jobwork-receive-filter .filter-date-col {
+        flex: 0 0 185px;
+        max-width: 185px;
+    }
+
+    .jobwork-receive-filter .filter-worker-col {
+        flex: 1 1 280px;
+        min-width: 240px;
+        max-width: 380px;
+    }
+
+    .jobwork-receive-filter .filter-status-col {
+        flex: 0 0 220px;
+        max-width: 220px;
     }
 
     .jobwork-receive-filter .filter-control {
@@ -126,6 +181,9 @@
     }
 
     @media (max-width: 767.98px) {
+        .jobwork-receive-filter .filter-date-col,
+        .jobwork-receive-filter .filter-worker-col,
+        .jobwork-receive-filter .filter-status-col,
         .jobwork-receive-filter .filter-action-col {
             flex: 0 0 100%;
             max-width: 100%;

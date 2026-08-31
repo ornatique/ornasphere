@@ -5,30 +5,117 @@
     <title>Jobwork Receive {{ $row->voucher_no }}</title>
     <style>
         @page {
-            margin: 8px;
+            margin: 5px;
         }
 
-        body { font-family: DejaVu Sans, sans-serif; font-size: 8px; color: #111; margin: 0; }
-        h2 { text-align: center; margin: 0 0 4px; font-size: 14px; }
-        h4 { text-align: center; margin: 0 0 6px; font-size: 10px; }
-        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        th, td { border: 1px solid #333; padding: 3px 4px; vertical-align: top; }
-        th { background: #eee; font-weight: 700; }
-        .meta td { width: 25%; }
-        .right { text-align: right; }
-        .total td { font-weight: bold; background: #f2f2f2; }
-        .mb { margin-bottom: 8px; }
-        .items th:nth-child(1), .items td:nth-child(1) { width: 6%; }
-        .items th:nth-child(2), .items td:nth-child(2) { width: 14%; }
-        .items th:nth-child(3), .items td:nth-child(3) { width: 11%; }
-        .items th:nth-child(4), .items td:nth-child(4) { width: 13%; }
-        .items th:nth-child(5), .items td:nth-child(5) { width: 10%; }
-        .items th:nth-child(6), .items td:nth-child(6) { width: 12%; }
-        .items th:nth-child(7), .items td:nth-child(7) { width: 12%; }
-        .items th:nth-child(8), .items td:nth-child(8) { width: 8%; }
-        .items th:nth-child(9), .items td:nth-child(9) { width: 12%; }
-        .items th:nth-child(10), .items td:nth-child(10) { width: 10%; }
-        .nowrap { white-space: nowrap; }
+        body {
+            font-family: DejaVu Sans, sans-serif;
+            font-size: 8px;
+            margin: 0;
+            color: #111;
+        }
+        .sheet-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        .sheet-table > tbody > tr > td {
+            width: 50%;
+            vertical-align: top;
+            padding: 0;
+        }
+        .sheet-table > tbody > tr > td:first-child {
+            padding-right: 2.5px;
+        }
+        .sheet-table > tbody > tr > td:last-child {
+            padding-left: 2.5px;
+        }
+        .copy {
+            width: 100%;
+            border: 1px solid #111;
+            overflow: hidden;
+        }
+        .title {
+            text-align: center;
+            font-weight: 700;
+            border-bottom: 1px solid #111;
+            padding: 4px 0;
+            font-size: 11px;
+            letter-spacing: 0;
+        }
+        .meta-grid {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .meta-grid td {
+            border-bottom: 1px solid #111;
+            padding: 3px 4px;
+            vertical-align: top;
+            font-size: 8px;
+        }
+        .meta-grid td.right {
+            text-align: left;
+            width: 38%;
+            border-left: 1px solid #111;
+        }
+        .kv {
+            font-weight: 700;
+            display: inline-block;
+            min-width: 24px;
+        }
+        .items {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        .items th, .items td {
+            border: 1px solid #111;
+            padding: 3px 3px;
+            text-align: left;
+            vertical-align: top;
+            font-size: 7px;
+            box-sizing: border-box;
+            overflow: hidden;
+            word-break: break-word;
+        }
+        .items th {
+            font-weight: 700;
+            background: #f2f2f2;
+        }
+        .num {
+            text-align: right;
+            white-space: nowrap;
+        }
+        .totals td {
+            font-weight: 700;
+        }
+        .footer-grid {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .footer-grid td {
+            border: 1px solid #111;
+            padding: 3px 4px;
+            vertical-align: top;
+            font-size: 8px;
+        }
+        .left-col {
+            width: 49%;
+            white-space: nowrap;
+        }
+        .right-col {
+            width: 51%;
+        }
+        .item-remark {
+            margin-top: 1px;
+            font-size: 7px;
+            font-weight: 700;
+        }
+        .f-label {
+            font-weight: 700;
+            display: inline-block;
+            min-width: 66px;
+        }
     </style>
 </head>
 <body>
@@ -37,101 +124,133 @@
     $totalOtherWt = 0;
     $totalReceiveNet = 0;
     $totalReceiveFine = 0;
-    $totalReceiveQty = 0;
     $totalIssueNet = (float) ($row->net_wt_sum ?? 0);
+    $issueTime = optional($row->created_at)->format('h:i A');
+    $receiveSavedAt = $receive->updated_at ?: $receive->created_at;
+    $receiveTime = optional($receiveSavedAt)->format('h:i A');
+    $issueDateTime = $row->jobwork_date
+        ? trim($row->jobwork_date->format('d-m-Y') . ' ' . $issueTime)
+        : optional($row->created_at)->format('d-m-Y h:i A');
+    $receiveDateTime = $receive->receive_date
+        ? trim($receive->receive_date->format('d-m-Y') . ' ' . $receiveTime)
+        : optional($receiveSavedAt)->format('d-m-Y h:i A');
+
+    $receiveRows = collect($receive->items ?? [])->map(function ($saved) use (&$totalReceiveGross, &$totalOtherWt, &$totalReceiveNet, &$totalReceiveFine) {
+        $issueItem = $saved->jobworkIssueItem;
+        $item = $saved->item ?: ($issueItem?->item);
+        $issueNet = (float) ($issueItem?->net_wt ?? 0);
+        $receiveGross = (float) ($saved?->receive_gross_wt ?? 0);
+        $receiveNet = (float) ($saved?->receive_net_wt ?? 0);
+        $otherWt = (float) ($saved?->other_wt ?? max(0, $receiveGross - $receiveNet));
+        $receiveFine = (float) ($saved?->receive_fine_wt ?? 0);
+        $pendingNet = max(0, (float) ($saved?->loss_wt ?? ($issueNet - $receiveNet)));
+
+        $totalReceiveGross += $receiveGross;
+        $totalOtherWt += $otherWt;
+        $totalReceiveNet += $receiveNet;
+        $totalReceiveFine += $receiveFine;
+
+        return [
+            'item_name' => $item?->item_name ?? '-',
+            'issue_net' => $issueNet,
+            'receive_gross' => $receiveGross,
+            'other_wt' => $otherWt,
+            'receive_net' => $receiveNet,
+            'receive_fine' => $receiveFine,
+            'pending_net' => $pendingNet,
+            'remarks' => $saved?->remarks ?? '',
+        ];
+    });
+
+    $totalPendingNet = max(0, $totalIssueNet - $totalReceiveNet);
+    $workerVoucherText = $workerIssueVouchers->pluck('voucher_no')->implode(', ') ?: $row->voucher_no;
 @endphp
-<h2>Jobwork Receive</h2>
-<h4>{{ $company->name }}</h4>
-
-<table class="meta mb">
+<table class="sheet-table">
     <tr>
-        <td><strong>Voucher No:</strong><br>{{ $row->voucher_no }}</td>
-        <td><strong>Issue Date:</strong><br>{{ optional($row->jobwork_date)->format('d-m-Y') }}</td>
-        <td><strong>Receive Date:</strong><br>{{ optional($receive->receive_date)->format('d-m-Y') }}</td>
-        <td><strong>Jobworker:</strong><br>{{ $row->jobWorker?->name ?? '-' }}</td>
-    </tr>
-    <tr>
-        <td><strong>Production Step:</strong><br>{{ $row->productionStep?->name ?? '-' }}</td>
-        <td><strong>Issue Net Wt:</strong><br>{{ number_format($totalIssueNet, 3, '.', '') }}</td>
-        <td><strong>Printed At:</strong><br>{{ now()->format('d-m-Y h:i A') }}</td>
-        <td><strong>Printed By:</strong><br>{{ auth()->user()->name ?? '-' }}</td>
-    </tr>
-</table>
+        @for($c = 1; $c <= 2; $c++)
+            <td>
+                <div class="copy">
+                    <div class="title">Jobwork Receive</div>
 
-<table class="meta mb">
-    <tr>
-        <td><strong>Voucher Name:</strong><br>{{ $row->voucher_no }}</td>
-        <td colspan="3"><strong>Worker Vouchers:</strong><br>{{ $workerIssueVouchers->pluck('voucher_no')->implode(', ') ?: '-' }}</td>
-    </tr>
-</table>
+                    <table class="meta-grid">
+                        <tr>
+                            <td><span class="kv">M/S</span> {{ strtoupper((string) ($row->jobWorker?->name ?? '-')) }}</td>
+                            <td class="right"><span class="kv">No</span> : {{ $row->voucher_no }}</td>
+                        </tr>
+                        <tr>
+                            <td><span class="kv">Step</span> : {{ $row->productionStep?->name ?? '-' }}</td>
+                            <td class="right"><span class="kv">Date</span> : {{ $receiveDateTime ?: '-' }}</td>
+                        </tr>
+                    </table>
 
-<h4>Jobwork Receive</h4>
-<table class="items">
-    <thead>
-        <tr>
-            <th>Sr. No</th>
-            <th>Item</th>
-            <th class="right">Issue Net</th>
-            <th class="right">Receive Gross</th>
-            <th class="right">Other Wt</th>
-            <th class="right">Receive Net</th>
-            <th class="right">Receive Fine</th>
-            <th class="right">Qty</th>
-            <th class="right">Pending Net</th>
-            <th>Remark</th>
-        </tr>
-    </thead>
-    <tbody>
-        @foreach($receive->items as $index => $saved)
-            @php
-                $issueItem = $saved->jobworkIssueItem;
-                $item = $saved->item ?: $issueItem?->item;
-                $receiveGross = (float) ($saved?->receive_gross_wt ?? 0);
-                $receiveNet = (float) ($saved?->receive_net_wt ?? 0);
-                $otherWt = (float) ($saved?->other_wt ?? max(0, $receiveGross - $receiveNet));
-                $receiveFine = (float) ($saved?->receive_fine_wt ?? 0);
-                $receiveQty = (int) ($saved?->receive_qty_pcs ?? 0);
-                $pendingNet = max(0, (float) ($saved?->loss_wt ?? ((float) ($issueItem->net_wt ?? 0) - $receiveNet)));
-                $totalReceiveGross += $receiveGross;
-                $totalOtherWt += $otherWt;
-                $totalReceiveNet += $receiveNet;
-                $totalReceiveFine += $receiveFine;
-                $totalReceiveQty += $receiveQty;
-            @endphp
-            <tr>
-                <td>{{ $index + 1 }}</td>
-                <td>{{ $item?->item_name ?? '-' }}</td>
-                <td class="right">{{ number_format((float) ($issueItem->net_wt ?? 0), 3, '.', '') }}</td>
-                <td class="right">{{ number_format($receiveGross, 3, '.', '') }}</td>
-                <td class="right">{{ number_format($otherWt, 3, '.', '') }}</td>
-                <td class="right">{{ number_format($receiveNet, 3, '.', '') }}</td>
-                <td class="right">{{ number_format($receiveFine, 3, '.', '') }}</td>
-                <td class="right">{{ $receiveQty }}</td>
-                <td class="right">{{ number_format($pendingNet, 3, '.', '') }}</td>
-                <td>{{ $saved?->remarks ?? '' }}</td>
-            </tr>
-        @endforeach
-        <tr class="total">
-            <td colspan="2" class="right">Total</td>
-            <td class="right">{{ number_format($totalIssueNet, 3, '.', '') }}</td>
-            <td class="right">{{ number_format($totalReceiveGross, 3, '.', '') }}</td>
-            <td class="right">{{ number_format($totalOtherWt, 3, '.', '') }}</td>
-            <td class="right">{{ number_format($totalReceiveNet, 3, '.', '') }}</td>
-            <td class="right">{{ number_format($totalReceiveFine, 3, '.', '') }}</td>
-            <td class="right">{{ $totalReceiveQty }}</td>
-            <td class="right">
-                {{ number_format(max(0, $totalIssueNet - $totalReceiveNet), 3, '.', '') }}
-                @if($totalReceiveNet > $totalIssueNet)
-                    <br>Extra: {{ number_format($totalReceiveNet - $totalIssueNet, 3, '.', '') }}
-                @endif
+                    <table class="items">
+                        <thead>
+                            <tr>
+                                <th style="width:6%;">Sr</th>
+                                <th style="width:24%;">Item</th>
+                                <th style="width:13%;" class="num">Issue</th>
+                                <th style="width:13%;" class="num">R Gross</th>
+                                <th style="width:11%;" class="num">Other</th>
+                                <th style="width:12%;" class="num">R Net</th>
+                                <th style="width:11%;" class="num">Fine</th>
+                                <th style="width:10%;" class="num">Pend</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse($receiveRows as $index => $saved)
+                                <tr>
+                                    <td>{{ $index + 1 }}</td>
+                                    <td>
+                                        @php
+                                            $itemName = (string) $saved['item_name'];
+                                        @endphp
+                                        {{ strlen($itemName) > 15 ? substr($itemName, 0, 15) . '...' : $itemName }}
+                                        @if(!empty($saved['remarks']))
+                                            <div class="item-remark">Remark: {{ $saved['remarks'] }}</div>
+                                        @endif
+                                    </td>
+                                    <td class="num">{{ number_format($saved['issue_net'], 3, '.', '') }}</td>
+                                    <td class="num">{{ number_format($saved['receive_gross'], 3, '.', '') }}</td>
+                                    <td class="num">{{ number_format($saved['other_wt'], 3, '.', '') }}</td>
+                                    <td class="num">{{ number_format($saved['receive_net'], 3, '.', '') }}</td>
+                                    <td class="num">{{ number_format($saved['receive_fine'], 3, '.', '') }}</td>
+                                    <td class="num">{{ number_format($saved['pending_net'], 3, '.', '') }}</td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="8" style="text-align:center;">No receive rows found</td>
+                                </tr>
+                            @endforelse
+                            <tr class="totals">
+                                <td colspan="2" class="num">Total</td>
+                                <td class="num">{{ number_format($totalIssueNet, 3, '.', '') }}</td>
+                                <td class="num">{{ number_format($totalReceiveGross, 3, '.', '') }}</td>
+                                <td class="num">{{ number_format($totalOtherWt, 3, '.', '') }}</td>
+                                <td class="num">{{ number_format($totalReceiveNet, 3, '.', '') }}</td>
+                                <td class="num">{{ number_format($totalReceiveFine, 3, '.', '') }}</td>
+                                <td class="num">{{ number_format($totalPendingNet, 3, '.', '') }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <table class="footer-grid">
+                        <tr>
+                            <td class="left-col"><span class="f-label">Issue Net</span>: {{ number_format($totalIssueNet, 3, '.', '') }} gram</td>
+                            <td class="right-col">Receive fine : {{ number_format($totalReceiveFine, 3, '.', '') }} gram</td>
+                        </tr>
+                        <tr>
+                            <td class="left-col"><span class="f-label">Receive Net</span>: {{ number_format($totalReceiveNet, 3, '.', '') }} gram</td>
+                            <td class="right-col">Remarks : {{ $receive->remarks ?: '-' }}</td>
+                        </tr>
+                        <tr>
+                            <td class="left-col"><span class="f-label">Pending Net</span>: {{ number_format($totalPendingNet, 3, '.', '') }} gram</td>
+                            <td class="right-col">Worker vouchers : {{ $workerVoucherText }}</td>
+                        </tr>
+                    </table>
+                </div>
             </td>
-            <td></td>
-        </tr>
-    </tbody>
+        @endfor
+    </tr>
 </table>
-
-@if(!empty($receive->remarks))
-    <p><strong>Remarks:</strong> {{ $receive->remarks }}</p>
-@endif
 </body>
 </html>

@@ -60,6 +60,22 @@
 @push('scripts')
 <script>
 $(function () {
+    if ($.fn.select2) {
+        $('#item_id').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'All Items',
+            allowClear: true
+        });
+
+        $('#customer_id').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'All Parties',
+            allowClear: true
+        });
+    }
+
     const table = $('#stockTable').DataTable({
         processing: true,
         serverSide: true,
@@ -72,7 +88,7 @@ $(function () {
         },
         columns: [
             { data: 'DT_RowIndex', orderable: false, searchable: false },
-            { data: 'item_name', name: 'item_name' },
+            { data: 'item_name_link', name: 'item_name' },
             { data: 'stock_type_name', name: 'stock_type_name' },
             { data: 'customer_name', name: 'customer_name' },
             { data: 'qty_pcs', orderable: false, searchable: false },
@@ -86,8 +102,8 @@ $(function () {
 
     $('#filter').on('click', function () { table.draw(); });
     $('#reset').on('click', function () {
-        $('#item_id').val('');
-        $('#customer_id').val('');
+        $('#item_id').val('').trigger('change.select2');
+        $('#customer_id').val('').trigger('change.select2');
         table.draw();
     });
 

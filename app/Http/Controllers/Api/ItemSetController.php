@@ -443,6 +443,7 @@ public function bulkSave(Request $request)
     public function listset_data(Request $request)
     {
         $companyId = $request->user()->company_id;
+        $perPage = max(1, min((int) $request->input('per_page', 100), 500));
 
         if ($request->input('view_mode') === 'bulk') {
             return $this->bulkListsetData($request);
@@ -457,6 +458,18 @@ public function bulkSave(Request $request)
             $query->where('item_id', $request->item_id);
         }
 
+        if ($request->filled('search')) {
+            $search = trim((string) $request->search);
+            $query->where(function ($q) use ($search) {
+                $q->where('qr_code', 'like', "%{$search}%")
+                    ->orWhere('barcode', 'like', "%{$search}%")
+                    ->orWhere('HUID', 'like', "%{$search}%")
+                    ->orWhereHas('item', function ($itemQuery) use ($search) {
+                        $itemQuery->where('item_name', 'like', "%{$search}%");
+                    });
+            });
+        }
+
         // date filter
         if ($request->from_date && $request->to_date) {
             $query->whereDate('created_at', '>=', $request->from_date)
@@ -464,13 +477,37 @@ public function bulkSave(Request $request)
         }
 
         $data = $query
+            ->select([
+                'id',
+                'company_id',
+                'item_id',
+                'serial_no',
+                'qr_code',
+                'barcode',
+                'HUID',
+                'gross_weight',
+                'other',
+                'net_weight',
+                'sale_labour_formula',
+                'sale_labour_rate',
+                'sale_labour_amount',
+                'sale_other',
+                'is_printed',
+                'created_at',
+                'printed_at',
+                'image_disk',
+                'image_path',
+                'image_mime',
+                'image_size',
+                'image_uploaded_at',
+            ])
             ->orderByRaw('CASE WHEN printed_at IS NULL THEN 0 ELSE 1 END ASC')
             ->orderByDesc(DB::raw('COALESCE(printed_at, created_at)'))
             ->orderByDesc('serial_no')
             ->orderByDesc('id')
-            ->get();
+            ->paginate($perPage);
 
-        $data->transform(function ($row) {
+        $rows = $data->getCollection()->map(function ($row) {
             $row->is_printed = (int) ($row->is_printed ?? 0);
             $row->print_date_time = $row->printed_at
                 ? \Carbon\Carbon::parse($row->printed_at)->format('d-m-Y h:i A')
@@ -478,11 +515,18 @@ public function bulkSave(Request $request)
             $row->image_url = $this->itemImageUrl($row);
             $row->image_uploaded_at_formatted = $row->image_uploaded_at?->format('d-m-Y h:i A');
             return $row;
-        });
+        })->values();
 
         return response()->json([
             'status' => true,
-            'data' => $data
+            'data' => $rows,
+            'pagination' => [
+                'current_page' => $data->currentPage(),
+                'per_page' => $data->perPage(),
+                'total' => $data->total(),
+                'last_page' => $data->lastPage(),
+                'has_more' => $data->hasMorePages(),
+            ],
         ]);
     }
 

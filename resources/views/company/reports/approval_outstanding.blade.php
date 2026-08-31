@@ -114,6 +114,14 @@
 $(function () {
     $('#from_date').val('');
     $('#to_date').val('');
+    if ($.fn.select2) {
+        $('#customer_id').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'All Persons',
+            allowClear: true
+        });
+    }
 
     const table = $('#approvalOutstandingTable').DataTable({
         processing: true,
@@ -152,7 +160,7 @@ $(function () {
     $('#reset').on('click', function () {
         $('#from_date').val('');
         $('#to_date').val('');
-        $('#customer_id').val('');
+        $('#customer_id').val('').trigger('change.select2');
         table.draw();
     });
 
