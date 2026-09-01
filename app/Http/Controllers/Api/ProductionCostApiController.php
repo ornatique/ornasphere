@@ -17,7 +17,11 @@ class ProductionCostApiController extends Controller
 
         $data = ProductionCost::where('company_id', $companyId)
             ->latest()
-            ->get();
+            ->get()
+            ->map(function ($row) use ($companyId) {
+                $row->is_in_use = $this->isUsedInJobwork($companyId, (int) $row->id, (string) $row->name);
+                return $row;
+            });
 
         return response()->json([
             'success' => true,
@@ -149,7 +153,7 @@ class ProductionCostApiController extends Controller
         if ($this->isUsedInJobwork($companyId, (int) $data->id, (string) $data->name)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Cannot delete: this Production Cost is already used in Jobwork Issue.',
+                'message' => 'Cannot delete: this Production Cost is already in use.',
             ], 422);
         }
 
@@ -164,6 +168,7 @@ class ProductionCostApiController extends Controller
     private function isUsedInJobwork(int $companyId, int $productionCostId, string $productionCostName): bool
     {
         $checks = [
+            ['table' => 'production_steps', 'column' => 'production_cost_id', 'type' => 'id'],
             ['table' => 'jobwork_issues', 'column' => 'production_cost_id', 'type' => 'id'],
             ['table' => 'jobwork_issue_items', 'column' => 'production_cost_id', 'type' => 'id'],
             ['table' => 'jobwork_issues', 'column' => 'production_cost', 'type' => 'name'],
@@ -201,4 +206,3 @@ class ProductionCostApiController extends Controller
         return false;
     }
 }
-

@@ -10,6 +10,13 @@ class LiveMetalRateService
 {
     public function rates(): array
     {
+        $cacheKey = 'company_dashboard_jksons_rates_payload';
+        $cachedPayload = Cache::get($cacheKey);
+
+        if (is_array($cachedPayload)) {
+            return $cachedPayload;
+        }
+
         $targetSymbols = [
             'GOLD' => ['city' => 'Gold', 'decimals' => 2],
             'SILVER' => ['city' => 'Silver', 'decimals' => 2],
@@ -23,7 +30,8 @@ class LiveMetalRateService
 
         try {
             $response = Http::withoutVerifying()
-                ->timeout(8)
+                ->connectTimeout(2)
+                ->timeout(4)
                 ->get('https://bcast.jksons.in:7768/VOTSBroadcastStreaming/Services/xml/GetLiveRateByTemplateID/jksons');
 
             if (!$response->successful()) {
@@ -76,13 +84,17 @@ class LiveMetalRateService
                 now()->addMinutes(10)
             );
 
-            return [
+            $payload = [
                 'enabled' => true,
                 'message' => null,
                 'source' => 'JK Sons',
                 'rates' => $rates,
                 'updated_at' => now()->format('d-m-Y h:i:s A'),
             ];
+
+            Cache::put($cacheKey, $payload, now()->addSeconds(20));
+
+            return $payload;
         } catch (\Throwable $exception) {
             Log::warning('JK Sons metal rate fetch failed', [
                 'message' => $exception->getMessage(),

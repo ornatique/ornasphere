@@ -128,7 +128,7 @@
                                 <td>
                                     <input type="hidden" name="custom_items[{{ $loop->index }}][id]" value="{{ $customItem->id }}">
                                     <select name="custom_items[{{ $loop->index }}][custom_type]"
-                                        class="form-control mb-2"
+                                        class="form-control mb-2 casting-search-select"
                                         data-custom-type>
                                         <option value="bhuko" @selected($customType === 'bhuko')>Bhuko</option>
                                         <option value="pc_weight" @selected($customType === 'pc_weight')>PC Weight</option>
@@ -259,7 +259,7 @@
                 <td>
                     <input type="hidden" name="custom_items[${index}][id]" value="">
                     <select name="custom_items[${index}][custom_type]"
-                        class="form-control mb-2"
+                        class="form-control mb-2 casting-search-select"
                         data-custom-type>
                         <option value="bhuko" selected>Bhuko</option>
                         <option value="pc_weight">PC Weight</option>
@@ -301,6 +301,26 @@
             </tr>
         `;
     }
+
+    function initCastingSelects(context = document) {
+        if (!window.jQuery || !$.fn.select2) {
+            return;
+        }
+
+        $(context).find('.casting-search-select').each(function () {
+            const $select = $(this);
+            if ($select.hasClass('select2-hidden-accessible')) {
+                return;
+            }
+
+            $select.select2({
+                theme: 'bootstrap4',
+                width: '100%',
+                minimumResultsForSearch: 0
+            });
+        });
+    }
+
     function updateTreeReceiveTotals() {
         let receivePcWtTotal = 0;
         let bhukoTotal = 0;
@@ -363,6 +383,7 @@
 
         body.insertAdjacentHTML('beforeend', customBhukoRow(nextCustomIndex()));
         const newRow = body.lastElementChild;
+        initCastingSelects(newRow);
         newRow?.querySelector('[data-custom-buch-no]')?.focus();
         applyCustomTypeState(newRow);
     });
@@ -391,6 +412,7 @@
             }
         }
     });
+    initCastingSelects();
     document.querySelectorAll('.custom-bhuko-row').forEach(applyCustomTypeState);
     updateTreeReceiveTotals();
 </script>

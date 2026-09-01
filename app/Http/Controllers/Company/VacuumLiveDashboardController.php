@@ -40,14 +40,14 @@ class VacuumLiveDashboardController extends Controller
             ->orderBy('name')
             ->get(['id', 'name']);
 
-        $voucherOptions = $this->voucherQuery($company, $date, $workerId, $processId, '')
+        $voucherOptions = $this->voucherOptionsQuery($company, $workerId, $processId)
             ->with(['jobWorker:id,name'])
             ->orderByDesc('created_at')
-            ->limit(100)
-            ->get(['id', 'voucher_no', 'job_worker_id', 'created_at'])
+            ->limit(300)
+            ->get(['id', 'voucher_no', 'job_worker_id', 'voucher_date', 'created_at'])
             ->map(fn($voucher) => [
                 'voucher_no' => $voucher->voucher_no,
-                'label' => trim($voucher->voucher_no . ' - ' . optional($voucher->created_at)->format('h:i A') . ' - ' . ($voucher->jobWorker?->name ?? '-')),
+                'label' => trim($voucher->voucher_no . ' - ' . optional($voucher->voucher_date)->format('d-m-Y') . ' - ' . ($voucher->jobWorker?->name ?? '-')),
             ])
             ->values();
 
@@ -74,6 +74,14 @@ class VacuumLiveDashboardController extends Controller
             ->when($workerId, fn($q) => $q->where('job_worker_id', (int) $workerId))
             ->when($processId, fn($q) => $q->where('vacuum_process_id', (int) $processId))
             ->when($voucherNo !== '', fn($q) => $q->where('voucher_no', 'like', "%{$voucherNo}%"));
+    }
+
+    private function voucherOptionsQuery(Company $company, $workerId, $processId)
+    {
+        return VacuumVoucher::query()
+            ->where('company_id', $company->id)
+            ->when($workerId, fn($q) => $q->where('job_worker_id', (int) $workerId))
+            ->when($processId, fn($q) => $q->where('vacuum_process_id', (int) $processId));
     }
 
     private function stageCounts(int $companyId, $voucherIds): array

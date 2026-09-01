@@ -9,6 +9,8 @@ use App\Models\ProductionCost;
 use App\Models\ProductionStep;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Yajra\DataTables\Facades\DataTables;
 
@@ -52,10 +54,13 @@ class ProductionStepController extends Controller
                     $encryptedId = Crypt::encryptString((string) $row->id);
                     $edit = route('company.production-step.edit', [$company->slug, $encryptedId]);
                     $delete = route('company.production-step.destroy', [$company->slug, $encryptedId]);
+                    $deleteAction = $this->isInUse((int) $company->id, (int) $row->id)
+                        ? '<span class="badge bg-secondary">In Use</span>'
+                        : '<button type="button" class="btn btn-sm btn-danger deleteBtn" data-url="' . $delete . '">Delete</button>';
 
                     return '
                         <a href="' . $edit . '" class="btn btn-sm btn-primary">Edit</a>
-                        <button type="button" class="btn btn-sm btn-danger deleteBtn" data-url="' . $delete . '">Delete</button>
+                        ' . $deleteAction . '
                     ';
                 })
                 ->rawColumns(['receivable_loss_badge', 'action'])
@@ -141,6 +146,14 @@ class ProductionStepController extends Controller
         $id = Crypt::decryptString($encryptedId);
 
         $data = ProductionStep::where('company_id', $company->id)->where('id', $id)->firstOrFail();
+
+        if ($this->isInUse((int) $company->id, (int) $data->id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cannot delete: this Production Step is already in use.',
+            ], 422);
+        }
+
         $data->delete();
 
         return response()->json([
@@ -175,5 +188,34 @@ class ProductionStepController extends Controller
             'remarks' => ['nullable', 'string'],
             'status' => ['required', 'boolean'],
         ]);
+    }
+
+    private function isInUse(int $companyId, int $productionStepId): bool
+    {
+        $checks = [
+            ['table' => 'jobwork_issues', 'column' => 'production_step_id'],
+            ['table' => 'production_step_user', 'column' => 'production_step_id'],
+        ];
+
+        foreach ($checks as $check) {
+            $table = $check['table'];
+            $column = $check['column'];
+
+            if (!Schema::hasTable($table) || !Schema::hasColumn($table, $column)) {
+                continue;
+            }
+
+            $query = DB::table($table)->where($column, $productionStepId);
+
+            if (Schema::hasColumn($table, 'company_id')) {
+                $query->where('company_id', $companyId);
+            }
+
+            if ($query->exists()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

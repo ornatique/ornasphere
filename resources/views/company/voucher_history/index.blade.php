@@ -14,7 +14,7 @@
                 data-pdf-url="{{ route('company.voucher-history.pdf', [$company->slug, '__VOUCHER_ID__']) }}">
                 <div>
                     <label>Select Voucher</label>
-                    <select name="voucher_id" id="voucher-history-voucher" class="form-control">
+                    <select name="voucher_id" id="voucher-history-voucher" class="form-control casting-search-select">
                         <option value="">Select Voucher</option>
                         @foreach($vouchers as $row)
                         <option value="{{ $row->id }}" @selected((int) $selectedVoucherId === (int) $row->id)>
@@ -140,8 +140,20 @@
         const resetButton = document.getElementById('voucher-history-reset-btn');
         const emptyHtml = '<div class="voucher-history-empty">Select a voucher to view complete process history.</div>';
 
+        if (window.jQuery && $.fn.select2) {
+            $('#voucher-history-voucher').select2({
+                theme: 'bootstrap4',
+                width: '100%',
+                placeholder: 'Select Voucher',
+                minimumResultsForSearch: 0
+            });
+        }
+
         function resetHistory() {
             voucherSelect.value = '';
+            if (window.jQuery && $.fn.select2) {
+                $('#voucher-history-voucher').val('').trigger('change.select2');
+            }
             dateInput.value = '';
             processInput.value = '';
             workerInput.value = '';

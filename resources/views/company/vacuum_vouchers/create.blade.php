@@ -55,7 +55,7 @@
                     <div class="col-md-3">
                         <div class="form-group">
                             <label>Process Name *</label>
-                            <select name="vacuum_process_id" id="processSelect" class="form-select" required>
+                            <select name="vacuum_process_id" id="processSelect" class="form-select casting-search-select" required>
                                 <option value="">Select Process</option>
                                 @foreach($processes as $process)
                                 <option value="{{ $process->id }}" {{ (string) old('vacuum_process_id', $data->vacuum_process_id ?? '') === (string) $process->id ? 'selected' : '' }}>
@@ -68,7 +68,7 @@
                     <div class="col-md-3">
                         <div class="form-group">
                             <label>Worker Name *</label>
-                            <select name="job_worker_id" id="workerSelect" class="form-select" required>
+                            <select name="job_worker_id" id="workerSelect" class="form-select casting-search-select" required>
                                 <option value="">Select Worker</option>
                                 @foreach($jobWorkers as $worker)
                                 <option value="{{ $worker->id }}" {{ (string) old('job_worker_id', $data->job_worker_id ?? '') === (string) $worker->id ? 'selected' : '' }}>
@@ -178,6 +178,22 @@
 <script>
 let rowIndex = $('#voucherItemsTable tbody tr').length;
 const buchOptions = @json($buchs->map(fn($b) => ['id' => $b->id, 'text' => $b->buch_no, 'weight' => (float) ($b->weight ?? 0)])->values());
+
+if ($.fn.select2) {
+    $('#processSelect').select2({
+        theme: 'bootstrap4',
+        width: '100%',
+        placeholder: 'Select Process',
+        minimumResultsForSearch: 0
+    });
+
+    $('#workerSelect').select2({
+        theme: 'bootstrap4',
+        width: '100%',
+        placeholder: 'Select Worker',
+        minimumResultsForSearch: 0
+    });
+}
 
 const toNum = (value) => {
     const parsed = parseFloat(value);

@@ -265,6 +265,32 @@
     const workerOptionsHtml = @json($jobWorkers->map(fn($worker) => ['id' => $worker->id, 'name' => $worker->name])->values());
     let customTreeRowIndex = 0;
 
+    function initTreeWorkerSelects(context = document) {
+        if (!window.jQuery || !$.fn.select2) {
+            return;
+        }
+
+        $(context).find('.tree-cutting-worker-select').each(function () {
+            const $select = $(this);
+            if ($select.hasClass('select2-hidden-accessible')) {
+                return;
+            }
+
+            $select.select2({
+                theme: 'bootstrap4',
+                width: '100%',
+                placeholder: 'Select Worker',
+                minimumResultsForSearch: 0
+            });
+        });
+    }
+
+    function refreshTreeWorkerSelect(select) {
+        if (select && window.jQuery && $.fn.select2) {
+            $(select).trigger('change.select2');
+        }
+    }
+
     function refreshTreeIssueRowNumbers() {
         document.querySelectorAll('#tree-cutting-issue-rows [data-row-no]').forEach((cell, index) => {
             cell.textContent = index + 1;
@@ -326,6 +352,7 @@
         }
 
         workerSelect.value = originalWorker;
+        refreshTreeWorkerSelect(workerSelect);
         alert('First uncheck this group and save changes. After that you can change the worker.');
         return true;
     }
@@ -409,6 +436,7 @@
 
             if (rowWorker) {
                 rowWorker.value = workerId;
+                refreshTreeWorkerSelect(rowWorker);
             }
             if (itemMatch) {
                 itemIds.push(itemMatch[1]);
@@ -498,6 +526,7 @@
 
             if (workerSelect) {
                 workerSelect.value = workerId;
+                refreshTreeWorkerSelect(workerSelect);
                 workerSelect.dataset.originalWorker = workerId;
                 workerSelect.dataset.originalGroupKey = groupKey;
             }
@@ -551,6 +580,7 @@
             </td>
         `;
         tbody.appendChild(row);
+        initTreeWorkerSelects(row);
         refreshTreeIssueRowNumbers();
         updateTreeIssueTotals();
     });
@@ -639,6 +669,7 @@
             const rowCheckbox = event.target.closest('tr')?.querySelector('.tree-issue-checkbox');
             if (rowCheckbox?.dataset.officeGroup === '1') {
                 event.target.value = event.target.dataset.originalWorker || event.target.value;
+                refreshTreeWorkerSelect(event.target);
                 return;
             }
             if (rowCheckbox?.checked && applyWorkerToCheckedTreeRows(event.target.value)) {
@@ -749,6 +780,7 @@
     });
 
     updateTreeIssueTotals();
+    initTreeWorkerSelects();
     refreshTreeIssueGroupColors();
 </script>
 @endpush

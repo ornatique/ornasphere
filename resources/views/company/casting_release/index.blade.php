@@ -23,7 +23,7 @@
                 </div>
                 <div class="filter-field">
                     <label for="workerFilter">Worker Name</label>
-                    <select id="workerFilter" class="form-select">
+                    <select id="workerFilter" class="form-select casting-search-select">
                         <option value="">All Workers</option>
                         @foreach($jobWorkers as $worker)
                         <option value="{{ $worker->id }}">{{ $worker->name }}</option>
@@ -139,6 +139,16 @@
 <script>
     const defaultFromDate = @json($fromDate);
     const defaultToDate = @json($toDate);
+
+    if ($.fn.select2) {
+        $('#workerFilter').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'All Workers',
+            minimumResultsForSearch: 0
+        });
+    }
+
     const castingReleaseTable = $('#castingReleaseTable').DataTable({
         processing: true,
         serverSide: true,
@@ -173,7 +183,7 @@
     $('#resetFilter').on('click', function () {
         $('#fromDate').val(defaultFromDate);
         $('#toDate').val(defaultToDate);
-        $('#workerFilter').val('');
+        $('#workerFilter').val('').trigger('change.select2');
         castingReleaseTable.ajax.reload();
     });
 

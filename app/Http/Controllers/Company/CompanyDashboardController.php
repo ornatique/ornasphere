@@ -149,7 +149,7 @@ class CompanyDashboardController extends Controller
             'monthlySales' => $monthlySales,
             'monthlyReturns' => $monthlyReturns,
             'recentActivity' => $recentActivity,
-            'metalRates' => $this->metalRates(),
+            'metalRates' => $this->emptyMetalRates(),
         ]);
     }
 
@@ -178,5 +178,16 @@ class CompanyDashboardController extends Controller
         }
 
         return app($serviceClass)->rates();
+    }
+
+    private function emptyMetalRates(): array
+    {
+        return [
+            'enabled' => false,
+            'message' => 'Loading live metal rates...',
+            'source' => 'JK Sons',
+            'rates' => [],
+            'updated_at' => null,
+        ];
     }
 }

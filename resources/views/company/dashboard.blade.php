@@ -469,7 +469,7 @@
     }
 
     refreshMetalRates();
-    setInterval(refreshMetalRates, 500);
+    setInterval(refreshMetalRates, 30000);
 
     const el = document.getElementById('companyMonthlyChart');
     if (!el || typeof Chart === 'undefined') return;

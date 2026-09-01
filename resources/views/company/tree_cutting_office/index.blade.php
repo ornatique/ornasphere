@@ -25,7 +25,7 @@
                 </div>
                 <div class="filter-field">
                     <label for="workerFilter">Worker Name</label>
-                    <select id="workerFilter" class="form-select">
+                    <select id="workerFilter" class="form-select casting-search-select">
                         <option value="">All Workers</option>
                         @foreach($jobWorkers as $worker)
                         <option value="{{ $worker->id }}">{{ $worker->name }}</option>
@@ -102,6 +102,16 @@
 <script>
     const defaultTreeOfficeFromDate = @json($fromDate);
     const defaultTreeOfficeToDate = @json($toDate);
+
+    if ($.fn.select2) {
+        $('#workerFilter').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'All Workers',
+            minimumResultsForSearch: 0
+        });
+    }
+
     const treeCuttingOfficeTable = $('#treeCuttingOfficeTable').DataTable({
         processing: true,
         serverSide: true,
@@ -131,7 +141,7 @@
     $('#resetFilter').on('click', function () {
         $('#fromDate').val(defaultTreeOfficeFromDate);
         $('#toDate').val(defaultTreeOfficeToDate);
-        $('#workerFilter').val('');
+        $('#workerFilter').val('').trigger('change.select2');
         treeCuttingOfficeTable.ajax.reload();
     });
     function normalizeTreeOfficeDateRange() {

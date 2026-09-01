@@ -743,7 +743,7 @@ class SaleApiController extends Controller
     {
         $user = auth()->user();
         $perPage = max(1, min((int) $request->input('per_page', 100), 500));
-        $includeQrImage = $request->boolean('include_qr_image');
+        $includeQrImage = $request->boolean('include_qr_image', true);
 
         $query = ItemSet::with('item:id,item_name')
             ->where('company_id', $user->company_id)

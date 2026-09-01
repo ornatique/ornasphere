@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ProductionStep;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 
 class ProductionStepApiController extends Controller
@@ -17,7 +19,11 @@ class ProductionStepApiController extends Controller
             ->with(['labourFormula:id,name', 'productionCost:id,name'])
             ->withCount('users')
             ->latest()
-            ->get();
+            ->get()
+            ->map(function ($row) use ($companyId) {
+                $row->is_in_use = $this->isInUse($companyId, (int) $row->id);
+                return $row;
+            });
 
         return response()->json([
             'success' => true,
@@ -140,6 +146,13 @@ class ProductionStepApiController extends Controller
             ], 404);
         }
 
+        if ($this->isInUse($companyId, (int) $data->id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cannot delete: this Production Step is already in use.',
+            ], 422);
+        }
+
         $data->delete();
 
         return response()->json([
@@ -179,5 +192,34 @@ class ProductionStepApiController extends Controller
                 Rule::exists('users', 'id')->where(fn($q) => $q->where('company_id', $companyId)),
             ],
         ]);
+    }
+
+    private function isInUse(int $companyId, int $productionStepId): bool
+    {
+        $checks = [
+            ['table' => 'jobwork_issues', 'column' => 'production_step_id'],
+            ['table' => 'production_step_user', 'column' => 'production_step_id'],
+        ];
+
+        foreach ($checks as $check) {
+            $table = $check['table'];
+            $column = $check['column'];
+
+            if (!Schema::hasTable($table) || !Schema::hasColumn($table, $column)) {
+                continue;
+            }
+
+            $query = DB::table($table)->where($column, $productionStepId);
+
+            if (Schema::hasColumn($table, 'company_id')) {
+                $query->where('company_id', $companyId);
+            }
+
+            if ($query->exists()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

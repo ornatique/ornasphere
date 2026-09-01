@@ -28,7 +28,7 @@
                     </div>
                     <div class="col-md-3">
                         <label>Worker</label>
-                        <select name="worker_id" class="form-select">
+                        <select name="worker_id" class="form-select casting-search-select">
                             <option value="">All Workers</option>
                             @foreach($workers as $worker)
                                 <option value="{{ $worker->id }}" @selected((string) $workerId === (string) $worker->id)>{{ $worker->name }}</option>
@@ -37,7 +37,7 @@
                     </div>
                     <div class="col-md-3">
                         <label>Process</label>
-                        <select name="process_id" class="form-select">
+                        <select name="process_id" class="form-select casting-search-select">
                             <option value="">All Process</option>
                             @foreach($processes as $process)
                                 <option value="{{ $process->id }}" @selected((string) $processId === (string) $process->id)>{{ $process->name }}</option>
@@ -239,6 +239,11 @@
         background: #303b66;
     }
 
+    .voucher-suggestion-empty {
+        padding: 9px 12px;
+        color: #c6c8dc;
+    }
+
     .stage-badge {
         display: inline-block;
         min-width: 52px;
@@ -265,6 +270,14 @@
 @push('scripts')
 <script>
     document.addEventListener('DOMContentLoaded', function () {
+        if (window.jQuery && $.fn.select2) {
+            $('.casting-search-select').select2({
+                theme: 'bootstrap4',
+                width: '100%',
+                minimumResultsForSearch: 0
+            });
+        }
+
         const voucherOptions = @json($voucherOptions);
         const form = document.querySelector('.vacuum-live-dashboard .filter-box');
         const input = document.getElementById('voucher_no');
@@ -302,12 +315,14 @@
             }).slice(0, 20);
 
             if (!visibleOptions.length) {
-                hideSuggestions();
+                suggestions.innerHTML = '<div class="voucher-suggestion-empty">No voucher found</div>';
+                suggestions.classList.remove('d-none');
+                activeIndex = -1;
                 return;
             }
 
             suggestions.innerHTML = visibleOptions.map((option, index) => {
-                return `<button type="button" class="voucher-suggestion-item" data-index="${index}">${option.label}</button>`;
+                return `<button type="button" class="voucher-suggestion-item" data-index="${index}">${escapeHtml(option.label || option.voucher_no)}</button>`;
             }).join('');
             suggestions.classList.remove('d-none');
             activeIndex = -1;

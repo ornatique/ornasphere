@@ -34,10 +34,13 @@ class ProductionCostController extends Controller
 
                     $edit = route('company.production-cost.edit', [$company->slug, $encryptedId]);
                     $delete = route('company.production-cost.destroy', [$company->slug, $encryptedId]);
+                    $deleteAction = $this->isUsedInJobwork((int) $company->id, (int) $row->id, (string) $row->name)
+                        ? '<span class="badge bg-secondary">In Use</span>'
+                        : '<button type="button" class="btn btn-sm btn-danger deleteBtn" data-url="' . $delete . '">Delete</button>';
 
                     return '
                         <a href="' . $edit . '" class="btn btn-sm btn-primary">Edit</a>
-                        <button type="button" class="btn btn-sm btn-danger deleteBtn" data-url="' . $delete . '">Delete</button>
+                        ' . $deleteAction . '
                     ';
                 })
                 ->rawColumns(['status_badge', 'action'])
@@ -115,7 +118,7 @@ class ProductionCostController extends Controller
         if ($this->isUsedInJobwork((int) $company->id, (int) $data->id, (string) $data->name)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Cannot delete: this Production Cost is already used in Jobwork Issue.',
+                'message' => 'Cannot delete: this Production Cost is already in use.',
             ], 422);
         }
 
@@ -130,6 +133,7 @@ class ProductionCostController extends Controller
     private function isUsedInJobwork(int $companyId, int $productionCostId, string $productionCostName): bool
     {
         $checks = [
+            ['table' => 'production_steps', 'column' => 'production_cost_id', 'type' => 'id'],
             ['table' => 'jobwork_issues', 'column' => 'production_cost_id', 'type' => 'id'],
             ['table' => 'jobwork_issue_items', 'column' => 'production_cost_id', 'type' => 'id'],
             ['table' => 'jobwork_issues', 'column' => 'production_cost', 'type' => 'name'],

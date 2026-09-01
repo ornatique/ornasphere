@@ -90,7 +90,7 @@
                                     </div>
                                 </td>
                                 <td>
-                                    <select name="rows[{{ $index }}][stock_type]" class="form-control" data-stock-type>
+                                    <select name="rows[{{ $index }}][stock_type]" class="form-control casting-search-select" data-stock-type>
                                         <option value="raw_material" @selected(($row['stock_type'] ?? 'raw_material') === 'raw_material')>Raw Material</option>
                                         <option value="finished_item" @selected(($row['stock_type'] ?? '') === 'finished_item')>Finished Item</option>
                                         <option value="scrap" @selected(($row['stock_type'] ?? '') === 'scrap')>Scrap</option>
@@ -210,7 +210,7 @@
                 ${buildSortingSearchSelect(index)}
             </td>
             <td>
-                <select name="rows[${index}][stock_type]" class="form-control" data-stock-type>
+                <select name="rows[${index}][stock_type]" class="form-control casting-search-select" data-stock-type>
                     <option value="raw_material" selected>Raw Material</option>
                     <option value="finished_item">Finished Item</option>
                     <option value="scrap">Scrap</option>
@@ -228,6 +228,25 @@
             </td>
         `;
         return row;
+    }
+
+    function initCastingSelects(context = document) {
+        if (!window.jQuery || !$.fn.select2) {
+            return;
+        }
+
+        $(context).find('.casting-search-select').each(function () {
+            const $select = $(this);
+            if ($select.hasClass('select2-hidden-accessible')) {
+                return;
+            }
+
+            $select.select2({
+                theme: 'bootstrap4',
+                width: '100%',
+                minimumResultsForSearch: 0
+            });
+        });
     }
 
     function rowHasSortingData(row) {
@@ -279,7 +298,9 @@
         const rows = tbody.querySelectorAll('[data-sorting-row]');
         const lastRow = rows[rows.length - 1];
         if (lastRow && rowHasSortingData(lastRow)) {
-            tbody.appendChild(buildSortingRow(sortingRowIndex++));
+            const newRow = buildSortingRow(sortingRowIndex++);
+            tbody.appendChild(newRow);
+            initCastingSelects(newRow);
         }
     }
 
@@ -314,7 +335,12 @@
         const rows = document.querySelectorAll('#casting-sorting-rows [data-sorting-row]');
         if (rows.length <= 1) {
             event.target.closest('[data-sorting-row]').querySelectorAll('input, select').forEach((input) => input.value = '');
-            event.target.closest('[data-sorting-row]').querySelectorAll('[data-stock-type]').forEach((input) => input.value = 'raw_material');
+            event.target.closest('[data-sorting-row]').querySelectorAll('[data-stock-type]').forEach((input) => {
+                input.value = 'raw_material';
+                if (window.jQuery && $.fn.select2) {
+                    $(input).trigger('change.select2');
+                }
+            });
             event.target.closest('[data-sorting-row]').querySelectorAll('[data-sorting-options]').forEach((box) => box.classList.remove('is-open'));
         } else {
             event.target.closest('[data-sorting-row]').remove();
@@ -361,6 +387,7 @@
         }
     });
 
+    initCastingSelects();
     ensureBlankLastSortingRow();
     refreshSortingRows();
 </script>

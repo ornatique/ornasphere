@@ -36,10 +36,13 @@ class LabourFormulaController extends Controller
 
                     $edit = route('company.labour-formula.edit', [$company->slug, $encryptedId]);
                     $delete = route('company.labour-formula.destroy', [$company->slug, $encryptedId]);
+                    $deleteAction = $this->isUsedInJobwork((int) $company->id, (int) $row->id, (string) $row->name)
+                        ? '<span class="badge bg-secondary">In Use</span>'
+                        : '<button type="button" class="btn btn-sm btn-danger deleteBtn" data-url="' . $delete . '">Delete</button>';
 
                     return '
                         <a href="' . $edit . '" class="btn btn-sm btn-primary">Edit</a>
-                        <button type="button" class="btn btn-sm btn-danger deleteBtn" data-url="' . $delete . '">Delete</button>
+                        ' . $deleteAction . '
                     ';
                 })
                 ->rawColumns(['status_badge', 'action'])
@@ -129,7 +132,7 @@ class LabourFormulaController extends Controller
         if ($this->isUsedInJobwork((int) $company->id, (int) $data->id, (string) $data->name)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Cannot delete: this Labour Formula is already used in Jobwork Issue.',
+                'message' => 'Cannot delete: this Labour Formula is already in use.',
             ], 422);
         }
 
@@ -182,6 +185,9 @@ class LabourFormulaController extends Controller
     private function isUsedInJobwork(int $companyId, int $labourFormulaId, string $labourFormulaName): bool
     {
         $checks = [
+            ['table' => 'production_steps', 'column' => 'labour_formula_id', 'type' => 'id'],
+            ['table' => 'items', 'column' => 'labour_type', 'type' => 'labour_name'],
+            ['table' => 'item_sets', 'column' => 'sale_labour_formula', 'type' => 'name'],
             ['table' => 'jobwork_issues', 'column' => 'labour_formula_id', 'type' => 'id'],
             ['table' => 'jobwork_issue_items', 'column' => 'labour_formula_id', 'type' => 'id'],
             ['table' => 'jobwork_issues', 'column' => 'labour_formula', 'type' => 'name'],
@@ -207,6 +213,11 @@ class LabourFormulaController extends Controller
 
             if ($type === 'id') {
                 $query->where($column, $labourFormulaId);
+            } elseif ($type === 'labour_name') {
+                $query->where(function ($q) use ($column, $labourFormulaName) {
+                    $q->where($column, $labourFormulaName)
+                        ->orWhere($column, $this->labourFormulaKey($labourFormulaName));
+                });
             } else {
                 $query->where($column, $labourFormulaName);
             }
@@ -217,5 +228,17 @@ class LabourFormulaController extends Controller
         }
 
         return false;
+    }
+
+    private function labourFormulaKey(string $name): string
+    {
+        return match (strtolower(preg_replace('/\s+/', '', trim($name)))) {
+            'pernetweight' => 'per_netweight',
+            'perfineweight' => 'per_fineweight',
+            'pergrossweight' => 'per_grossweight',
+            'perquantity' => 'per_quantity',
+            'flat' => 'flat',
+            default => strtolower(str_replace(' ', '_', trim($name))),
+        };
     }
 }

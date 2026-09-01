@@ -17,7 +17,11 @@ class LabourFormulaApiController extends Controller
 
         $data = LabourFormula::where('company_id', $companyId)
             ->latest()
-            ->get();
+            ->get()
+            ->map(function ($row) use ($companyId) {
+                $row->is_in_use = $this->isUsedInJobwork($companyId, (int) $row->id, (string) $row->name);
+                return $row;
+            });
 
         return response()->json([
             'success' => true,
@@ -149,7 +153,7 @@ class LabourFormulaApiController extends Controller
         if ($this->isUsedInJobwork($companyId, (int) $data->id, (string) $data->name)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Cannot delete: this Labour Formula is already used in Jobwork Issue.',
+                'message' => 'Cannot delete: this Labour Formula is already in use.',
             ], 422);
         }
 
@@ -164,6 +168,9 @@ class LabourFormulaApiController extends Controller
     private function isUsedInJobwork(int $companyId, int $labourFormulaId, string $labourFormulaName): bool
     {
         $checks = [
+            ['table' => 'production_steps', 'column' => 'labour_formula_id', 'type' => 'id'],
+            ['table' => 'items', 'column' => 'labour_type', 'type' => 'labour_name'],
+            ['table' => 'item_sets', 'column' => 'sale_labour_formula', 'type' => 'name'],
             ['table' => 'jobwork_issues', 'column' => 'labour_formula_id', 'type' => 'id'],
             ['table' => 'jobwork_issue_items', 'column' => 'labour_formula_id', 'type' => 'id'],
             ['table' => 'jobwork_issues', 'column' => 'labour_formula', 'type' => 'name'],
@@ -189,6 +196,11 @@ class LabourFormulaApiController extends Controller
 
             if ($type === 'id') {
                 $query->where($column, $labourFormulaId);
+            } elseif ($type === 'labour_name') {
+                $query->where(function ($q) use ($column, $labourFormulaName) {
+                    $q->where($column, $labourFormulaName)
+                        ->orWhere($column, $this->labourFormulaKey($labourFormulaName));
+                });
             } else {
                 $query->where($column, $labourFormulaName);
             }
@@ -200,5 +212,16 @@ class LabourFormulaApiController extends Controller
 
         return false;
     }
-}
 
+    private function labourFormulaKey(string $name): string
+    {
+        return match (strtolower(preg_replace('/\s+/', '', trim($name)))) {
+            'pernetweight' => 'per_netweight',
+            'perfineweight' => 'per_fineweight',
+            'pergrossweight' => 'per_grossweight',
+            'perquantity' => 'per_quantity',
+            'flat' => 'flat',
+            default => strtolower(str_replace(' ', '_', trim($name))),
+        };
+    }
+}

@@ -4,20 +4,16 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class SaleItem extends Model
+class MetalLedger extends Model
 {
+    protected $table = 'metal_ledgers';
+
     protected $fillable =
     [
         'sale_id',
-        'product_id',
-        'purity',
-        'gross_weight',
-        'net_weight',
-        'fine_weight',
-        'qty',
-        'metal_rate',
-        'labour_amount',
-        'other_amount',
-        'total_amount'
+        'customer_id',
+        'metal_type',
+        'weight',
+        'type',
     ];
 }
