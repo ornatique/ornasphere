@@ -18,7 +18,7 @@
                 <div class="row align-items-end g-3 person-filter-row">
                     <div class="col-xl-4 col-lg-5 col-md-6 person-filter-select-wrap">
                         <label for="category_person_id" class="form-label">Category Person</label>
-                        <select id="category_person_id" class="form-control person-filter-select">
+                        <select id="category_person_id" class="form-control person-filter-select searchable-person-select">
                             <option value="">All Category Persons</option>
                             @foreach($categoryPeople as $categoryPerson)
                                 <option value="{{ $categoryPerson->id }}">{{ $categoryPerson->category_name }}</option>
@@ -56,6 +56,15 @@
 @push("scripts")
 <script>
 $(function () {
+    if (window.jQuery && $.fn.select2) {
+        $('#category_person_id').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            minimumResultsForSearch: 0,
+            placeholder: 'All Category Persons'
+        });
+    }
+
     const table = $('#customers-table').DataTable({
         processing: true,
         serverSide: true,
@@ -94,7 +103,7 @@ $(function () {
     });
 
     $('#resetBtn').on('click', function () {
-        $('#category_person_id').val('');
+        $('#category_person_id').val('').trigger('change.select2');
         table.ajax.reload();
     });
 

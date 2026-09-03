@@ -26,7 +26,7 @@
                         <div class="form-group">
                             <label>Item *</label>
 
-                            <select name="item_id" class="form-select" required>
+                            <select name="item_id" class="form-select label-config-item-select" required>
 
                                 <option value="">Select Item</option>
 
@@ -40,6 +40,10 @@
                                 @endforeach
 
                             </select>
+
+                            @error('item_id')
+                                <div class="text-danger mt-1">{{ $message }}</div>
+                            @enderror
 
                         </div>
                     </div>
@@ -169,3 +173,18 @@
 </div>
 
 @endsection
+
+@push('scripts')
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        if (window.jQuery && $.fn.select2) {
+            $('.label-config-item-select').select2({
+                theme: 'bootstrap4',
+                width: '100%',
+                minimumResultsForSearch: 0,
+                placeholder: 'Select Item'
+            });
+        }
+    });
+</script>
+@endpush

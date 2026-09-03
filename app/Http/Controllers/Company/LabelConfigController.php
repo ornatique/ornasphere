@@ -80,9 +80,8 @@ class LabelConfigController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
-        $items = Item::where('company_id', $company->id)
-            ->orderBy('item_name')
-            ->get();
+        $items = $this->availableItemsQuery($company)
+            ->get(['id', 'item_name']);
 
         return view('company.label_config.create', compact('company', 'items'));
     }
@@ -95,26 +94,25 @@ class LabelConfigController extends Controller
             'item_id' => 'required|exists:items,id',
         ]);
 
-        LabelConfig::updateOrCreate(
+        if (! $this->availableItemsQuery($company)->where('id', $request->item_id)->exists()) {
+            return back()
+                ->withInput()
+                ->withErrors(['item_id' => 'Label Config already exists for selected item.']);
+        }
 
-            [
-                'company_id' => $company->id,
-                'item_id' => $request->item_id
-            ],
-
-            [
-                'prefix' => $request->prefix,
-                'numeric_length' => $request->numeric_length,
-                'last_no' => $request->last_no ?? 0,
-                'reuse' => $request->reuse ? 1 : 0,
-                'random' => $request->random ? 1 : 0,
-                'min_no' => $request->min_no,
-                'max_no' => $request->max_no,
-                'from_date' => $request->from_date,
-                'to_date' => $request->to_date,
-            ]
-
-        );
+        LabelConfig::create([
+            'company_id' => $company->id,
+            'item_id' => $request->item_id,
+            'prefix' => $request->prefix,
+            'numeric_length' => $request->numeric_length,
+            'last_no' => $request->last_no ?? 0,
+            'reuse' => $request->reuse ? 1 : 0,
+            'random' => $request->random ? 1 : 0,
+            'min_no' => $request->min_no,
+            'max_no' => $request->max_no,
+            'from_date' => $request->from_date,
+            'to_date' => $request->to_date,
+        ]);
 
         if ($request->ajax() || $request->wantsJson()) {
             return response()->json([
@@ -140,7 +138,8 @@ class LabelConfigController extends Controller
             ->where('company_id', $company->id)
             ->firstOrFail();
 
-        $items = Item::where('company_id', $company->id)->get();
+        $items = $this->availableItemsQuery($company, $labelConfig->item_id)
+            ->get(['id', 'item_name']);
 
         return view(
             'company.label_config.edit',
@@ -167,6 +166,12 @@ class LabelConfigController extends Controller
             'min_no' => 'nullable|integer',
             'max_no' => 'nullable|integer',
         ]);
+
+        if (! $this->availableItemsQuery($company, $labelConfig->item_id)->where('id', $request->item_id)->exists()) {
+            return back()
+                ->withInput()
+                ->withErrors(['item_id' => 'Label Config already exists for selected item.']);
+        }
 
         $labelConfig->update([
 
@@ -206,5 +211,15 @@ class LabelConfigController extends Controller
         return redirect()
             ->route('company.label_config.index', $company->slug)
             ->with('success', 'Label Config Deleted Successfully');
+    }
+
+    private function availableItemsQuery(Company $company, $currentItemId = null)
+    {
+        return Item::where('company_id', $company->id)
+            ->where(function ($query) use ($currentItemId) {
+                $query->whereDoesntHave('labelConfig')
+                    ->when($currentItemId, fn($q) => $q->orWhere('id', $currentItemId));
+            })
+            ->orderBy('item_name');
     }
 }

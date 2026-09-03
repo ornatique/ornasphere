@@ -23,7 +23,7 @@
 
                 <div class="col-md-3">
                     <label>Item</label>
-                    <select name="item_id" id="item_id" class="form-select">
+                    <select name="item_id" id="item_id" class="form-select searchable-label-print-select">
                         <option value="">All Items</option>
                         @foreach($items as $item)
                             <option value="{{ $item->id }}" {{ (string)request('item_id') === (string)$item->id ? 'selected' : '' }}>
@@ -49,7 +49,7 @@
                 <div class="d-flex gap-2 align-items-center">
                     <div>
                         <label class="mb-0 me-1">Label Format</label>
-                        <select id="label_format" class="form-select">
+                        <select id="label_format" class="form-select searchable-label-print-select">
                             <option value="compact" selected>Compact (Default)</option>
                             <option value="double_barcode">Two Barcode + Name/Gross</option>
                             <option value="double_details">50%-50% QR + Details</option>
@@ -114,6 +114,22 @@
 let selectedIds = new Set();
 let autoSelectDefaultsPending = true;
 const printPreviewPostUrl = "{{ \Illuminate\Support\Facades\Route::has('company.item_sets.printPreview.post') ? route('company.item_sets.printPreview.post', $company->slug) : route('company.item_sets.printPdf.post', $company->slug) }}";
+
+if (window.jQuery && $.fn.select2) {
+    $('#item_id').select2({
+        theme: 'bootstrap4',
+        width: '100%',
+        minimumResultsForSearch: 0,
+        placeholder: 'All Items'
+    });
+
+    $('#label_format').select2({
+        theme: 'bootstrap4',
+        width: '220px',
+        minimumResultsForSearch: 0
+    });
+}
+
 function updateSelectedCount() {
     $('#selectedLabels').text(selectedIds.size);
 }

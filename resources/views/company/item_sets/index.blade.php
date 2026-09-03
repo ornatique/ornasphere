@@ -21,7 +21,7 @@
 
                         <label>Select Item</label>
 
-                        <select id="itemSelect" class="form-select">
+                        <select id="itemSelect" class="form-select itemset-search-select">
 
                             <option value="">Select Item</option>
 
@@ -1125,6 +1125,15 @@
 
 <script>
     var urlTemplate = "{{ route('company.get-item-details', [$company->slug, ':id']) }}";
+
+    if (window.jQuery && $.fn.select2) {
+        $('#itemSelect').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            minimumResultsForSearch: 0,
+            placeholder: 'Select Item'
+        });
+    }
 
     $('#itemSelect').on('change', function() {
 

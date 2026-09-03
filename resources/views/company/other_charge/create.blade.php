@@ -85,7 +85,7 @@
                         <div class="form-group">
                             <label>Weight Formula</label>
                             <select name="weight_formula"
-                                class="form-select">
+                                class="form-select searchable-other-charge-select">
 
                                 <option value="">Select Formula</option>
 
@@ -152,7 +152,7 @@
                             <label>Other Amount Formula</label>
 
                             <select name="other_amt_formula"
-                                class="form-select">
+                                class="form-select searchable-other-charge-select">
 
                                 <option value="">Select Value</option>
                                 <option value="per_weight"
@@ -248,7 +248,7 @@
                         <div class="form-group">
                             <label>Merge Other Charge</label>
                             <select name="merge_other_charge"
-                                class="form-select">
+                                class="form-select searchable-other-charge-select">
 
                                 <option value="">Select Value</option>
 
@@ -270,7 +270,7 @@
                         <div class="form-group">
                             <label>WT Operation</label>
                             <select name="wt_operation"
-                                class="form-select">
+                                class="form-select searchable-other-charge-select">
 
                                 <option value="">Select value</option>
 
@@ -293,7 +293,7 @@
                             <label>Item</label>
 
                             <select name="item_id"
-                                class="form-select">
+                                class="form-select searchable-other-charge-select">
 
                                 <option value="">Select Item</option>
 
@@ -429,3 +429,17 @@
 </div>
 
 @endsection
+
+@push('scripts')
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        if (window.jQuery && $.fn.select2) {
+            $('.searchable-other-charge-select').select2({
+                theme: 'bootstrap4',
+                width: '100%',
+                minimumResultsForSearch: 0
+            });
+        }
+    });
+</script>
+@endpush

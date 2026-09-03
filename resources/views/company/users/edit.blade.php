@@ -39,7 +39,7 @@
                                     <label class="col-sm-3 col-form-label">Role</label>
                                     <div class="col-sm-9">
                                         <select name="role"
-                                            class="form-control @error('role') is-invalid @enderror" required>
+                                            class="form-control searchable-user-select @error('role') is-invalid @enderror" required>
                                             <option value="">Select Role</option>
                                             @foreach($roles as $role)
                                             <option value="{{ $role->name }}"
@@ -120,7 +120,7 @@
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">Mobile App</label>
                                     <div class="col-sm-9">
-                                        <select name="mobile_access_allowed" class="form-control">
+                                        <select name="mobile_access_allowed" class="form-control searchable-user-select">
                                             <option value="1" {{ old('mobile_access_allowed', $user->mobile_access_allowed ? '1' : '0') == '1' ? 'selected' : '' }}>Allow mobile app</option>
                                             <option value="0" {{ old('mobile_access_allowed', $user->mobile_access_allowed ? '1' : '0') == '0' ? 'selected' : '' }}>Block mobile app</option>
                                         </select>
@@ -337,3 +337,17 @@
     </div>
 </div>
 @endsection
+
+@push("scripts")
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        if (window.jQuery && $.fn.select2) {
+            $('.searchable-user-select').select2({
+                theme: 'bootstrap4',
+                width: '100%',
+                minimumResultsForSearch: 0
+            });
+        }
+    });
+</script>
+@endpush

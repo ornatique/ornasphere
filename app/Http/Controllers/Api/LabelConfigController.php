@@ -21,7 +21,8 @@ class LabelConfigController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $configs
+            'data' => $configs,
+            'available_items' => $this->availableItemsQuery($companyId)->get(['id', 'item_name'])
         ]);
     }
 
@@ -44,7 +45,8 @@ class LabelConfigController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $config
+            'data' => $config,
+            'available_items' => $this->availableItemsQuery($companyId, $config->item_id)->get(['id', 'item_name'])
         ]);
     }
 
@@ -72,23 +74,27 @@ class LabelConfigController extends Controller
             ], 400);
         }
 
-        $config = LabelConfig::updateOrCreate(
-            [
-                'company_id' => $companyId,
-                'item_id' => $request->item_id
-            ],
-            [
-                'prefix' => $request->prefix,
-                'numeric_length' => $request->numeric_length,
-                'last_no' => $request->last_no ?? 0,
-                'reuse' => $request->boolean('reuse'),
-                'random' => $request->boolean('random'),
-                'min_no' => $request->min_no,
-                'max_no' => $request->max_no,
-                'from_date' => $request->from_date,
-                'to_date' => $request->to_date,
-            ]
-        );
+        if (LabelConfig::where('company_id', $companyId)->where('item_id', $item->id)->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Label Config already exists for selected item.',
+                'code' => 'LABEL_CONFIG_EXISTS'
+            ], 422);
+        }
+
+        $config = LabelConfig::create([
+            'company_id' => $companyId,
+            'item_id' => $item->id,
+            'prefix' => $request->prefix,
+            'numeric_length' => $request->numeric_length,
+            'last_no' => $request->last_no ?? 0,
+            'reuse' => $request->boolean('reuse'),
+            'random' => $request->boolean('random'),
+            'min_no' => $request->min_no,
+            'max_no' => $request->max_no,
+            'from_date' => $request->from_date,
+            'to_date' => $request->to_date,
+        ]);
 
         return response()->json([
             'success' => true,
@@ -120,8 +126,30 @@ class LabelConfigController extends Controller
             'max_no' => 'nullable|integer',
         ]);
 
+        $item = Item::where('id', $request->item_id)
+                    ->where('company_id', $companyId)
+                    ->first();
+
+        if (!$item) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid item selected'
+            ], 400);
+        }
+
+        if (LabelConfig::where('company_id', $companyId)
+            ->where('item_id', $item->id)
+            ->where('id', '!=', $config->id)
+            ->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Label Config already exists for selected item.',
+                'code' => 'LABEL_CONFIG_EXISTS'
+            ], 422);
+        }
+
         $config->update([
-            'item_id' => $request->item_id,
+            'item_id' => $item->id,
             'prefix' => $request->prefix,
             'numeric_length' => $request->numeric_length,
             'last_no' => $request->last_no ?? 0,
@@ -162,5 +190,16 @@ class LabelConfigController extends Controller
             'success' => true,
             'message' => 'Label Config deleted successfully'
         ]);
+    }
+
+    private function availableItemsQuery(int $companyId, $currentItemId = null)
+    {
+        return Item::where('company_id', $companyId)
+            ->where(function ($query) use ($companyId, $currentItemId) {
+                $query->whereDoesntHave('labelConfig', function ($labelConfigQuery) use ($companyId) {
+                    $labelConfigQuery->where('company_id', $companyId);
+                })->when($currentItemId, fn($q) => $q->orWhere('id', $currentItemId));
+            })
+            ->orderBy('item_name');
     }
 }

@@ -30,7 +30,7 @@
 
                 <div class="col-md-3">
                     <label>Item</label>
-                    <select id="item_id" class="form-select">
+                    <select id="item_id" class="form-select itemset-search-select">
                         <option value="">All Items</option>
                         @foreach($items as $item)
                             <option value="{{ $item->id }}">{{ $item->item_name }}</option>
@@ -292,6 +292,15 @@
 <script>
     let currentView = 'default';
 
+    if (window.jQuery && $.fn.select2) {
+        $('#item_id').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            minimumResultsForSearch: 0,
+            placeholder: 'All Items'
+        });
+    }
+
     let table = $('#itemset-table').DataTable({
         processing: true,
         serverSide: true,
@@ -475,7 +484,7 @@
         const today = "{{ now()->toDateString() }}";
         $('#from_date').val(today);
         $('#to_date').val(today);
-        $('#item_id').val('');
+        $('#item_id').val('').trigger('change.select2');
         redrawCurrentItemSetTable();
     });
 

@@ -38,7 +38,7 @@
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">Category Person</label>
                                     <div class="col-sm-9">
-                                        <select name="category_person_id" class="form-control @error('category_person_id') is-invalid @enderror">
+                                        <select name="category_person_id" class="form-control searchable-person-select @error('category_person_id') is-invalid @enderror">
                                             <option value="">Select Category Person</option>
                                             @foreach($categoryPeople as $categoryPerson)
                                                 <option value="{{ $categoryPerson->id }}" {{ (string) old('category_person_id') === (string) $categoryPerson->id ? 'selected' : '' }}>
@@ -185,7 +185,7 @@
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">Status</label>
                                     <div class="col-sm-9">
-                                        <select name="is_active" class="form-control">
+                                        <select name="is_active" class="form-control searchable-person-select">
                                             <option value="1" {{ old('is_active', '1') == '1' ? 'selected' : '' }}>Active</option>
                                             <option value="0" {{ old('is_active') == '0' ? 'selected' : '' }}>Inactive</option>
                                         </select>
@@ -207,3 +207,17 @@
 @endsection
 
 @include('company.customers.partials.address_autofill')
+
+@push("scripts")
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        if (window.jQuery && $.fn.select2) {
+            $('.searchable-person-select').select2({
+                theme: 'bootstrap4',
+                width: '100%',
+                minimumResultsForSearch: 0
+            });
+        }
+    });
+</script>
+@endpush

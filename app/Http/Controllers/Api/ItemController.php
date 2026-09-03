@@ -23,6 +23,14 @@ class ItemController extends Controller
                     });
                 }
             )
+            ->when(
+                $request->boolean('label_unconfigured_only') || $request->boolean('without_label_config'),
+                function ($query) use ($companyId) {
+                    $query->whereDoesntHave('labelConfig', function ($labelConfigQuery) use ($companyId) {
+                        $labelConfigQuery->where('company_id', $companyId);
+                    });
+                }
+            )
             ->latest()
             ->get()
             ->map(function ($item) {
