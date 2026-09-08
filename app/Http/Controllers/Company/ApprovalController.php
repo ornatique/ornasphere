@@ -1042,14 +1042,11 @@ class ApprovalController extends Controller
             foreach ($request->items as $id) {
                 $approvalItem = ApprovalItem::with('itemSet')
                     ->where('approval_id', (int) $request->approval_id)
+                    ->where('status', 'pending')
                     ->whereHas('approval', function ($q) use ($company) {
                         $q->where('company_id', $company->id);
                     })
                     ->findOrFail((int) $id);
-
-                if ($approvalItem->status === 'returned') {
-                    continue;
-                }
 
                 $itemSet = $approvalItem->itemSet;
                 if (!$itemSet) {

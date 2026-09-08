@@ -246,6 +246,24 @@
   .content-wrapper .history-table-wrap:hover::-webkit-scrollbar-thumb {
     background: rgba(125, 145, 255, 0.7);
   }
+
+  html.app-modal-open,
+  body.modal-open {
+    overflow: hidden !important;
+    padding-right: 0 !important;
+  }
+
+  body.modal-open .container-scroller,
+  body.modal-open .page-body-wrapper,
+  body.modal-open .main-panel {
+    max-height: 100vh;
+    overflow: hidden !important;
+  }
+
+  body.modal-open .modal {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
 </style>
 
   @stack('styles')
@@ -379,6 +397,16 @@ document.addEventListener('blur', function (event) {
     const zeroThreshold = Math.pow(10, -(decimalPlaces + 1)) / 2;
     input.value = (Math.abs(number) < zeroThreshold ? 0 : number).toFixed(decimalPlaces);
 }, true);
+
+document.addEventListener('shown.bs.modal', function () {
+    document.documentElement.classList.add('app-modal-open');
+});
+
+document.addEventListener('hidden.bs.modal', function () {
+    if (!document.querySelector('.modal.show')) {
+        document.documentElement.classList.remove('app-modal-open');
+    }
+});
 </script>
 
   <!-- End custom js for this page-->

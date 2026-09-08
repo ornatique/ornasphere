@@ -1027,14 +1027,11 @@ class ApprovalApiController extends Controller
             foreach ($request->items as $id) {
                 $approvalItem = ApprovalItem::with('itemSet')
                     ->where('approval_id', $request->approval_id)
+                    ->where('status', 'pending')
                     ->whereHas('approval', function ($q) use ($companyId) {
                         $q->where('company_id', $companyId);
                     })
                     ->findOrFail($id);
-
-                if ($approvalItem->status === 'returned') {
-                    continue;
-                }
 
                 $itemSet = $approvalItem->itemSet;
                 $amount = (float) $approvalItem->total_amount;

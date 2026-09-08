@@ -222,7 +222,10 @@
 
                 <div class="row approval-scroll-area">
                     <div class="col-md-6">
-                        <div class="approval-list-title">Available Items</div>
+                        <div class="approval-list-toolbar">
+                            <div class="approval-list-title">Available Items</div>
+                            <button type="button" class="btn btn-sm btn-primary" id="selectAllApprovalItems">Select All</button>
+                        </div>
                         <table class="table table-bordered approval-items-table">
                             <thead>
                                 <tr>
@@ -237,7 +240,10 @@
                     </div>
 
                     <div class="col-md-6">
-                        <div class="approval-list-title">Selected Items</div>
+                        <div class="approval-list-toolbar">
+                            <div class="approval-list-title">Selected Items</div>
+                            <button type="button" class="btn btn-sm btn-secondary" id="clearApprovalItems">Clear</button>
+                        </div>
                         <table class="table table-bordered approval-items-table">
                             <thead>
                                 <tr>
@@ -270,8 +276,9 @@
 <div class="modal fade" id="otherChargeModal" tabindex="-1">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
-            <div class="modal-header">
+            <div class="modal-header other-charge-modal-header">
                 <h5 class="modal-title">Other Charges</h5>
+                <input type="text" class="form-control other-charge-search" id="otherChargeSearch" placeholder="Search charge">
             </div>
             <div class="modal-body">
                 <div class="table-responsive">
@@ -296,6 +303,7 @@
                 </div>
             </div>
             <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-success" id="applyOtherChargesBtn">Apply</button>
             </div>
         </div>
@@ -428,7 +436,16 @@
         font-weight: 700;
         letter-spacing: 0.2px;
         color: rgba(255, 255, 255, 0.75);
+        margin-bottom: 0;
+    }
+
+    #approvalModal .approval-list-toolbar {
+        min-height: 38px;
         margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
     }
 
     #approvalModal .approval-items-table {
@@ -697,14 +714,104 @@
         min-width: 240px;
     }
 
+    #otherChargeModal .modal-dialog {
+        max-width: min(1320px, calc(100vw - 48px));
+    }
+
+    #otherChargeModal .modal-body .table-responsive {
+        overflow-x: visible;
+    }
+
     #otherChargeTable {
-        min-width: 1450px;
+        width: 100%;
+        min-width: 0;
+        table-layout: fixed;
+        border-color: rgba(185, 198, 255, 0.28);
     }
 
     #otherChargeTable th,
     #otherChargeTable td {
         white-space: nowrap;
         vertical-align: middle;
+        border-color: rgba(185, 198, 255, 0.28) !important;
+    }
+
+    #otherChargeTable thead th {
+        background: #2b2f4a;
+        color: #ffffff;
+        box-shadow: inset 0 -1px 0 rgba(185, 198, 255, 0.35);
+    }
+
+    #otherChargeTable tbody tr {
+        border-color: rgba(185, 198, 255, 0.28);
+    }
+
+    #otherChargeTable th:nth-child(1),
+    #otherChargeTable td:nth-child(1) {
+        width: 52px;
+    }
+
+    #otherChargeTable th:nth-child(2),
+    #otherChargeTable td:nth-child(2) {
+        width: 210px;
+        white-space: normal;
+    }
+
+    #otherChargeTable th:nth-child(3),
+    #otherChargeTable td:nth-child(3),
+    #otherChargeTable th:nth-child(4),
+    #otherChargeTable td:nth-child(4) {
+        width: 185px;
+    }
+
+    #otherChargeTable th:nth-child(5),
+    #otherChargeTable td:nth-child(5),
+    #otherChargeTable th:nth-child(6),
+    #otherChargeTable td:nth-child(6) {
+        width: 145px;
+    }
+
+    #otherChargeTable th:nth-child(7),
+    #otherChargeTable td:nth-child(7) {
+        width: 125px;
+    }
+
+    #otherChargeTable th:nth-child(8),
+    #otherChargeTable td:nth-child(8) {
+        width: 76px;
+        text-align: center;
+    }
+
+    #otherChargeTable .form-control,
+    #otherChargeTable .form-select {
+        width: 100%;
+        min-width: 0;
+        height: 46px;
+        padding: 0 12px;
+    }
+
+    .other-charge-modal-header {
+        gap: 16px;
+        align-items: center;
+    }
+
+    .other-charge-modal-header .modal-title {
+        flex: 0 0 auto;
+        font-size: 20px;
+        font-weight: 700;
+        color: #ffffff;
+    }
+
+    .other-charge-search {
+        max-width: 420px;
+        margin-left: auto;
+        background: #292d49;
+        color: #ffffff;
+        border: 1px solid rgba(150, 170, 255, 0.5);
+    }
+
+    .other-charge-search::placeholder {
+        color: rgba(255, 255, 255, 0.56);
     }
 
     #otherChargeTable .charge-sr {
@@ -763,6 +870,7 @@ $(function () {
     let advanceOtherBalance = 0;
     let modalRowId = null;
     let otherChargeOptions = [];
+    let modalOtherChargeLines = [];
 
     if ($.fn.select2) {
         $('#customerSelect').select2({
@@ -1038,15 +1146,26 @@ $(function () {
     }
 
     function renderOtherChargeRows(lines) {
+        modalOtherChargeLines = Array.isArray(lines) ? lines : [];
         const $tbody = $('#otherChargeTable tbody');
         $tbody.empty();
-        const selectedIds = new Set((lines || []).map(x => Number(x.charge_id)));
+        const searchTerm = ($('#otherChargeSearch').val() || '').toLowerCase().trim();
+        const selectedIds = new Set(modalOtherChargeLines.map(x => Number(x.charge_id)));
         const existingLineMap = new Map(
-            (lines || []).map(x => [Number(x.charge_id), x])
+            modalOtherChargeLines.map(x => [Number(x.charge_id), x])
         );
         const rowContext = selectedRows[modalRowId] || {};
+        const visibleOptions = otherChargeOptions
+            .filter(opt => !searchTerm || String(opt.name || '').toLowerCase().includes(searchTerm))
+            .slice(0, 50);
 
-        otherChargeOptions.slice(0, 10).forEach((opt, index) => {
+        if (!visibleOptions.length) {
+            $tbody.append('<tr><td colspan="8" class="text-center text-muted">No charge found</td></tr>');
+            recalcModalCharges();
+            return;
+        }
+
+        visibleOptions.forEach((opt, index) => {
             const calc = calculateChargeTotal(opt, rowContext);
             const existing = existingLineMap.get(Number(opt.id)) || null;
             const checked = selectedIds.has(Number(opt.id)) ? 'checked' : '';
@@ -1092,6 +1211,11 @@ $(function () {
 
         recalcModalCharges();
     }
+
+    $('#otherChargeSearch').on('input', function() {
+        const currentLines = mergeModalChargeLines();
+        renderOtherChargeRows(currentLines);
+    });
 
     function recomputeChargeLine($tr) {
         const amount = toNum($tr.find('.charge-amount-input').val());
@@ -1163,6 +1287,20 @@ $(function () {
         });
 
         return lines;
+    }
+
+    function mergeModalChargeLines() {
+        const visibleIds = $('#otherChargeTable tbody tr[data-id]').map(function() {
+            return Number($(this).data('id'));
+        }).get();
+        const merged = new Map(
+            modalOtherChargeLines
+                .filter(line => !visibleIds.includes(Number(line.charge_id)))
+                .map(line => [Number(line.charge_id), line])
+        );
+
+        collectModalChargeLines().forEach(line => merged.set(Number(line.charge_id), line));
+        return Array.from(merged.values()).filter(line => Number(line.charge_id));
     }
 
     function recalcRow(itemsetId) {
@@ -1810,6 +1948,33 @@ $(function () {
         updateModalTotals();
     });
 
+    $('#selectAllApprovalItems').click(function() {
+        const $items = $('#leftTable tr.leftRow:visible');
+        if (!$items.length) return;
+
+        $('#rightTable .approval-state-row').remove();
+        $items.each(function() {
+            $(this).removeClass('leftRow').addClass('rightRow').appendTo('#rightTable');
+        });
+
+        $('#approvalItemSearch').val('');
+        filterApprovalRows();
+        updateModalTotals();
+    });
+
+    $('#clearApprovalItems').click(function() {
+        const $items = $('#rightTable tr.rightRow');
+        if (!$items.length) return;
+
+        $('#leftTable .approval-empty-row, #leftTable .approval-state-row').remove();
+        $items.each(function() {
+            $(this).removeClass('rightRow').addClass('leftRow').appendTo('#leftTable');
+        });
+
+        filterApprovalRows();
+        updateModalTotals();
+    });
+
     function updateModalTotals() {
         let count = 0, gross = 0;
         $('#rightTable tr.rightRow').each(function() {
@@ -1821,7 +1986,7 @@ $(function () {
     }
 
     $('#addToSale').click(function() {
-        $('#rightTable tr').each(function() {
+        $('#rightTable tr.rightRow').each(function() {
             appendSaleRow({
                 itemset_id: toNum($(this).data('itemset-id')),
                 item_id: toNum($(this).data('item-id')),
@@ -1909,6 +2074,7 @@ $(function () {
                 });
             }
 
+            $('#otherChargeSearch').val('');
             renderOtherChargeRows(lines);
             $('#otherChargeModal').modal('show');
         });
@@ -1937,7 +2103,7 @@ $(function () {
             return;
         }
 
-        const lines = collectModalChargeLines();
+        const lines = mergeModalChargeLines();
         const total = lines.reduce((sum, line) => sum + toNum(line.total), 0);
 
         selectedRows[modalRowId].other_charges = lines;

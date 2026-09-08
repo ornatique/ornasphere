@@ -603,6 +603,9 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
         Route::get('vacuum-buchs/edit/{id}', [VacuumBuchController::class, 'edit'])
             ->name('vacuum-buchs.edit');
 
+        Route::get('vacuum-buchs/{id}/weight-history', [VacuumBuchController::class, 'weightHistory'])
+            ->name('vacuum-buchs.weight-history');
+
         Route::post('vacuum-buchs/update/{id}', [VacuumBuchController::class, 'update'])
             ->name('vacuum-buchs.update');
 

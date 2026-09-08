@@ -129,8 +129,9 @@
 <div class="modal fade" id="itemSetOtherChargeModal" tabindex="-1">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
-            <div class="modal-header">
+            <div class="modal-header other-charge-modal-header">
                 <h5 class="modal-title">Other Charges</h5>
+                <input type="text" class="form-control other-charge-search" id="itemSetOtherChargeSearch" placeholder="Search charge">
             </div>
             <div class="modal-body">
                 <div class="table-responsive">
@@ -160,6 +161,7 @@
                 </div>
             </div>
             <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-success" id="itemSetApplyOtherChargesBtn">Apply</button>
             </div>
         </div>
@@ -189,8 +191,19 @@
         outline: none;
     }
 
+    #itemSetOtherChargeModal .modal-dialog {
+        max-width: min(1320px, calc(100vw - 48px));
+    }
+
+    #itemSetOtherChargeModal .modal-body .table-responsive {
+        overflow-x: visible;
+    }
+
     #itemSetOtherChargeTable {
-        min-width: 1100px;
+        width: 100%;
+        min-width: 0;
+        table-layout: fixed;
+        border-color: rgba(185, 198, 255, 0.28);
     }
 
     #itemSetOtherChargeTable .charge-row {
@@ -207,6 +220,88 @@
     #itemSetOtherChargeTable th {
         white-space: nowrap;
         vertical-align: middle;
+        border-color: rgba(185, 198, 255, 0.28) !important;
+    }
+
+    #itemSetOtherChargeTable thead th {
+        background: #2b2f4a;
+        color: #ffffff;
+        box-shadow: inset 0 -1px 0 rgba(185, 198, 255, 0.35);
+    }
+
+    #itemSetOtherChargeTable th:nth-child(1),
+    #itemSetOtherChargeTable td:nth-child(1) {
+        width: 48px;
+    }
+
+    #itemSetOtherChargeTable th:nth-child(2),
+    #itemSetOtherChargeTable td:nth-child(2) {
+        width: 170px;
+        white-space: normal;
+    }
+
+    #itemSetOtherChargeTable th:nth-child(3),
+    #itemSetOtherChargeTable td:nth-child(3) {
+        width: 145px;
+    }
+
+    #itemSetOtherChargeTable th:nth-child(4),
+    #itemSetOtherChargeTable td:nth-child(4),
+    #itemSetOtherChargeTable th:nth-child(5),
+    #itemSetOtherChargeTable td:nth-child(5) {
+        width: 120px;
+    }
+
+    #itemSetOtherChargeTable th:nth-child(6),
+    #itemSetOtherChargeTable td:nth-child(6),
+    #itemSetOtherChargeTable th:nth-child(8),
+    #itemSetOtherChargeTable td:nth-child(8) {
+        width: 125px;
+    }
+
+    #itemSetOtherChargeTable th:nth-child(7),
+    #itemSetOtherChargeTable td:nth-child(7),
+    #itemSetOtherChargeTable th:nth-child(9),
+    #itemSetOtherChargeTable td:nth-child(9) {
+        width: 115px;
+    }
+
+    #itemSetOtherChargeTable th:nth-child(10),
+    #itemSetOtherChargeTable td:nth-child(10) {
+        width: 72px;
+        text-align: center;
+    }
+
+    #itemSetOtherChargeTable .form-control,
+    #itemSetOtherChargeTable .form-select {
+        width: 100%;
+        min-width: 0;
+        height: 46px;
+        padding: 0 12px;
+    }
+
+    .other-charge-modal-header {
+        gap: 16px;
+        align-items: center;
+    }
+
+    .other-charge-modal-header .modal-title {
+        flex: 0 0 auto;
+        font-size: 20px;
+        font-weight: 700;
+        color: #ffffff;
+    }
+
+    .other-charge-search {
+        max-width: 420px;
+        margin-left: auto;
+        background: #292d49;
+        color: #ffffff;
+        border: 1px solid rgba(150, 170, 255, 0.5);
+    }
+
+    .other-charge-search::placeholder {
+        color: rgba(255, 255, 255, 0.56);
     }
 </style>
 
@@ -226,6 +321,7 @@
     let hasMoreRows = true;
     let otherChargeOptions = [];
     let modalTargetRow = null;
+    let modalOtherChargeLines = [];
     let selectedLabourFormula = 'Per Net Weight';
 
     const editableColumns = [
@@ -849,14 +945,25 @@
     }
 
     function renderOtherChargeRows(lines, rowContext) {
+        modalOtherChargeLines = Array.isArray(lines) ? lines : [];
         const $tbody = $('#itemSetOtherChargeTable tbody');
         $tbody.empty();
-        const selectedIds = new Set((lines || []).map(x => Number(x.charge_id)));
+        const searchTerm = ($('#itemSetOtherChargeSearch').val() || '').toLowerCase().trim();
+        const selectedIds = new Set(modalOtherChargeLines.map(x => Number(x.charge_id)));
         const existingLineMap = new Map(
-            (lines || []).map(x => [Number(x.charge_id), x])
+            modalOtherChargeLines.map(x => [Number(x.charge_id), x])
         );
+        const visibleOptions = otherChargeOptions
+            .filter(opt => !searchTerm || String(opt.name || '').toLowerCase().includes(searchTerm))
+            .slice(0, 50);
 
-        otherChargeOptions.slice(0, 10).forEach((opt, index) => {
+        if (!visibleOptions.length) {
+            $tbody.append('<tr><td colspan="10" class="text-center text-muted">No charge found</td></tr>');
+            recalcModalCharges();
+            return;
+        }
+
+        visibleOptions.forEach((opt, index) => {
             const calc = calculateChargeTotal(opt, rowContext);
             const existing = existingLineMap.get(Number(opt.id)) || null;
             const checked = selectedIds.has(Number(opt.id)) ? 'checked' : '';
@@ -1013,6 +1120,20 @@
         return lines;
     }
 
+    function mergeModalChargeLines() {
+        const visibleIds = $('#itemSetOtherChargeTable tbody tr[data-id]').map(function() {
+            return Number($(this).data('id'));
+        }).get();
+        const merged = new Map(
+            modalOtherChargeLines
+                .filter(line => !visibleIds.includes(Number(line.charge_id)))
+                .map(line => [Number(line.charge_id), line])
+        );
+
+        collectModalChargeLines().forEach(line => merged.set(Number(line.charge_id), line));
+        return Array.from(merged.values()).filter(line => Number(line.charge_id));
+    }
+
     function recalcRowWeightsFromCharges($row) {
         const gross = toNumber($row.find('.cell[data-column="gross_weight"]').text());
         const lines = parseStoredCharges($row);
@@ -1052,9 +1173,17 @@
             item_id: itemId
         }, function(res) {
             otherChargeOptions = Array.isArray(res) ? res : [];
+            $('#itemSetOtherChargeSearch').val('');
             renderOtherChargeRows(lines, rowContext);
             $('#itemSetOtherChargeModal').modal('show');
         });
+    });
+
+    $('#itemSetOtherChargeSearch').on('input', function() {
+        const rowContext = modalTargetRow && modalTargetRow.length
+            ? getRowWeightContext(modalTargetRow)
+            : {};
+        renderOtherChargeRows(mergeModalChargeLines(), rowContext);
     });
 
     $(document).on('click', '#itemSetOtherChargeTable .charge-row', function(e) {
@@ -1080,7 +1209,7 @@
             return;
         }
 
-        const lines = collectModalChargeLines();
+        const lines = mergeModalChargeLines();
         const total = lines.reduce((sum, line) => sum + toNumber(line.total), 0);
         const $cell = modalTargetRow.find('.cell[data-column="sale_other"]');
 

@@ -36,4 +36,9 @@ class VacuumBuch extends Model
     {
         return $this->belongsTo(User::class, 'updated_by');
     }
+
+    public function weightHistories()
+    {
+        return $this->hasMany(VacuumBuchWeightHistory::class, 'vacuum_buch_id');
+    }
 }

@@ -143,7 +143,8 @@
         $receiveNet = (float) ($saved?->receive_net_wt ?? 0);
         $otherWt = (float) ($saved?->other_wt ?? max(0, $receiveGross - $receiveNet));
         $receiveFine = (float) ($saved?->receive_fine_wt ?? 0);
-        $pendingNet = max(0, (float) ($saved?->loss_wt ?? ($issueNet - $receiveNet)));
+        $pendingNet = max(0, $issueNet - $receiveNet);
+        $extraNet = max(0, $receiveNet - $issueNet);
 
         $totalReceiveGross += $receiveGross;
         $totalOtherWt += $otherWt;
@@ -158,11 +159,16 @@
             'receive_net' => $receiveNet,
             'receive_fine' => $receiveFine,
             'pending_net' => $pendingNet,
+            'extra_net' => $extraNet,
             'remarks' => $saved?->remarks ?? '',
         ];
     });
 
     $totalPendingNet = max(0, $totalIssueNet - $totalReceiveNet);
+    $totalExtraNet = max(0, $totalReceiveNet - $totalIssueNet);
+    $balanceLabel = $totalExtraNet > 0.0005 ? 'Extra Net' : 'Pending Net';
+    $balanceShortLabel = $totalExtraNet > 0.0005 ? 'Extra' : 'Pend';
+    $balanceTotal = $totalExtraNet > 0.0005 ? $totalExtraNet : $totalPendingNet;
     $workerVoucherText = $workerIssueVouchers->pluck('voucher_no')->implode(', ') ?: $row->voucher_no;
 @endphp
 <table class="sheet-table">
@@ -193,7 +199,7 @@
                                 <th style="width:11%;" class="num">Other</th>
                                 <th style="width:12%;" class="num">R Net</th>
                                 <th style="width:11%;" class="num">Fine</th>
-                                <th style="width:10%;" class="num">Pend</th>
+                                <th style="width:10%;" class="num">{{ $balanceShortLabel }}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -214,7 +220,7 @@
                                     <td class="num">{{ number_format($saved['other_wt'], 3, '.', '') }}</td>
                                     <td class="num">{{ number_format($saved['receive_net'], 3, '.', '') }}</td>
                                     <td class="num">{{ number_format($saved['receive_fine'], 3, '.', '') }}</td>
-                                    <td class="num">{{ number_format($saved['pending_net'], 3, '.', '') }}</td>
+                                    <td class="num">{{ number_format($totalExtraNet > 0.0005 ? $saved['extra_net'] : $saved['pending_net'], 3, '.', '') }}</td>
                                 </tr>
                             @empty
                                 <tr>
@@ -228,7 +234,7 @@
                                 <td class="num">{{ number_format($totalOtherWt, 3, '.', '') }}</td>
                                 <td class="num">{{ number_format($totalReceiveNet, 3, '.', '') }}</td>
                                 <td class="num">{{ number_format($totalReceiveFine, 3, '.', '') }}</td>
-                                <td class="num">{{ number_format($totalPendingNet, 3, '.', '') }}</td>
+                                <td class="num">{{ number_format($balanceTotal, 3, '.', '') }}</td>
                             </tr>
                         </tbody>
                     </table>
@@ -243,7 +249,7 @@
                             <td class="right-col">Remarks : {{ $receive->remarks ?: '-' }}</td>
                         </tr>
                         <tr>
-                            <td class="left-col"><span class="f-label">Pending Net</span>: {{ number_format($totalPendingNet, 3, '.', '') }} gram</td>
+                            <td class="left-col"><span class="f-label">{{ $balanceLabel }}</span>: {{ number_format($balanceTotal, 3, '.', '') }} gram</td>
                             <td class="right-col">Worker vouchers : {{ $workerVoucherText }}</td>
                         </tr>
                     </table>

@@ -76,77 +76,79 @@
         {{-- ITEMS TABLE --}}
         <h5>Items</h5>
 
-        <table class="table table-bordered">
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>Item</th>
-                    <th>HUID</th>
-                    <th>QR Code</th>
-                    <th>Gross</th>
-                    <th>Other</th>
-                    <th>Net</th>
-                    <th>Amount</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-
-            <tbody>
-                @php $totalOther = 0; @endphp
-
-                @foreach($approval->items as $index => $row)
-
-                    @php
-                        if ($row->status !== 'returned') {
-                            $totalOther += (float) ($row->other_weight ?? 0);
-                        }
-                    @endphp
-
+        <div class="approval-items-scroll">
+            <table class="table table-bordered approval-items-table">
+                <thead>
                     <tr>
-                        <td>{{ $index + 1 }}</td>
-
-                        <td>{{ optional(optional($row->itemSet ?? $row->legacyItemSet)->item)->item_name ?? '-' }}</td>
-
-                        <td>{{ $row->huid ?? optional($row->itemSet ?? $row->legacyItemSet)->HUID ?? '-' }}</td>
-
-                        <td>{{ $row->qr_code ?? optional($row->itemSet ?? $row->legacyItemSet)->qr_code ?? '-' }}</td>
-
-                        <td>{{ number_format($row->gross_weight, 3) }}</td>
-
-                        <td>{{ number_format((float) ($row->other_weight ?? 0), 3) }}</td>
-
-                        <td>{{ number_format($row->net_weight, 3) }}</td>
-
-                        <td>{{ number_format((float) ($row->total_amount ?? 0), 2) }}</td>
-
-                        <td>
-                            @if($row->status == 'sold')
-                                <span class="badge bg-success">Sold</span>
-                            @elseif($row->status == 'returned')
-                                <span class="badge bg-secondary">Return</span>
-                            @else 
-                                <span class="badge bg-secondary">Pending</span>
-                            @endif
-                        </td>
+                        <th>#</th>
+                        <th>Item</th>
+                        <th>HUID</th>
+                        <th>QR Code</th>
+                        <th>Gross</th>
+                        <th>Other</th>
+                        <th>Net</th>
+                        <th>Amount</th>
+                        <th>Status</th>
                     </tr>
+                </thead>
 
-                @endforeach
+                <tbody>
+                    @php $totalOther = 0; @endphp
 
-            </tbody>
+                    @foreach($approval->items as $index => $row)
 
-            {{-- TOTAL --}}
-            <tfoot>
-                <tr>
-                    <th colspan="4" class="text-end">Total</th>
-                    <th>{{ number_format($totalGross, 3) }}</th>
-                    <th>{{ number_format($totalOther, 3) }}</th>
-                    <th>{{ number_format($totalNet, 3) }}</th>
-                    <th>{{ number_format($totalAmount, 2) }}</th>
-                    <th></th>
-                </tr>
-            </tfoot>
+                        @php
+                            if ($row->status !== 'returned') {
+                                $totalOther += (float) ($row->other_weight ?? 0);
+                            }
+                        @endphp
 
-        </table>
+                        <tr>
+                            <td>{{ $index + 1 }}</td>
+
+                            <td>{{ optional(optional($row->itemSet ?? $row->legacyItemSet)->item)->item_name ?? '-' }}</td>
+
+                            <td>{{ $row->huid ?? optional($row->itemSet ?? $row->legacyItemSet)->HUID ?? '-' }}</td>
+
+                            <td>{{ $row->qr_code ?? optional($row->itemSet ?? $row->legacyItemSet)->qr_code ?? '-' }}</td>
+
+                            <td>{{ number_format($row->gross_weight, 3) }}</td>
+
+                            <td>{{ number_format((float) ($row->other_weight ?? 0), 3) }}</td>
+
+                            <td>{{ number_format($row->net_weight, 3) }}</td>
+
+                            <td>{{ number_format((float) ($row->total_amount ?? 0), 2) }}</td>
+
+                            <td>
+                                @if($row->status == 'sold')
+                                    <span class="badge bg-success">Sold</span>
+                                @elseif($row->status == 'returned')
+                                    <span class="badge bg-secondary">Return</span>
+                                @else
+                                    <span class="badge bg-secondary">Pending</span>
+                                @endif
+                            </td>
+                        </tr>
+
+                    @endforeach
+
+                </tbody>
+
+                {{-- TOTAL --}}
+                <tfoot>
+                    <tr>
+                        <th colspan="4" class="text-end">Total</th>
+                        <th>{{ number_format($totalGross, 3) }}</th>
+                        <th>{{ number_format($totalOther, 3) }}</th>
+                        <th>{{ number_format($totalNet, 3) }}</th>
+                        <th>{{ number_format($totalAmount, 2) }}</th>
+                        <th></th>
+                    </tr>
+                </tfoot>
+
+            </table>
+        </div>
 
         {{-- ACTION BUTTONS --}}
         <!-- <div class="mt-3">
@@ -167,3 +169,42 @@
 
 </div>
 @endsection
+
+@push('styles')
+<style>
+    .approval-items-scroll {
+        max-height: calc(100vh - 330px);
+        min-height: 280px;
+        overflow: auto;
+        border: 1px solid rgba(185, 198, 255, 0.22);
+    }
+
+    .approval-items-table {
+        margin-bottom: 0;
+        min-width: 1120px;
+    }
+
+    .approval-items-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #252840;
+        border-color: rgba(185, 198, 255, 0.28) !important;
+    }
+
+    .approval-items-table tfoot th {
+        position: sticky;
+        bottom: 0;
+        z-index: 2;
+        background: #252840;
+        border-color: rgba(185, 198, 255, 0.28) !important;
+    }
+
+    .approval-items-table th,
+    .approval-items-table td {
+        vertical-align: middle;
+        border-color: rgba(185, 198, 255, 0.22) !important;
+        white-space: nowrap;
+    }
+</style>
+@endpush

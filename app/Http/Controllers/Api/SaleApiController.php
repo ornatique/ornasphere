@@ -2343,10 +2343,10 @@ class SaleApiController extends Controller
     {
         $companyId = $request->user()->company_id;
 
-            $company = Company::find($companyId);
-            $sale = Sale::with(['customer', 'saleItems.itemset.item', 'payments'])
-                ->where('company_id', $companyId)
-                ->find($id);
+        $company = Company::find($companyId);
+        $sale = Sale::with(['customer', 'saleItems.itemset.item', 'saleItems.product', 'payments'])
+            ->where('company_id', $companyId)
+            ->find($id);
 
         if (!$sale) {
             return response()->json([
@@ -2355,7 +2355,11 @@ class SaleApiController extends Controller
             ], 404);
         }
 
-        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale', 'company'))
+        $advanceSummary = $this->getAdvanceSummary($companyId, (int) ($sale->customer_id ?? 0), $sale->sale_date);
+        $saleAdvanceUsage = $this->getSaleAdvanceUsage($companyId, $sale);
+        $cashPayableTotal = $this->saleCashPayableTotal($sale);
+
+        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale', 'company', 'advanceSummary', 'saleAdvanceUsage', 'cashPayableTotal'))
             ->setPaper('a4', 'portrait');
 
         $filename = 'sale-voucher-' . ($sale->voucher_no ?: $sale->id) . '.pdf';
@@ -2386,7 +2390,7 @@ class SaleApiController extends Controller
         }
 
         $company = Company::find($companyId);
-        $sale = Sale::with(['customer', 'saleItems.itemset.item', 'payments'])
+        $sale = Sale::with(['customer', 'saleItems.itemset.item', 'saleItems.product', 'payments'])
             ->where('company_id', $companyId)
             ->find($id);
 
@@ -2398,7 +2402,11 @@ class SaleApiController extends Controller
             ], 404);
         }
 
-        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale', 'company'))
+        $advanceSummary = $this->getAdvanceSummary($companyId, (int) ($sale->customer_id ?? 0), $sale->sale_date);
+        $saleAdvanceUsage = $this->getSaleAdvanceUsage($companyId, $sale);
+        $cashPayableTotal = $this->saleCashPayableTotal($sale);
+
+        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale', 'company', 'advanceSummary', 'saleAdvanceUsage', 'cashPayableTotal'))
             ->setPaper('a4', 'portrait');
 
         $filename = 'sale-voucher-' . ($sale->voucher_no ?: $sale->id) . '.pdf';

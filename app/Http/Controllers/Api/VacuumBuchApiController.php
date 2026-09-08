@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\VacuumBuch;
+use App\Models\VacuumBuchWeightHistory;
 use App\Models\VacuumVoucherItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,7 @@ class VacuumBuchApiController extends Controller
         $rows = VacuumBuch::query()
             ->where('company_id', $companyId)
             ->with(['createdByUser:id,name', 'updatedByUser:id,name'])
+            ->withCount('weightHistories')
             ->when($request->filled('search'), function ($query) use ($request) {
                 $search = trim((string) $request->input('search'));
                 $query->where(function ($q) use ($search) {
@@ -64,7 +66,43 @@ class VacuumBuchApiController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $this->formatRow($data, (int) $request->user()->company_id),
+            'data' => $this->formatRow($data->loadCount('weightHistories'), (int) $request->user()->company_id),
+        ]);
+    }
+
+    public function weightHistory(Request $request, $id)
+    {
+        $data = $this->findForCompany($request, (int) $id);
+
+        if (!$data) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vacuum Buch not found',
+            ], 404);
+        }
+
+        $rows = $data->weightHistories()
+            ->with('changedByUser:id,name')
+            ->latest('changed_at')
+            ->limit(50)
+            ->get()
+            ->map(fn($row) => [
+                'id' => (int) $row->id,
+                'vacuum_buch_id' => (int) $row->vacuum_buch_id,
+                'old_weight' => $row->old_weight !== null ? (string) $row->old_weight : null,
+                'new_weight' => $row->new_weight !== null ? (string) $row->new_weight : null,
+                'changed_at' => optional($row->changed_at)->format('Y-m-d H:i:s'),
+                'changed_at_view' => optional($row->changed_at)->format('d-m-Y / h:i A'),
+                'changed_by_user' => $row->changedByUser ? [
+                    'id' => (int) $row->changedByUser->id,
+                    'name' => $row->changedByUser->name,
+                ] : null,
+            ])
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => $rows,
         ]);
     }
 
@@ -188,18 +226,36 @@ class VacuumBuchApiController extends Controller
         $companyId = (int) $request->user()->company_id;
         $validated = $this->validatePayload($request, $companyId, (int) $data->id);
 
-        $data->update([
-            'updated_by' => (int) $request->user()->id,
-            'modified_count' => ((int) $data->modified_count) + 1,
-            'buch_no' => $validated['buch_no'],
-            'size_inch' => $validated['size_inch'] ?? null,
-            'weight' => $validated['weight'] ?? null,
-        ]);
+        $oldWeight = $this->normalizeWeight($data->weight);
+        $newWeight = $this->normalizeWeight($validated['weight'] ?? null);
+        $weightChangedNow = $this->weightChanged($oldWeight, $newWeight);
+
+        DB::transaction(function () use ($data, $request, $validated, $companyId, $oldWeight, $newWeight, $weightChangedNow) {
+            $data->update([
+                'updated_by' => (int) $request->user()->id,
+                'modified_count' => ((int) $data->modified_count) + 1,
+                'buch_no' => $validated['buch_no'],
+                'size_inch' => $validated['size_inch'] ?? null,
+                'weight' => $validated['weight'] ?? null,
+            ]);
+
+            if ($weightChangedNow) {
+                VacuumBuchWeightHistory::create([
+                    'vacuum_buch_id' => $data->id,
+                    'company_id' => $companyId,
+                    'changed_by' => (int) $request->user()->id,
+                    'old_weight' => $oldWeight,
+                    'new_weight' => $newWeight,
+                    'changed_at' => now(),
+                ]);
+            }
+        });
 
         return response()->json([
             'success' => true,
             'message' => 'Vacuum Buch updated successfully',
-            'data' => $this->formatRow($data->fresh(), $companyId),
+            'weight_changed_now' => $weightChangedNow,
+            'data' => $this->formatRow($data->fresh()->loadCount('weightHistories'), $companyId),
         ]);
     }
 
@@ -273,6 +329,7 @@ class VacuumBuchApiController extends Controller
     private function formatRow(VacuumBuch $row, int $companyId): array
     {
         $isUsed = $this->isInUse($companyId, (int) $row->id);
+        $weightChangeCount = (int) ($row->weight_histories_count ?? $row->weightHistories()->count());
 
         return [
             'id' => (int) $row->id,
@@ -281,6 +338,8 @@ class VacuumBuchApiController extends Controller
             'size_inch' => $row->size_inch !== null ? (string) $row->size_inch : null,
             'weight' => $row->weight !== null ? (string) $row->weight : null,
             'modified_count' => (int) $row->modified_count,
+            'weight_changed' => $weightChangeCount > 0,
+            'weight_change_count' => $weightChangeCount,
             'created_by' => $row->created_by ? (int) $row->created_by : null,
             'updated_by' => $row->updated_by ? (int) $row->updated_by : null,
             'created_at' => optional($row->created_at)->format('Y-m-d H:i:s'),
@@ -303,6 +362,16 @@ class VacuumBuchApiController extends Controller
     private function nullableNumericInput($value)
     {
         return $value === '' ? null : $value;
+    }
+
+    private function normalizeWeight($value): ?float
+    {
+        return $value === null || $value === '' ? null : round((float) $value, 3);
+    }
+
+    private function weightChanged(?float $oldWeight, ?float $newWeight): bool
+    {
+        return $oldWeight !== $newWeight;
     }
 
     private function requestPayload(Request $request): array

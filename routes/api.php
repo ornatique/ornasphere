@@ -167,6 +167,7 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/vacuum-buchs', [VacuumBuchApiController::class, 'index']);
     Route::get('/vacuum-buchs/options', [VacuumBuchApiController::class, 'options']);
     Route::post('/vacuum-buchs', [VacuumBuchApiController::class, 'store']);
+    Route::get('/vacuum-buchs/{id}/weight-history', [VacuumBuchApiController::class, 'weightHistory'])->whereNumber('id');
     Route::get('/vacuum-buchs/{id}', [VacuumBuchApiController::class, 'show'])->whereNumber('id');
     Route::put('/vacuum-buchs/{id}', [VacuumBuchApiController::class, 'update'])->whereNumber('id');
     Route::delete('/vacuum-buchs/{id}', [VacuumBuchApiController::class, 'destroy'])->whereNumber('id');

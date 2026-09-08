@@ -62,25 +62,106 @@
         min-width: 170px;
     }
 
+    #otherChargeModal .modal-dialog {
+        max-width: min(1320px, calc(100vw - 48px));
+    }
+
+    #otherChargeModal .modal-body .table-responsive {
+        overflow-x: visible;
+    }
+
     #otherChargeTable {
-        min-width: 1450px;
+        width: 100%;
+        min-width: 0;
+        table-layout: fixed;
+        border-color: rgba(185, 198, 255, 0.28);
     }
 
     #otherChargeTable th,
     #otherChargeTable td {
         white-space: nowrap;
         vertical-align: middle;
+        border-color: rgba(185, 198, 255, 0.28) !important;
+    }
+
+    #otherChargeTable thead th {
+        background: #2b2f4a;
+        color: #ffffff;
+        box-shadow: inset 0 -1px 0 rgba(185, 198, 255, 0.35);
+    }
+
+    #otherChargeTable th:nth-child(1),
+    #otherChargeTable td:nth-child(1) {
+        width: 52px;
+    }
+
+    #otherChargeTable th:nth-child(2),
+    #otherChargeTable td:nth-child(2) {
+        width: 210px;
+        white-space: normal;
+    }
+
+    #otherChargeTable th:nth-child(3),
+    #otherChargeTable td:nth-child(3),
+    #otherChargeTable th:nth-child(4),
+    #otherChargeTable td:nth-child(4) {
+        width: 185px;
+    }
+
+    #otherChargeTable th:nth-child(5),
+    #otherChargeTable td:nth-child(5),
+    #otherChargeTable th:nth-child(6),
+    #otherChargeTable td:nth-child(6) {
+        width: 145px;
+    }
+
+    #otherChargeTable th:nth-child(7),
+    #otherChargeTable td:nth-child(7) {
+        width: 125px;
+    }
+
+    #otherChargeTable th:nth-child(8),
+    #otherChargeTable td:nth-child(8) {
+        width: 76px;
+        text-align: center;
+    }
+
+    .other-charge-modal-header {
+        gap: 16px;
+        align-items: center;
+    }
+
+    .other-charge-modal-header .modal-title {
+        flex: 0 0 auto;
+        font-size: 20px;
+        font-weight: 700;
+        color: #ffffff;
+    }
+
+    .other-charge-search {
+        max-width: 420px;
+        margin-left: auto;
+        background: #292d49;
+        color: #ffffff;
+        border: 1px solid rgba(150, 170, 255, 0.5);
+    }
+
+    .other-charge-search::placeholder {
+        color: rgba(255, 255, 255, 0.56);
     }
 
     #otherChargeTable .form-control,
     #otherChargeTable .form-select {
-        min-width: 110px;
+        width: 100%;
+        min-width: 0;
+        height: 46px;
+        padding: 0 12px;
         text-align: right;
     }
 
     #otherChargeTable .charge-select {
         text-align: left;
-        min-width: 140px;
+        min-width: 0;
     }
 
     #otherChargeTable .charge-sr {
@@ -95,6 +176,20 @@
 
     #otherChargeTable .charge-select-col {
         text-align: center;
+    }
+
+    .approval-return-modal-toolbar {
+        min-height: 38px;
+        gap: 8px;
+    }
+
+    .approval-return-modal-toolbar h6 {
+        margin: 0;
+    }
+
+    #approvalReturnModal .return-picker-table tbody tr.leftItem,
+    #approvalReturnModal .return-picker-table tbody tr.rightItem {
+        cursor: pointer;
     }
 </style>
 
@@ -202,18 +297,24 @@
             <div class="modal-body">
                 <div class="row">
                     <div class="col-md-6">
-                        <h6>Available</h6>
+                        <div class="approval-return-modal-toolbar d-flex align-items-center justify-content-between mb-2">
+                            <h6>Available</h6>
+                            <button type="button" class="btn btn-sm btn-primary" id="selectAllReturnItems">Select All</button>
+                        </div>
                         <div style="max-height:400px; overflow:auto;">
-                            <table class="table table-bordered">
+                            <table class="table table-bordered return-picker-table">
                                 <tbody id="leftReturn"></tbody>
                             </table>
                         </div>
                     </div>
 
                     <div class="col-md-6">
-                        <h6>Selected</h6>
+                        <div class="approval-return-modal-toolbar d-flex align-items-center justify-content-between mb-2">
+                            <h6>Selected</h6>
+                            <button type="button" class="btn btn-sm btn-secondary" id="clearReturnItems">Clear</button>
+                        </div>
                         <div style="max-height:400px; overflow:auto;">
-                            <table class="table table-bordered">
+                            <table class="table table-bordered return-picker-table">
                                 <tbody id="rightReturn"></tbody>
                             </table>
                         </div>
@@ -236,8 +337,9 @@
 <div class="modal fade" id="otherChargeModal" tabindex="-1">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
-            <div class="modal-header">
+            <div class="modal-header other-charge-modal-header">
                 <h5 class="modal-title">Other Charges</h5>
+                <input type="text" class="form-control other-charge-search" id="otherChargeSearch" placeholder="Search charge">
             </div>
             <div class="modal-body">
                 <div class="table-responsive">
@@ -262,6 +364,7 @@
                 </div>
             </div>
             <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-success" id="applyOtherChargesBtn">Apply</button>
             </div>
         </div>
@@ -286,6 +389,7 @@ $(function() {
     const selectedRows = {};
     let modalRowId = null;
     let otherChargeOptions = [];
+    let modalOtherChargeLines = [];
 
     const toNum = (v, d = 0) => {
         const n = parseFloat(v);
@@ -417,15 +521,26 @@ $(function() {
     }
 
     function renderOtherChargeRows(lines) {
+        modalOtherChargeLines = Array.isArray(lines) ? lines : [];
         const $tbody = $('#otherChargeTable tbody');
         $tbody.empty();
-        const selectedIds = new Set((lines || []).map(x => Number(x.charge_id)));
+        const searchTerm = ($('#otherChargeSearch').val() || '').toLowerCase().trim();
+        const selectedIds = new Set(modalOtherChargeLines.map(x => Number(x.charge_id)));
         const existingLineMap = new Map(
-            (lines || []).map(x => [Number(x.charge_id), x])
+            modalOtherChargeLines.map(x => [Number(x.charge_id), x])
         );
         const rowContext = selectedRows[modalRowId] || {};
+        const visibleOptions = otherChargeOptions
+            .filter(opt => !searchTerm || String(opt.name || '').toLowerCase().includes(searchTerm))
+            .slice(0, 50);
 
-        otherChargeOptions.slice(0, 10).forEach((opt, index) => {
+        if (!visibleOptions.length) {
+            $tbody.append('<tr><td colspan="8" class="text-center text-muted">No charge found</td></tr>');
+            recalcModalCharges();
+            return;
+        }
+
+        visibleOptions.forEach((opt, index) => {
             const calc = calculateChargeTotal(opt, rowContext);
             const existing = existingLineMap.get(Number(opt.id)) || null;
             const checked = selectedIds.has(Number(opt.id)) ? 'checked' : '';
@@ -471,6 +586,10 @@ $(function() {
 
         recalcModalCharges();
     }
+
+    $('#otherChargeSearch').on('input', function() {
+        renderOtherChargeRows(mergeModalChargeLines());
+    });
 
     function recomputeChargeLine($tr) {
         const amount = toNum($tr.find('.charge-amount-input').val());
@@ -541,6 +660,20 @@ $(function() {
             });
         });
         return lines;
+    }
+
+    function mergeModalChargeLines() {
+        const visibleIds = $('#otherChargeTable tbody tr[data-id]').map(function() {
+            return Number($(this).data('id'));
+        }).get();
+        const merged = new Map(
+            modalOtherChargeLines
+                .filter(line => !visibleIds.includes(Number(line.charge_id)))
+                .map(line => [Number(line.charge_id), line])
+        );
+
+        collectModalChargeLines().forEach(line => merged.set(Number(line.charge_id), line));
+        return Array.from(merged.values()).filter(line => Number(line.charge_id));
     }
 
     function appendRow(type, idKey, data) {
@@ -726,6 +859,7 @@ $(function() {
                 });
             }
 
+            $('#otherChargeSearch').val('');
             renderOtherChargeRows(lines);
             $('#otherChargeModal').modal('show');
         });
@@ -754,7 +888,7 @@ $(function() {
             return;
         }
 
-        const lines = collectModalChargeLines();
+        const lines = mergeModalChargeLines();
         const total = lines.reduce((sum, line) => sum + toNum(line.total), 0);
 
         selectedRows[modalRowId].other_charges = lines;
@@ -800,27 +934,68 @@ $(function() {
                 `;
             });
 
-            $('#leftReturn').html(html || '<tr><td colspan="4" class="text-center">No pending approval items</td></tr>');
+            $('#leftReturn').html(html || '<tr class="return-empty-row"><td colspan="4" class="text-center">No pending approval items</td></tr>');
             $('#rightReturn').html('');
+            ensureReturnPickerEmptyRows();
             updateModalTotals();
         });
     });
 
     $(document).on('click', '.leftItem', function() {
+        $('#rightReturn .return-empty-row').remove();
         $(this).appendTo('#rightReturn').removeClass('leftItem').addClass('rightItem');
+        ensureReturnPickerEmptyRows();
         updateModalTotals();
     });
 
     $(document).on('click', '.rightItem', function() {
+        $('#leftReturn .return-empty-row').remove();
         $(this).appendTo('#leftReturn').removeClass('rightItem').addClass('leftItem');
+        ensureReturnPickerEmptyRows();
         updateModalTotals();
     });
+
+    $('#selectAllReturnItems').click(function() {
+        const $items = $('#leftReturn tr.leftItem');
+        if (!$items.length) return;
+
+        $('#rightReturn .return-empty-row').remove();
+        $items.each(function() {
+            $(this).appendTo('#rightReturn').removeClass('leftItem').addClass('rightItem');
+        });
+
+        ensureReturnPickerEmptyRows();
+        updateModalTotals();
+    });
+
+    $('#clearReturnItems').click(function() {
+        const $items = $('#rightReturn tr.rightItem');
+        if (!$items.length) return;
+
+        $('#leftReturn .return-empty-row').remove();
+        $items.each(function() {
+            $(this).appendTo('#leftReturn').removeClass('rightItem').addClass('leftItem');
+        });
+
+        ensureReturnPickerEmptyRows();
+        updateModalTotals();
+    });
+
+    function ensureReturnPickerEmptyRows() {
+        if ($('#leftReturn tr.leftItem').length === 0) {
+            $('#leftReturn').html('<tr class="return-empty-row"><td colspan="4" class="text-center">No pending approval items</td></tr>');
+        }
+
+        if ($('#rightReturn tr.rightItem').length === 0) {
+            $('#rightReturn').html('<tr class="return-empty-row"><td colspan="4" class="text-center">No item selected</td></tr>');
+        }
+    }
 
     function updateModalTotals() {
         let count = 0;
         let gross = 0;
 
-        $('#rightReturn tr').each(function() {
+        $('#rightReturn tr.rightItem').each(function() {
             count++;
             gross += toNum($(this).data('gross'));
         });
@@ -830,7 +1005,7 @@ $(function() {
     }
 
     $('#addReturnItems').click(function() {
-        $('#rightReturn tr').each(function() {
+        $('#rightReturn tr.rightItem').each(function() {
             const approvalItemId = Number($(this).data('id'));
             if (selectedApprovalItemIds.has(approvalItemId)) return;
 

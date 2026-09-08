@@ -184,8 +184,9 @@
 <div class="modal fade" id="otherChargeModal" tabindex="-1">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
-            <div class="modal-header">
+            <div class="modal-header other-charge-modal-header">
                 <h5 class="modal-title">Other Charges</h5>
+                <input type="text" class="form-control other-charge-search" id="otherChargeSearch" placeholder="Search charge">
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
@@ -212,6 +213,7 @@
                 </div>
             </div>
             <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-success" id="applyOtherChargesBtn">Apply</button>
             </div>
         </div>
@@ -327,14 +329,102 @@
         line-height: 1.2;
     }
 
+    #otherChargeModal .modal-dialog {
+        max-width: min(1320px, calc(100vw - 48px));
+    }
+
+    #otherChargeModal .modal-body .table-responsive {
+        overflow-x: visible;
+    }
+
     #otherChargeTable {
-        min-width: 1300px;
+        width: 100%;
+        min-width: 0;
+        table-layout: fixed;
+        border-color: rgba(185, 198, 255, 0.28);
     }
 
     #otherChargeTable th,
     #otherChargeTable td {
         white-space: nowrap;
         vertical-align: middle;
+        border-color: rgba(185, 198, 255, 0.28) !important;
+    }
+
+    #otherChargeTable thead th {
+        background: #2b2f4a;
+        color: #ffffff;
+        box-shadow: inset 0 -1px 0 rgba(185, 198, 255, 0.35);
+    }
+
+    #otherChargeTable th:nth-child(1),
+    #otherChargeTable td:nth-child(1) {
+        width: 52px;
+    }
+
+    #otherChargeTable th:nth-child(2),
+    #otherChargeTable td:nth-child(2) {
+        width: 190px;
+        white-space: normal;
+    }
+
+    #otherChargeTable th:nth-child(3),
+    #otherChargeTable td:nth-child(3),
+    #otherChargeTable th:nth-child(4),
+    #otherChargeTable td:nth-child(4),
+    #otherChargeTable th:nth-child(6),
+    #otherChargeTable td:nth-child(6) {
+        width: 145px;
+    }
+
+    #otherChargeTable th:nth-child(5),
+    #otherChargeTable td:nth-child(5),
+    #otherChargeTable th:nth-child(7),
+    #otherChargeTable td:nth-child(7) {
+        width: 130px;
+    }
+
+    #otherChargeTable th:nth-child(8),
+    #otherChargeTable td:nth-child(8) {
+        width: 120px;
+    }
+
+    #otherChargeTable th:nth-child(9),
+    #otherChargeTable td:nth-child(9) {
+        width: 72px;
+        text-align: center;
+    }
+
+    #otherChargeTable .form-control,
+    #otherChargeTable .form-select {
+        width: 100%;
+        min-width: 0;
+        height: 46px;
+        padding: 0 12px;
+    }
+
+    .other-charge-modal-header {
+        gap: 16px;
+        align-items: center;
+    }
+
+    .other-charge-modal-header .modal-title {
+        flex: 0 0 auto;
+        font-size: 20px;
+        font-weight: 700;
+        color: #ffffff;
+    }
+
+    .other-charge-search {
+        max-width: 420px;
+        margin-left: auto;
+        background: #292d49;
+        color: #ffffff;
+        border: 1px solid rgba(150, 170, 255, 0.5);
+    }
+
+    .other-charge-search::placeholder {
+        color: rgba(255, 255, 255, 0.56);
     }
 
     #otherChargeTable .charge-sr {
@@ -375,6 +465,7 @@ let currentRow = null;
     })->values();
 @endphp
 let otherChargeOptions = @json($otherChargeOptions);
+let modalOtherChargeLines = [];
 
 const otherChargeModal = new bootstrap.Modal(document.getElementById('otherChargeModal'));
 
@@ -604,11 +695,22 @@ function collectModalChargeLines() {
 }
 
 function renderOtherChargeRows(lines, rowContext) {
+    modalOtherChargeLines = Array.isArray(lines) ? lines : [];
     const $tbody = $('#otherChargeTable tbody');
     $tbody.empty();
-    const existingMap = new Map((lines || []).map(x => [Number(x.charge_id), x]));
+    const searchTerm = ($('#otherChargeSearch').val() || '').toLowerCase().trim();
+    const existingMap = new Map(modalOtherChargeLines.map(x => [Number(x.charge_id), x]));
+    const visibleOptions = otherChargeOptions
+        .filter(opt => !searchTerm || String(opt.name || '').toLowerCase().includes(searchTerm))
+        .slice(0, 50);
 
-    otherChargeOptions.forEach((opt, index) => {
+    if (!visibleOptions.length) {
+        $tbody.append('<tr><td colspan="9" class="text-center text-muted">No charge found</td></tr>');
+        recalcModalCharges();
+        return;
+    }
+
+    visibleOptions.forEach((opt, index) => {
         const existing = existingMap.get(Number(opt.id)) || null;
         // Do not auto-select by default. Only keep previously saved selections.
         const checked = existing ? 'checked' : '';
@@ -650,6 +752,20 @@ function renderOtherChargeRows(lines, rowContext) {
     });
 
     recalcModalCharges();
+}
+
+function mergeModalChargeLines() {
+    const visibleIds = $('#otherChargeTable tbody tr[data-id]').map(function() {
+        return Number($(this).data('id'));
+    }).get();
+    const merged = new Map(
+        modalOtherChargeLines
+            .filter(line => !visibleIds.includes(Number(line.charge_id)))
+            .map(line => [Number(line.charge_id), line])
+    );
+
+    collectModalChargeLines().forEach(line => merged.set(Number(line.charge_id), line));
+    return Array.from(merged.values()).filter(line => Number(line.charge_id));
 }
 
 $(document).on('change', '.item-select', function () {
@@ -698,12 +814,24 @@ $(document).on('click', '.otherChargeBtn', function () {
 
     $.get("{{ route('company.other-charge.options', $company->slug) }}", function (res) {
         otherChargeOptions = Array.isArray(res) ? res : [];
+        $('#otherChargeSearch').val('');
         renderOtherChargeRows(lines, rowContext);
         otherChargeModal.show();
     }).fail(function () {
+        $('#otherChargeSearch').val('');
         renderOtherChargeRows(lines, rowContext);
         otherChargeModal.show();
     });
+});
+
+$('#otherChargeSearch').on('input', function() {
+    const rowContext = currentRow
+        ? {
+            gross_weight: toNum(currentRow.find('.gross-wt').val()),
+            net_weight: toNum(currentRow.find('.net-wt').val())
+        }
+        : {};
+    renderOtherChargeRows(mergeModalChargeLines(), rowContext);
 });
 
 $(document).on('click', '.charge-row', function (e) {
@@ -729,7 +857,7 @@ $('#applyOtherChargesBtn').on('click', function () {
         return;
     }
 
-    const lines = collectModalChargeLines();
+    const lines = mergeModalChargeLines();
     let totalAmt = 0;
     let lessWt = 0;
     let addWt = 0;

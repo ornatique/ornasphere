@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Company;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\VacuumBuch;
+use App\Models\VacuumBuchWeightHistory;
 use App\Models\VacuumVoucherItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -22,27 +23,37 @@ class VacuumBuchController extends Controller
             $rows = VacuumBuch::query()
                 ->where('company_id', $company->id)
                 ->with(['createdByUser:id,name'])
-                ->select('vacuum_buchs.*');
+                ->select('vacuum_buchs.*')
+                ->withCount('weightHistories');
 
             return DataTables::of($rows)
                 ->addIndexColumn()
                 ->addColumn('user_name', fn($row) => $row->createdByUser?->name ?? '-')
                 ->addColumn('modified_at_view', fn($row) => optional($row->updated_at)->format('d-m-Y h:i A') ?? '-')
+                ->addColumn('weight_change_view', function ($row) {
+                    if ((int) ($row->weight_histories_count ?? 0) <= 0) {
+                        return '<span class="text-muted">-</span>';
+                    }
+
+                    return '<span class="badge bg-warning text-dark">Weight Changed</span>';
+                })
                 ->addColumn('created_at_view', fn($row) => optional($row->created_at)->format('d-m-Y h:i A') ?? '-')
                 ->addColumn('action', function ($row) use ($company) {
                     $encryptedId = Crypt::encryptString((string) $row->id);
                     $edit = route('company.vacuum-buchs.edit', [$company->slug, $encryptedId]);
                     $delete = route('company.vacuum-buchs.destroy', [$company->slug, $encryptedId]);
+                    $history = route('company.vacuum-buchs.weight-history', [$company->slug, $encryptedId]);
                     $deleteButton = $this->isInUse($company->id, (int) $row->id)
                         ? '<button type="button" class="btn btn-sm btn-secondary" disabled>In Use</button>'
                         : '<button type="button" class="btn btn-sm btn-danger deleteBtn" data-url="' . e($delete) . '">Delete</button>';
 
                     return '
                         <a href="' . $edit . '" class="btn btn-sm btn-primary">Edit</a>
+                        <button type="button" class="btn btn-sm btn-info historyBtn" data-url="' . e($history) . '" data-buch="' . e($row->buch_no) . '">History</button>
                         ' . $deleteButton . '
                     ';
                 })
-                ->rawColumns(['action'])
+                ->rawColumns(['action', 'weight_change_view'])
                 ->make(true);
         }
 
@@ -168,6 +179,31 @@ class VacuumBuchController extends Controller
         return view('company.vacuum_buchs.create', compact('company', 'data'));
     }
 
+    public function weightHistory($slug, $encryptedId)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $id = Crypt::decryptString($encryptedId);
+        $data = VacuumBuch::where('company_id', $company->id)->where('id', $id)->firstOrFail();
+
+        $rows = $data->weightHistories()
+            ->with('changedByUser:id,name')
+            ->latest('changed_at')
+            ->limit(50)
+            ->get()
+            ->map(fn($row) => [
+                'old_weight' => $row->old_weight !== null ? number_format((float) $row->old_weight, 3, '.', '') : '-',
+                'new_weight' => $row->new_weight !== null ? number_format((float) $row->new_weight, 3, '.', '') : '-',
+                'changed_by' => $row->changedByUser?->name ?? '-',
+                'changed_at' => optional($row->changed_at)->format('d-m-Y h:i A') ?? '-',
+            ])
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => $rows,
+        ]);
+    }
+
     public function update(Request $request, $slug, $encryptedId)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
@@ -181,14 +217,29 @@ class VacuumBuchController extends Controller
         }
 
         $validated = $this->validateData($request, $company->id, (int) $data->id);
+        $oldWeight = $this->normalizeWeight($data->weight);
+        $newWeight = $this->normalizeWeight($validated['weight'] ?? null);
 
-        $data->update([
-            'updated_by' => auth()->id(),
-            'modified_count' => ((int) $data->modified_count) + 1,
-            'buch_no' => $validated['buch_no'],
-            'size_inch' => $validated['size_inch'] ?? null,
-            'weight' => $validated['weight'] ?? null,
-        ]);
+        DB::transaction(function () use ($data, $company, $validated, $oldWeight, $newWeight) {
+            $data->update([
+                'updated_by' => auth()->id(),
+                'modified_count' => ((int) $data->modified_count) + 1,
+                'buch_no' => $validated['buch_no'],
+                'size_inch' => $validated['size_inch'] ?? null,
+                'weight' => $validated['weight'] ?? null,
+            ]);
+
+            if ($this->weightChanged($oldWeight, $newWeight)) {
+                VacuumBuchWeightHistory::create([
+                    'vacuum_buch_id' => $data->id,
+                    'company_id' => $company->id,
+                    'changed_by' => auth()->id(),
+                    'old_weight' => $oldWeight,
+                    'new_weight' => $newWeight,
+                    'changed_at' => now(),
+                ]);
+            }
+        });
 
         return redirect()
             ->route('company.vacuum-buchs.index', $company->slug)
@@ -251,5 +302,15 @@ class VacuumBuchController extends Controller
         return VacuumVoucherItem::where('vacuum_buch_id', $buchId)
             ->whereHas('voucher', fn($query) => $query->where('company_id', $companyId))
             ->exists();
+    }
+
+    private function normalizeWeight($value): ?float
+    {
+        return $value === null || $value === '' ? null : round((float) $value, 3);
+    }
+
+    private function weightChanged(?float $oldWeight, ?float $newWeight): bool
+    {
+        return $oldWeight !== $newWeight;
     }
 }

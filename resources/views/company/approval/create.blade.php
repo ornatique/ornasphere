@@ -72,15 +72,15 @@
                             <th>Gross Wt</th>
                             <th>Other Wt</th>
                             <th>Net Wt</th>
-                            <th>Purity</th>
-                            <th>Waste %</th>
+                            <th>Purity <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="purity" title="Apply first row purity to all rows">All</button></th>
+                            <th>Waste % <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="waste_percent" title="Apply first row waste to all rows">All</button></th>
                             <th>Net Purity</th>
                             <th>Fine Wt</th>
-                            <th>Metal Rate</th>
+                            <th>Metal Rate <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="metal_rate" title="Apply first row metal rate to all rows">All</button></th>
                             <th>Metal Amt</th>
-                            <th>Labour Rate</th>
+                            <th>Labour Rate <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="labour_rate" title="Apply first row labour rate to all rows">All</button></th>
                             <th>Labour Amt</th>
-                            <th>Other Amt</th>
+                            <th>Other Amt <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="other_amount" title="Apply first row other amount to all rows">All</button></th>
                             <th>Total Amt</th>
                             <th>Remarks</th>
                             <th>Action</th>
@@ -100,8 +100,9 @@
 <div class="modal fade" id="otherChargeModal" tabindex="-1">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
-            <div class="modal-header">
+            <div class="modal-header other-charge-modal-header">
                 <h5 class="modal-title">Other Charges</h5>
+                <input type="text" class="form-control other-charge-search" id="otherChargeSearch" placeholder="Search charge">
             </div>
             <div class="modal-body">
                 <div class="table-responsive">
@@ -126,6 +127,7 @@
                 </div>
             </div>
             <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-success" id="applyOtherChargesBtn">Apply</button>
             </div>
         </div>
@@ -237,6 +239,14 @@
         vertical-align: middle;
     }
 
+    #cartTable .apply-first-column {
+        margin-left: 6px;
+        padding: 2px 8px;
+        font-size: 11px;
+        line-height: 1.2;
+        white-space: nowrap;
+    }
+
     #cartTable td:first-child {
         min-width: 180px;
         white-space: normal;
@@ -268,14 +278,100 @@
         min-width: 170px;
     }
 
+    #otherChargeModal .modal-dialog {
+        max-width: min(1320px, calc(100vw - 48px));
+    }
+
+    #otherChargeModal .modal-body .table-responsive {
+        overflow-x: visible;
+    }
+
     #otherChargeTable {
-        min-width: 1450px;
+        width: 100%;
+        min-width: 0;
+        table-layout: fixed;
+        border-color: rgba(185, 198, 255, 0.28);
     }
 
     #otherChargeTable th,
     #otherChargeTable td {
         white-space: nowrap;
         vertical-align: middle;
+        border-color: rgba(185, 198, 255, 0.28) !important;
+    }
+
+    #otherChargeTable thead th {
+        background: #2b2f4a;
+        color: #ffffff;
+        box-shadow: inset 0 -1px 0 rgba(185, 198, 255, 0.35);
+    }
+
+    #otherChargeTable th:nth-child(1),
+    #otherChargeTable td:nth-child(1) {
+        width: 52px;
+    }
+
+    #otherChargeTable th:nth-child(2),
+    #otherChargeTable td:nth-child(2) {
+        width: 210px;
+        white-space: normal;
+    }
+
+    #otherChargeTable th:nth-child(3),
+    #otherChargeTable td:nth-child(3),
+    #otherChargeTable th:nth-child(4),
+    #otherChargeTable td:nth-child(4) {
+        width: 185px;
+    }
+
+    #otherChargeTable th:nth-child(5),
+    #otherChargeTable td:nth-child(5),
+    #otherChargeTable th:nth-child(6),
+    #otherChargeTable td:nth-child(6) {
+        width: 145px;
+    }
+
+    #otherChargeTable th:nth-child(7),
+    #otherChargeTable td:nth-child(7) {
+        width: 125px;
+    }
+
+    #otherChargeTable th:nth-child(8),
+    #otherChargeTable td:nth-child(8) {
+        width: 76px;
+        text-align: center;
+    }
+
+    #otherChargeTable .form-control,
+    #otherChargeTable .form-select {
+        width: 100%;
+        min-width: 0;
+        height: 46px;
+        padding: 0 12px;
+    }
+
+    .other-charge-modal-header {
+        gap: 16px;
+        align-items: center;
+    }
+
+    .other-charge-modal-header .modal-title {
+        flex: 0 0 auto;
+        font-size: 20px;
+        font-weight: 700;
+        color: #ffffff;
+    }
+
+    .other-charge-search {
+        max-width: 420px;
+        margin-left: auto;
+        background: #292d49;
+        color: #ffffff;
+        border: 1px solid rgba(150, 170, 255, 0.5);
+    }
+
+    .other-charge-search::placeholder {
+        color: rgba(255, 255, 255, 0.56);
     }
 
     #otherChargeTable .charge-sr {
@@ -314,6 +410,7 @@ $(function () {
 
     const selectedItems = {};
     let modalRowId = null;
+    let modalOtherChargeLines = [];
     let otherChargeOptions = [];
 
     const toNum = (v, d = 0) => {
@@ -327,6 +424,26 @@ $(function () {
         const n = toNum(value);
         const fixed = Math.abs(n) < 1e-9 ? 0 : n;
         return fixed.toFixed(decimals);
+    }
+
+    function showOtherChargeModal() {
+        const el = document.getElementById('otherChargeModal');
+        if (window.bootstrap && bootstrap.Modal && el) {
+            bootstrap.Modal.getOrCreateInstance(el).show();
+            return;
+        }
+
+        $('#otherChargeModal').modal('show');
+    }
+
+    function hideOtherChargeModal() {
+        const el = document.getElementById('otherChargeModal');
+        if (window.bootstrap && bootstrap.Modal && el) {
+            bootstrap.Modal.getOrCreateInstance(el).hide();
+            return;
+        }
+
+        $('#otherChargeModal').modal('hide');
     }
 
     function calculateRow(id) {
@@ -378,6 +495,41 @@ $(function () {
         $('#totalOtherWt').text(nfix(totalOtherWt, 3));
         $('#totalNet').text(nfix(totalNet, 3));
         $('#totalAmount').text(nfix(totalAmount, 2));
+    }
+
+    function getFirstRowId() {
+        const firstId = String($('#cartTable tbody tr:first').attr('id') || '');
+        return Number(firstId.replace('row_', ''));
+    }
+
+    function applyFirstRowColumnToAll(column) {
+        const firstRowId = getFirstRowId();
+        if (!firstRowId || !selectedItems[firstRowId]) return;
+
+        const config = {
+            purity: { selector: '.purity', decimals: 3 },
+            waste_percent: { selector: '.waste-percent', decimals: 3 },
+            metal_rate: { selector: '.metal-rate', decimals: 2 },
+            labour_rate: { selector: '.labour-rate', decimals: 2 },
+            other_amount: { selector: '.other-amount', decimals: 2 },
+        }[column];
+
+        if (!config) return;
+
+        const sourceValue = toNum($(`${config.selector}[data-id="${firstRowId}"]`).val() || 0);
+
+        $('#cartTable tbody tr').each(function() {
+            const rowId = Number(String(this.id || '').replace('row_', ''));
+            if (!rowId || !selectedItems[rowId]) return;
+
+            $(`${config.selector}[data-id="${rowId}"]`).val(nfix(sourceValue, config.decimals));
+
+            if (column === 'other_amount' && rowId !== firstRowId) {
+                selectedItems[rowId].other_charges = [];
+            }
+
+            calculateRow(rowId);
+        });
     }
 
     function calculateChargeTotal(option, rowContext) {
@@ -449,15 +601,26 @@ $(function () {
     }
 
     function renderOtherChargeRows(lines) {
+        modalOtherChargeLines = Array.isArray(lines) ? lines : [];
         const $tbody = $('#otherChargeTable tbody');
         $tbody.empty();
-        const selectedIds = new Set((lines || []).map(x => Number(x.charge_id)));
+        const searchTerm = ($('#otherChargeSearch').val() || '').toLowerCase().trim();
+        const selectedIds = new Set(modalOtherChargeLines.map(x => Number(x.charge_id)));
         const existingLineMap = new Map(
-            (lines || []).map(x => [Number(x.charge_id), x])
+            modalOtherChargeLines.map(x => [Number(x.charge_id), x])
         );
         const rowContext = selectedItems[modalRowId] || {};
+        const visibleOptions = otherChargeOptions
+            .filter(opt => !searchTerm || String(opt.name || '').toLowerCase().includes(searchTerm))
+            .slice(0, 50);
 
-        otherChargeOptions.slice(0, 10).forEach((opt, index) => {
+        if (!visibleOptions.length) {
+            $tbody.append('<tr><td colspan="8" class="text-center text-muted">No charge found</td></tr>');
+            recalcModalCharges();
+            return;
+        }
+
+        visibleOptions.forEach((opt, index) => {
             const calc = calculateChargeTotal(opt, rowContext);
             const existing = existingLineMap.get(Number(opt.id)) || null;
             const checked = selectedIds.has(Number(opt.id)) ? 'checked' : '';
@@ -503,6 +666,10 @@ $(function () {
 
         recalcModalCharges();
     }
+
+    $('#otherChargeSearch').on('input', function() {
+        renderOtherChargeRows(mergeModalChargeLines());
+    });
 
     function recomputeChargeLine($tr) {
         const amount = toNum($tr.find('.charge-amount-input').val());
@@ -574,6 +741,20 @@ $(function () {
         });
 
         return lines;
+    }
+
+    function mergeModalChargeLines() {
+        const visibleIds = $('#otherChargeTable tbody tr[data-id]').map(function() {
+            return Number($(this).data('id'));
+        }).get();
+        const merged = new Map(
+            modalOtherChargeLines
+                .filter(line => !visibleIds.includes(Number(line.charge_id)))
+                .map(line => [Number(line.charge_id), line])
+        );
+
+        collectModalChargeLines().forEach(line => merged.set(Number(line.charge_id), line));
+        return Array.from(merged.values()).filter(line => Number(line.charge_id));
     }
 
     function addRow(row, prepend = false) {
@@ -710,40 +891,59 @@ $(function () {
         calculateRow(Number($(this).data('id')));
     });
 
+    $(document).on('click', '.apply-first-column', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        applyFirstRowColumnToAll(String($(this).data('column') || ''));
+    });
+
     $(document).on('input', '.remarks', function () {
         const id = Number($(this).data('id'));
         if (!selectedItems[id]) return;
         selectedItems[id].remarks = $(this).val();
     });
 
-    $(document).on('click', '.open-other-charge-modal', function () {
+    $(document).on('click', '.open-other-charge-modal', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+
         const id = Number($(this).data('id'));
         const row = selectedItems[id];
         if (!row) return;
 
         modalRowId = id;
 
+        const lines = Array.isArray(row.other_charges) && row.other_charges.length
+            ? row.other_charges
+            : [];
+
+        if (!lines.length && toNum(row.other_amount) > 0) {
+            lines.push({
+                charge_id: null,
+                charge_name: 'Manual',
+                formula: 'flat',
+                qty: 1,
+                amount: toNum(row.other_amount),
+                total: toNum(row.other_amount),
+            });
+        }
+
+        $('#otherChargeSearch').val('');
+        $('#modalChargeTotal').text('0.00');
+        $('#otherChargeTable tbody').html('<tr><td colspan="8" class="text-center text-muted">Loading charges...</td></tr>');
+        $('#applyOtherChargesBtn').prop('disabled', true);
+        showOtherChargeModal();
+
         $.get("{{ route('company.other-charge.options', $company->slug) }}", {
             item_id: row.item_id || ''
-        }, function(res) {
-            otherChargeOptions = Array.isArray(res) ? res : [];
-
-            const lines = Array.isArray(row.other_charges) && row.other_charges.length
-                ? row.other_charges
-                : [];
-
-            if (!lines.length && toNum(row.other_amount) > 0) {
-                lines.push({
-                    charge_id: null,
-                    charge_name: 'Manual',
-                    formula: 'flat',
-                    qty: 1,
-                    amount: toNum(row.other_amount),
-                });
-            }
-
+        }).done(function(res) {
+            otherChargeOptions = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : []);
             renderOtherChargeRows(lines);
-            $('#otherChargeModal').modal('show');
+            $('#applyOtherChargesBtn').prop('disabled', false);
+        }).fail(function() {
+            otherChargeOptions = [];
+            $('#otherChargeTable tbody').html('<tr><td colspan="8" class="text-center text-muted">Unable to load charges. Please try again.</td></tr>');
+            recalcModalCharges();
         });
     });
 
@@ -766,11 +966,11 @@ $(function () {
 
     $('#applyOtherChargesBtn').on('click', function () {
         if (!modalRowId || !selectedItems[modalRowId]) {
-            $('#otherChargeModal').modal('hide');
+            hideOtherChargeModal();
             return;
         }
 
-        const lines = collectModalChargeLines();
+        const lines = mergeModalChargeLines();
         const total = lines.reduce((sum, line) => sum + toNum(line.total), 0);
 
         selectedItems[modalRowId].other_charges = lines;
@@ -778,7 +978,7 @@ $(function () {
 
         $(`.other-amount[data-id="${modalRowId}"]`).val(nfix(total, 2));
         calculateRow(modalRowId);
-        $('#otherChargeModal').modal('hide');
+        hideOtherChargeModal();
     });
 
     $(document).on('click', function (e) {

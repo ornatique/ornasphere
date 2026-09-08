@@ -7,6 +7,7 @@ use App\Models\ApprovalHeader;
 use App\Models\Customer;
 use App\Models\Sale;
 use App\Models\User;
+use App\Services\WorkerPersonService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -75,6 +76,8 @@ class CustomerApiController extends Controller
             'is_active' => $request->boolean('is_active', true) ? 1 : 0,
         ]));
 
+        WorkerPersonService::syncPersonToWorker($customer);
+
         return response()->json([
             'success' => true,
             'message' => 'Person created successfully.',
@@ -110,6 +113,8 @@ class CustomerApiController extends Controller
             'is_active' => $request->boolean('is_active', (bool) $customer->is_active) ? 1 : 0,
         ]));
 
+        WorkerPersonService::syncPersonToWorker($customer->refresh());
+
         return response()->json([
             'success' => true,
             'message' => 'Person updated successfully.',
@@ -135,6 +140,7 @@ class CustomerApiController extends Controller
             $message = 'Person is already inactive.';
         } else {
             $customer->update(['is_active' => 0]);
+            WorkerPersonService::syncPersonToWorker($customer->refresh());
             $message = $this->isCustomerUsed((int) $companyId, (int) $customer->id)
                 ? 'Person is used in transactions, so deleted not allowed. Person set to inactive.'
                 : 'Person set to inactive successfully.';
