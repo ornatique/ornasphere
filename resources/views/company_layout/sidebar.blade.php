@@ -57,6 +57,7 @@
 
     $canItems = $canModule('item');
     $canItemSets = $canModule('item-set');
+    $canStockGallery = $canModule('stock-gallery');
     $canLabelConfig = $canModule('label-config');
     $canLabelPrint = $canModule('label-print');
     $canOtherCharge = $canModule('other-charge');
@@ -320,6 +321,7 @@
 
         $labelItemsActive = in_array($currentRouteName, $labelItemsRoutes, true);
         $labelPrintingActive = in_array($currentRouteName, $labelPrintingRoutes, true);
+        $stockGalleryActive = request()->routeIs('company.stock-gallery.*');
 
         $itemActive =
         (
@@ -410,6 +412,16 @@
 
                 </ul>
             </div>
+        </li>
+        @endif
+
+        @if($canStockGallery)
+        <li class="nav-item {{ $stockGalleryActive ? 'active' : '' }}">
+            <a class="nav-link {{ $stockGalleryActive ? 'active' : '' }}"
+                href="{{ route('company.stock-gallery.index', auth()->user()->company->slug) }}">
+                <i class="typcn typcn-image menu-icon"></i>
+                <span class="menu-title">Stock Gallery</span>
+            </a>
         </li>
         @endif
 

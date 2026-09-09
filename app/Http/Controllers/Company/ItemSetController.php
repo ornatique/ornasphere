@@ -278,7 +278,19 @@ class ItemSetController extends Controller
             ->orderBy('id')
             ->offset($request->offset)
             ->limit(10)
-            ->get();
+            ->get()
+            ->map(function ($set) use ($company) {
+                $encryptedId = Crypt::encryptString((string) $set->id);
+
+                return array_merge($set->toArray(), [
+                    'encrypted_id' => $encryptedId,
+                    'image_url' => $this->itemImageUrl($set),
+                    'image_uploaded_at_formatted' => $set->image_uploaded_at?->format('d-m-Y h:i A'),
+                    'image_show_url' => route('company.itemsets.image.show', [$company->slug, $encryptedId]),
+                    'image_upload_url' => route('company.itemsets.image.update', [$company->slug, $encryptedId]),
+                    'image_remove_url' => route('company.itemsets.image.remove', [$company->slug, $encryptedId]),
+                ]);
+            });
     }
 
 
@@ -340,7 +352,15 @@ class ItemSetController extends Controller
 
                 $set->save();
 
-                return response()->json(['id' => $set->id]);
+                $encryptedId = Crypt::encryptString((string) $set->id);
+
+                return response()->json([
+                    'id' => $set->id,
+                    'encrypted_id' => $encryptedId,
+                    'image_show_url' => route('company.itemsets.image.show', [$company->slug, $encryptedId]),
+                    'image_upload_url' => route('company.itemsets.image.update', [$company->slug, $encryptedId]),
+                    'image_remove_url' => route('company.itemsets.image.remove', [$company->slug, $encryptedId]),
+                ]);
             }
         }
 
@@ -366,8 +386,14 @@ class ItemSetController extends Controller
         // create new draft
         $set = ItemSet::create($payload);
 
+        $encryptedId = Crypt::encryptString((string) $set->id);
+
         return response()->json([
-            'id' => $set->id
+            'id' => $set->id,
+            'encrypted_id' => $encryptedId,
+            'image_show_url' => route('company.itemsets.image.show', [$company->slug, $encryptedId]),
+            'image_upload_url' => route('company.itemsets.image.update', [$company->slug, $encryptedId]),
+            'image_remove_url' => route('company.itemsets.image.remove', [$company->slug, $encryptedId]),
         ]);
     }
 

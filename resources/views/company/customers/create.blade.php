@@ -207,6 +207,7 @@
 @endsection
 
 @include('company.customers.partials.address_autofill')
+@include('company.customers.partials.identity_input_rules')
 
 @push("scripts")
 <script>

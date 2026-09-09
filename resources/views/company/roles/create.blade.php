@@ -48,6 +48,7 @@
                         'approval' => 'Sale on Approval',
                         'jobwork-issue' => 'Jobwork',
                         'office-access' => 'Office Access',
+                        'stock-gallery' => 'Stock Gallery',
                     ];
                 @endphp
 

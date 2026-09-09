@@ -23,6 +23,7 @@ class SaleItem extends Model
         'labour_rate',
         'labour_amount',
         'other_amount',
+        'other_charge_details',
         'total_amount',
         'remarks',
         'approval_item_id',

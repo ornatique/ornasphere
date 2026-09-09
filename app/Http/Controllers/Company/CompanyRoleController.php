@@ -234,6 +234,7 @@ class CompanyRoleController extends Controller
             'jobwork-receive',
             'item',
             'item-set',
+            'stock-gallery',
             'label-config',
             'label-print',
             'other-charge',

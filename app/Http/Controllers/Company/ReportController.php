@@ -380,6 +380,8 @@ class ReportController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
 
         if ($request->ajax()) {
+            $summary = $this->stockPositionSummary($company, $request);
+
             return DataTables::of($this->stockPositionBaseQuery($company, $request))
                 ->addIndexColumn()
                 ->filterColumn('item_name', function ($query, $keyword) {
@@ -403,11 +405,13 @@ class ReportController extends Controller
                 })
                 ->editColumn('qty_pcs', fn($row) => (int) ($row->qty_pcs ?? 0))
                 ->editColumn('gross_weight', fn($row) => number_format((float) ($row->gross_weight ?? 0), 3))
+                ->editColumn('other_weight', fn($row) => number_format((float) ($row->other_weight ?? 0), 3))
                 ->editColumn('net_weight', fn($row) => number_format((float) ($row->net_weight ?? 0), 3))
                 ->editColumn('fine_weight', fn($row) => number_format((float) ($row->fine_weight ?? 0), 3))
                 ->editColumn('labour_amount', fn($row) => number_format((float) ($row->labour_amount ?? 0), 2))
                 ->editColumn('other_amount', fn($row) => number_format((float) ($row->other_amount ?? 0), 2))
                 ->rawColumns(['item_name_link'])
+                ->with(['summary' => $this->formatStockPositionSummary($summary)])
                 ->make(true);
         }
 
@@ -434,7 +438,7 @@ class ReportController extends Controller
 
         return response()->streamDownload(function () use ($rows) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Item', 'Stock Type', 'Party', 'Qty Pcs', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Labour Amt', 'Other Amt']);
+            fputcsv($out, ['Item', 'Stock Type', 'Party', 'Qty Pcs', 'Gross Wt', 'Other Wt', 'Net Wt', 'Fine Wt', 'Labour Amt', 'Other Amt']);
             foreach ($rows as $r) {
                 fputcsv($out, [
                     $r->item_name,
@@ -442,6 +446,7 @@ class ReportController extends Controller
                     $r->customer_name,
                     (int) ($r->qty_pcs ?? 0),
                     number_format((float) ($r->gross_weight ?? 0), 3, '.', ''),
+                    number_format((float) ($r->other_weight ?? 0), 3, '.', ''),
                     number_format((float) ($r->net_weight ?? 0), 3, '.', ''),
                     number_format((float) ($r->fine_weight ?? 0), 3, '.', ''),
                     number_format((float) ($r->labour_amount ?? 0), 2, '.', ''),
@@ -458,8 +463,9 @@ class ReportController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
         $rows = $this->stockPositionBaseQuery($company, $request)->get();
+        $summary = $this->stockPositionSummary($company, $request);
 
-        return Pdf::loadView('company.reports.pdf.stock_position', compact('company', 'rows'))
+        return Pdf::loadView('company.reports.pdf.stock_position', compact('company', 'rows', 'summary'))
             ->setPaper('a4', 'portrait')
             ->download('stock_position_report.pdf');
     }
@@ -1290,6 +1296,7 @@ class ReportController extends Controller
                 DB::raw("'-' as customer_name"),
                 DB::raw('COUNT(item_sets.id) as qty_pcs'),
                 DB::raw('SUM(COALESCE(item_sets.gross_weight,0)) as gross_weight'),
+                DB::raw('SUM(COALESCE(item_sets.other,0)) as other_weight'),
                 DB::raw('SUM(COALESCE(item_sets.net_weight,0)) as net_weight'),
                 DB::raw('SUM(COALESCE(item_sets.net_weight,0)) as fine_weight'),
                 DB::raw('SUM(COALESCE(item_sets.sale_labour_amount,0)) as labour_amount'),
@@ -1317,6 +1324,7 @@ class ReportController extends Controller
                 DB::raw('customers.name as customer_name'),
                 DB::raw('COUNT(cavi.id) as qty_pcs'),
                 DB::raw('SUM(COALESCE(cavi.gross_weight,0)) as gross_weight'),
+                DB::raw('SUM(COALESCE(cavi.other_weight,0)) as other_weight'),
                 DB::raw('SUM(COALESCE(cavi.net_weight,0)) as net_weight'),
                 DB::raw('SUM(COALESCE(cavi.fine_weight,0)) as fine_weight'),
                 DB::raw('SUM(COALESCE(cavi.labour_amount,0)) as labour_amount'),
@@ -1347,6 +1355,7 @@ class ReportController extends Controller
                 DB::raw("'-' as customer_name"),
                 DB::raw('SUM(COALESCE(csi.quantity,0)) as qty_pcs'),
                 DB::raw('SUM(COALESCE(csi.weight,0)) as gross_weight'),
+                DB::raw('0 as other_weight'),
                 DB::raw('SUM(COALESCE(csi.weight,0)) as net_weight'),
                 DB::raw('SUM(COALESCE(csi.weight,0)) as fine_weight'),
                 DB::raw('0 as labour_amount'),
@@ -1365,12 +1374,41 @@ class ReportController extends Controller
                 'stock_rows.customer_name',
                 DB::raw('SUM(stock_rows.qty_pcs) as qty_pcs'),
                 DB::raw('SUM(stock_rows.gross_weight) as gross_weight'),
+                DB::raw('SUM(stock_rows.other_weight) as other_weight'),
                 DB::raw('SUM(stock_rows.net_weight) as net_weight'),
                 DB::raw('SUM(stock_rows.fine_weight) as fine_weight'),
                 DB::raw('SUM(stock_rows.labour_amount) as labour_amount'),
                 DB::raw('SUM(stock_rows.other_amount) as other_amount'),
             ])
             ->groupBy('stock_rows.item_id', 'stock_rows.item_name', 'stock_rows.stock_type', 'stock_rows.stock_type_name', 'stock_rows.customer_id', 'stock_rows.customer_name');
+    }
+
+    private function stockPositionSummary(Company $company, Request $request): array
+    {
+        $rows = $this->stockPositionBaseQuery($company, $request)->get();
+
+        return [
+            'qty_pcs' => (int) $rows->sum(fn($row) => (int) ($row->qty_pcs ?? 0)),
+            'gross_weight' => (float) $rows->sum(fn($row) => (float) ($row->gross_weight ?? 0)),
+            'other_weight' => (float) $rows->sum(fn($row) => (float) ($row->other_weight ?? 0)),
+            'net_weight' => (float) $rows->sum(fn($row) => (float) ($row->net_weight ?? 0)),
+            'fine_weight' => (float) $rows->sum(fn($row) => (float) ($row->fine_weight ?? 0)),
+            'labour_amount' => (float) $rows->sum(fn($row) => (float) ($row->labour_amount ?? 0)),
+            'other_amount' => (float) $rows->sum(fn($row) => (float) ($row->other_amount ?? 0)),
+        ];
+    }
+
+    private function formatStockPositionSummary(array $summary): array
+    {
+        return [
+            'qty_pcs' => (string) ($summary['qty_pcs'] ?? 0),
+            'gross_weight' => number_format((float) ($summary['gross_weight'] ?? 0), 3),
+            'other_weight' => number_format((float) ($summary['other_weight'] ?? 0), 3),
+            'net_weight' => number_format((float) ($summary['net_weight'] ?? 0), 3),
+            'fine_weight' => number_format((float) ($summary['fine_weight'] ?? 0), 3),
+            'labour_amount' => number_format((float) ($summary['labour_amount'] ?? 0), 2),
+            'other_amount' => number_format((float) ($summary['other_amount'] ?? 0), 2),
+        ];
     }
 
     private function stockPositionDetailRows(Company $company, Request $request): Collection
@@ -1589,8 +1627,46 @@ class ReportController extends Controller
                 COALESCE(tcr.received_at, tcr.created_at) as process_datetime
             ");
 
+        $jobworkReceive = DB::table('jobwork_receive_items as jri')
+            ->join('jobwork_receives as jr', 'jr.id', '=', 'jri.jobwork_receive_id')
+            ->join('jobwork_issues as ji', 'ji.id', '=', 'jr.jobwork_issue_id')
+            ->leftJoin('jobwork_issue_items as jii', 'jii.id', '=', 'jri.jobwork_issue_item_id')
+            ->leftJoin('items as i', function ($join) {
+                $join->on('i.id', '=', DB::raw('COALESCE(jri.item_id, jii.item_id)'));
+            })
+            ->leftJoin('job_workers as jw', 'jw.id', '=', 'ji.job_worker_id')
+            ->where('jr.company_id', $company->id)
+            ->where(function ($query) {
+                $query->where('jri.receive_gross_wt', '>', 0)
+                    ->orWhere('jri.receive_net_wt', '>', 0)
+                    ->orWhere('jri.other_wt', '>', 0)
+                    ->orWhere('jri.loss_wt', '!=', 0);
+            })
+            ->selectRaw("
+                'Jobwork Receive' as stage,
+                ji.job_worker_id as worker_id,
+                jw.name as worker_name,
+                ji.id as voucher_id,
+                ji.voucher_no as voucher_no,
+                COALESCE(i.item_name, '-') as buch_no,
+                COALESCE(
+                    jii.net_wt,
+                    (
+                        SELECT COALESCE(SUM(jii2.net_wt), 0)
+                        FROM jobwork_issue_items jii2
+                        WHERE jii2.jobwork_issue_id = ji.id
+                            AND jii2.item_id = jri.item_id
+                    ),
+                    0
+                ) as source_wt,
+                jri.receive_net_wt as receive_wt,
+                jri.other_wt as bhuko,
+                jri.loss_wt as loss,
+                COALESCE(jr.updated_at, jr.created_at, jr.receive_date) as process_datetime
+            ");
+
         $query = DB::query()
-            ->fromSub($castingReceive->unionAll($treeCuttingReceive), 'worker_loss')
+            ->fromSub($castingReceive->unionAll($treeCuttingReceive)->unionAll($jobworkReceive), 'worker_loss')
             ->select('worker_loss.*');
 
         if ($request->filled('from_date')) {
@@ -1673,10 +1749,15 @@ class ReportController extends Controller
             return e($label);
         }
 
-        $url = route('company.vacuum-vouchers.show', [
-            $company->slug,
-            Crypt::encryptString((string) $row->voucher_id),
-        ]);
+        $url = $row->stage === 'Jobwork Receive'
+            ? route('company.jobwork-receive.show', [
+                $company->slug,
+                Crypt::encryptString((string) $row->voucher_id),
+            ])
+            : route('company.vacuum-vouchers.show', [
+                $company->slug,
+                Crypt::encryptString((string) $row->voucher_id),
+            ]);
 
         return '<a href="' . e($url) . '" target="_blank" class="worker-loss-link">' . e($label) . '</a>';
     }

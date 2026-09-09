@@ -38,7 +38,21 @@ class ItemSetController extends Controller
             'image_mime' => $itemSet->image_mime,
             'image_size' => $itemSet->image_size,
             'image_uploaded_at' => $itemSet->image_uploaded_at?->format('d-m-Y h:i A'),
+            'image_show_url' => url('/api/item-sets/' . $itemSet->id . '/image'),
+            'image_upload_url' => url('/api/item-sets/' . $itemSet->id . '/image'),
+            'image_delete_url' => url('/api/item-sets/' . $itemSet->id . '/image'),
         ];
+    }
+
+    private function itemSetApiPayload(ItemSet $itemSet): array
+    {
+        return array_merge($itemSet->toArray(), [
+            'image_url' => $this->itemImageUrl($itemSet),
+            'image_uploaded_at_formatted' => $itemSet->image_uploaded_at?->format('d-m-Y h:i A'),
+            'image_show_url' => url('/api/item-sets/' . $itemSet->id . '/image'),
+            'image_upload_url' => url('/api/item-sets/' . $itemSet->id . '/image'),
+            'image_delete_url' => url('/api/item-sets/' . $itemSet->id . '/image'),
+        ]);
     }
 
     private function prepareMediumImage(string $sourcePath, string $originalMime): array
@@ -154,9 +168,11 @@ class ItemSetController extends Controller
             ->limit(20)
             ->get();
 
+        $rows = $sets->map(fn ($set) => $this->itemSetApiPayload($set))->values();
+
         return response()->json([
             'success' => true,
-            'data' => $sets
+            'data' => $rows
         ]);
     }
 
@@ -227,10 +243,12 @@ class ItemSetController extends Controller
             $set->save();
         }
 
+        $freshSet = $set->fresh();
+
         return response()->json([
             'success' => true,
             'message' => 'Saved successfully',
-            'data' => $set
+            'data' => $this->itemSetApiPayload($freshSet),
         ]);
     }
 
@@ -321,12 +339,11 @@ public function bulkSave(Request $request)
                 $set->save();
             }
 
-            $savedRows[] = array_merge(
-                $set->fresh()->toArray(),
-                [
-                    'temp_id' => $row['temp_id'] ?? null,
-                ]
-            );
+            $freshSet = $set->fresh();
+
+            $savedRows[] = array_merge($this->itemSetApiPayload($freshSet), [
+                'temp_id' => $row['temp_id'] ?? null,
+            ]);
         }
 
         // Remove stale old draft rows that were not part of this save payload.
@@ -512,9 +529,7 @@ public function bulkSave(Request $request)
             $row->print_date_time = $row->printed_at
                 ? \Carbon\Carbon::parse($row->printed_at)->format('d-m-Y h:i A')
                 : null;
-            $row->image_url = $this->itemImageUrl($row);
-            $row->image_uploaded_at_formatted = $row->image_uploaded_at?->format('d-m-Y h:i A');
-            return $row;
+            return $this->itemSetApiPayload($row);
         })->values();
 
         return response()->json([
@@ -611,10 +626,7 @@ public function bulkSave(Request $request)
 
         return response()->json([
             'status' => true,
-            'data' => array_merge($item->toArray(), [
-                'image_url' => $this->itemImageUrl($item),
-                'image_uploaded_at_formatted' => $item->image_uploaded_at?->format('d-m-Y h:i A'),
-            ])
+            'data' => $this->itemSetApiPayload($item),
         ]);
     }
 
@@ -687,6 +699,79 @@ public function bulkSave(Request $request)
         ]);
     }
 
+    public function uploadLabelImage(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+
+        $validated = $request->validate([
+            'item_id' => 'required',
+            'image' => 'required|image|mimes:jpg,jpeg,png,webp|max:20480',
+            'id' => 'nullable|integer',
+            'item_set_id' => 'nullable|integer',
+            'temp_id' => 'nullable',
+            'gross_weight' => 'nullable',
+            'other' => 'nullable',
+            'other_weight' => 'nullable',
+            'net_weight' => 'nullable',
+            'sale_labour_formula' => 'nullable',
+            'sale_labour_rate' => 'nullable',
+            'labour_rate' => 'nullable',
+            'sale_labour_amount' => 'nullable',
+            'labour_amount' => 'nullable',
+            'sale_other' => 'nullable',
+            'supplier_person' => 'nullable',
+            'size' => 'nullable',
+            'HUID' => 'nullable',
+            'huid' => 'nullable',
+        ]);
+
+        if (!$this->configuredItem($companyId, $validated['item_id'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Label Config not found for selected item. Please create Label Config first.',
+            ], 422);
+        }
+
+        $itemSetId = $validated['item_set_id'] ?? $validated['id'] ?? $validated['temp_id'] ?? null;
+        $itemSet = null;
+
+        if ($itemSetId) {
+            $itemSet = ItemSet::where('company_id', $companyId)
+                ->where('item_id', $validated['item_id'])
+                ->where('id', (int) $itemSetId)
+                ->first();
+        }
+
+        $data = [
+            'gross_weight' => $request->input('gross_weight'),
+            'other' => $request->input('other', $request->input('other_weight')),
+            'net_weight' => $request->input('net_weight'),
+            'sale_labour_formula' => $request->input('sale_labour_formula'),
+            'sale_labour_rate' => $request->input('sale_labour_rate', $request->input('labour_rate')),
+            'sale_labour_amount' => $request->input('sale_labour_amount', $request->input('labour_amount')),
+            'sale_other' => $request->input('sale_other'),
+            'supplier_person' => $request->input('supplier_person'),
+            'size' => $request->input('size'),
+            'HUID' => $request->input('HUID', $request->input('huid')),
+        ];
+
+        $data = array_filter($data, fn ($value) => $value !== null);
+
+        if ($itemSet) {
+            if ($data) {
+                $itemSet->update($data);
+            }
+        } else {
+            $itemSet = ItemSet::create(array_merge($data, [
+                'company_id' => $companyId,
+                'item_id' => $validated['item_id'],
+                'is_final' => 0,
+            ]));
+        }
+
+        return $this->storeUploadedImageOnItemSet($request, $itemSet);
+    }
+
     public function removeImage(Request $request, $id)
     {
         $companyId = $request->user()->company_id;
@@ -710,6 +795,50 @@ public function bulkSave(Request $request)
         return response()->json([
             'success' => true,
             'message' => 'Item set image removed successfully.',
+            'data' => $this->itemSetImagePayload($itemSet->fresh('item')),
+        ]);
+    }
+
+    private function storeUploadedImageOnItemSet(Request $request, ItemSet $itemSet)
+    {
+        $file = $request->file('image');
+        $disk = $this->itemImageDisk();
+        $prepared = $this->prepareMediumImage($file->getRealPath(), $file->getMimeType() ?: 'image/jpeg');
+        $path = sprintf(
+            'item-images/company-%d/%s.%s',
+            $itemSet->company_id,
+            (string) Str::uuid(),
+            $prepared['extension']
+        );
+
+        $stream = fopen($prepared['path'], 'r');
+        Storage::disk($disk)->put($path, $stream, [
+            'ContentType' => $prepared['mime'],
+        ]);
+
+        if (is_resource($stream)) {
+            fclose($stream);
+        }
+
+        if (!empty($prepared['cleanup'])) {
+            @unlink($prepared['path']);
+        }
+
+        if ($itemSet->image_path) {
+            Storage::disk($itemSet->image_disk ?: $disk)->delete($itemSet->image_path);
+        }
+
+        $itemSet->update([
+            'image_disk' => $disk,
+            'image_path' => $path,
+            'image_mime' => $prepared['mime'],
+            'image_size' => Storage::disk($disk)->size($path),
+            'image_uploaded_at' => now(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Item set image uploaded successfully.',
             'data' => $this->itemSetImagePayload($itemSet->fresh('item')),
         ]);
     }

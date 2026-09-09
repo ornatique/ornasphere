@@ -37,6 +37,7 @@ use App\Http\Controllers\Company\TreeCuttingReceiveController;
 use App\Http\Controllers\Company\CastingSortingController;
 use App\Http\Controllers\Company\VoucherHistoryController;
 use App\Http\Controllers\Company\ItemSetController;
+use App\Http\Controllers\Company\StockGalleryController;
 use Endroid\QrCode\QrCode; 
 use Endroid\QrCode\ErrorCorrectionLevel;
 use Endroid\QrCode\Logo\Logo;
@@ -865,6 +866,17 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
             '/item-sets/print-direct/',
             [ItemSetController::class, 'printDirect']
         )->name('item_sets.printDirect.post');
+
+        Route::get('/stock-gallery', [StockGalleryController::class, 'index'])
+            ->name('stock-gallery.index');
+        Route::get('/stock-gallery/data', [StockGalleryController::class, 'data'])
+            ->name('stock-gallery.data');
+        Route::get('/stock-gallery/pdf', [StockGalleryController::class, 'exportPdf'])
+            ->name('stock-gallery.pdf');
+        Route::get('/stock-gallery/download-list', [StockGalleryController::class, 'downloadList'])
+            ->name('stock-gallery.download-list');
+        Route::get('/stock-gallery/{encryptedId}/download-image', [StockGalleryController::class, 'downloadImage'])
+            ->name('stock-gallery.download-image');
 
         Route::get('sales', [SaleController::class, 'index'])
             ->name('sales.index');

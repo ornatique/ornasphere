@@ -21,6 +21,7 @@ class CategoryPersonController extends Controller
 
             $categories = CategoryPerson::query()
                 ->where('company_id', $company->id)
+                ->withCount('customers')
                 ->latest();
 
             return DataTables::of($categories)
@@ -34,13 +35,16 @@ class CategoryPersonController extends Controller
                     $encryptedId = Crypt::encryptString($row->id);
                     $editUrl = route('company.category-persons.edit', [$company->slug, $encryptedId]);
                     $deleteUrl = route('company.category-persons.destroy', [$company->slug, $encryptedId]);
+                    $deleteAction = (int) ($row->customers_count ?? 0) > 0
+                        ? '<span class="badge bg-danger">In Use</span>'
+                        : '<form method="POST" action="' . $deleteUrl . '" class="d-inline">
+                            ' . csrf_field() . method_field('DELETE') . '
+                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm(\'Delete this category person?\')">Delete</button>
+                        </form>';
 
                     return '<div class="action-buttons">
                         <a href="' . $editUrl . '" class="btn btn-sm btn-primary">Edit</a>
-                        <form method="POST" action="' . $deleteUrl . '" class="d-inline">
-                            ' . csrf_field() . method_field('DELETE') . '
-                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm(\'Delete this category person?\')">Delete</button>
-                        </form>
+                        ' . $deleteAction . '
                     </div>';
                 })
                 ->rawColumns(['action'])
@@ -138,6 +142,10 @@ class CategoryPersonController extends Controller
 
         if ($categoryPerson->isSystemDefault()) {
             return back()->withErrors(['category_name' => 'System default category person cannot be deleted.']);
+        }
+
+        if ($categoryPerson->customers()->exists()) {
+            return back()->withErrors(['category_name' => 'Category person is assigned to persons and cannot be deleted.']);
         }
 
         $categoryPerson->delete();

@@ -36,6 +36,33 @@
                 </div>
             </div>
 
+            <div class="row g-3 mb-3" id="stockSummary">
+                <div class="col-md-2 col-sm-6">
+                    <div class="border rounded p-3 h-100">
+                        <div class="text-muted small">Total Qty Pcs</div>
+                        <div class="fw-bold" data-summary="qty_pcs">0</div>
+                    </div>
+                </div>
+                <div class="col-md-2 col-sm-6">
+                    <div class="border rounded p-3 h-100">
+                        <div class="text-muted small">Total Gross Wt</div>
+                        <div class="fw-bold" data-summary="gross_weight">0.000</div>
+                    </div>
+                </div>
+                <div class="col-md-2 col-sm-6">
+                    <div class="border rounded p-3 h-100">
+                        <div class="text-muted small">Total Other Wt</div>
+                        <div class="fw-bold" data-summary="other_weight">0.000</div>
+                    </div>
+                </div>
+                <div class="col-md-2 col-sm-6">
+                    <div class="border rounded p-3 h-100">
+                        <div class="text-muted small">Total Net Wt</div>
+                        <div class="fw-bold" data-summary="net_weight">0.000</div>
+                    </div>
+                </div>
+            </div>
+
             <table class="table table-bordered" id="stockTable">
                 <thead>
                     <tr>
@@ -45,6 +72,7 @@
                         <th>Party</th>
                         <th>Qty Pcs</th>
                         <th>Gross Wt</th>
+                        <th>Other Wt</th>
                         <th>Net Wt</th>
                         <th>Fine Wt</th>
                         <th>Labour Amt</th>
@@ -93,11 +121,20 @@ $(function () {
             { data: 'customer_name', name: 'customer_name' },
             { data: 'qty_pcs', orderable: false, searchable: false },
             { data: 'gross_weight', orderable: false, searchable: false },
+            { data: 'other_weight', orderable: false, searchable: false },
             { data: 'net_weight', orderable: false, searchable: false },
             { data: 'fine_weight', orderable: false, searchable: false },
             { data: 'labour_amount', orderable: false, searchable: false },
             { data: 'other_amount', orderable: false, searchable: false },
         ]
+    });
+
+    table.on('xhr.dt', function (e, settings, json) {
+        const summary = (json && json.summary) ? json.summary : {};
+        $('#stockSummary [data-summary]').each(function () {
+            const key = $(this).data('summary');
+            $(this).text(summary[key] || (key === 'qty_pcs' ? '0' : '0.000'));
+        });
     });
 
     $('#filter').on('click', function () { table.draw(); });

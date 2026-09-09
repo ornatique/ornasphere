@@ -23,12 +23,26 @@
                 </div>
                 <div class="filter-field">
                     <label for="workerFilter">Worker Name</label>
-                    <select id="workerFilter" class="form-select casting-search-select">
+                    <select id="workerFilter" class="form-select d-none">
                         <option value="">All Workers</option>
                         @foreach($jobWorkers as $worker)
                         <option value="{{ $worker->id }}">{{ $worker->name }}</option>
                         @endforeach
                     </select>
+                    <div class="casting-worker-combo" id="workerFilterCombo">
+                        <button type="button" class="casting-worker-combo-toggle" id="workerFilterToggle">
+                            <span id="workerFilterText">All Workers</span>
+                            <span class="casting-worker-combo-arrow">&#9662;</span>
+                        </button>
+                        <div class="casting-worker-combo-menu" id="workerFilterMenu">
+                            <input type="text" class="casting-worker-combo-search" id="workerFilterSearch" autocomplete="off">
+                            <div class="casting-worker-combo-options" id="workerFilterOptions">
+                                @foreach($jobWorkers as $worker)
+                                    <button type="button" class="casting-worker-combo-option" data-value="{{ $worker->id }}">{{ $worker->name }}</button>
+                                @endforeach
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="filter-actions">
                     <button type="button" id="applyFilter" class="btn btn-primary">Filter</button>
@@ -101,6 +115,92 @@
         background: #25263a;
     }
 
+    .casting-worker-combo {
+        position: relative;
+    }
+
+    .casting-worker-combo-toggle {
+        width: 100%;
+        min-height: 44px;
+        height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 12px;
+        color: #cfd3e6;
+        background-color: #2f2e55;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 4px;
+        text-align: left;
+    }
+
+    .casting-worker-combo-arrow {
+        color: #6b7280;
+        font-size: 13px;
+    }
+
+    .casting-worker-combo-menu {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: calc(100% + 1px);
+        z-index: 30;
+        display: none;
+        background: #fff;
+        border: 1px solid #8d91aa;
+        border-radius: 0 0 3px 3px;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+    }
+
+    .casting-worker-combo.is-open .casting-worker-combo-menu {
+        display: block;
+    }
+
+    .casting-worker-combo-search {
+        width: calc(100% - 10px);
+        height: 34px;
+        margin: 5px;
+        padding: 6px 8px;
+        color: #111;
+        background: #fff !important;
+        border: 1px solid #b9c0cc !important;
+        border-radius: 4px;
+        outline: none;
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+    }
+
+    .casting-worker-combo-search:focus {
+        border-color: #86b7fe !important;
+        box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.15);
+    }
+
+    .casting-worker-combo-options {
+        max-height: 180px;
+        overflow-y: auto;
+    }
+
+    .casting-worker-combo-option {
+        display: block;
+        width: 100%;
+        padding: 8px 12px;
+        color: #111;
+        background: #fff;
+        border: 0;
+        text-align: left;
+    }
+
+    .casting-worker-combo-option:hover,
+    .casting-worker-combo-option.is-active {
+        color: #fff;
+        background: #0d6efd;
+    }
+
+    .casting-worker-combo-empty {
+        padding: 8px 12px;
+        color: #6b7280;
+        background: #fff;
+    }
+
     .count-badge {
         display: inline-flex;
         align-items: center;
@@ -139,14 +239,89 @@
     const defaultFromDate = @json($fromDate);
     const defaultToDate = @json($toDate);
 
-    if ($.fn.select2) {
-        $('#workerFilter').select2({
-            theme: 'bootstrap4',
-            width: '100%',
-            placeholder: 'All Workers',
-            minimumResultsForSearch: 0
-        });
+    const workerCombo = document.getElementById('workerFilterCombo');
+    const workerToggle = document.getElementById('workerFilterToggle');
+    const workerText = document.getElementById('workerFilterText');
+    const workerSearch = document.getElementById('workerFilterSearch');
+    const workerOptions = Array.from(document.querySelectorAll('.casting-worker-combo-option'));
+
+    function closeWorkerCombo() {
+        workerCombo.classList.remove('is-open');
+        workerSearch.value = '';
+        filterWorkerOptions('');
     }
+
+    function openWorkerCombo() {
+        workerCombo.classList.add('is-open');
+        if (!workerOptions.some(function (option) { return option.classList.contains('is-active'); }) && workerOptions.length) {
+            workerOptions[0].classList.add('is-active');
+        }
+        workerSearch.focus();
+    }
+
+    function filterWorkerOptions(searchText) {
+        const keyword = searchText.trim().toLowerCase();
+        let visibleCount = 0;
+        const existingEmpty = document.querySelector('.casting-worker-combo-empty');
+
+        if (existingEmpty) {
+            existingEmpty.remove();
+        }
+
+        workerOptions.forEach(function (option) {
+            const isVisible = option.textContent.toLowerCase().includes(keyword);
+            option.hidden = !isVisible;
+            option.classList.remove('is-active');
+            if (isVisible) {
+                visibleCount++;
+            }
+        });
+
+        const firstVisibleOption = workerOptions.find(function (option) {
+            return !option.hidden;
+        });
+
+        if (firstVisibleOption) {
+            firstVisibleOption.classList.add('is-active');
+        }
+
+        if (!visibleCount) {
+            const empty = document.createElement('div');
+            empty.className = 'casting-worker-combo-empty';
+            empty.textContent = 'No workers found';
+            document.getElementById('workerFilterOptions').appendChild(empty);
+        }
+    }
+
+    workerToggle.addEventListener('click', function () {
+        if (workerCombo.classList.contains('is-open')) {
+            closeWorkerCombo();
+        } else {
+            openWorkerCombo();
+        }
+    });
+
+    workerSearch.addEventListener('input', function () {
+        filterWorkerOptions(workerSearch.value);
+    });
+
+    workerOptions.forEach(function (option) {
+        option.addEventListener('click', function () {
+            workerOptions.forEach(function (item) {
+                item.classList.remove('is-active');
+            });
+            option.classList.add('is-active');
+            $('#workerFilter').val(option.dataset.value).trigger('change');
+            workerText.textContent = option.textContent;
+            closeWorkerCombo();
+        });
+    });
+
+    document.addEventListener('click', function (event) {
+        if (!workerCombo.contains(event.target)) {
+            closeWorkerCombo();
+        }
+    });
 
     const castingMetalIssueTable = $('#castingMetalIssueTable').DataTable({
         processing: true,
@@ -181,7 +356,11 @@
     $('#resetFilter').on('click', function () {
         $('#fromDate').val(defaultFromDate);
         $('#toDate').val(defaultToDate);
-        $('#workerFilter').val('').trigger('change.select2');
+        $('#workerFilter').val('');
+        $('#workerFilterText').text('All Workers');
+        workerOptions.forEach(function (item) {
+            item.classList.remove('is-active');
+        });
         castingMetalIssueTable.ajax.reload();
     });
 

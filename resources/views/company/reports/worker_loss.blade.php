@@ -32,9 +32,16 @@
                         <div id="voucher_results" class="list-group"></div>
                     </div>
                     <div class="col-md-2">
-                        <label>Stage</label>
+                        <div class="d-flex align-items-center justify-content-between">
+                            <label class="mb-0">Stage</label>
+                            <label class="stage-all-check mb-0">
+                                <input class="form-check-input" type="checkbox" id="all_stages">
+                                <span>All</span>
+                            </label>
+                        </div>
                         <select id="stage" class="form-select">
                             <option value="">All Stages</option>
+                            <option value="Jobwork Receive">Jobwork Receive</option>
                             <option value="Casting Receive">Casting Receive</option>
                             <option value="Tree Cutting Receive">Tree Cutting Receive</option>
                         </select>
@@ -304,6 +311,15 @@
         background: #30324f;
     }
 
+    .stage-all-check {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        color: #c6c8dc;
+        font-size: 12px;
+        user-select: none;
+    }
+
     .worker-loss-link {
         color: #9fc5ff;
         text-decoration: underline;
@@ -319,6 +335,18 @@ $(function () {
     const $voucherInput = $('#voucher_no');
     const $voucherResults = $('#voucher_results');
     let voucherSuggestTimer = null;
+
+    function syncStageAllState() {
+        const isAll = $('#all_stages').is(':checked');
+        if (isAll) {
+            $('#stage').val('').trigger('change.select2');
+        }
+        $('#stage').prop('disabled', isAll);
+        if ($.fn.select2) {
+            $('#stage').trigger('change.select2');
+        }
+    }
+
     if ($.fn.select2) {
         $('#worker_id').select2({
             theme: 'bootstrap4',
@@ -354,7 +382,7 @@ $(function () {
                 d.to_date = $('#to_date').val();
                 d.worker_id = $('#worker_id').val();
                 d.voucher_no = $('#voucher_no').val();
-                d.stage = $('#stage').val();
+                d.stage = $('#all_stages').is(':checked') ? '' : $('#stage').val();
                 d.loss_type = $('#loss_type').val();
                 d.only_loss = $('#only_loss').is(':checked') ? 1 : 0;
             }
@@ -393,10 +421,17 @@ $(function () {
         $('#to_date').val(defaultToDate);
         $('#worker_id').val('').trigger('change.select2');
         $('#voucher_no').val('');
+        $('#all_stages').prop('checked', false);
         $('#stage').val('').trigger('change.select2');
+        syncStageAllState();
         $('#loss_type').val('').trigger('change.select2');
         $('#only_loss').prop('checked', false);
         $voucherResults.hide().empty();
+        table.draw();
+    });
+
+    $('#all_stages').on('change', function () {
+        syncStageAllState();
         table.draw();
     });
 
@@ -448,7 +483,7 @@ $(function () {
             to_date: $('#to_date').val(),
             worker_id: $('#worker_id').val(),
             voucher_no: $('#voucher_no').val(),
-            stage: $('#stage').val(),
+            stage: $('#all_stages').is(':checked') ? '' : $('#stage').val(),
             loss_type: $('#loss_type').val(),
             only_loss: $('#only_loss').is(':checked') ? 1 : 0
         });
@@ -460,7 +495,7 @@ $(function () {
             from_date: $('#from_date').val(),
             to_date: $('#to_date').val(),
             worker_id: $('#worker_id').val(),
-            stage: $('#stage').val(),
+            stage: $('#all_stages').is(':checked') ? '' : $('#stage').val(),
             loss_type: $('#loss_type').val(),
             only_loss: $('#only_loss').is(':checked') ? 1 : 0
         }, function (res) {
@@ -515,6 +550,8 @@ $(function () {
         });
         $(target).html(html);
     }
+
+    syncStageAllState();
 });
 </script>
 @endpush

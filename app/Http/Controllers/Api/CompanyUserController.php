@@ -89,6 +89,7 @@ public function store(Request $request)
     $authUser = $request->user(); // logged in user
     $companyId = $authUser->company_id;
     $company = Company::find($companyId);
+    $this->normalizeIdentityFields($request);
     $selectedRole = strtolower((string) $request->role);
 
     if ($selectedRole === 'customer') {
@@ -133,7 +134,15 @@ public function store(Request $request)
         'role'  => 'required',
         'profile_image' => 'nullable|image|max:2048',
         'mobile_access_allowed' => 'nullable|boolean',
-    ]);
+        'mobile_no' => ['nullable', 'digits:10'],
+        'phone_no' => ['nullable', 'regex:/^[0-9]{1,15}$/'],
+        'pincode' => ['nullable', 'digits:6'],
+        'contact_person1_phone' => ['nullable', 'regex:/^[0-9]{1,15}$/'],
+        'contact_person2_phone' => ['nullable', 'regex:/^[0-9]{1,15}$/'],
+        'gst_no' => ['nullable', 'regex:/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/'],
+        'pan_no' => ['nullable', 'regex:/^[A-Z]{5}[0-9]{4}[A-Z]$/'],
+        'aadhaar_no' => ['nullable', 'digits:12'],
+    ], $this->identityValidationMessages());
 
     // 🔹 Upload Image (If Provided)
     $imagePath = $this->storeProfileImageToUploads($request);
@@ -189,6 +198,7 @@ public function update(Request $request, $id)
     {
         $authUser = $request->user();
         $companyId = $authUser->company_id;
+        $this->normalizeIdentityFields($request);
 
         // 🔐 Company wise security
         $user = User::where('company_id', $companyId)
@@ -213,7 +223,15 @@ public function update(Request $request, $id)
             'role'  => 'required|string',
             'profile_image' => 'nullable|image|max:2048',
             'mobile_access_allowed' => 'nullable|boolean',
-        ]);
+            'mobile_no' => ['nullable', 'digits:10'],
+            'phone_no' => ['nullable', 'regex:/^[0-9]{1,15}$/'],
+            'pincode' => ['nullable', 'digits:6'],
+            'contact_person1_phone' => ['nullable', 'regex:/^[0-9]{1,15}$/'],
+            'contact_person2_phone' => ['nullable', 'regex:/^[0-9]{1,15}$/'],
+            'gst_no' => ['nullable', 'regex:/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/'],
+            'pan_no' => ['nullable', 'regex:/^[A-Z]{5}[0-9]{4}[A-Z]$/'],
+            'aadhaar_no' => ['nullable', 'digits:12'],
+        ], $this->identityValidationMessages());
 
         if (strtolower((string) $validated['role']) === 'customer') {
             return response()->json([
@@ -393,5 +411,43 @@ public function update(Request $request, $id)
         'deleted_user_id' => $id
     ], 200);
 }
+
+    private function normalizeIdentityFields(Request $request): void
+    {
+        $input = [];
+
+        foreach (['mobile_no', 'phone_no', 'pincode', 'contact_person1_phone', 'contact_person2_phone', 'aadhaar_no'] as $field) {
+            if ($request->has($field)) {
+                $value = preg_replace('/\D+/', '', (string) $request->input($field));
+                $input[$field] = $value === '' ? null : $value;
+            }
+        }
+
+        foreach (['gst_no', 'pan_no'] as $field) {
+            if ($request->has($field)) {
+                $max = $field === 'pan_no' ? 10 : 15;
+                $value = substr(preg_replace('/[^A-Z0-9]+/', '', strtoupper((string) $request->input($field))), 0, $max);
+                $input[$field] = $value === '' ? null : $value;
+            }
+        }
+
+        if (!empty($input)) {
+            $request->merge($input);
+        }
+    }
+
+    private function identityValidationMessages(): array
+    {
+        return [
+            'mobile_no.digits' => 'Mobile No must be exactly 10 digits.',
+            'phone_no.regex' => 'Phone No must contain only numbers.',
+            'pincode.digits' => 'Pincode must be exactly 6 digits.',
+            'contact_person1_phone.regex' => 'Contact 1 Phone must contain only numbers.',
+            'contact_person2_phone.regex' => 'Contact 2 Phone must contain only numbers.',
+            'gst_no.regex' => 'GST No must be like 24ABCDE1234F1Z5.',
+            'pan_no.regex' => 'PAN No must be like ABCDE1234F.',
+            'aadhaar_no.digits' => 'Aadhaar No must be exactly 12 digits.',
+        ];
+    }
 }
 

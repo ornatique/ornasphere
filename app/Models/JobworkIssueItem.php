@@ -13,6 +13,7 @@ class JobworkIssueItem extends Model
         'gross_wt',
         'other_wt',
         'other_amt',
+        'other_charge_details',
         'purity',
         'net_purity',
         'net_wt',

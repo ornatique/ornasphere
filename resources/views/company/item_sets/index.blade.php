@@ -94,6 +94,8 @@
 
                             <th width="150">HUID</th>
 
+                            <th width="140">Upload Image</th>
+
                         </tr>
 
                     </thead>
@@ -110,7 +112,7 @@
                             <th></th>
                             <th></th>
                             <th id="totalAmountCell">0.00</th>
-                            <th colspan="3"></th>
+                            <th colspan="5"></th>
                         </tr>
                     </tfoot>
 
@@ -124,6 +126,64 @@
         </button>
     </div>
 
+</div>
+
+<div class="modal fade" id="itemSetImageModal">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark text-white border-0">
+            <div class="modal-header border-bottom">
+                <h5 class="modal-title">Item Image</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+
+            <div class="modal-body">
+                <input type="hidden" id="grid_image_show_url">
+                <input type="hidden" id="grid_image_upload_url">
+                <input type="hidden" id="grid_image_remove_url">
+
+                <div class="row">
+                    <div class="col-md-7 mb-3">
+                        <div class="item-grid-image-preview-wrap">
+                            <img id="grid_item_image_preview" class="item-grid-image-preview" alt="Item image preview">
+                            <div id="grid_item_image_empty" class="item-grid-image-empty">No image uploaded</div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-5 mb-3">
+                        <div class="mb-3">
+                            <label>Item</label>
+                            <input type="text" id="grid_image_item_name" class="form-control text-white border-0" readonly>
+                        </div>
+
+                        <div class="mb-3">
+                            <label>Label Code</label>
+                            <input type="text" id="grid_image_label_code" class="form-control text-white border-0" readonly>
+                        </div>
+
+                        <div class="mb-3">
+                            <label>Upload Image</label>
+                            <input type="file" id="grid_item_image_file" class="form-control text-white border-0" accept="image/jpeg,image/png,image/webp">
+                            <small class="text-muted d-block mt-1">JPG, PNG or WebP up to 20 MB. Uploaded using the item image disk.</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label>Uploaded</label>
+                            <input type="text" id="grid_image_uploaded_at" class="form-control text-white border-0" readonly>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="grid_image_upload_error" class="alert alert-danger d-none mb-0"></div>
+                <div id="grid_image_upload_success" class="alert alert-success d-none mb-0"></div>
+            </div>
+
+            <div class="modal-footer border-top">
+                <button class="btn btn-danger me-auto" id="gridRemoveImageBtn" type="button">Remove Image</button>
+                <button class="btn btn-light" data-bs-dismiss="modal" type="button">Cancel</button>
+                <button class="btn btn-success" id="gridUploadImageBtn" type="button">Upload Image</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="modal fade" id="itemSetOtherChargeModal" tabindex="-1">
@@ -189,6 +249,39 @@
 
     #gridContainer .cell {
         outline: none;
+    }
+
+    .grid-image-cell {
+        min-width: 130px;
+    }
+
+    .grid-image-btn {
+        min-width: 110px;
+    }
+
+    .item-grid-image-preview-wrap {
+        height: min(56vh, 460px);
+        min-height: 320px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.04);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+
+    .item-grid-image-preview {
+        display: none;
+        width: 100%;
+        height: 100%;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        object-position: center;
+    }
+
+    .item-grid-image-empty {
+        color: rgba(255, 255, 255, 0.62);
     }
 
     #itemSetOtherChargeModal .modal-dialog {
@@ -416,7 +509,11 @@
 
         $('#setsBody').append(`
 
-        <tr data-id="${row.id}" data-other-weight="${row.other ?? 0}">
+        <tr data-id="${row.id}"
+            data-other-weight="${row.other ?? 0}"
+            data-image-show-url="${esc(row.image_show_url || '')}"
+            data-image-upload-url="${esc(row.image_upload_url || '')}"
+            data-image-remove-url="${esc(row.image_remove_url || '')}">
             <td class="sr-no"></td>
 
             <td contenteditable="true" class="cell" data-column="gross_weight">${row.gross_weight ?? ''}</td>
@@ -444,6 +541,12 @@
 
             <td contenteditable="true" class="cell" data-column="HUID">${row.HUID ?? ''}</td>
 
+            <td class="grid-image-cell">
+                <button type="button" class="btn btn-sm btn-info grid-image-btn open-grid-image-modal">
+                    ${row.image_path ? 'View Image' : 'Upload Image'}
+                </button>
+            </td>
+
         </tr>
 
     `);
@@ -460,7 +563,7 @@
 
         $('#setsBody').append(`
 
-        <tr data-id="" data-other-weight="0">
+        <tr data-id="" data-other-weight="0" data-image-show-url="" data-image-upload-url="" data-image-remove-url="">
             <td class="sr-no"></td>
 
             <td contenteditable="true" class="cell" data-column="gross_weight"></td>
@@ -487,6 +590,12 @@
             <td contenteditable="true" class="cell" data-column="size"></td>
 
             <td contenteditable="true" class="cell" data-column="HUID"></td>
+
+            <td class="grid-image-cell">
+                <button type="button" class="btn btn-sm btn-info grid-image-btn open-grid-image-modal">
+                    Upload Image
+                </button>
+            </td>
 
         </tr>
 
@@ -529,6 +638,7 @@
         ).done(function(res) {
             const wasNew = !tr.attr('data-id');
             tr.attr('data-id', res.id);
+            updateRowImageUrls(tr, res);
             if (wasNew && res.id) {
                 offset += 1;
             }
@@ -848,6 +958,177 @@
         const fixed = Math.abs(n) < 1e-9 ? 0 : n;
         return fixed.toFixed(decimals);
     }
+
+    let imageTargetRow = null;
+
+    function updateRowImageUrls($row, data) {
+        if (!$row || !$row.length || !data) return;
+
+        if (data.image_show_url) {
+            $row.attr('data-image-show-url', data.image_show_url);
+        }
+
+        if (data.image_upload_url) {
+            $row.attr('data-image-upload-url', data.image_upload_url);
+        }
+
+        if (data.image_remove_url) {
+            $row.attr('data-image-remove-url', data.image_remove_url);
+        }
+    }
+
+    function resetGridImageMessages() {
+        $('#grid_image_upload_error').addClass('d-none').text('');
+        $('#grid_image_upload_success').addClass('d-none').text('');
+    }
+
+    function setGridImagePreview(url) {
+        if (url) {
+            $('#grid_item_image_preview').attr('src', url).show();
+            $('#grid_item_image_empty').hide();
+            $('#gridRemoveImageBtn').prop('disabled', false).show();
+            return;
+        }
+
+        $('#grid_item_image_preview').removeAttr('src').hide();
+        $('#grid_item_image_empty').show();
+        $('#gridRemoveImageBtn').prop('disabled', true).hide();
+    }
+
+    function loadGridItemImage() {
+        resetGridImageMessages();
+        $('#grid_item_image_file').val('');
+
+        $.get($('#grid_image_show_url').val(), function(data) {
+            $('#grid_image_item_name').val(data.item_name || '-');
+            $('#grid_image_label_code').val(data.label_code || '-');
+            $('#grid_image_uploaded_at').val(data.image_uploaded_at || '-');
+            setGridImagePreview(data.image_url || '');
+            $('#itemSetImageModal').modal('show');
+        }).fail(function() {
+            $('#grid_image_upload_error').removeClass('d-none').text('Unable to load item image details.');
+            $('#itemSetImageModal').modal('show');
+        });
+    }
+
+    $(document).on('click', '.open-grid-image-modal', function() {
+        const $row = $(this).closest('tr');
+        const rowId = $row.attr('data-id');
+
+        if (!rowId) {
+            alert('Please enter item row details first, then upload image.');
+            return;
+        }
+
+        const showUrl = $row.attr('data-image-show-url');
+        const uploadUrl = $row.attr('data-image-upload-url');
+        const removeUrl = $row.attr('data-image-remove-url');
+
+        if (!showUrl || !uploadUrl || !removeUrl) {
+            alert('Image upload URL is not ready. Please edit any cell in this row once and try again.');
+            return;
+        }
+
+        imageTargetRow = $row;
+        $('#grid_image_show_url').val(showUrl);
+        $('#grid_image_upload_url').val(uploadUrl);
+        $('#grid_image_remove_url').val(removeUrl);
+        loadGridItemImage();
+    });
+
+    $('#grid_item_image_file').on('change', function() {
+        resetGridImageMessages();
+
+        const file = this.files && this.files[0] ? this.files[0] : null;
+        if (!file) {
+            loadGridItemImage();
+            return;
+        }
+
+        if (!file.type.match(/^image\/(jpeg|png|webp)$/)) {
+            $(this).val('');
+            $('#grid_image_upload_error').removeClass('d-none').text('Please select a JPG, PNG or WebP image.');
+            return;
+        }
+
+        setGridImagePreview(URL.createObjectURL(file));
+    });
+
+    $('#gridUploadImageBtn').on('click', function() {
+        resetGridImageMessages();
+
+        const fileInput = $('#grid_item_image_file')[0];
+        if (!fileInput.files || !fileInput.files[0]) {
+            $('#grid_image_upload_error').removeClass('d-none').text('Please choose an image to upload.');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('_token', "{{ csrf_token() }}");
+        formData.append('image', fileInput.files[0]);
+
+        $('#gridUploadImageBtn').prop('disabled', true).text('Uploading...');
+
+        $.ajax({
+            url: $('#grid_image_upload_url').val(),
+            method: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function(data) {
+                $('#grid_item_image_file').val('');
+                $('#grid_image_uploaded_at').val(data.image_uploaded_at || '-');
+                setGridImagePreview(data.image_url || '');
+                $('#grid_image_upload_success').removeClass('d-none').text(data.message || 'Image uploaded successfully.');
+
+                if (imageTargetRow && imageTargetRow.length) {
+                    imageTargetRow.find('.open-grid-image-modal').text('View Image');
+                }
+
+                $('#itemSetImageModal').modal('hide');
+            },
+            error: function(xhr) {
+                const message = xhr.responseJSON?.message || xhr.responseJSON?.errors?.image?.[0] || 'Image upload failed.';
+                $('#grid_image_upload_error').removeClass('d-none').text(message);
+            },
+            complete: function() {
+                $('#gridUploadImageBtn').prop('disabled', false).text('Upload Image');
+            }
+        });
+    });
+
+    $('#gridRemoveImageBtn').on('click', function() {
+        if (!confirm('Remove this item image?')) {
+            return;
+        }
+
+        resetGridImageMessages();
+        $('#gridRemoveImageBtn').prop('disabled', true).text('Removing...');
+
+        $.ajax({
+            url: $('#grid_image_remove_url').val(),
+            method: 'DELETE',
+            data: {
+                _token: "{{ csrf_token() }}"
+            },
+            success: function() {
+                $('#grid_item_image_file').val('');
+                $('#grid_image_uploaded_at').val('-');
+                setGridImagePreview('');
+                $('#grid_image_upload_success').removeClass('d-none').text('Image removed successfully.');
+
+                if (imageTargetRow && imageTargetRow.length) {
+                    imageTargetRow.find('.open-grid-image-modal').text('Upload Image');
+                }
+            },
+            error: function(xhr) {
+                $('#grid_image_upload_error').removeClass('d-none').text(xhr.responseJSON?.message || 'Unable to remove image.');
+            },
+            complete: function() {
+                $('#gridRemoveImageBtn').text('Remove Image');
+            }
+        });
+    });
 
     function getRowWeightContext($row) {
         return {

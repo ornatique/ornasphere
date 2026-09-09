@@ -86,6 +86,7 @@
                                     'gross_wt' => $i->gross_wt,
                                     'other_wt' => $i->other_wt,
                                     'other_amt' => $i->other_amt,
+                                    'other_charge_details' => $i->other_charge_details,
                                     'purity' => $i->purity,
                                     'net_purity' => $i->net_purity,
                                     'net_wt' => $i->net_wt,
@@ -805,6 +806,19 @@ $(document).on('click', '.otherChargeBtn', function () {
         } catch (_) {
             lines = [];
         }
+    }
+
+    if (!lines.length && currentRow.find('.other-charge-id').val()) {
+        lines = [{
+            charge_id: toNum(currentRow.find('.other-charge-id').val()),
+            amount: toNum(currentRow.find('.other-amt').val()),
+            qty: 1,
+            wt_formula: 'flat',
+            amt_formula: 'flat',
+            weight: Math.abs(toNum(currentRow.find('.other-wt').val())),
+            total: toNum(currentRow.find('.other-amt').val()),
+            wt_operation: toNum(currentRow.find('.other-wt').val()) < 0 ? 'add' : 'less'
+        }];
     }
 
     const rowContext = {

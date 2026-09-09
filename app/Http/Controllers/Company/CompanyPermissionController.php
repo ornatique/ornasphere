@@ -195,6 +195,7 @@ class CompanyPermissionController extends Controller
             'jobwork-receive',
             'item',
             'item-set',
+            'stock-gallery',
             'label-config',
             'label-print',
             'other-charge',
@@ -311,6 +312,7 @@ class CompanyPermissionController extends Controller
             'approval' => 'Sale on Approval',
             'jobwork-issue' => 'Jobwork',
             'office-access' => 'Office Access',
+            'stock-gallery' => 'Stock Gallery',
         ];
 
         $normalized = $this->normalizePermissionName($name);

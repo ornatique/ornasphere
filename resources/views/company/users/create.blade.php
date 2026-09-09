@@ -266,6 +266,8 @@
 
     @endsection
 
+    @include('company.customers.partials.identity_input_rules')
+
     @push("scripts")
     <script>
         document.addEventListener('DOMContentLoaded', function () {

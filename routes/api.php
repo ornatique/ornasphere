@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\CompanyUserController;
 use App\Http\Controllers\Api\ItemController;
 use App\Http\Controllers\Api\LabelConfigController;
 use App\Http\Controllers\Api\ItemSetController;
+use App\Http\Controllers\Api\StockGalleryApiController;
 use App\Http\Controllers\Api\OtherChargeController;
 use App\Http\Controllers\Api\SaleApiController;
 use App\Http\Controllers\Api\SaleReturnApiController;
@@ -308,6 +309,7 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/item-sets/save-cell', [ItemSetController::class, 'saveCell']);
     Route::post('/item-sets/bulk-save', [ItemSetController::class, 'bulkSave']);
     Route::post('/item-sets/finalize', [ItemSetController::class, 'finalize']);
+    Route::post('/item-sets/upload-image', [ItemSetController::class, 'uploadLabelImage']);
     Route::get('/item-sets/qr-list', [ItemSetController::class, 'listset_data']);
     Route::get('/item-sets/bulk-list', [ItemSetController::class, 'bulkListsetData']);
     Route::get('/item-sets/{id}/image', [ItemSetController::class, 'showImage'])->whereNumber('id');
@@ -316,12 +318,19 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
 
     Route::get('itemsets_list/', [ItemSetController::class, 'listset_data']);     // list + filter
     Route::get('itemsets_bulk_list/', [ItemSetController::class, 'bulkListsetData']); // bulk grouped list
+    Route::post('itemsets_upload_image', [ItemSetController::class, 'uploadLabelImage']);
     Route::get('itemsets_image/{id}', [ItemSetController::class, 'showImage'])->whereNumber('id');
     Route::post('itemsets_upload_image/{id}', [ItemSetController::class, 'uploadImage'])->whereNumber('id');
     Route::delete('itemsets_delete_image/{id}', [ItemSetController::class, 'removeImage'])->whereNumber('id');
     Route::get('itemsets_show/{id}', [ItemSetController::class, 'show']);  // edit data
     Route::post('itemsets_update/{id}', [ItemSetController::class, 'update']); // update
     Route::delete('itemsets_delete/{id}', [ItemSetController::class, 'destroy']); // delete
+
+    Route::get('/stock-gallery', [StockGalleryApiController::class, 'index']);
+    Route::get('/stock-gallery/image-links', [StockGalleryApiController::class, 'imageLinks']);
+    Route::post('/stock-gallery/pdf', [StockGalleryApiController::class, 'exportPdf']);
+    Route::get('/stock-gallery/pdf', [StockGalleryApiController::class, 'exportPdf']);
+    Route::get('/stock-gallery/{id}/download-image', [StockGalleryApiController::class, 'downloadImage'])->whereNumber('id');
 
     Route::get('/other-charges', [OtherChargeController::class, 'index']);
     Route::get('/other-charges/options', [OtherChargeController::class, 'options']);

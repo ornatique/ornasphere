@@ -22,7 +22,7 @@
   <!-- endinject -->
   <!-- <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.css"> -->
   <link rel="shortcut icon" href="{{ asset('celestial/assets/images/favicon.png') }}" />
-<link href="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/css/select2.min.css" rel="stylesheet" />
+<link rel="stylesheet" href="{{ asset('celestial/assets/vendors/select2/select2.min.css') }}">
 <link href="https://cdn.jsdelivr.net/npm/@ttskch/select2-bootstrap4-theme@1.5.2/dist/select2-bootstrap4.min.css" rel="stylesheet" />
 <style>
   html,
@@ -364,7 +364,7 @@
   <script src="{{ asset('celestial/assets/js/dashboard.js') }}"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script> -->
-<script src="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/js/select2.min.js"></script>
+<script src="{{ asset('celestial/assets/vendors/select2/select2.min.js') }}"></script>
 <script>
 document.addEventListener('blur', function (event) {
     const input = event.target;

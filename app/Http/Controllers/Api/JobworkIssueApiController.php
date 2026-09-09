@@ -154,6 +154,7 @@ class JobworkIssueApiController extends Controller
                     'gross_wt' => (float) ($item['gross_wt'] ?? 0),
                     'other_wt' => (float) ($item['other_wt'] ?? 0),
                     'other_amt' => (float) ($item['other_amt'] ?? 0),
+                    'other_charge_details' => $this->normalizeOtherChargeDetails($item['other_charge_details'] ?? $item['other_charges'] ?? null),
                     'purity' => (float) ($item['purity'] ?? 0),
                     'net_purity' => (float) ($item['net_purity'] ?? 0),
                     'net_wt' => (float) ($item['net_wt'] ?? 0),
@@ -357,6 +358,7 @@ class JobworkIssueApiController extends Controller
             'items.*.gross_wt' => ['nullable', 'numeric'],
             'items.*.other_wt' => ['nullable', 'numeric'],
             'items.*.other_amt' => ['nullable', 'numeric'],
+            'items.*.other_charge_details' => ['nullable'],
             'items.*.purity' => ['nullable', 'numeric'],
             'items.*.net_purity' => ['nullable', 'numeric'],
             'items.*.net_wt' => ['nullable', 'numeric'],
@@ -431,6 +433,7 @@ class JobworkIssueApiController extends Controller
                 'gross_wt' => (float) ($item['gross_wt'] ?? 0),
                 'other_wt' => (float) ($item['other_wt'] ?? 0),
                 'other_amt' => (float) ($item['other_amt'] ?? 0),
+                'other_charge_details' => $this->normalizeOtherChargeDetails($item['other_charge_details'] ?? $item['other_charges'] ?? null),
                 'purity' => (float) ($item['purity'] ?? 0),
                 'net_purity' => (float) ($item['net_purity'] ?? 0),
                 'net_wt' => (float) ($item['net_wt'] ?? 0),
@@ -514,9 +517,38 @@ class JobworkIssueApiController extends Controller
         return $prefix . $next;
     }
 
+    private function normalizeOtherChargeDetails($value): ?string
+    {
+        if ($value === null || $value === '' || $value === []) {
+            return null;
+        }
+
+        if (is_array($value)) {
+            return json_encode(array_values($value));
+        }
+
+        return (string) $value;
+    }
+
+    private function decodeOtherChargeDetails(?string $value): array
+    {
+        if (!$value) {
+            return [];
+        }
+
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
     private function withActions(JobworkIssue $row): array
     {
         $data = $row->toArray();
+        $data['items'] = collect($row->items ?? [])->map(function ($item) {
+            $itemData = $item->toArray();
+            $itemData['other_charges'] = $this->decodeOtherChargeDetails($item->other_charge_details ?? null);
+            return $itemData;
+        })->values()->all();
+
         $id = (int) $row->id;
         $data['jobwork_date_view'] = optional($row->jobwork_date)?->format('d-m-Y');
         $data['modified_at_view'] = optional($row->updated_at)?->format('d-m-Y h:i A');

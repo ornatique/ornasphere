@@ -360,7 +360,7 @@ class SaleController extends Controller
                 'other_amount' => (float) ($row->other_amount ?? 0),
                 'total_amount' => (float) ($row->total_amount ?? 0),
                 'remarks' => (string) ($row->remarks ?? ''),
-                'other_charges' => [],
+                'other_charges' => $this->decodeOtherChargeDetails($row->other_charge_details ?? null),
             ];
         });
         $saleAdvanceUsage = $this->getSaleAdvanceUsage($company->id, (int) $sale->id);
@@ -509,6 +509,7 @@ class SaleController extends Controller
                 'other_amount' => $otherAmount,
                 'total_amount' => $totalAmount,
                 'remarks' => (string) ($approvalItem->remarks ?? ''),
+                'other_charges' => $this->decodeOtherChargeDetails($approvalItem->other_charge_details ?? null),
                 'is_item_only' => false,
                 'source' => 'approval',
             ];
@@ -754,6 +755,7 @@ class SaleController extends Controller
                     'labour_rate'      => $request->labour_rate[$index] ?? 0,
                     'labour_amount'    => $request->labour_amount[$index] ?? 0,
                     'other_amount'     => $request->other_amount[$index] ?? 0,
+                    'other_charge_details' => $this->normalizeOtherChargeDetails($request->other_charge_details[$index] ?? null),
                     'total_amount'     => $request->total_amount[$index] ?? 0,
                     'remarks'          => $request->remarks[$index] ?? null,
                 ]);
@@ -990,6 +992,7 @@ class SaleController extends Controller
                     'labour_rate'      => $request->labour_rate[$index] ?? optional($product)->labour_rate ?? 0,
                     'labour_amount'    => $request->labour_amount[$index] ?? 0,
                     'other_amount'     => $request->other_amount[$index] ?? 0,
+                    'other_charge_details' => $this->normalizeOtherChargeDetails($request->other_charge_details[$index] ?? null),
                     'total_amount'     => $request->total_amount[$index] ?? 0,
                     'remarks'          => $request->remarks[$index] ?? null,
                     'approval_item_id' => $approvalItemId,
@@ -1207,6 +1210,7 @@ class SaleController extends Controller
                     'metal_rate'   => $metalRate,
                     'total_amount' => $amount,
                     'remarks'      => $approvalItem->remarks,
+                    'other_charge_details' => $this->normalizeOtherChargeDetails($approvalItem->other_charge_details ?? null),
                 ]);
 
                 // ✅ UPDATE STATUS
@@ -1417,6 +1421,32 @@ class SaleController extends Controller
             return 'silver';
         }
         return 'other';
+    }
+
+    private function decodeOtherChargeDetails($value): array
+    {
+        if (is_array($value)) {
+            return array_values($value);
+        }
+
+        $value = trim((string) ($value ?? ''));
+        if ($value === '') {
+            return [];
+        }
+
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? array_values($decoded) : [];
+    }
+
+    private function normalizeOtherChargeDetails($value): ?string
+    {
+        if (is_array($value)) {
+            $value = array_values(array_filter($value, fn($row) => is_array($row) || trim((string) $row) !== ''));
+            return empty($value) ? null : json_encode($value);
+        }
+
+        $value = trim((string) ($value ?? ''));
+        return $value === '' ? null : $value;
     }
 
     public function customerAdvance(Request $request, $slug)

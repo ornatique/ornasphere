@@ -10,6 +10,8 @@ use App\Models\Item;
 use App\Models\User;
 use Yajra\DataTables\Facades\DataTables;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class OtherChargeController extends Controller
 {
@@ -109,6 +111,7 @@ class OtherChargeController extends Controller
                     $edit = route('company.other-charge.edit', [$company->slug, $id]);
 
                     $delete = route('company.other-charge.destroy', [$company->slug, $id]);
+                    $usageCount = $this->otherChargeUsageCount((int) $company->id, (int) $row->id);
                     $html = '';
 
                     if ($canEdit) {
@@ -116,11 +119,13 @@ class OtherChargeController extends Controller
                     }
 
                     if ($canDelete) {
-                        $html .= '<button type="button"
-                            class="btn btn-sm btn-danger deleteBtn"
-                            data-url="' . $delete . '">
-                            Delete
-                        </button>';
+                        $html .= $usageCount > 0
+                            ? '<span class="badge bg-danger">In Use</span>'
+                            : '<button type="button"
+                                class="btn btn-sm btn-danger deleteBtn"
+                                data-url="' . $delete . '">
+                                Delete
+                            </button>';
                     }
 
                     return $html !== '' ? $html : '-';
@@ -225,12 +230,73 @@ class OtherChargeController extends Controller
             ->where('id', $id)
             ->firstOrFail();
 
+        if ($this->otherChargeUsageCount((int) $company->id, (int) $data->id) > 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Other Charge is used in transactions and cannot be deleted.',
+            ], 422);
+        }
+
         $data->delete();
 
         return response()->json([
             'success' => true,
             'message' => 'Other Charge deleted successfully'
         ]);
+    }
+
+    private function otherChargeUsageCount(int $companyId, int $otherChargeId): int
+    {
+        $jobworkIssueCount = (int) DB::table('jobwork_issue_items as jii')
+            ->join('jobwork_issues as ji', 'ji.id', '=', 'jii.jobwork_issue_id')
+            ->where('ji.company_id', $companyId)
+            ->where('jii.other_charge_id', $otherChargeId)
+            ->count();
+
+        $chargeIdNeedles = [
+            '"charge_id":' . $otherChargeId . ',',
+            '"charge_id":' . $otherChargeId . '}',
+            '"charge_id": ' . $otherChargeId . ',',
+            '"charge_id": ' . $otherChargeId . '}',
+        ];
+
+        $jobworkReceiveCount = (int) DB::table('jobwork_receive_items as jri')
+            ->join('jobwork_receives as jr', 'jr.id', '=', 'jri.jobwork_receive_id')
+            ->where('jr.company_id', $companyId)
+            ->where(function ($query) use ($chargeIdNeedles) {
+                foreach ($chargeIdNeedles as $needle) {
+                    $query->orWhere('jri.other_charge_details', 'like', '%' . $needle . '%');
+                }
+            })
+            ->count();
+
+        $saleItemCount = 0;
+        if (Schema::hasColumn('sale_items', 'other_charge_details')) {
+            $saleItemCount = (int) DB::table('sale_items as si')
+                ->join('sales as s', 's.id', '=', 'si.sale_id')
+                ->where('s.company_id', $companyId)
+                ->where(function ($query) use ($chargeIdNeedles) {
+                    foreach ($chargeIdNeedles as $needle) {
+                        $query->orWhere('si.other_charge_details', 'like', '%' . $needle . '%');
+                    }
+                })
+                ->count();
+        }
+
+        $approvalItemCount = 0;
+        if (Schema::hasColumn('approval_items', 'other_charge_details')) {
+            $approvalItemCount = (int) DB::table('approval_items as ai')
+                ->join('approval_headers as ah', 'ah.id', '=', 'ai.approval_id')
+                ->where('ah.company_id', $companyId)
+                ->where(function ($query) use ($chargeIdNeedles) {
+                    foreach ($chargeIdNeedles as $needle) {
+                        $query->orWhere('ai.other_charge_details', 'like', '%' . $needle . '%');
+                    }
+                })
+                ->count();
+        }
+
+        return $jobworkIssueCount + $jobworkReceiveCount + $saleItemCount + $approvalItemCount;
     }
 
     public function options(Request $request, $slug)

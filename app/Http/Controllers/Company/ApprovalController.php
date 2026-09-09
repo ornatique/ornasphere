@@ -367,7 +367,7 @@ class ApprovalController extends Controller
                     'other_amount' => (float) ($row->other_amount ?? 0),
                     'total_amount' => (float) ($row->total_amount ?? 0),
                     'remarks' => (string) ($row->remarks ?? ''),
-                    'other_charges' => [],
+                    'other_charges' => $this->decodeOtherChargeDetails($row->other_charge_details ?? null),
                 ];
             })
             ->sortBy(function ($row) {
@@ -568,6 +568,7 @@ class ApprovalController extends Controller
                     'labour_rate' => $labourRate,
                     'labour_amount' => $labourAmount,
                     'other_amount' => $otherAmount,
+                    'other_charge_details' => $this->normalizeOtherChargeDetails($row['other_charge_details'] ?? $row['other_charges'] ?? null),
                     'total_amount' => $totalAmount,
                     'status' => 'pending',
                     'remarks' => $row['remarks'] ?? null,
@@ -944,6 +945,7 @@ class ApprovalController extends Controller
             'labour_rate' => $labourRate,
             'labour_amount' => $labourAmount,
             'other_amount' => $otherAmount,
+            'other_charge_details' => $this->normalizeOtherChargeDetails($row['other_charge_details'] ?? $row['other_charges'] ?? null),
             'total_amount' => $totalAmount,
             'remarks' => $row['remarks'] ?? null,
         ];
@@ -962,6 +964,32 @@ class ApprovalController extends Controller
         }
 
         return $inputOther;
+    }
+
+    private function decodeOtherChargeDetails($value): array
+    {
+        if (is_array($value)) {
+            return array_values($value);
+        }
+
+        $value = trim((string) ($value ?? ''));
+        if ($value === '') {
+            return [];
+        }
+
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? array_values($decoded) : [];
+    }
+
+    private function normalizeOtherChargeDetails($value): ?string
+    {
+        if (is_array($value)) {
+            $value = array_values(array_filter($value, fn($row) => is_array($row) || trim((string) $row) !== ''));
+            return empty($value) ? null : json_encode($value);
+        }
+
+        $value = trim((string) ($value ?? ''));
+        return $value === '' ? null : $value;
     }
 
     private function resolveTotalAmount($inputTotalAmount, float $metalAmount, float $labourAmount, float $otherAmount): float

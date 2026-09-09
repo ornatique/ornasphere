@@ -399,6 +399,7 @@ class SaleApiController extends Controller
                 'other_amount' => $otherAmount,
                 'total_amount' => $totalAmount,
                 'remarks' => (string) ($approvalItem->remarks ?? ''),
+                'other_charges' => $this->decodeOtherChargeDetails($approvalItem->other_charge_details ?? null),
                 'is_item_only' => false,
                 'source' => 'approval',
             ];
@@ -1158,6 +1159,7 @@ class SaleApiController extends Controller
                         'labour_rate' => (float) ($approvalItem->labour_rate ?? 0),
                         'labour_amount' => $labourAmount,
                         'other_amount' => $otherAmount,
+                        'other_charge_details' => $this->normalizeOtherChargeDetails($approvalItem->other_charge_details ?? null),
                         'total_amount' => $lineTotal,
                         'approval_item_id' => $approvalItem->id,
                     ]);
@@ -1200,6 +1202,7 @@ class SaleApiController extends Controller
                     'labour_rate' => $item->sale_labour_rate ?? 0,
                     'labour_amount' => $labourAmount,
                     'other_amount' => $otherAmount,
+                    'other_charge_details' => $this->normalizeOtherChargeDetails($item['other_charge_details'] ?? $item['other_charges'] ?? null),
                     'total_amount' => $lineTotal,
                 ]);
 
@@ -1360,6 +1363,7 @@ class SaleApiController extends Controller
                     'other_amt' => $otherAmount,
                     'total_amount' => $totalAmount,
                     'total_amt' => $totalAmount,
+                    'other_charges' => $this->decodeOtherChargeDetails($row->other_charge_details ?? null),
                     'status' => $row->status,
                 ];
             });
@@ -1901,6 +1905,7 @@ class SaleApiController extends Controller
                     'labour_rate' => $labourRate,
                     'labour_amount' => $labourAmount,
                     'other_amount' => $otherAmount,
+                    'other_charge_details' => $this->normalizeOtherChargeDetails($row['other_charge_details'] ?? $row['other_charges'] ?? null),
                     'total_amount' => $lineTotal,
                 ];
 
@@ -2182,6 +2187,7 @@ class SaleApiController extends Controller
             $item = optional($row->itemset)->item ?: $row->product;
             $row->setAttribute('item_name', optional($item)->item_name);
             $row->setAttribute('metal_type', $this->normalizeMetalType(optional($item)->metal ?? null));
+            $row->setAttribute('other_charges', $this->decodeOtherChargeDetails($row->other_charge_details ?? null));
             return $row;
         });
 
@@ -2442,5 +2448,31 @@ class SaleApiController extends Controller
 
             ApprovalHeader::where('id', $approvalId)->update(['status' => $status]);
         }
+    }
+
+    private function decodeOtherChargeDetails($value): array
+    {
+        if (is_array($value)) {
+            return array_values($value);
+        }
+
+        $value = trim((string) ($value ?? ''));
+        if ($value === '') {
+            return [];
+        }
+
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? array_values($decoded) : [];
+    }
+
+    private function normalizeOtherChargeDetails($value): ?string
+    {
+        if (is_array($value)) {
+            $value = array_values(array_filter($value, fn($row) => is_array($row) || trim((string) $row) !== ''));
+            return empty($value) ? null : json_encode($value);
+        }
+
+        $value = trim((string) ($value ?? ''));
+        return $value === '' ? null : $value;
     }
 }

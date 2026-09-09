@@ -20,8 +20,10 @@ class CategoryPersonController extends Controller
         CategoryPerson::ensureCompanyDefaults($companyId);
 
         $categories = CategoryPerson::where('company_id', $companyId)
+            ->withCount('customers')
             ->latest()
-            ->get();
+            ->get()
+            ->map(fn ($category) => $this->categoryPayload($category));
 
         return response()->json([
             'success' => true,
@@ -57,7 +59,7 @@ class CategoryPersonController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Category created successfully.',
-            'data' => $category,
+            'data' => $this->categoryPayload($category->loadCount('customers')),
         ]);
     }
 
@@ -67,6 +69,7 @@ class CategoryPersonController extends Controller
     public function show(Request $request, $id)
     {
         $category = CategoryPerson::where('company_id', $request->user()->company_id)
+            ->withCount('customers')
             ->find($id);
 
         if (!$category) {
@@ -78,7 +81,7 @@ class CategoryPersonController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $category,
+            'data' => $this->categoryPayload($category),
         ]);
     }
 
@@ -126,7 +129,7 @@ class CategoryPersonController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Category updated successfully.',
-            'data' => $category,
+            'data' => $this->categoryPayload($category->loadCount('customers')),
         ]);
     }
 
@@ -152,11 +155,36 @@ class CategoryPersonController extends Controller
             ], 422);
         }
 
+        if ($category->customers()->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Category person is assigned to persons and cannot be deleted.',
+            ], 422);
+        }
+
         $category->delete();
 
         return response()->json([
             'success' => true,
             'message' => 'Category deleted successfully.',
         ]);
+    }
+
+    private function categoryPayload(CategoryPerson $category): array
+    {
+        $customersCount = (int) ($category->customers_count ?? 0);
+
+        return [
+            'id' => (int) $category->id,
+            'company_id' => (int) $category->company_id,
+            'category_name' => $category->category_name,
+            'is_system_default' => (bool) $category->is_system_default,
+            'customers_count' => $customersCount,
+            'used_count' => $customersCount,
+            'is_used' => $customersCount > 0,
+            'can_delete' => !$category->isSystemDefault() && $customersCount === 0,
+            'created_at' => optional($category->created_at)->toDateTimeString(),
+            'updated_at' => optional($category->updated_at)->toDateTimeString(),
+        ];
     }
 }

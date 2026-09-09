@@ -36,6 +36,7 @@ Artisan::command('erp:sync-company-rbac {--company_id=} {--slug=}', function () 
         'person',
         'item',
         'item-set',
+        'stock-gallery',
         'label-config',
         'label-print',
         'other-charge',
@@ -77,6 +78,7 @@ Artisan::command('erp:sync-company-rbac {--company_id=} {--slug=}', function () 
         'inventory_user' => [
             'item-view', 'item-create', 'item-edit',
             'item-set-view', 'item-set-create', 'item-set-edit',
+            'stock-gallery-view',
             'label-config-view', 'label-config-create', 'label-config-edit',
             'label-print-view', 'label-print-create',
             'other-charge-view', 'other-charge-create', 'other-charge-edit',

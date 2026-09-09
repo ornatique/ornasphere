@@ -25,6 +25,11 @@ class CategoryPerson extends Model
         return $this->belongsTo(Company::class);
     }
 
+    public function customers()
+    {
+        return $this->hasMany(Customer::class, 'category_person_id');
+    }
+
     public static function systemDefaultNames(): array
     {
         return [
