@@ -27,8 +27,17 @@
                         <label>Stock Status</label>
                         <select id="stockStatusFilter" class="form-select stock-gallery-search-select">
                             <option value="">All Stock</option>
-                            <option value="in">In Stock</option>
+                            <option value="in" selected>In Stock</option>
                             <option value="out">Out Stock</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-2">
+                        <label>Image Status</label>
+                        <select id="imageStatusFilter" class="form-select stock-gallery-search-select">
+                            <option value="">All Images</option>
+                            <option value="with">With Image</option>
+                            <option value="without">Without Image</option>
                         </select>
                     </div>
 
@@ -37,12 +46,47 @@
                         <input type="text" id="searchFilter" class="form-control" placeholder="Item, label, QR, HUID">
                     </div>
 
-                    <div class="col-md-4 d-flex gap-2 flex-wrap">
+                    <div class="col-md-5 d-flex gap-2 flex-wrap">
                         <button type="button" id="applyFilter" class="btn btn-primary">Apply Filter</button>
                         <button type="button" id="resetFilter" class="btn btn-secondary">Reset</button>
                         <button type="button" id="selectVisible" class="btn btn-info">Select Visible</button>
                         <button type="button" id="clearSelected" class="btn btn-clear-gallery">Clear</button>
                     </div>
+                </div>
+            </div>
+
+            <div class="stock-gallery-summary" id="gallerySummary">
+                <div class="summary-box">
+                    <span>Total Items</span>
+                    <strong data-summary="total_items">0</strong>
+                </div>
+                <div class="summary-box">
+                    <span>In Stock</span>
+                    <strong data-summary="in_stock_items">0</strong>
+                </div>
+                <div class="summary-box">
+                    <span>Out Stock</span>
+                    <strong data-summary="out_stock_items">0</strong>
+                </div>
+                <div class="summary-box">
+                    <span>With Image</span>
+                    <strong data-summary="with_image_items">0</strong>
+                </div>
+                <div class="summary-box">
+                    <span>Without Image</span>
+                    <strong data-summary="without_image_items">0</strong>
+                </div>
+                <div class="summary-box">
+                    <span>Gross Wt</span>
+                    <strong data-summary="total_gross_weight">0.000</strong>
+                </div>
+                <div class="summary-box">
+                    <span>Other Wt</span>
+                    <strong data-summary="total_other_weight">0.000</strong>
+                </div>
+                <div class="summary-box">
+                    <span>Net Wt</span>
+                    <strong data-summary="total_net_weight">0.000</strong>
                 </div>
             </div>
 
@@ -85,6 +129,29 @@
         justify-content: flex-end;
         margin-bottom: 18px;
     }
+    .stock-gallery-summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 12px;
+        margin-bottom: 18px;
+    }
+    .summary-box {
+        border: 1px solid #3a3d5a;
+        border-radius: 6px;
+        background: #252740;
+        padding: 12px 14px;
+        min-height: 70px;
+    }
+    .summary-box span {
+        display: block;
+        color: #aeb3d0;
+        font-size: 12px;
+        margin-bottom: 6px;
+    }
+    .summary-box strong {
+        color: #fff;
+        font-size: 16px;
+    }
     .btn-clear-gallery {
         background: #6c757d;
         border-color: #6c757d;
@@ -107,27 +174,39 @@
         border-radius: 8px;
         background: #2c2f48;
         overflow: hidden;
-        min-height: 370px;
+        min-height: 430px;
         display: flex;
         flex-direction: column;
     }
     .gallery-image-wrap {
         width: 100%;
-        aspect-ratio: 4 / 3;
+        height: 260px;
+        flex: 0 0 260px;
         background: #202238;
         display: flex;
         align-items: center;
         justify-content: center;
         border-bottom: 1px solid #3a3d5a;
+        overflow: hidden;
     }
     .gallery-image-wrap img {
         width: 100%;
         height: 100%;
         object-fit: contain;
+        display: block;
     }
     .gallery-placeholder {
         color: #9da1bd;
         font-weight: 600;
+        text-align: center;
+        padding: 0 12px;
+    }
+    .gallery-placeholder span {
+        display: block;
+        color: #d5d7e4;
+        font-size: 12px;
+        font-weight: 500;
+        margin-top: 4px;
     }
     .gallery-card-body {
         padding: 14px;
@@ -171,6 +250,7 @@
     .stock-badge.in { background: #06c76d; color: #06150f; }
     .stock-badge.out { background: #ff2f2f; color: #fff; }
     .gallery-check { width: 18px; height: 18px; }
+    .gallery-check:disabled { opacity: .5; cursor: not-allowed; }
     @media (max-width: 575px) {
         .gallery-actions { justify-content: stretch; }
         .gallery-actions .btn,
@@ -206,6 +286,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const params = new URLSearchParams({
             item_id: document.getElementById('itemFilter').value,
             stock_status: document.getElementById('stockStatusFilter').value,
+            image_status: document.getElementById('imageStatusFilter').value,
             search: document.getElementById('searchFilter').value.trim(),
             page: page,
             per_page: 24,
@@ -225,6 +306,13 @@ document.addEventListener('DOMContentLoaded', function () {
         selectedCount.textContent = selectedIds.size;
     }
 
+    function updateSummary(summary = {}) {
+        document.querySelectorAll('#gallerySummary [data-summary]').forEach(function (element) {
+            const key = element.getAttribute('data-summary');
+            element.textContent = summary[key] || (key.includes('weight') ? '0.000' : '0');
+        });
+    }
+
     function escapeHtml(value) {
         return String(value ?? '').replace(/[&<>"']/g, function (char) {
             return {
@@ -237,15 +325,22 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    function imagePlaceholderHtml() {
+        return '<div class="gallery-placeholder">Image not uploaded<span>Upload image from Label Items</span></div>';
+    }
+
     function cardHtml(item) {
         const checked = selectedIds.has(String(item.id)) ? 'checked' : '';
         const badgeClass = item.is_sold === 1 ? 'out' : 'in';
+        const placeholder = imagePlaceholderHtml();
         const image = item.image_url
-            ? `<img src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.label_code)}">`
-            : '<div class="gallery-placeholder">No Image</div>';
+            ? `<img class="gallery-item-image" src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.label_code)}">`
+            : placeholder;
         const otherWeight = item.has_other_weight
             ? `<div><span>Other Wt</span>${escapeHtml(item.other_weight)}</div>`
             : '';
+        const canSelect = item.has_image ? '' : 'disabled';
+        const selectTitle = item.has_image ? '' : 'title="Image not uploaded"';
 
         return `
             <div class="stock-gallery-card" data-id="${item.id}">
@@ -262,7 +357,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     <div class="gallery-footer">
                         <span class="stock-badge ${badgeClass}">${escapeHtml(item.stock_status)}</span>
                         <label class="d-flex align-items-center gap-2 mb-0">
-                            <input type="checkbox" class="gallery-check" value="${item.id}" ${checked}>
+                            <input type="checkbox" class="gallery-check" value="${item.id}" ${checked} ${canSelect} ${selectTitle}>
                             Select
                         </label>
                     </div>
@@ -270,6 +365,15 @@ document.addEventListener('DOMContentLoaded', function () {
             </div>
         `;
     }
+
+    grid.addEventListener('error', function (event) {
+        if (!event.target.classList.contains('gallery-item-image')) return;
+
+        const imageWrap = event.target.closest('.gallery-image-wrap');
+        if (imageWrap) {
+            imageWrap.innerHTML = imagePlaceholderHtml();
+        }
+    }, true);
 
     async function loadGallery(reset = false) {
         if (loading) return;
@@ -297,9 +401,11 @@ document.addEventListener('DOMContentLoaded', function () {
             });
 
             status.textContent = result.total ? `${result.total} item(s) found` : 'No stock gallery items found';
+            updateSummary(result.summary || {});
             loadMoreBtn.classList.toggle('d-none', page >= lastPage);
         } catch (error) {
             status.textContent = 'Unable to load stock gallery.';
+            updateSummary();
         } finally {
             loading = false;
         }
@@ -360,9 +466,12 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('applyFilter').addEventListener('click', function () { loadGallery(true); });
     document.getElementById('resetFilter').addEventListener('click', function () {
         document.getElementById('itemFilter').value = '';
-        document.getElementById('stockStatusFilter').value = '';
+        document.getElementById('stockStatusFilter').value = 'in';
+        document.getElementById('imageStatusFilter').value = '';
         if (window.jQuery && jQuery.fn.select2) {
-            jQuery('#itemFilter, #stockStatusFilter').val('').trigger('change');
+            jQuery('#itemFilter').val('').trigger('change');
+            jQuery('#stockStatusFilter').val('in').trigger('change');
+            jQuery('#imageStatusFilter').val('').trigger('change');
         }
         document.getElementById('searchFilter').value = '';
         selectedIds.clear();
@@ -370,14 +479,20 @@ document.addEventListener('DOMContentLoaded', function () {
         loadGallery(true);
     });
     document.getElementById('selectVisible').addEventListener('click', function () {
-        visibleItems.forEach(function (item, id) { selectedIds.add(id); });
-        document.querySelectorAll('.gallery-check').forEach(function (input) { input.checked = true; });
+        visibleItems.forEach(function (item, id) {
+            if (item.has_image) {
+                selectedIds.add(id);
+            }
+        });
+        document.querySelectorAll('.gallery-check:not(:disabled)').forEach(function (input) { input.checked = true; });
         updateSelectedCount();
     });
     document.getElementById('clearSelected').addEventListener('click', function () {
+        document.getElementById('searchFilter').value = '';
         selectedIds.clear();
         document.querySelectorAll('.gallery-check').forEach(function (input) { input.checked = false; });
         updateSelectedCount();
+        loadGallery(true);
     });
     document.getElementById('pdfSelected').addEventListener('click', function () {
         if (selectedIds.size === 0) {

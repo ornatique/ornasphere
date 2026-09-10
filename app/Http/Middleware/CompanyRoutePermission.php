@@ -28,6 +28,10 @@ class CompanyRoutePermission
             return $next($request);
         }
 
+        if ($routeName === 'company.dashboard') {
+            return $next($request);
+        }
+
         $module = $this->moduleFromRouteName($routeName);
         if (!$module) {
             return $next($request);

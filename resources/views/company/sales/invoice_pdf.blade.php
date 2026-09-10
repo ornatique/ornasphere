@@ -208,14 +208,14 @@
                     $labourRate = (float) ($row->labour_rate ?? 0);
                     $other = (float) ($row->other_amount ?? 0);
                     $total = (float) ($row->total_amount ?? 0);
-                    $carat = (float) (optional($item)->outward_carat ?? 0);
+                    $purity = (float) ($row->purity ?? optional($item)->outward_carat ?? 0);
 
                     $sumQty += $qty; $sumGross += $gross; $sumLess += $less; $sumNet += $net; $sumFine += $fine; $sumMetalRate += $rate; $sumLabourRate += $labourRate; $sumOther += $other; $sumTotal += $total;
                 @endphp
                 <tr>
                     <td class="text-center">{{ $index + 1 }}</td>
                     <td>{{ $itemDisplay }}</td>
-                    <td class="text-center">{{ rtrim(rtrim(number_format($carat, 2), '0'), '.') }}%</td>
+                    <td class="text-center">{{ rtrim(rtrim(number_format($purity, 3), '0'), '.') }}%</td>
                     <td class="text-center">{{ $qty }}</td>
                     <td class="text-right">{{ number_format($gross, 3) }}</td>
                     <td class="text-right">{{ number_format($less, 3) }}</td>

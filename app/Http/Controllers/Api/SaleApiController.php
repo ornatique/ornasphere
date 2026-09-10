@@ -1703,7 +1703,6 @@ class SaleApiController extends Controller
 
             $customerExists = Customer::where('company_id', $companyId)
                 ->where('id', (int) $request->customer_id)
-                ->saleParties()
                 ->exists();
             if (!$customerExists) {
                 return response()->json([
@@ -1770,6 +1769,13 @@ class SaleApiController extends Controller
             $incomingRows = collect($request->input('items', []))
                 ->filter(fn($row) => is_array($row))
                 ->values();
+
+            $existingSaleItemsetIds = $sale->saleItems
+                ->pluck('itemset_id')
+                ->filter()
+                ->map(fn($itemsetId) => (int) $itemsetId)
+                ->values()
+                ->all();
 
             $resolvedRows = $incomingRows
                 ->map(function ($row) use ($companyId) {
@@ -1866,7 +1872,7 @@ class SaleApiController extends Controller
                     }
                 }
 
-                if ($itemSet && $approvalItemId <= 0 && (int) $itemSet->is_sold === 1) {
+                if ($itemSet && $approvalItemId <= 0 && (int) $itemSet->is_sold === 1 && !in_array($itemsetId, $existingSaleItemsetIds, true)) {
                     return response()->json([
                         'success' => false,
                         'message' => 'ItemSet not available for sale: ' . $itemsetId,

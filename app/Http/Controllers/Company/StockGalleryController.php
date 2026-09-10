@@ -39,6 +39,7 @@ class StockGalleryController extends Controller
             'current_page' => $rows->currentPage(),
             'last_page' => $rows->lastPage(),
             'total' => $rows->total(),
+            'summary' => $this->gallerySummary($company, $request),
         ]);
     }
 
@@ -148,6 +149,12 @@ class StockGalleryController extends Controller
             $query->where('item_sets.is_sold', 1);
         }
 
+        if ($request->input('image_status') === 'with') {
+            $query->whereNotNull('item_sets.image_path');
+        } elseif ($request->input('image_status') === 'without') {
+            $query->whereNull('item_sets.image_path');
+        }
+
         $search = trim((string) $request->input('search', ''));
         if ($search !== '') {
             $query->where(function (Builder $q) use ($search) {
@@ -161,6 +168,33 @@ class StockGalleryController extends Controller
         }
 
         return $query;
+    }
+
+    private function gallerySummary(Company $company, Request $request): array
+    {
+        $summary = $this->galleryQuery($company, $request)
+            ->selectRaw('
+                COUNT(*) as total_items,
+                SUM(CASE WHEN item_sets.is_sold = 0 THEN 1 ELSE 0 END) as in_stock_items,
+                SUM(CASE WHEN item_sets.is_sold = 1 THEN 1 ELSE 0 END) as out_stock_items,
+                SUM(CASE WHEN item_sets.image_path IS NOT NULL THEN 1 ELSE 0 END) as with_image_items,
+                SUM(CASE WHEN item_sets.image_path IS NULL THEN 1 ELSE 0 END) as without_image_items,
+                COALESCE(SUM(item_sets.gross_weight), 0) as total_gross_weight,
+                COALESCE(SUM(item_sets.other), 0) as total_other_weight,
+                COALESCE(SUM(item_sets.net_weight), 0) as total_net_weight
+            ')
+            ->first();
+
+        return [
+            'total_items' => (int) ($summary->total_items ?? 0),
+            'in_stock_items' => (int) ($summary->in_stock_items ?? 0),
+            'out_stock_items' => (int) ($summary->out_stock_items ?? 0),
+            'with_image_items' => (int) ($summary->with_image_items ?? 0),
+            'without_image_items' => (int) ($summary->without_image_items ?? 0),
+            'total_gross_weight' => number_format((float) ($summary->total_gross_weight ?? 0), 3),
+            'total_other_weight' => number_format((float) ($summary->total_other_weight ?? 0), 3),
+            'total_net_weight' => number_format((float) ($summary->total_net_weight ?? 0), 3),
+        ];
     }
 
     private function payload(ItemSet $itemSet, Company $company): array
