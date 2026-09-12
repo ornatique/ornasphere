@@ -165,7 +165,7 @@ class ItemSetController extends Controller
             ->where('item_id', $itemId)
             ->where('is_final', 0)
             ->orderBy('id')
-            ->limit(20)
+            ->limit(500)
             ->get();
 
         $rows = $sets->map(fn ($set) => $this->itemSetApiPayload($set))->values();

@@ -7,6 +7,7 @@ use App\Models\Company;
 use App\Models\Item;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Validation\Rule;
 
 class ItemController extends Controller
 {
@@ -80,9 +81,17 @@ class ItemController extends Controller
     public function store(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $request->merge([
+            'item_name' => trim((string) $request->input('item_name')),
+        ]);
 
         $validated = $request->validate([
-            'item_name' => 'required|string|max:255',
+            'item_name' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('items', 'item_name')->where(fn($q) => $q->where('company_id', $company->id)),
+            ],
             'item_code' => 'required|string|max:255',
             'metal' => 'nullable|string|max:100',
             'metal_formula' => 'nullable|string|max:100',
@@ -172,9 +181,19 @@ class ItemController extends Controller
         $item = Item::where('id', $itemId)
             ->where('company_id', $company->id)
             ->firstOrFail();
+        $request->merge([
+            'item_name' => trim((string) $request->input('item_name')),
+        ]);
 
         $validated = $request->validate([
-            'item_name' => 'required|string|max:255',
+            'item_name' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('items', 'item_name')
+                    ->where(fn($q) => $q->where('company_id', $company->id))
+                    ->ignore($item->id),
+            ],
             'item_code' => 'required|string|max:255',
             'metal' => 'nullable|string|max:100',
             'metal_formula' => 'nullable|string|max:100',

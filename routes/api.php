@@ -393,6 +393,10 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/sales/store', [SaleApiController::class, 'store']);       // Create sale
     Route::get('/sales/{id}', [SaleApiController::class, 'show'])->whereNumber('id'); // Sale details
     Route::put('/sales/update/{id}', [SaleApiController::class, 'update'])->whereNumber('id');
+    Route::delete('/sales/{id}', [SaleApiController::class, 'destroy'])->whereNumber('id');
+    Route::delete('/sales/{saleId}/items/{itemIdentifier}', [SaleApiController::class, 'removeSaleItem'])
+        ->whereNumber('saleId')
+        ->whereNumber('itemIdentifier');
     Route::get('/sales/itemset', [SaleApiController::class, 'getItemset']); // Scan QR
 
     // Receive / Return / Purchase (Advance Ledger)
@@ -452,12 +456,20 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::get('/reports/stock-position/export/pdf', [ReportApiController::class, 'stockPositionPdf']);
     Route::get('/reports/approval-outstanding', [ReportApiController::class, 'approvalOutstanding']);
     Route::get('/reports/approval-outstanding/{approval}/details', [ReportApiController::class, 'approvalOutstandingDetails'])->whereNumber('approval');
+    Route::get('/reports/approval-outstanding/{approval}/details/export/excel', [ReportApiController::class, 'approvalOutstandingDetailsExcel'])->whereNumber('approval');
+    Route::get('/reports/approval-outstanding/{approval}/details/export/pdf', [ReportApiController::class, 'approvalOutstandingDetailsPdf'])->whereNumber('approval');
     Route::get('/reports/approval-outstanding/export/excel', [ReportApiController::class, 'approvalOutstandingExcel']);
     Route::get('/reports/approval-outstanding/export/pdf', [ReportApiController::class, 'approvalOutstandingPdf']);
     Route::get('/reports/outstanding-amount', [ReportApiController::class, 'outstandingAmount']);
+    Route::get('/reports/outstanding-amount/{sale}/details', [ReportApiController::class, 'salesSummaryDetails'])->whereNumber('sale');
+    Route::get('/reports/outstanding-amount/{sale}/details/export/excel', [ReportApiController::class, 'salesSummaryDetailsExcel'])->whereNumber('sale');
+    Route::get('/reports/outstanding-amount/{sale}/details/export/pdf', [ReportApiController::class, 'salesSummaryDetailsPdf'])->whereNumber('sale');
     Route::get('/reports/outstanding-amount/export/excel', [ReportApiController::class, 'outstandingAmountExcel']);
     Route::get('/reports/outstanding-amount/export/pdf', [ReportApiController::class, 'outstandingAmountPdf']);
     Route::get('/reports/outstanding-amount/export/ledger-pdf', [ReportApiController::class, 'outstandingAmountLedgerPdf']);
+    Route::get('/reports/sales-summary/{sale}/details', [ReportApiController::class, 'salesSummaryDetails'])->whereNumber('sale');
+    Route::get('/reports/sales-summary/{sale}/details/export/excel', [ReportApiController::class, 'salesSummaryDetailsExcel'])->whereNumber('sale');
+    Route::get('/reports/sales-summary/{sale}/details/export/pdf', [ReportApiController::class, 'salesSummaryDetailsPdf'])->whereNumber('sale');
     Route::get('/reports/sales-summary/export/excel', [ReportApiController::class, 'salesSummaryExcel']);
     Route::get('/reports/sales-summary/export/pdf', [ReportApiController::class, 'salesSummaryPdf']);
     Route::get('/reports/barcode-history/export/excel', [ReportApiController::class, 'barcodeHistoryExcel']);

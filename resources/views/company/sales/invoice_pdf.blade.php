@@ -26,6 +26,7 @@
         .voucher-grid th { white-space: nowrap; background: #efefef; font-weight: 700; text-align: center; font-size: 9px; }
         .voucher-grid td { white-space: nowrap; font-size: 9px; }
         .voucher-grid td:nth-child(2) { white-space: normal; }
+        .item-remark { margin-top: 2px; font-size: 8px; color: #333; }
         .payment-grid { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 4px; }
         .payment-grid th, .payment-grid td { border: 1px solid #000; padding: 4px 6px; }
         .payment-grid th { background: #efefef; font-weight: 700; text-align: left; }
@@ -128,7 +129,7 @@
         ]]);
     }
     $paymentTotal = (float) $paymentRows->sum('amount');
-    $sumQty = 0; $sumGross = 0; $sumLess = 0; $sumNet = 0; $sumFine = 0; $sumMetalRate = 0; $sumLabourRate = 0; $sumOther = 0; $sumTotal = 0;
+    $sumQty = 0; $sumGross = 0; $sumLess = 0; $sumNet = 0; $sumFine = 0; $sumMetalRate = 0; $sumMetalAmount = 0; $sumLabourRate = 0; $sumOther = 0; $sumTotal = 0;
 @endphp
 
 <div class="sheet">
@@ -198,23 +199,29 @@
                     $itemName = optional($item)->item_name ?? '-';
                     $itemDisplay = trim(($labelCode ? ($labelCode . ' - ') : '') . $itemName);
                     $metalName = (string) (optional($item)->metal ?? optional($item)->metal_type ?? '-');
-                    $qty = 1;
+                    $qty = max(1, (int) ($row->qty ?? 1));
                     $gross = (float) ($row->gross_weight ?? 0);
                     $less = (float) ($row->other_weight ?? 0);
                     $net = (float) ($row->net_weight ?? ($gross - $less));
                     $wastePercent = (float) ($row->waste_percent ?? 0);
                     $fine = (float) ($row->fine_weight ?? 0);
                     $rate = (float) ($row->metal_rate ?? 0);
+                    $metalAmount = (float) ($row->metal_amount ?? 0);
                     $labourRate = (float) ($row->labour_rate ?? 0);
                     $other = (float) ($row->other_amount ?? 0);
                     $total = (float) ($row->total_amount ?? 0);
                     $purity = (float) ($row->purity ?? optional($item)->outward_carat ?? 0);
 
-                    $sumQty += $qty; $sumGross += $gross; $sumLess += $less; $sumNet += $net; $sumFine += $fine; $sumMetalRate += $rate; $sumLabourRate += $labourRate; $sumOther += $other; $sumTotal += $total;
+                    $sumQty += $qty; $sumGross += $gross; $sumLess += $less; $sumNet += $net; $sumFine += $fine; $sumMetalRate += $rate; $sumMetalAmount += $metalAmount; $sumLabourRate += $labourRate; $sumOther += $other; $sumTotal += $total;
                 @endphp
                 <tr>
                     <td class="text-center">{{ $index + 1 }}</td>
-                    <td>{{ $itemDisplay }}</td>
+                    <td>
+                        {{ $itemDisplay }}
+                        @if(!empty($row->remarks))
+                            <div class="item-remark">{{ $row->remarks }}</div>
+                        @endif
+                    </td>
                     <td class="text-center">{{ rtrim(rtrim(number_format($purity, 3), '0'), '.') }}%</td>
                     <td class="text-center">{{ $qty }}</td>
                     <td class="text-right">{{ number_format($gross, 3) }}</td>
@@ -248,7 +255,8 @@
 
     @php
         $grandTotalType = $cashPayable >= 0 ? 'DR' : 'CR';
-        $fineDebit = $silverDebit > 0.000001 ? $silverDebit : (($sumFine > 0.000001 && $sumMetalRate <= 0.000001) ? $sumFine : 0);
+        $hasMetalRateCharge = $sumMetalRate > 0.000001 || $sumMetalAmount > 0.000001;
+        $fineDebit = !$hasMetalRateCharge && $silverDebit > 0.000001 ? $silverDebit : 0;
         $silverOpening = (float)($saleAdvanceUsage['silver_opening'] ?? ($silverBalance + $silverUsed));
         $hasCustomerAccountActivity =
             abs($advCashRaw) > 0.000001 ||

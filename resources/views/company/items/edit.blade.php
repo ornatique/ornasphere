@@ -15,6 +15,17 @@
 
                 @csrf
                 @method('PUT')
+
+                @if ($errors->any())
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach ($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+                @endif
+
                 {{-- ================= BASIC DETAILS ================= --}}
                 <h5 class="mb-3">Item Details</h5>
 
@@ -26,7 +37,8 @@
                             <input type="text"
                                 name="item_name"
                                 value="{{ old('item_name', $item->item_name) }}"
-                                class="form-control">
+                                class="form-control @error('item_name') is-invalid @enderror">
+                            @error('item_name')<small class="text-danger">{{ $message }}</small>@enderror
                         </div>
                     </div>
 
@@ -36,7 +48,8 @@
                             <input type="text"
                                 name="item_code"
                                 value="{{ old('item_code', $item->item_code) }}"
-                                class="form-control">
+                                class="form-control @error('item_code') is-invalid @enderror">
+                            @error('item_code')<small class="text-danger">{{ $message }}</small>@enderror
                         </div>
                     </div>
 

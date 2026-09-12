@@ -1013,13 +1013,70 @@
 
     $(document).on('click', '.open-grid-image-modal', function() {
         const $row = $(this).closest('tr');
-        const rowId = $row.attr('data-id');
+        const $button = $(this);
+        const grossCell = $row.find('.cell[data-column="gross_weight"]');
 
-        if (!rowId) {
+        if (!$row.attr('data-id') && toNumber(grossCell.text()) <= 0) {
             alert('Please enter item row details first, then upload image.');
             return;
         }
 
+        if (!$row.attr('data-id')) {
+            if (!itemId) {
+                alert('Select item first');
+                return;
+            }
+
+            $button.prop('disabled', true).text('Saving...');
+            if (!$row.data('creating')) {
+                saveCell(grossCell);
+            }
+
+            waitForGridImageUrls($row)
+                .done(function() {
+                    openGridImageModalForRow($row);
+                })
+                .fail(function() {
+                    alert('Item row is still saving. Please try upload image again.');
+                })
+                .always(function() {
+                    $button.prop('disabled', false).text($row.attr('data-image-show-url') ? 'Upload Image' : 'Upload Image');
+                });
+            return;
+        }
+
+        openGridImageModalForRow($row);
+    });
+
+    function waitForGridImageUrls($row, attempts = 25) {
+        const deferred = $.Deferred();
+
+        const check = function(remaining) {
+            const ready = $row.attr('data-id') &&
+                $row.attr('data-image-show-url') &&
+                $row.attr('data-image-upload-url') &&
+                $row.attr('data-image-remove-url');
+
+            if (ready) {
+                deferred.resolve();
+                return;
+            }
+
+            if (remaining <= 0) {
+                deferred.reject();
+                return;
+            }
+
+            setTimeout(function() {
+                check(remaining - 1);
+            }, 200);
+        };
+
+        check(attempts);
+        return deferred.promise();
+    }
+
+    function openGridImageModalForRow($row) {
         const showUrl = $row.attr('data-image-show-url');
         const uploadUrl = $row.attr('data-image-upload-url');
         const removeUrl = $row.attr('data-image-remove-url');
@@ -1034,7 +1091,7 @@
         $('#grid_image_upload_url').val(uploadUrl);
         $('#grid_image_remove_url').val(removeUrl);
         loadGridItemImage();
-    });
+    }
 
     $('#grid_item_image_file').on('change', function() {
         resetGridImageMessages();

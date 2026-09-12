@@ -217,6 +217,12 @@ $(document).ready(function() {
         window.open("{{ route('company.sales.export.pdf', $company->slug) }}?" + params.toString(), '_blank');
     });
 
+    $('#salesTable').on('submit', '.delete-sale-form', function (event) {
+        if (!confirm('Delete this sale estimate and move all items back to their original position?')) {
+            event.preventDefault();
+        }
+    });
+
 });
 </script>
 

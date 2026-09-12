@@ -459,7 +459,7 @@ $(function () {
         row.other_amount = toNum($(`.other-amount[data-id="${id}"]`).val());
 
         row.net_weight = row.gross_weight - row.other_weight;
-        row.net_purity = row.purity - row.waste_percent;
+        row.net_purity = row.purity + row.waste_percent;
         row.total_fine_weight = (row.net_weight * row.net_purity) / 100;
         row.metal_amount = row.net_weight * row.metal_rate;
         row.labour_amount = row.net_weight * row.labour_rate;

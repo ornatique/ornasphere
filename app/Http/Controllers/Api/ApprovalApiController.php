@@ -612,8 +612,8 @@ class ApprovalApiController extends Controller
                 $netWeight = (float) ($row['net_weight'] ?? ($gross - $otherWeight));
                 $purity = (float) ($row['purity'] ?? optional($itemSet->item)->outward_purity ?? 0);
                 $wastePercent = (float) ($row['waste_percent'] ?? 0);
-                $netPurity = (float) ($row['net_purity'] ?? max(0, $purity - $wastePercent));
-                $totalFineWeight = (float) ($row['total_fine_weight'] ?? ($netWeight * $netPurity / 100));
+                $netPurity = max(0, $purity + $wastePercent);
+                $totalFineWeight = $netWeight * $netPurity / 100;
                 $metalRate = (float) ($row['metal_rate'] ?? 0);
                 $metalAmount = (float) ($row['metal_amount'] ?? ($netWeight * $metalRate));
                 $labourRate = (float) ($row['labour_rate'] ?? $itemSet->sale_labour_rate ?? optional($itemSet->item)->labour_rate ?? 0);
@@ -842,6 +842,14 @@ class ApprovalApiController extends Controller
 
         $items = $approval->items->map(function ($row) {
             $itemSet = $row->itemSet ?? $row->legacyItemSet;
+            $gross = (float) $row->gross_weight;
+            $otherWeight = (float) $row->other_weight;
+            $netWeight = (float) ($row->net_weight ?? max(0, $gross - $otherWeight));
+            $purity = (float) $row->purity;
+            $wastePercent = (float) $row->waste_percent;
+            $netPurity = max(0, $purity + $wastePercent);
+            $fineWeight = $netWeight * $netPurity / 100;
+
             return [
                 'id' => $row->id,
                 'itemset_id' => $row->itemset_id ?? optional($itemSet)->id,
@@ -849,13 +857,13 @@ class ApprovalApiController extends Controller
                 'item_name' => optional(optional($itemSet)->item)->item_name ?? '-',
                 'huid' => $row->huid ?? optional($itemSet)->HUID,
                 'qr_code' => $row->qr_code ?? optional($itemSet)->qr_code,
-                'gross_weight' => (float) $row->gross_weight,
-                'other_weight' => (float) $row->other_weight,
-                'net_weight' => (float) $row->net_weight,
-                'purity' => (float) $row->purity,
-                'waste_percent' => (float) $row->waste_percent,
-                'net_purity' => (float) $row->net_purity,
-                'total_fine_weight' => (float) $row->total_fine_weight,
+                'gross_weight' => $gross,
+                'other_weight' => $otherWeight,
+                'net_weight' => $netWeight,
+                'purity' => $purity,
+                'waste_percent' => $wastePercent,
+                'net_purity' => $netPurity,
+                'total_fine_weight' => $fineWeight,
                 'metal_rate' => (float) $row->metal_rate,
                 'metal_amount' => (float) $row->metal_amount,
                 'labour_rate' => (float) $row->labour_rate,
@@ -962,6 +970,14 @@ class ApprovalApiController extends Controller
         $rows = $items->map(function ($row) {
             $itemSet = $row->itemSet ?? $row->legacyItemSet;
             $item = optional($itemSet)->item;
+            $gross = (float) $row->gross_weight;
+            $otherWeight = (float) $row->other_weight;
+            $netWeight = (float) ($row->net_weight ?? max(0, $gross - $otherWeight));
+            $purity = (float) $row->purity;
+            $wastePercent = (float) $row->waste_percent;
+            $netPurity = max(0, $purity + $wastePercent);
+            $fineWeight = $netWeight * $netPurity / 100;
+
             return [
                 'id' => $row->id,
                 'approval_id' => $row->approval_id,
@@ -970,13 +986,13 @@ class ApprovalApiController extends Controller
                 'name' => optional($item)->item_name,
                 'qr_code' => $row->qr_code ?? optional($itemSet)->qr_code,
                 'huid' => $row->huid ?? optional($itemSet)->HUID,
-                'gross_weight' => (float) $row->gross_weight,
-                'other_weight' => (float) $row->other_weight,
-                'net_weight' => (float) $row->net_weight,
-                'purity' => (float) $row->purity,
-                'waste_percent' => (float) $row->waste_percent,
-                'net_purity' => (float) $row->net_purity,
-                'fine_weight' => (float) $row->total_fine_weight,
+                'gross_weight' => $gross,
+                'other_weight' => $otherWeight,
+                'net_weight' => $netWeight,
+                'purity' => $purity,
+                'waste_percent' => $wastePercent,
+                'net_purity' => $netPurity,
+                'fine_weight' => $fineWeight,
                 'metal_rate' => (float) $row->metal_rate,
                 'metal_amount' => (float) $row->metal_amount,
                 'labour_rate' => (float) $row->labour_rate,
@@ -1277,8 +1293,8 @@ class ApprovalApiController extends Controller
         $netWeight = (float) ($row['net_weight'] ?? ($gross - $otherWeight));
         $purity = (float) ($row['purity'] ?? optional($itemSet->item)->outward_purity ?? 0);
         $wastePercent = (float) ($row['waste_percent'] ?? 0);
-        $netPurity = (float) ($row['net_purity'] ?? max(0, $purity - $wastePercent));
-        $totalFineWeight = (float) ($row['total_fine_weight'] ?? ($netWeight * $netPurity / 100));
+        $netPurity = max(0, $purity + $wastePercent);
+        $totalFineWeight = $netWeight * $netPurity / 100;
         $metalRate = (float) ($row['metal_rate'] ?? 0);
         $metalAmount = (float) ($row['metal_amount'] ?? ($netWeight * $metalRate));
         $labourRate = (float) ($row['labour_rate'] ?? $itemSet->sale_labour_rate ?? optional($itemSet->item)->labour_rate ?? 0);

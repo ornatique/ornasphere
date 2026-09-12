@@ -26,8 +26,11 @@
 
     $statusText = (int) ($user->is_active ?? 1) === 1 ? 'Active' : 'Inactive';
     $statusClass = (int) ($user->is_active ?? 1) === 1 ? 'profile-status-active' : 'profile-status-inactive';
-    $roleNames = method_exists($user, 'getRoleNames') ? $user->getRoleNames()->implode(', ') : '';
-    $roleLabel = $roleNames ?: ucwords(str_replace('_', ' ', (string) ($user->role ?? 'User')));
+    $formatRoleName = fn($role) => ucwords(str_replace(['_', '-'], ' ', trim((string) $role)));
+    $roleNames = method_exists($user, 'getRoleNames')
+        ? $user->getRoleNames()->map($formatRoleName)->implode(', ')
+        : '';
+    $roleLabel = $roleNames ?: $formatRoleName($user->role ?? 'User');
 @endphp
 
 <div class="content-wrapper">

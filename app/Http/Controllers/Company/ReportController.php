@@ -221,12 +221,14 @@ class ReportController extends Controller
                 ->editColumn('sale_date', fn($row) => optional($row->sale_date)?->format('d-m-Y') ?? '-')
                 ->addColumn('qty_pcs', fn($row) => (int) ($row->total_qty ?? 0))
                 ->addColumn('gross_weight', fn($row) => number_format((float) ($row->total_gross_weight ?? 0), 3))
+                ->addColumn('other_weight', fn($row) => number_format((float) ($row->total_other_weight ?? 0), 3))
                 ->addColumn('net_weight', fn($row) => number_format((float) ($row->total_net_weight ?? 0), 3))
                 ->addColumn('fine_weight', fn($row) => number_format((float) ($row->total_fine_weight ?? 0), 3))
                 ->addColumn('metal_amount', fn($row) => number_format((float) ($row->total_metal_amount ?? 0), 2))
                 ->addColumn('labour_amount', fn($row) => number_format((float) ($row->total_labour_amount ?? 0), 2))
                 ->addColumn('other_amount', fn($row) => number_format((float) ($row->total_other_amount ?? 0), 2))
                 ->editColumn('net_total', fn($row) => number_format((float) ($row->net_total ?? 0), 2))
+                ->addColumn('sale_id', fn($row) => $row->id)
                 ->with(['totals' => $totals])
                 ->make(true);
         }
@@ -243,27 +245,16 @@ class ReportController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
         $rows = $this->salesSummaryBaseQuery($company, $request)->latest()->get();
+        $totals = $this->salesSummaryTotals($company, $request);
+        $visibleColumns = $this->salesSummaryVisibleColumns($request);
 
-        return response()->streamDownload(function () use ($rows) {
+        return response()->streamDownload(function () use ($rows, $totals, $visibleColumns) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Voucher No', 'Date', 'Customer', 'Qty', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Metal Amt', 'Labour Amt', 'Other Amt', 'Total', 'Remarks', 'Created By']);
+            fputcsv($out, array_column($visibleColumns, 'label'));
             foreach ($rows as $r) {
-                fputcsv($out, [
-                    $r->voucher_no,
-                    optional($r->sale_date)?->format('d-m-Y'),
-                    optional($r->customer)->name ?? '-',
-                    (int) ($r->total_qty ?? 0),
-                    number_format((float) ($r->total_gross_weight ?? 0), 3, '.', ''),
-                    number_format((float) ($r->total_net_weight ?? 0), 3, '.', ''),
-                    number_format((float) ($r->total_fine_weight ?? 0), 3, '.', ''),
-                    number_format((float) ($r->total_metal_amount ?? 0), 2, '.', ''),
-                    number_format((float) ($r->total_labour_amount ?? 0), 2, '.', ''),
-                    number_format((float) ($r->total_other_amount ?? 0), 2, '.', ''),
-                    number_format((float) ($r->net_total ?? 0), 2, '.', ''),
-                    $r->remarks ?? '-',
-                    optional($r->creator)->name ?? '-',
-                ]);
+                fputcsv($out, $this->salesSummaryExportRow($r, $visibleColumns));
             }
+            fputcsv($out, $this->salesSummaryExportTotalRow($totals, $visibleColumns));
             fclose($out);
         }, 'sales_summary_report.csv', [
             'Content-Type' => 'text/csv; charset=UTF-8',
@@ -275,10 +266,52 @@ class ReportController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
         $rows = $this->salesSummaryBaseQuery($company, $request)->latest()->get();
         $totals = $this->salesSummaryTotals($company, $request);
+        $visibleColumns = $this->salesSummaryVisibleColumns($request);
 
-        return Pdf::loadView('company.reports.pdf.sales_summary', compact('company', 'rows', 'totals'))
+        return Pdf::loadView('company.reports.pdf.sales_summary', compact('company', 'rows', 'totals', 'visibleColumns'))
             ->setPaper('a4', 'portrait')
             ->download('sales_summary_report.pdf');
+    }
+
+    public function salesSummaryDetails(Request $request, $slug, Sale $sale)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        return response()->json(['success' => true] + $this->salesSummaryDetailsPayload($company, $sale));
+    }
+
+    public function salesSummaryDetailsExcel(Request $request, $slug, Sale $sale): StreamedResponse
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $payload = $this->salesSummaryDetailsPayload($company, $sale);
+        $columns = $this->salesSummaryDetailsVisibleColumns($request);
+
+        return response()->streamDownload(function () use ($payload, $columns) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, array_column($columns, 'label'));
+            foreach ($payload['items'] as $item) {
+                fputcsv($out, $this->salesSummaryDetailsExportRow($item, $columns));
+            }
+            fputcsv($out, $this->salesSummaryDetailsExportTotalRow($payload['summary'], $columns));
+            fclose($out);
+        }, 'sales_summary_details.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
+    public function salesSummaryDetailsPdf(Request $request, $slug, Sale $sale)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $payload = $this->salesSummaryDetailsPayload($company, $sale);
+        $columns = $this->salesSummaryDetailsVisibleColumns($request);
+
+        return Pdf::loadView('company.reports.pdf.sales_summary_details', [
+            'company' => $company,
+            'sale' => $payload['sale'],
+            'summary' => $payload['summary'],
+            'items' => $payload['items'],
+            'columns' => $columns,
+        ])->setPaper('a4', 'portrait')->download('sales_summary_details.pdf');
     }
 
     public function purchaseReceiverSummary(Request $request, $slug)
@@ -700,7 +733,10 @@ class ReportController extends Controller
                 ->addColumn('remarks', fn($row) => $row->remarks ?? '-')
                 ->addColumn('created_by', fn($row) => optional($row->creator)->name ?? '-')
                 ->addColumn('pending_items', fn($row) => (int) ($row->pending_items_count ?? 0))
+                ->addColumn('pending_gross_weight_fmt', fn($row) => number_format((float) ($row->pending_gross_weight ?? 0), 3))
+                ->addColumn('pending_other_weight_fmt', fn($row) => number_format((float) ($row->pending_other_weight ?? 0), 3))
                 ->addColumn('pending_net_weight_fmt', fn($row) => number_format((float) ($row->pending_net_weight ?? 0), 3))
+                ->addColumn('pending_other_amount_fmt', fn($row) => number_format((float) ($row->pending_other_amount ?? 0), 2))
                 ->addColumn('pending_total_amount_fmt', fn($row) => number_format((float) ($row->pending_total_amount ?? 0), 2))
                 ->with(['summary' => $summary])
                 ->make(true);
@@ -717,48 +753,45 @@ class ReportController extends Controller
     public function approvalOutstandingDetails($slug, ApprovalHeader $approval)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        abort_unless((int) $approval->company_id === (int) $company->id, 404);
+        $payload = $this->approvalOutstandingDetailsPayload($company, $approval);
 
-        $approval->load(['customer', 'creator']);
+        return response()->json(['success' => true] + $payload);
+    }
 
-        $items = $approval->items()
-            ->with(['itemSet.item', 'legacyItemSet.item', 'item'])
-            ->where('status', 'pending')
-            ->orderBy('id')
-            ->get()
-            ->map(function ($row) {
-                $itemSet = $row->itemSet ?? $row->legacyItemSet;
-                $item = optional($itemSet)->item ?? $row->item;
+    public function approvalOutstandingDetailsExcel(Request $request, $slug, ApprovalHeader $approval): StreamedResponse
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $payload = $this->approvalOutstandingDetailsPayload($company, $approval);
+        $columns = $this->approvalOutstandingDetailsVisibleColumns($request);
 
-                return [
-                    'qr_code' => $row->qr_code ?? optional($itemSet)->qr_code ?? '-',
-                    'huid' => $row->huid ?? optional($itemSet)->HUID ?? '-',
-                    'item_name' => optional($item)->item_name ?? '-',
-                    'gross_weight' => number_format((float) ($row->gross_weight ?? optional($itemSet)->gross_weight ?? 0), 3),
-                    'other_weight' => number_format((float) ($row->other_weight ?? optional($itemSet)->other ?? 0), 3),
-                    'net_weight' => number_format((float) ($row->net_weight ?? optional($itemSet)->net_weight ?? 0), 3),
-                    'total_amount' => number_format((float) ($row->total_amount ?? 0), 2),
-                    'status' => $row->status ?? '-',
-                ];
-            });
-
-        return response()->json([
-            'success' => true,
-            'approval' => [
-                'approval_no' => $approval->approval_no,
-                'approval_date' => optional($approval->approval_date)?->format('d-m-Y') ?? '-',
-                'customer_name' => optional($approval->customer)->name ?? '-',
-                'status' => $approval->status ?? '-',
-                'remarks' => $approval->remarks ?? '-',
-                'created_by' => optional($approval->creator)->name ?? '-',
-            ],
-            'summary' => [
-                'pending_pcs' => $items->count(),
-                'pending_net_weight' => number_format((float) $items->sum(fn($row) => (float) str_replace(',', '', $row['net_weight'])), 3),
-                'pending_amount' => number_format((float) $items->sum(fn($row) => (float) str_replace(',', '', $row['total_amount'])), 2),
-            ],
-            'items' => $items->values(),
+        return response()->streamDownload(function () use ($payload, $columns) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, array_values(array_map(fn($column) => $column['label'], $columns)));
+            foreach ($payload['items'] as $item) {
+                fputcsv($out, $this->approvalOutstandingDetailsExportRow($item, $columns));
+            }
+            fputcsv($out, $this->approvalOutstandingDetailsExportTotalRow($payload['summary'], $columns));
+            fclose($out);
+        }, 'approval_outstanding_details.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
+    }
+
+    public function approvalOutstandingDetailsPdf(Request $request, $slug, ApprovalHeader $approval)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $payload = $this->approvalOutstandingDetailsPayload($company, $approval);
+        $columns = $this->approvalOutstandingDetailsVisibleColumns($request);
+
+        return Pdf::loadView('company.reports.pdf.approval_outstanding_details', [
+            'company' => $company,
+            'approval' => $payload['approval'],
+            'summary' => $payload['summary'],
+            'items' => $payload['items'],
+            'columns' => $columns,
+        ])
+            ->setPaper('a4', 'portrait')
+            ->download('approval_outstanding_details.pdf');
     }
 
     public function approvalOutstandingExcel(Request $request, $slug): StreamedResponse
@@ -766,34 +799,15 @@ class ReportController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
         $rows = $this->approvalOutstandingBaseQuery($company, $request)->latest('approval_date')->get();
         $summary = $this->approvalOutstandingTotals($rows);
+        $visibleColumns = $this->approvalOutstandingVisibleColumns($request);
 
-        return response()->streamDownload(function () use ($rows, $summary) {
+        return response()->streamDownload(function () use ($rows, $summary, $visibleColumns) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Approval No', 'Date', 'Customer', 'Status', 'Pending Pcs', 'Pending Net Wt', 'Pending Amount', 'Remarks', 'Created By']);
+            fputcsv($out, array_values(array_map(fn($column) => $column['label'], $visibleColumns)));
             foreach ($rows as $r) {
-                fputcsv($out, [
-                    $r->approval_no,
-                    optional($r->approval_date)?->format('d-m-Y'),
-                    optional($r->customer)->name ?? '-',
-                    $r->status,
-                    (int) ($r->pending_items_count ?? 0),
-                    number_format((float) ($r->pending_net_weight ?? 0), 3, '.', ''),
-                    number_format((float) ($r->pending_total_amount ?? 0), 2, '.', ''),
-                    $r->remarks ?? '-',
-                    optional($r->creator)->name ?? '-',
-                ]);
+                fputcsv($out, $this->approvalOutstandingExportRow($r, $visibleColumns));
             }
-            fputcsv($out, [
-                'TOTAL',
-                '',
-                '',
-                '',
-                (int) ($summary['pending_pcs'] ?? 0),
-                number_format((float) ($summary['pending_net_weight'] ?? 0), 3, '.', ''),
-                '',
-                '',
-                '',
-            ]);
+            fputcsv($out, $this->approvalOutstandingExportTotalRow($summary, $visibleColumns));
             fclose($out);
         }, 'approval_outstanding_report.csv', [
             'Content-Type' => 'text/csv; charset=UTF-8',
@@ -805,8 +819,9 @@ class ReportController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
         $rows = $this->approvalOutstandingBaseQuery($company, $request)->latest('approval_date')->get();
         $summary = $this->approvalOutstandingTotals($rows);
+        $visibleColumns = $this->approvalOutstandingVisibleColumns($request);
 
-        return Pdf::loadView('company.reports.pdf.approval_outstanding', compact('company', 'rows', 'summary'))
+        return Pdf::loadView('company.reports.pdf.approval_outstanding', compact('company', 'rows', 'summary', 'visibleColumns'))
             ->setPaper('a4', 'portrait')
             ->download('approval_outstanding_report.pdf');
     }
@@ -1064,11 +1079,288 @@ class ReportController extends Controller
             ->download('barcode_history_report.pdf');
     }
 
+    private function salesSummaryColumnDefinitions(): array
+    {
+        return [
+            'voucher_no' => ['label' => 'Voucher No', 'total' => 'TOTAL'],
+            'date' => ['label' => 'Date', 'total' => ''],
+            'customer' => ['label' => 'Customer Name', 'total' => ''],
+            'qty_pcs' => ['label' => 'Qty', 'total_key' => 'qty_pcs', 'decimals' => 0],
+            'gross_weight' => ['label' => 'Gross Wt', 'total_key' => 'gross_weight', 'decimals' => 3],
+            'other_weight' => ['label' => 'Other Wt', 'total_key' => 'other_weight', 'decimals' => 3],
+            'net_weight' => ['label' => 'Net Wt', 'total_key' => 'net_weight', 'decimals' => 3],
+            'fine_weight' => ['label' => 'Fine Wt', 'total_key' => 'fine_weight', 'decimals' => 3],
+            'metal_amount' => ['label' => 'Metal Amt', 'total_key' => 'metal_amount', 'decimals' => 2],
+            'labour_amount' => ['label' => 'Labour Amt', 'total_key' => 'labour_amount', 'decimals' => 2],
+            'other_amount' => ['label' => 'Other Amt', 'total_key' => 'other_amount', 'decimals' => 2],
+            'net_total' => ['label' => 'Total', 'total_key' => 'net_total', 'decimals' => 2],
+            'remarks' => ['label' => 'Remarks', 'total' => ''],
+            'created_by' => ['label' => 'Created By', 'total' => ''],
+        ];
+    }
+
+    private function salesSummaryDetailsColumnDefinitions(): array
+    {
+        return [
+            'voucher_no' => ['label' => 'Voucher No', 'total' => 'TOTAL'],
+            'date' => ['label' => 'Date', 'total' => ''],
+            'customer' => ['label' => 'Customer Name', 'total' => ''],
+            'label' => ['label' => 'Label', 'total' => 'TOTAL'],
+            'huid' => ['label' => 'HUID', 'total' => ''],
+            'item' => ['label' => 'Item', 'total' => ''],
+            'item_name' => ['label' => 'Item', 'total' => ''],
+            'qty_pcs' => ['label' => 'Qty', 'total_key' => 'qty_pcs', 'decimals' => 0],
+            'gross_weight' => ['label' => 'Gross Wt', 'total_key' => 'gross_weight', 'decimals' => 3],
+            'other_weight' => ['label' => 'Other Wt', 'total_key' => 'other_weight', 'decimals' => 3],
+            'net_weight' => ['label' => 'Net Wt', 'total_key' => 'net_weight', 'decimals' => 3],
+            'purity' => ['label' => 'Purity', 'total' => ''],
+            'waste_percent' => ['label' => 'Waste %', 'total' => ''],
+            'net_purity' => ['label' => 'Net Purity', 'total' => ''],
+            'fine_weight' => ['label' => 'Fine Wt', 'total_key' => 'fine_weight', 'decimals' => 3],
+            'metal_rate' => ['label' => 'Metal Rate', 'total' => ''],
+            'metal_amount' => ['label' => 'Metal Amt', 'total_key' => 'metal_amount', 'decimals' => 2],
+            'labour_rate' => ['label' => 'Labour Rate', 'total' => ''],
+            'labour_amount' => ['label' => 'Labour Amt', 'total_key' => 'labour_amount', 'decimals' => 2],
+            'other_amount' => ['label' => 'Other Amt', 'total_key' => 'other_amount', 'decimals' => 2],
+            'total_amount' => ['label' => 'Total', 'total_key' => 'total_amount', 'decimals' => 2],
+            'net_total' => ['label' => 'Total', 'total_key' => 'total_amount', 'decimals' => 2],
+            'remarks' => ['label' => 'Remarks', 'total' => ''],
+        ];
+    }
+
+    private function salesSummaryVisibleColumns(Request $request): array
+    {
+        $definitions = $this->salesSummaryColumnDefinitions();
+        $requested = $request->input('columns');
+        if (is_string($requested)) {
+            $requested = array_filter(array_map('trim', explode(',', $requested)));
+        }
+
+        if (!is_array($requested) || empty($requested)) {
+            $requested = ['voucher_no', 'date', 'customer', 'qty_pcs', 'gross_weight', 'other_weight', 'net_weight', 'fine_weight', 'metal_amount', 'labour_amount', 'other_amount', 'net_total', 'remarks', 'created_by'];
+        }
+
+        $visible = [];
+        foreach ($requested as $key) {
+            if (isset($definitions[$key])) {
+                $visible[$key] = $definitions[$key] + ['key' => $key];
+            }
+        }
+
+        return $visible ?: array_intersect_key($definitions, array_flip(['voucher_no', 'date', 'customer', 'net_total']));
+    }
+
+    private function salesSummaryDetailsVisibleColumns(Request $request): array
+    {
+        $definitions = $this->salesSummaryDetailsColumnDefinitions();
+        $requested = $request->input('columns');
+        if (is_string($requested)) {
+            $requested = array_filter(array_map('trim', explode(',', $requested)));
+        }
+
+        if (is_array($requested) && !empty($requested)) {
+            $visible = [];
+            foreach ($requested as $key) {
+                if (isset($definitions[$key])) {
+                    $visible[$key] = $definitions[$key] + ['key' => $key];
+                }
+            }
+
+            return $visible;
+        }
+
+        $visibleKeys = ['label', 'huid', 'item'];
+        $selectedReportColumns = is_array($requested) ? $requested : [];
+        foreach (['qty_pcs', 'gross_weight', 'other_weight', 'net_weight', 'purity', 'waste_percent', 'net_purity', 'fine_weight', 'metal_rate', 'metal_amount', 'labour_rate', 'labour_amount', 'other_amount', 'total_amount', 'remarks'] as $key) {
+            if (empty($selectedReportColumns) || in_array($key, $selectedReportColumns, true) || ($key === 'total_amount' && in_array('net_total', $selectedReportColumns, true))) {
+                $visibleKeys[] = $key;
+            }
+        }
+
+        $visible = [];
+        foreach (array_unique($visibleKeys) as $key) {
+            if (isset($definitions[$key])) {
+                $visible[$key] = $definitions[$key] + ['key' => $key];
+            }
+        }
+
+        return $visible;
+    }
+
+    private function salesSummaryDetailsPayload(Company $company, Sale $sale): array
+    {
+        abort_unless((int) $sale->company_id === (int) $company->id, 404);
+
+        $sale->load(['customer', 'creator', 'saleItems.itemset.item', 'saleItems.product']);
+
+        $items = $sale->saleItems
+            ->sortBy('id')
+            ->values()
+            ->map(function ($row) use ($sale) {
+                $itemSet = $row->itemset;
+                $item = $row->product ?? optional($itemSet)->item;
+                $grossWeight = (float) ($row->gross_weight ?? 0);
+                $otherWeight = (float) ($row->other_weight ?? 0);
+                $netWeight = (float) ($row->net_weight ?? max(0, $grossWeight - $otherWeight));
+                $fineWeight = (float) ($row->fine_weight ?? 0);
+                $metalAmount = (float) ($row->metal_amount ?? 0);
+                $labourAmount = (float) ($row->labour_amount ?? 0);
+                $otherAmount = (float) ($row->other_amount ?? 0);
+                $totalAmount = (float) ($row->total_amount ?? 0);
+
+                return [
+                    'voucher_no' => $sale->voucher_no,
+                    'date' => optional($sale->sale_date)?->format('d-m-Y') ?? '-',
+                    'customer' => optional($sale->customer)->name ?? '-',
+                    'label' => optional($itemSet)->qr_code ?? optional($itemSet)->barcode ?? '-',
+                    'huid' => optional($itemSet)->HUID ?? '-',
+                    'item_name' => optional($item)->item_name ?? '-',
+                    'qty_pcs' => (int) ($row->qty ?? 0),
+                    'gross_weight' => number_format($grossWeight, 3),
+                    'other_weight' => number_format($otherWeight, 3),
+                    'net_weight' => number_format($netWeight, 3),
+                    'purity' => number_format((float) ($row->purity ?? 0), 3),
+                    'waste_percent' => number_format((float) ($row->waste_percent ?? 0), 3),
+                    'net_purity' => number_format((float) ($row->net_purity ?? 0), 3),
+                    'fine_weight' => number_format($fineWeight, 3),
+                    'metal_rate' => number_format((float) ($row->metal_rate ?? 0), 2),
+                    'metal_amount' => number_format($metalAmount, 2),
+                    'labour_rate' => number_format((float) ($row->labour_rate ?? 0), 2),
+                    'labour_amount' => number_format($labourAmount, 2),
+                    'other_amount' => number_format($otherAmount, 2),
+                    'total_amount' => number_format($totalAmount, 2),
+                    'net_total' => number_format($totalAmount, 2),
+                    'remarks' => $row->remarks ?? '-',
+                    '_qty_pcs' => (int) ($row->qty ?? 0),
+                    '_gross_weight' => $grossWeight,
+                    '_other_weight' => $otherWeight,
+                    '_net_weight' => $netWeight,
+                    '_fine_weight' => $fineWeight,
+                    '_metal_amount' => $metalAmount,
+                    '_labour_amount' => $labourAmount,
+                    '_other_amount' => $otherAmount,
+                    '_total_amount' => $totalAmount,
+                ];
+            });
+
+        return [
+            'sale' => [
+                'voucher_no' => $sale->voucher_no,
+                'sale_date' => optional($sale->sale_date)?->format('d-m-Y') ?? '-',
+                'customer_name' => optional($sale->customer)->name ?? '-',
+                'remarks' => $sale->remarks ?? '-',
+                'created_by' => optional($sale->creator)->name ?? '-',
+            ],
+            'summary' => [
+                'qty_pcs' => (int) $items->sum('_qty_pcs'),
+                'gross_weight' => number_format((float) $items->sum('_gross_weight'), 3),
+                'other_weight' => number_format((float) $items->sum('_other_weight'), 3),
+                'net_weight' => number_format((float) $items->sum('_net_weight'), 3),
+                'fine_weight' => number_format((float) $items->sum('_fine_weight'), 3),
+                'metal_amount' => number_format((float) $items->sum('_metal_amount'), 2),
+                'labour_amount' => number_format((float) $items->sum('_labour_amount'), 2),
+                'other_amount' => number_format((float) $items->sum('_other_amount'), 2),
+                'total_amount' => number_format((float) $items->sum('_total_amount'), 2),
+            ],
+            'items' => $items,
+        ];
+    }
+
+    private function salesSummaryExportRow($row, array $visibleColumns): array
+    {
+        $values = [
+            'voucher_no' => $row->voucher_no,
+            'date' => optional($row->sale_date)?->format('d-m-Y'),
+            'customer' => optional($row->customer)->name ?? '-',
+            'qty_pcs' => (int) ($row->total_qty ?? 0),
+            'gross_weight' => number_format((float) ($row->total_gross_weight ?? 0), 3, '.', ''),
+            'other_weight' => number_format((float) ($row->total_other_weight ?? 0), 3, '.', ''),
+            'net_weight' => number_format((float) ($row->total_net_weight ?? 0), 3, '.', ''),
+            'fine_weight' => number_format((float) ($row->total_fine_weight ?? 0), 3, '.', ''),
+            'metal_amount' => number_format((float) ($row->total_metal_amount ?? 0), 2, '.', ''),
+            'labour_amount' => number_format((float) ($row->total_labour_amount ?? 0), 2, '.', ''),
+            'other_amount' => number_format((float) ($row->total_other_amount ?? 0), 2, '.', ''),
+            'net_total' => number_format((float) ($row->net_total ?? 0), 2, '.', ''),
+            'remarks' => $row->remarks ?? '-',
+            'created_by' => optional($row->creator)->name ?? '-',
+        ];
+
+        return array_map(fn($key) => $values[$key] ?? '', array_keys($visibleColumns));
+    }
+
+    private function salesSummaryDetailsExportRow(array $item, array $columns): array
+    {
+        $values = [
+            'voucher_no' => $item['voucher_no'] ?? '-',
+            'date' => $item['date'] ?? '-',
+            'customer' => $item['customer'] ?? '-',
+            'label' => $item['label'] ?? '-',
+            'huid' => $item['huid'] ?? '-',
+            'item' => $item['item_name'] ?? '-',
+            'item_name' => $item['item_name'] ?? '-',
+            'qty_pcs' => $item['qty_pcs'] ?? 0,
+            'gross_weight' => $item['gross_weight'] ?? '0.000',
+            'other_weight' => $item['other_weight'] ?? '0.000',
+            'net_weight' => $item['net_weight'] ?? '0.000',
+            'purity' => $item['purity'] ?? '0.000',
+            'waste_percent' => $item['waste_percent'] ?? '0.000',
+            'net_purity' => $item['net_purity'] ?? '0.000',
+            'fine_weight' => $item['fine_weight'] ?? '0.000',
+            'metal_rate' => $item['metal_rate'] ?? '0.00',
+            'metal_amount' => $item['metal_amount'] ?? '0.00',
+            'labour_rate' => $item['labour_rate'] ?? '0.00',
+            'labour_amount' => $item['labour_amount'] ?? '0.00',
+            'other_amount' => $item['other_amount'] ?? '0.00',
+            'total_amount' => $item['total_amount'] ?? '0.00',
+            'net_total' => $item['net_total'] ?? $item['total_amount'] ?? '0.00',
+            'remarks' => $item['remarks'] ?? '-',
+        ];
+
+        return array_map(fn($key) => $values[$key] ?? '', array_keys($columns));
+    }
+
+    private function salesSummaryExportTotalRow(array $totals, array $visibleColumns): array
+    {
+        return $this->reportTotalRow($totals, $visibleColumns);
+    }
+
+    private function salesSummaryDetailsExportTotalRow(array $summary, array $columns): array
+    {
+        return $this->reportTotalRow($summary, $columns);
+    }
+
+    private function reportTotalRow(array $totals, array $columns): array
+    {
+        $row = [];
+        $hasTotalLabel = false;
+        foreach ($columns as $column) {
+            if (!$hasTotalLabel) {
+                $row[] = 'TOTAL';
+                $hasTotalLabel = true;
+                continue;
+            }
+
+            if (!isset($column['total_key'])) {
+                $row[] = $column['total'] ?? '';
+                continue;
+            }
+
+            $value = $totals[$column['total_key']] ?? 0;
+            $decimals = (int) ($column['decimals'] ?? 0);
+            $row[] = $decimals > 0
+                ? number_format((float) $value, $decimals, '.', '')
+                : (int) $value;
+        }
+
+        return $row;
+    }
+
     private function salesSummaryBaseQuery(Company $company, Request $request)
     {
         $query = Sale::with(['customer', 'creator'])
             ->withSum('saleItems as total_qty', 'qty')
             ->withSum('saleItems as total_gross_weight', 'gross_weight')
+            ->withSum('saleItems as total_other_weight', 'other_weight')
             ->withSum('saleItems as total_net_weight', 'net_weight')
             ->withSum('saleItems as total_fine_weight', 'fine_weight')
             ->withSum('saleItems as total_metal_amount', 'metal_amount')
@@ -1233,6 +1525,7 @@ class ReportController extends Controller
             ->selectRaw('
                 COALESCE(SUM(sale_items.qty), 0) as qty_pcs,
                 COALESCE(SUM(sale_items.gross_weight), 0) as gross_weight,
+                COALESCE(SUM(sale_items.other_weight), 0) as other_weight,
                 COALESCE(SUM(sale_items.net_weight), 0) as net_weight,
                 COALESCE(SUM(sale_items.fine_weight), 0) as fine_weight,
                 COALESCE(SUM(sale_items.metal_amount), 0) as metal_amount,
@@ -1249,6 +1542,7 @@ class ReportController extends Controller
         return [
             'qty_pcs' => (int) ($weightAndAmountTotals->qty_pcs ?? 0),
             'gross_weight' => (float) ($weightAndAmountTotals->gross_weight ?? 0),
+            'other_weight' => (float) ($weightAndAmountTotals->other_weight ?? 0),
             'net_weight' => (float) ($weightAndAmountTotals->net_weight ?? 0),
             'fine_weight' => (float) ($weightAndAmountTotals->fine_weight ?? 0),
             'metal_amount' => (float) ($weightAndAmountTotals->metal_amount ?? 0),
@@ -1781,6 +2075,21 @@ class ReportController extends Controller
                 }
             ], 'net_weight')
             ->withSum([
+                'items as pending_gross_weight' => function ($q) {
+                    $q->where('status', 'pending');
+                }
+            ], 'gross_weight')
+            ->withSum([
+                'items as pending_other_weight' => function ($q) {
+                    $q->where('status', 'pending');
+                }
+            ], 'other_weight')
+            ->withSum([
+                'items as pending_other_amount' => function ($q) {
+                    $q->where('status', 'pending');
+                }
+            ], 'other_amount')
+            ->withSum([
                 'items as pending_total_amount' => function ($q) {
                     $q->where('status', 'pending');
                 }
@@ -1798,12 +2107,261 @@ class ReportController extends Controller
         return $query;
     }
 
+    private function approvalOutstandingColumnDefinitions(): array
+    {
+        return [
+            'approval_no' => ['label' => 'Approval No', 'total' => 'TOTAL'],
+            'date' => ['label' => 'Date', 'total' => ''],
+            'customer' => ['label' => 'Customer Name', 'total' => ''],
+            'status' => ['label' => 'Status', 'total' => ''],
+            'pending_pcs' => ['label' => 'Pending Pcs', 'total_key' => 'pending_pcs', 'decimals' => 0],
+            'gross_weight' => ['label' => 'Gross Wt', 'total_key' => 'pending_gross_weight', 'decimals' => 3],
+            'other_weight' => ['label' => 'Other Wt', 'total_key' => 'pending_other_weight', 'decimals' => 3],
+            'net_weight' => ['label' => 'Net Wt', 'total_key' => 'pending_net_weight', 'decimals' => 3],
+            'other_amount' => ['label' => 'Other Amount', 'total_key' => 'pending_other_amount', 'decimals' => 2],
+            'pending_amount' => ['label' => 'Pending Amount', 'total_key' => 'pending_amount', 'decimals' => 2],
+            'remarks' => ['label' => 'Remarks', 'total' => ''],
+            'created_by' => ['label' => 'Created By', 'total' => ''],
+        ];
+    }
+
+    private function approvalOutstandingDetailsColumnDefinitions(): array
+    {
+        return [
+            'approval_no' => ['label' => 'Approval No', 'total' => 'TOTAL'],
+            'date' => ['label' => 'Date', 'total' => ''],
+            'customer' => ['label' => 'Customer Name', 'total' => ''],
+            'qr_code' => ['label' => 'QR Code', 'total' => 'TOTAL'],
+            'huid' => ['label' => 'HUID', 'total' => ''],
+            'item' => ['label' => 'Item', 'total' => ''],
+            'status' => ['label' => 'Status', 'total' => ''],
+            'gross_weight' => ['label' => 'Gross Wt', 'total_key' => 'pending_gross_weight', 'decimals' => 3],
+            'other_weight' => ['label' => 'Other Wt', 'total_key' => 'pending_other_weight', 'decimals' => 3],
+            'net_weight' => ['label' => 'Net Wt', 'total_key' => 'pending_net_weight', 'decimals' => 3],
+            'other_amount' => ['label' => 'Other Amount', 'total_key' => 'pending_other_amount', 'decimals' => 2],
+            'pending_amount' => ['label' => 'Amount', 'total_key' => 'pending_amount', 'decimals' => 2],
+        ];
+    }
+
+    private function approvalOutstandingDetailsVisibleColumns(Request $request): array
+    {
+        $definitions = $this->approvalOutstandingDetailsColumnDefinitions();
+        $requested = $request->input('columns');
+        if (is_string($requested)) {
+            $requested = array_filter(array_map('trim', explode(',', $requested)));
+        }
+
+        if (is_array($requested) && !empty($requested)) {
+            $visible = [];
+            foreach ($requested as $key) {
+                if (isset($definitions[$key])) {
+                    $visible[$key] = $definitions[$key] + ['key' => $key];
+                }
+            }
+
+            return $visible;
+        }
+
+        $visibleKeys = ['qr_code', 'huid', 'item'];
+        $selectedReportColumns = is_array($requested) ? $requested : [];
+        foreach (['status', 'gross_weight', 'other_weight', 'net_weight', 'other_amount', 'pending_amount'] as $key) {
+            if (empty($selectedReportColumns) || in_array($key, $selectedReportColumns, true)) {
+                $visibleKeys[] = $key;
+            }
+        }
+
+        $visible = [];
+        foreach (array_unique($visibleKeys) as $key) {
+            if (isset($definitions[$key])) {
+                $visible[$key] = $definitions[$key] + ['key' => $key];
+            }
+        }
+
+        return $visible;
+    }
+
+    private function approvalOutstandingDetailsPayload(Company $company, ApprovalHeader $approval): array
+    {
+        abort_unless((int) $approval->company_id === (int) $company->id, 404);
+
+        $approval->load(['customer', 'creator']);
+
+        $items = $approval->items()
+            ->with(['itemSet.item', 'legacyItemSet.item', 'item'])
+            ->where('status', 'pending')
+            ->orderBy('id')
+            ->get()
+            ->map(function ($row) use ($approval) {
+                $itemSet = $row->itemSet ?? $row->legacyItemSet;
+                $item = optional($itemSet)->item ?? $row->item;
+                $grossWeight = (float) ($row->gross_weight ?? optional($itemSet)->gross_weight ?? 0);
+                $otherWeight = (float) ($row->other_weight ?? optional($itemSet)->other ?? 0);
+                $netWeight = (float) ($row->net_weight ?? optional($itemSet)->net_weight ?? max(0, $grossWeight - $otherWeight));
+                $otherAmount = (float) ($row->other_amount ?? 0);
+                $totalAmount = (float) ($row->total_amount ?? 0);
+
+                return [
+                    'approval_no' => $approval->approval_no,
+                    'date' => optional($approval->approval_date)?->format('d-m-Y') ?? '-',
+                    'customer' => optional($approval->customer)->name ?? '-',
+                    'qr_code' => $row->qr_code ?? optional($itemSet)->qr_code ?? '-',
+                    'huid' => $row->huid ?? optional($itemSet)->HUID ?? '-',
+                    'item_name' => optional($item)->item_name ?? '-',
+                    'gross_weight' => number_format($grossWeight, 3),
+                    'other_weight' => number_format($otherWeight, 3),
+                    'net_weight' => number_format($netWeight, 3),
+                    'other_amount' => number_format($otherAmount, 2),
+                    'total_amount' => number_format($totalAmount, 2),
+                    'status' => $row->status ?? '-',
+                    '_gross_weight' => $grossWeight,
+                    '_other_weight' => $otherWeight,
+                    '_net_weight' => $netWeight,
+                    '_other_amount' => $otherAmount,
+                    '_total_amount' => $totalAmount,
+                ];
+            });
+
+        return [
+            'approval' => [
+                'approval_no' => $approval->approval_no,
+                'approval_date' => optional($approval->approval_date)?->format('d-m-Y') ?? '-',
+                'customer_name' => optional($approval->customer)->name ?? '-',
+                'status' => $approval->status ?? '-',
+                'remarks' => $approval->remarks ?? '-',
+                'created_by' => optional($approval->creator)->name ?? '-',
+            ],
+            'summary' => [
+                'pending_pcs' => $items->count(),
+                'pending_gross_weight' => number_format((float) $items->sum('_gross_weight'), 3),
+                'pending_other_weight' => number_format((float) $items->sum('_other_weight'), 3),
+                'pending_net_weight' => number_format((float) $items->sum('_net_weight'), 3),
+                'pending_other_amount' => number_format((float) $items->sum('_other_amount'), 2),
+                'pending_amount' => number_format((float) $items->sum('_total_amount'), 2),
+            ],
+            'items' => $items->values(),
+        ];
+    }
+
+    private function approvalOutstandingDetailsExportRow(array $item, array $columns): array
+    {
+        $values = [
+            'approval_no' => $item['approval_no'] ?? '-',
+            'date' => $item['date'] ?? '-',
+            'customer' => $item['customer'] ?? '-',
+            'qr_code' => $item['qr_code'] ?? '-',
+            'huid' => $item['huid'] ?? '-',
+            'item' => $item['item_name'] ?? '-',
+            'status' => $item['status'] ?? '-',
+            'gross_weight' => $item['gross_weight'] ?? '0.000',
+            'other_weight' => $item['other_weight'] ?? '0.000',
+            'net_weight' => $item['net_weight'] ?? '0.000',
+            'other_amount' => $item['other_amount'] ?? '0.00',
+            'pending_amount' => $item['total_amount'] ?? '0.00',
+        ];
+
+        return array_map(fn($key) => $values[$key] ?? '', array_keys($columns));
+    }
+
+    private function approvalOutstandingDetailsExportTotalRow(array $summary, array $columns): array
+    {
+        $row = [];
+        $hasTotalLabel = false;
+        foreach ($columns as $key => $column) {
+            if (!$hasTotalLabel) {
+                $row[] = 'TOTAL';
+                $hasTotalLabel = true;
+                continue;
+            }
+
+            if (!isset($column['total_key'])) {
+                $row[] = '';
+                continue;
+            }
+
+            $row[] = $summary[$column['total_key']] ?? '';
+        }
+
+        return $row;
+    }
+
+    private function approvalOutstandingVisibleColumns(Request $request): array
+    {
+        $definitions = $this->approvalOutstandingColumnDefinitions();
+        $requested = $request->input('columns');
+        if (is_string($requested)) {
+            $requested = array_filter(array_map('trim', explode(',', $requested)));
+        }
+
+        if (!is_array($requested) || empty($requested)) {
+            $requested = ['approval_no', 'date', 'customer', 'status', 'pending_pcs', 'net_weight', 'pending_amount', 'remarks', 'created_by'];
+        }
+
+        $visible = [];
+        foreach ($requested as $key) {
+            if (isset($definitions[$key])) {
+                $visible[$key] = $definitions[$key] + ['key' => $key];
+            }
+        }
+
+        return $visible ?: array_intersect_key($definitions, array_flip(['approval_no', 'date', 'customer', 'pending_pcs', 'net_weight']));
+    }
+
+    private function approvalOutstandingExportRow($row, array $visibleColumns): array
+    {
+        $values = [
+            'approval_no' => $row->approval_no,
+            'date' => optional($row->approval_date)?->format('d-m-Y'),
+            'customer' => optional($row->customer)->name ?? '-',
+            'status' => ucfirst((string) $row->status),
+            'pending_pcs' => (int) ($row->pending_items_count ?? 0),
+            'gross_weight' => number_format((float) ($row->pending_gross_weight ?? 0), 3, '.', ''),
+            'other_weight' => number_format((float) ($row->pending_other_weight ?? 0), 3, '.', ''),
+            'net_weight' => number_format((float) ($row->pending_net_weight ?? 0), 3, '.', ''),
+            'other_amount' => number_format((float) ($row->pending_other_amount ?? 0), 2, '.', ''),
+            'pending_amount' => number_format((float) ($row->pending_total_amount ?? 0), 2, '.', ''),
+            'remarks' => $row->remarks ?? '-',
+            'created_by' => optional($row->creator)->name ?? '-',
+        ];
+
+        return array_map(fn($key) => $values[$key] ?? '', array_keys($visibleColumns));
+    }
+
+    private function approvalOutstandingExportTotalRow(array $summary, array $visibleColumns): array
+    {
+        $row = [];
+        $hasTotalLabel = false;
+
+        foreach ($visibleColumns as $key => $column) {
+            if (!$hasTotalLabel) {
+                $row[] = 'TOTAL';
+                $hasTotalLabel = true;
+                continue;
+            }
+
+            if (!isset($column['total_key'])) {
+                $row[] = $column['total'] ?? '';
+                continue;
+            }
+
+            $value = $summary[$column['total_key']] ?? 0;
+            $decimals = (int) ($column['decimals'] ?? 0);
+            $row[] = $decimals > 0
+                ? number_format((float) $value, $decimals, '.', '')
+                : (int) $value;
+        }
+
+        return $row;
+    }
+
     private function approvalOutstandingTotals(Collection $rows): array
     {
         return [
             'voucher_count' => (int) $rows->count(),
             'pending_pcs' => (int) $rows->sum(fn($r) => (int) ($r->pending_items_count ?? 0)),
+            'pending_gross_weight' => (float) $rows->sum(fn($r) => (float) ($r->pending_gross_weight ?? 0)),
+            'pending_other_weight' => (float) $rows->sum(fn($r) => (float) ($r->pending_other_weight ?? 0)),
             'pending_net_weight' => (float) $rows->sum(fn($r) => (float) ($r->pending_net_weight ?? 0)),
+            'pending_other_amount' => (float) $rows->sum(fn($r) => (float) ($r->pending_other_amount ?? 0)),
             'pending_amount' => (float) $rows->sum(fn($r) => (float) ($r->pending_total_amount ?? 0)),
         ];
     }

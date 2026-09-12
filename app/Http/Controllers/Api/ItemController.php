@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Item;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class ItemController extends Controller
 {
@@ -81,7 +82,12 @@ class ItemController extends Controller
 
         $request->merge($payload);
         $request->validate([
-            'item_name' => 'required|string|max:255',
+            'item_name' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('items', 'item_name')->where(fn($q) => $q->where('company_id', $companyId)),
+            ],
             'item_code' => 'nullable|string|max:255',
             'metal' => 'nullable|string|max:100',
             'metal_formula' => 'nullable|string|max:100',
@@ -128,7 +134,14 @@ class ItemController extends Controller
 
         $request->merge($payload);
         $request->validate([
-            'item_name' => 'required|string|max:255',
+            'item_name' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('items', 'item_name')
+                    ->where(fn($q) => $q->where('company_id', $companyId))
+                    ->ignore($item->id),
+            ],
             'item_code' => 'nullable|string|max:255',
             'metal' => 'nullable|string|max:100',
             'metal_formula' => 'nullable|string|max:100',
@@ -191,7 +204,7 @@ class ItemController extends Controller
     {
         return [
             'company_id' => $companyId,
-            'item_name' => $request->input('item_name'),
+            'item_name' => trim((string) $request->input('item_name')),
             'item_code' => $request->input('item_code'),
             'metal' => $request->input('metal'),
             'metal_formula' => $request->input('metal_formula'),

@@ -272,6 +272,7 @@ class SaleApiController extends Controller
         $companyId = $request->user()->company_id;
         $search = trim((string) $request->input('search', ''));
         $customerId = (int) $request->input('customer_id', 0);
+        $currentSaleId = (int) $request->input('sale_id', 0);
         $limit = max(10, min((int) $request->input('limit', 1000), 2000));
 
         $approvalItems = collect();
@@ -288,7 +289,7 @@ class SaleApiController extends Controller
                     $q->whereNull('status')
                         ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
                 })
-                ->whereNotExists(function ($sub) {
+                ->whereNotExists(function ($sub) use ($currentSaleId) {
                     $sub->select(DB::raw(1))
                         ->from('sale_items')
                         ->where(function ($q) {
@@ -296,6 +297,10 @@ class SaleApiController extends Controller
                                 ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
                                 ->orWhereColumn('sale_items.itemset_id', 'approval_items.item_id');
                         });
+
+                    if ($currentSaleId > 0) {
+                        $sub->where('sale_items.sale_id', '<>', $currentSaleId);
+                    }
                 })
                 ->where(function ($q) use ($search) {
                     $q->where('approval_items.qr_code', 'like', '%' . $search . '%')
@@ -364,16 +369,23 @@ class SaleApiController extends Controller
             $gross = (float) ($approvalItem->gross_weight ?? optional($itemSet)->gross_weight ?? 0);
             $otherWeight = (float) ($approvalItem->other_weight ?? optional($itemSet)->other ?? 0);
             $net = (float) ($approvalItem->net_weight ?? optional($itemSet)->net_weight ?? max(0, $gross - $otherWeight));
-            $purity = (float) ($approvalItem->purity ?? optional($item)->outward_purity ?? 0);
+            $approvalPurity = (float) ($approvalItem->purity ?? 0);
+            $itemPurity = (float) (optional($item)->outward_purity ?? 0);
+            $purity = $approvalPurity > 0 ? $approvalPurity : $itemPurity;
             $wastePercent = (float) ($approvalItem->waste_percent ?? 0);
-            $netPurity = (float) ($approvalItem->net_purity ?? max(0, $purity + $wastePercent));
-            $fineWeight = (float) ($approvalItem->total_fine_weight ?? (($net * $netPurity) / 100));
+            $savedNetPurity = (float) ($approvalItem->net_purity ?? 0);
+            $netPurity = $savedNetPurity > 0 ? $savedNetPurity : max(0, $purity + $wastePercent);
+            $savedFineWeight = (float) ($approvalItem->total_fine_weight ?? $approvalItem->fine_weight ?? 0);
+            $fineWeight = $savedFineWeight > 0 ? $savedFineWeight : (($net * $netPurity) / 100);
             $metalRate = (float) ($approvalItem->metal_rate ?? 0);
-            $metalAmount = (float) ($approvalItem->metal_amount ?? ($net * $metalRate));
+            $savedMetalAmount = (float) ($approvalItem->metal_amount ?? 0);
+            $metalAmount = $savedMetalAmount > 0 ? $savedMetalAmount : ($fineWeight * $metalRate);
             $labourRate = (float) ($approvalItem->labour_rate ?? optional($itemSet)->sale_labour_rate ?? optional($item)->labour_rate ?? 0);
-            $labourAmount = (float) ($approvalItem->labour_amount ?? ($net * $labourRate));
+            $savedLabourAmount = (float) ($approvalItem->labour_amount ?? 0);
+            $labourAmount = $savedLabourAmount > 0 ? $savedLabourAmount : ($net * $labourRate);
             $otherAmount = (float) ($approvalItem->other_amount ?? optional($itemSet)->sale_other ?? 0);
-            $totalAmount = (float) ($approvalItem->total_amount ?? ($metalAmount + $labourAmount + $otherAmount));
+            $savedTotalAmount = (float) ($approvalItem->total_amount ?? 0);
+            $totalAmount = $savedTotalAmount > 0 ? $savedTotalAmount : ($metalAmount + $labourAmount + $otherAmount);
 
             return [
                 'id' => (int) (optional($itemSet)->id ?? 0),
@@ -385,10 +397,13 @@ class SaleApiController extends Controller
                 'name' => (string) (optional($item)->item_name ?? ''),
                 'code' => (string) ($approvalItem->qr_code ?? optional($itemSet)->qr_code ?? ''),
                 'huid' => (string) ($approvalItem->huid ?? optional($itemSet)->HUID ?? ''),
+                'qty' => 1,
                 'gross_weight' => $gross,
                 'other_weight' => $otherWeight,
                 'net_weight' => $net,
                 'purity' => $purity,
+                'item_purity' => $itemPurity,
+                'outward_purity' => $itemPurity,
                 'waste_percent' => $wastePercent,
                 'net_purity' => $netPurity,
                 'fine_weight' => $fineWeight,
@@ -448,6 +463,7 @@ class SaleApiController extends Controller
                 'name' => (string) (optional($set->item)->item_name ?? ''),
                 'code' => (string) ($set->qr_code ?? ''),
                 'huid' => (string) ($set->HUID ?? ''),
+                'qty' => 1,
                 'gross_weight' => $gross,
                 'other_weight' => $otherWeight,
                 'net_weight' => $net,
@@ -476,6 +492,7 @@ class SaleApiController extends Controller
                 'name' => (string) ($item->item_name ?? ''),
                 'code' => (string) ($item->item_code ?? ''),
                 'huid' => '',
+                'qty' => 1,
                 'gross_weight' => 0,
                 'other_weight' => 0,
                 'net_weight' => 0,
@@ -1162,6 +1179,7 @@ class SaleApiController extends Controller
                         'other_charge_details' => $this->normalizeOtherChargeDetails($approvalItem->other_charge_details ?? null),
                         'total_amount' => $lineTotal,
                         'approval_item_id' => $approvalItem->id,
+                        'remarks' => $approvalItem->remarks ?? null,
                     ]);
 
                     $approvalItem->update(['status' => 'sold']);
@@ -1204,6 +1222,7 @@ class SaleApiController extends Controller
                     'other_amount' => $otherAmount,
                     'other_charge_details' => $this->normalizeOtherChargeDetails($item['other_charge_details'] ?? $item['other_charges'] ?? null),
                     'total_amount' => $lineTotal,
+                    'remarks' => $item->remarks ?? null,
                 ]);
 
                 $item->update(['is_sold' => 1]);
@@ -1238,18 +1257,68 @@ class SaleApiController extends Controller
     public function getItemByQr(Request $request)
     {
         $companyId = $request->user()->company_id;
+        $code = trim((string) ($request->input('qr_code') ?? $request->input('code') ?? $request->input('barcode') ?? $request->input('label_code') ?? ''));
+
+        if ($code === '') {
+            return response()->json([
+                'success' => false,
+                'message' => 'QR code is required.'
+            ], 422);
+        }
 
         $item = ItemSet::with('item')
             ->where('company_id', $companyId)
-            ->where('qr_code', $request->qr_code)
-            ->where('is_sold', 0)
+            ->where(function ($q) use ($code) {
+                $q->where('qr_code', $code)
+                    ->orWhere('barcode', $code)
+                    ->orWhere('HUID', $code);
+            })
             ->first();
 
         if (!$item) {
+            $otherCompanyItem = ItemSet::where(function ($q) use ($code) {
+                $q->where('qr_code', $code)
+                    ->orWhere('barcode', $code)
+                    ->orWhere('HUID', $code);
+            })->first();
+
             return response()->json([
                 'success' => false,
-                'message' => 'Item not found or already sold'
-            ]);
+                'message' => $otherCompanyItem
+                    ? 'Item belongs to another company.'
+                    : 'Item not found for this company.'
+            ], 404);
+        }
+
+        if ((int) $item->is_sold === 1) {
+            $saleItem = SaleItem::with('sale')
+                ->where('itemset_id', $item->id)
+                ->latest('id')
+                ->first();
+
+            if ($saleItem?->sale) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Item already used in sale voucher: ' . ($saleItem->sale->voucher_no ?? $saleItem->sale->id),
+                ], 422);
+            }
+
+            $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            })
+                ->where('itemset_id', $item->id)
+                ->where(function ($q) {
+                    $q->whereNull('status')
+                        ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+                })
+                ->first();
+
+            return response()->json([
+                'success' => false,
+                'message' => $approvalItem
+                    ? 'Item is in approval. Use Add Label from Approval.'
+                    : 'Item is not available in stock.',
+            ], 422);
         }
 
         return response()->json([
@@ -1268,6 +1337,7 @@ class SaleApiController extends Controller
     public function approvalItems(Request $request)
     {
         $companyId = $request->user()->company_id;
+        $currentSaleId = (int) $request->input('sale_id', 0);
         $customerId = (int) (
             $request->input('approval_customer_id')
             ?? $request->input('approval_person_id')
@@ -1296,7 +1366,7 @@ class SaleApiController extends Controller
                 $q->whereNull('status')
                     ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
             })
-            ->whereNotExists(function ($sub) {
+            ->whereNotExists(function ($sub) use ($currentSaleId) {
                 $sub->select(DB::raw(1))
                     ->from('sale_items')
                     ->where(function ($q) {
@@ -1304,13 +1374,15 @@ class SaleApiController extends Controller
                             ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
                             ->orWhereColumn('sale_items.itemset_id', 'approval_items.item_id');
                     });
+
+                if ($currentSaleId > 0) {
+                    $sub->where('sale_items.sale_id', '<>', $currentSaleId);
+                }
             })
             ->get()
             ->filter(function ($row) {
-                // Match web logic exactly:
-                // only rows linked to sold itemsets are eligible to convert into sale.
                 $itemSet = $row->itemSet ?? $row->legacyItemSet;
-                return $itemSet && (int) $itemSet->is_sold === 1;
+                return (bool) $itemSet;
             })
             ->values()
             ->map(function ($row) {
@@ -1319,16 +1391,23 @@ class SaleApiController extends Controller
                 $gross = (float) ($row->gross_weight ?? 0);
                 $otherWeight = (float) ($row->other_weight ?? 0);
                 $net = (float) ($row->net_weight ?? ($gross - $otherWeight));
-                $purity = (float) ($row->purity ?? optional($item)->outward_purity ?? 0);
+                $approvalPurity = (float) ($row->purity ?? 0);
+                $itemPurity = (float) (optional($item)->outward_purity ?? 0);
+                $purity = $approvalPurity > 0 ? $approvalPurity : $itemPurity;
                 $wastePercent = (float) ($row->waste_percent ?? 0);
-                $netPurity = (float) ($row->net_purity ?? ($purity - $wastePercent));
-                $fineWeight = (float) ($row->total_fine_weight ?? ($net * $netPurity / 100));
+                $savedNetPurity = (float) ($row->net_purity ?? 0);
+                $netPurity = $savedNetPurity > 0 ? $savedNetPurity : ($purity + $wastePercent);
+                $savedFineWeight = (float) ($row->total_fine_weight ?? $row->fine_weight ?? 0);
+                $fineWeight = $savedFineWeight > 0 ? $savedFineWeight : ($net * $netPurity / 100);
                 $metalRate = (float) ($row->metal_rate ?? 0);
-                $metalAmount = (float) ($row->metal_amount ?? ($net * $metalRate));
+                $savedMetalAmount = (float) ($row->metal_amount ?? 0);
+                $metalAmount = $savedMetalAmount > 0 ? $savedMetalAmount : ($fineWeight * $metalRate);
                 $labourRate = (float) ($row->labour_rate ?? optional($itemSet)->sale_labour_rate ?? optional($item)->labour_rate ?? 0);
-                $labourAmount = (float) ($row->labour_amount ?? ($net * $labourRate));
+                $savedLabourAmount = (float) ($row->labour_amount ?? 0);
+                $labourAmount = $savedLabourAmount > 0 ? $savedLabourAmount : ($net * $labourRate);
                 $otherAmount = (float) ($row->other_amount ?? optional($itemSet)->sale_other ?? 0);
-                $totalAmount = (float) ($row->total_amount ?? ($metalAmount + $labourAmount + $otherAmount));
+                $savedTotalAmount = (float) ($row->total_amount ?? 0);
+                $totalAmount = $savedTotalAmount > 0 ? $savedTotalAmount : ($metalAmount + $labourAmount + $otherAmount);
 
                 return [
                     'approval_item_id' => $row->id,
@@ -1348,6 +1427,8 @@ class SaleApiController extends Controller
                     'net_weight' => $net,
                     'net_wt' => $net,
                     'purity' => $purity,
+                    'item_purity' => $itemPurity,
+                    'outward_purity' => $itemPurity,
                     'waste_percent' => $wastePercent,
                     'waste_pct' => $wastePercent,
                     'net_purity' => $netPurity,
@@ -1495,6 +1576,13 @@ class SaleApiController extends Controller
                 $itemsetId = (int) ($item['itemset_id'] ?? $item['id'] ?? 0);
                 $productId = (int) ($item['item_id'] ?? $item['product_id'] ?? 0);
                 $approvalItemId = (int) ($item['approval_item_id'] ?? 0);
+                $rowApprovalCustomerId = (int) (
+                    $item['approval_customer_id']
+                    ?? $item['approval_person_id']
+                    ?? $item['approval_party_id']
+                    ?? $approvalCustomerId
+                    ?? 0
+                );
                 $approvalItem = null;
 
                 if ($itemsetId <= 0 && $productId <= 0) {
@@ -1509,7 +1597,7 @@ class SaleApiController extends Controller
                         $companyId,
                         $approvalItemId,
                         $itemsetId > 0 ? $itemsetId : null,
-                        $approvalCustomerId > 0 ? $approvalCustomerId : null,
+                        $rowApprovalCustomerId > 0 ? $rowApprovalCustomerId : null,
                         false
                     );
 
@@ -1521,12 +1609,12 @@ class SaleApiController extends Controller
                     }
 
                     $approvalItemId = (int) $approvalItem->id;
-                } elseif ($approvalCustomerId > 0 && $itemsetId > 0) {
+                } elseif ($rowApprovalCustomerId > 0 && $itemsetId > 0) {
                     $approvalItem = $this->resolveApprovalItemForSale(
                         $companyId,
                         null,
                         $itemsetId,
-                        $approvalCustomerId,
+                        $rowApprovalCustomerId,
                         false
                     );
 
@@ -1547,6 +1635,15 @@ class SaleApiController extends Controller
                     }
 
                     $itemSet = $itemSetQuery->first();
+                    if (!$itemSet && $approvalItemId <= 0 && $itemsetId > 0) {
+                        $approvalItem = $this->resolveApprovalItemForSale($companyId, null, $itemsetId, null, false);
+                        if ($approvalItem) {
+                            $approvalItemId = (int) $approvalItem->id;
+                            $itemSet = ItemSet::where('company_id', $companyId)
+                                ->where('id', $itemsetId)
+                                ->first();
+                        }
+                    }
                     if (!$itemSet) {
                         return response()->json([
                             'success' => false,
@@ -1568,15 +1665,17 @@ class SaleApiController extends Controller
                 $netWeight = (float) ($item['net_weight'] ?? $item['net_wt'] ?? $itemSet->net_weight ?? max(0, $grossWeight - $otherWeight));
                 $purity = (float) ($item['purity'] ?? optional($itemSet?->item)->outward_purity ?? 0);
                 $wastePercent = (float) ($item['waste_percent'] ?? $item['waste_pct'] ?? 0);
-                $netPurity = (float) ($item['net_purity'] ?? ($purity - $wastePercent));
-                $fineWeight = (float) ($item['fine_weight'] ?? $item['fine_wt'] ?? ($netWeight * $netPurity / 100));
+                $netPurity = $this->positiveOr($item['net_purity'] ?? null, $purity + $wastePercent);
+                $fineWeight = $this->positiveOr($item['fine_weight'] ?? $item['fine_wt'] ?? null, $netWeight * $netPurity / 100);
                 $metalRate = (float) ($item['metal_rate'] ?? 0);
-                $metalAmount = (float) ($item['metal_amount'] ?? $item['metal_amt'] ?? ($fineWeight * $metalRate));
-                $labourRate = (float) ($item['labour_rate'] ?? $itemSet->sale_labour_rate ?? 0);
-                $labourAmount = (float) ($item['labour_amount'] ?? $item['labour_amt'] ?? $itemSet->sale_labour_amount ?? ($netWeight * $labourRate));
-                $otherAmount = (float) ($item['other_amount'] ?? $item['other_amt'] ?? $itemSet->sale_other ?? 0);
-                $lineTotal = (float) ($item['amount'] ?? $item['total_amount'] ?? $item['total_amt'] ?? ($metalAmount + $labourAmount + $otherAmount));
-                $qty = (int) ($item['qty'] ?? 1);
+                $applyMetal = $this->truthy($item['apply_metal'] ?? null, true);
+                $metalAmount = $applyMetal ? $this->positiveOr($item['metal_amount'] ?? $item['metal_amt'] ?? null, $fineWeight * $metalRate) : 0;
+                $labourRate = (float) ($item['labour_rate'] ?? $itemSet?->sale_labour_rate ?? 0);
+                $applyLabour = $this->truthy($item['apply_labour'] ?? null, true);
+                $labourAmount = $applyLabour ? $this->positiveOr($item['labour_amount'] ?? $item['labour_amt'] ?? null, $itemSet?->sale_labour_amount ?? ($netWeight * $labourRate)) : 0;
+                $otherAmount = (float) ($item['other_amount'] ?? $item['other_amt'] ?? $itemSet?->sale_other ?? 0);
+                $lineTotal = $this->positiveOr($item['amount'] ?? $item['total_amount'] ?? $item['total_amt'] ?? null, $metalAmount + $labourAmount + $otherAmount);
+                $qty = max(1, (int) ($item['qty'] ?? 1));
 
                 SaleItem::create([
                     'sale_id' => $sale->id,
@@ -1596,7 +1695,9 @@ class SaleApiController extends Controller
                     'labour_rate' => $labourRate,
                     'labour_amount' => $labourAmount,
                     'other_amount' => $otherAmount,
+                    'other_charge_details' => $this->normalizeOtherChargeDetails($item['other_charge_details'] ?? $item['other_charges'] ?? null),
                     'total_amount' => $lineTotal,
+                    'remarks' => $item['remarks'] ?? $item['remark'] ?? null,
                 ]);
 
                 if ($approvalItemId > 0) {
@@ -1791,19 +1892,34 @@ class SaleApiController extends Controller
                     ];
                 })
                 ->filter()
-                ->unique(function ($pair) {
-                    if ($pair['itemset']) {
-                        return 'set_' . (int) $pair['itemset']->id;
-                    }
-
-                    return 'item_' . (int) $pair['product']->id;
-                })
                 ->values();
 
             if ($resolvedRows->isEmpty()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No valid item found. Use itemset_id/id, qr_code/code, huid/HUID, or item_id/product_id.',
+                ], 422);
+            }
+
+            if ($resolvedRows->count() !== $incomingRows->count()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Some sale item rows are invalid or not found. Please send itemset_id, qr_code, HUID, or item_id for every row.',
+                ], 422);
+            }
+
+            $duplicateItemsetIds = $resolvedRows
+                ->map(fn($pair) => $pair['itemset'] ? (int) $pair['itemset']->id : null)
+                ->filter()
+                ->duplicates()
+                ->unique()
+                ->values()
+                ->all();
+
+            if (!empty($duplicateItemsetIds)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Duplicate scanned label(s) in request: ' . implode(', ', $duplicateItemsetIds),
                 ], 422);
             }
 
@@ -1821,7 +1937,7 @@ class SaleApiController extends Controller
                     }
                 }
 
-                if (!empty($saleItem->itemset_id)) {
+                if (!empty($saleItem->itemset_id) && empty($saleItem->approval_item_id)) {
                     ItemSet::where('company_id', $companyId)
                         ->where('id', (int) $saleItem->itemset_id)
                         ->update(['is_sold' => 0]);
@@ -1839,6 +1955,13 @@ class SaleApiController extends Controller
                 $itemsetId = $itemSet ? (int) $itemSet->id : null;
 
                 $approvalItemId = (int) ($row['approval_item_id'] ?? 0);
+                $rowApprovalCustomerId = (int) (
+                    $row['approval_customer_id']
+                    ?? $row['approval_person_id']
+                    ?? $row['approval_party_id']
+                    ?? $approvalCustomerId
+                    ?? 0
+                );
                 $approvalItem = null;
 
                 if ($approvalItemId > 0) {
@@ -1846,7 +1969,7 @@ class SaleApiController extends Controller
                         $companyId,
                         $approvalItemId,
                         $itemsetId,
-                        $approvalCustomerId > 0 ? $approvalCustomerId : null,
+                        $rowApprovalCustomerId > 0 ? $rowApprovalCustomerId : null,
                         true
                     );
 
@@ -1858,15 +1981,20 @@ class SaleApiController extends Controller
                     }
 
                     $approvalItemId = (int) $approvalItem->id;
-                } elseif ($approvalCustomerId > 0) {
+                } elseif ($rowApprovalCustomerId > 0) {
                     $approvalItem = $this->resolveApprovalItemForSale(
                         $companyId,
                         null,
                         $itemsetId,
-                        $approvalCustomerId,
+                        $rowApprovalCustomerId,
                         false
                     );
 
+                    if ($approvalItem) {
+                        $approvalItemId = (int) $approvalItem->id;
+                    }
+                } elseif ($itemSet && (int) $itemSet->is_sold === 1 && !in_array($itemsetId, $existingSaleItemsetIds, true)) {
+                    $approvalItem = $this->resolveApprovalItemForSale($companyId, null, $itemsetId, null, false);
                     if ($approvalItem) {
                         $approvalItemId = (int) $approvalItem->id;
                     }
@@ -1884,21 +2012,23 @@ class SaleApiController extends Controller
                 $netWeight = (float) ($row['net_weight'] ?? max(0, $grossWeight - $otherWeight));
                 $purity = (float) ($row['purity'] ?? $product?->outward_purity ?? 0);
                 $wastePercent = (float) ($row['waste_percent'] ?? $row['waste'] ?? 0);
-                $netPurity = (float) ($row['net_purity'] ?? ($purity - $wastePercent));
-                $fineWeight = (float) ($row['fine_weight'] ?? ($netWeight * $netPurity / 100));
+                $netPurity = $this->positiveOr($row['net_purity'] ?? null, $purity + $wastePercent);
+                $fineWeight = $this->positiveOr($row['fine_weight'] ?? $row['fine_wt'] ?? null, $netWeight * $netPurity / 100);
                 $metalRate = (float) ($row['metal_rate'] ?? 0);
-                $metalAmount = (float) ($row['metal_amount'] ?? ($fineWeight * $metalRate));
+                $applyMetal = $this->truthy($row['apply_metal'] ?? null, true);
+                $metalAmount = $applyMetal ? $this->positiveOr($row['metal_amount'] ?? $row['metal_amt'] ?? null, $fineWeight * $metalRate) : 0;
                 $labourRate = (float) ($row['labour_rate'] ?? $product?->labour_rate ?? 0);
-                $labourAmount = (float) ($row['labour_amount'] ?? ($netWeight * $labourRate));
-                $otherAmount = (float) ($row['other_amount'] ?? 0);
-                $lineTotal = (float) ($row['total_amount'] ?? ($metalAmount + $labourAmount + $otherAmount));
+                $applyLabour = $this->truthy($row['apply_labour'] ?? null, true);
+                $labourAmount = $applyLabour ? $this->positiveOr($row['labour_amount'] ?? $row['labour_amt'] ?? null, $netWeight * $labourRate) : 0;
+                $otherAmount = (float) ($row['other_amount'] ?? $row['other_amt'] ?? 0);
+                $lineTotal = $this->positiveOr($row['total_amount'] ?? $row['total_amt'] ?? $row['amount'] ?? null, $metalAmount + $labourAmount + $otherAmount);
 
                 $payload = [
                     'sale_id' => $sale->id,
                     'itemset_id' => $itemsetId,
                     'product_id' => (int) ($row['product_id'] ?? $row['item_id'] ?? $product?->id ?? $itemSet?->item_id ?? 0),
                     'approval_item_id' => $approvalItemId > 0 ? $approvalItemId : null,
-                    'qty' => (int) ($row['qty'] ?? 1),
+                    'qty' => max(1, (int) ($row['qty'] ?? 1)),
                     'gross_weight' => $grossWeight,
                     'other_weight' => $otherWeight,
                     'net_weight' => $netWeight,
@@ -1913,6 +2043,7 @@ class SaleApiController extends Controller
                     'other_amount' => $otherAmount,
                     'other_charge_details' => $this->normalizeOtherChargeDetails($row['other_charge_details'] ?? $row['other_charges'] ?? null),
                     'total_amount' => $lineTotal,
+                    'remarks' => $row['remarks'] ?? $row['remark'] ?? null,
                 ];
 
                 SaleItem::create($payload);
@@ -1964,6 +2095,205 @@ class SaleApiController extends Controller
                 'message' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    public function destroy(Request $request, $id)
+    {
+        $companyId = (int) $request->user()->company_id;
+
+        DB::beginTransaction();
+
+        try {
+            $sale = Sale::with('saleItems')
+                ->where('company_id', $companyId)
+                ->findOrFail((int) $id);
+
+            $hasReturns = DB::table('sale_returns')
+                ->where('company_id', $companyId)
+                ->where('sale_id', (int) $sale->id)
+                ->exists();
+
+            if ($hasReturns) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This sale has return entries, so it cannot be deleted.',
+                ], 422);
+            }
+
+            $restoreSummary = $this->restoreSaleItemsToSource($companyId, $sale->saleItems);
+
+            SalePayment::where('company_id', $companyId)
+                ->where('sale_id', (int) $sale->id)
+                ->delete();
+            CustomerAdvanceLedger::where('company_id', $companyId)
+                ->where('reference_type', 'sale')
+                ->where('reference_id', (int) $sale->id)
+                ->delete();
+            SaleItem::where('sale_id', (int) $sale->id)->delete();
+            $sale->delete();
+
+            $this->refreshApprovalHeaderStatus($restoreSummary['approval_ids']);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Sale deleted successfully. Items moved back to their original position.',
+                'data' => [
+                    'deleted_sale_id' => (int) $id,
+                    'approval_items_restored' => $restoreSummary['approval_items'],
+                    'stock_items_restored' => $restoreSummary['stock_items'],
+                ],
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function removeSaleItem(Request $request, $saleId, $itemIdentifier)
+    {
+        $user = $request->user();
+        $companyId = (int) $user->company_id;
+        $saleId = (int) $saleId;
+        $itemIdentifier = (int) $itemIdentifier;
+
+        DB::beginTransaction();
+
+        try {
+            $sale = Sale::where('company_id', $companyId)->findOrFail($saleId);
+
+            $saleItem = SaleItem::where('sale_id', $sale->id)
+                ->where('id', $itemIdentifier)
+                ->first();
+
+            if (!$saleItem) {
+                $saleItem = SaleItem::where('sale_id', $sale->id)
+                    ->where(function ($q) use ($itemIdentifier) {
+                        $q->where('itemset_id', $itemIdentifier)
+                            ->orWhere('approval_item_id', $itemIdentifier);
+                    })
+                    ->first();
+            }
+
+            if (!$saleItem) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Sale item not found for this sale.',
+                ], 404);
+            }
+
+            $approvalIds = [];
+            $removedSource = 'stock';
+
+            if (!empty($saleItem->approval_item_id)) {
+                $removedSource = 'approval';
+                $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
+                    $q->where('company_id', $companyId);
+                })->find((int) $saleItem->approval_item_id);
+
+                if ($approvalItem) {
+                    $approvalItem->update(['status' => 'pending']);
+                    $approvalIds[] = (int) $approvalItem->approval_id;
+                }
+
+                if (!empty($saleItem->itemset_id)) {
+                    ItemSet::where('company_id', $companyId)
+                        ->where('id', (int) $saleItem->itemset_id)
+                        ->update(['is_sold' => 1]);
+                }
+            } elseif (!empty($saleItem->itemset_id)) {
+                ItemSet::where('company_id', $companyId)
+                    ->where('id', (int) $saleItem->itemset_id)
+                    ->update(['is_sold' => 0]);
+            }
+
+            $saleItem->delete();
+            $this->refreshApprovalHeaderStatus($approvalIds);
+
+            $existingUsage = $this->saleLedgerMetalUsage($companyId, $sale->id);
+            $advanceSummaryNow = $this->getAdvanceSummary($companyId, (int) $sale->customer_id);
+            $freshSale = $sale->fresh('saleItems.itemset.item', 'saleItems.product');
+            $sale->update(['net_total' => $this->saleCashPayableTotal($freshSale, [
+                'gold' => (float) ($advanceSummaryNow['gold'] ?? 0) + (float) ($existingUsage['gold_used'] ?? 0),
+                'silver' => (float) ($advanceSummaryNow['silver'] ?? 0) + (float) ($existingUsage['silver_used'] ?? 0),
+                'other' => (float) ($advanceSummaryNow['other'] ?? 0) + (float) ($existingUsage['other_used'] ?? 0),
+            ])]);
+            $this->syncSilverAdvanceUsageForSale(
+                $companyId,
+                $sale->fresh('saleItems.itemset.item', 'saleItems.product'),
+                (bool) ($sale->use_silver_balance ?? true),
+                (int) $user->id
+            );
+            $sale->increment('modified_count');
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => $removedSource === 'approval'
+                    ? 'Sale item removed and moved back to approval.'
+                    : 'Sale item removed and moved back to stock.',
+                'removed_source' => $removedSource,
+                'data' => $this->saleResponsePayload($sale->fresh(['customer', 'saleItems.itemset.item', 'saleItems.product', 'payments'])),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    private function restoreSaleItemsToSource(int $companyId, $saleItems): array
+    {
+        $approvalIds = [];
+        $summary = [
+            'approval_ids' => [],
+            'approval_items' => 0,
+            'stock_items' => 0,
+        ];
+
+        foreach ($saleItems as $saleItem) {
+            if (!empty($saleItem->approval_item_id)) {
+                $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
+                    $q->where('company_id', $companyId);
+                })->find((int) $saleItem->approval_item_id);
+
+                if ($approvalItem) {
+                    $approvalItem->update(['status' => 'pending']);
+                    $approvalIds[] = (int) $approvalItem->approval_id;
+                }
+
+                if (!empty($saleItem->itemset_id)) {
+                    ItemSet::where('company_id', $companyId)
+                        ->where('id', (int) $saleItem->itemset_id)
+                        ->update(['is_sold' => 1]);
+                }
+
+                $summary['approval_items']++;
+                continue;
+            }
+
+            if (!empty($saleItem->itemset_id)) {
+                ItemSet::where('company_id', $companyId)
+                    ->where('id', (int) $saleItem->itemset_id)
+                    ->update(['is_sold' => 0]);
+                $summary['stock_items']++;
+            }
+        }
+
+        $summary['approval_ids'] = array_values(array_unique($approvalIds));
+
+        return $summary;
     }
 
     private function resolveApprovalItemForSale(
@@ -2193,6 +2523,7 @@ class SaleApiController extends Controller
             $item = optional($row->itemset)->item ?: $row->product;
             $row->setAttribute('item_name', optional($item)->item_name);
             $row->setAttribute('metal_type', $this->normalizeMetalType(optional($item)->metal ?? null));
+            $row->setAttribute('qty_pcs', max(1, (int) ($row->qty ?? 1)));
             $row->setAttribute('other_charges', $this->decodeOtherChargeDetails($row->other_charge_details ?? null));
             return $row;
         });
@@ -2222,9 +2553,14 @@ class SaleApiController extends Controller
             return (clone $query)->where('id', $itemSetId)->first();
         }
 
-        $qrCode = trim((string) ($row['qr_code'] ?? $row['code'] ?? ''));
+        $qrCode = trim((string) ($row['qr_code'] ?? $row['code'] ?? $row['barcode'] ?? $row['label_code'] ?? ''));
         if ($qrCode !== '') {
-            return (clone $query)->where('qr_code', $qrCode)->first();
+            return (clone $query)
+                ->where(function ($q) use ($qrCode) {
+                    $q->where('qr_code', $qrCode)
+                        ->orWhere('barcode', $qrCode);
+                })
+                ->first();
         }
 
         $huid = trim((string) ($row['huid'] ?? $row['HUID'] ?? ''));
@@ -2480,5 +2816,21 @@ class SaleApiController extends Controller
 
         $value = trim((string) ($value ?? ''));
         return $value === '' ? null : $value;
+    }
+
+    private function positiveOr($value, float $fallback): float
+    {
+        $number = (float) ($value ?? 0);
+        return $number > 0 ? $number : $fallback;
+    }
+
+    private function truthy($value, bool $default = true): bool
+    {
+        if ($value === null || $value === '') {
+            return $default;
+        }
+
+        $parsed = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        return $parsed ?? ((float) $value !== 0.0);
     }
 }

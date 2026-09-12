@@ -135,9 +135,14 @@ class SaleController extends Controller
                     return $editBtn . '
                     <a href="' . $pdfUrl . '" 
                        target="_blank"
-                       class="btn btn-sm btn-info">
+                       class="btn btn-sm btn-info me-1">
                         View
                     </a>
+                    <form action="' . route('company.sales.destroy', [$company->slug, $encryptedId]) . '" method="POST" class="d-inline delete-sale-form">
+                        <input type="hidden" name="_token" value="' . csrf_token() . '">
+                        <input type="hidden" name="_method" value="DELETE">
+                        <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                    </form>
                 ';
                 })
 
@@ -338,14 +343,23 @@ class SaleController extends Controller
             ->get();
 
         $editableItems = $sale->saleItems->map(function ($row) {
+            $itemsetId = (int) ($row->itemset_id ?? 0);
+            $productId = (int) ($row->product_id ?? optional($row->itemset)->item_id ?? 0);
+            $approvalItemId = (int) ($row->approval_item_id ?? 0);
+
             return [
-                'itemset_id' => (int) ($row->itemset_id ?? 0),
-                'item_id' => (int) ($row->product_id ?? optional($row->itemset)->item_id ?? 0),
-                'approval_id' => (int) ($row->approval_item_id ?? 0),
+                'row_key' => $approvalItemId > 0
+                    ? 'approval_' . $approvalItemId
+                    : ($itemsetId > 0 ? 'set_' . $itemsetId : 'item_' . $productId . '_' . (int) $row->id),
+                'itemset_id' => $itemsetId,
+                'item_id' => $productId,
+                'approval_item_id' => $approvalItemId,
+                'approval_id' => $approvalItemId,
                 'name' => optional(optional($row->itemset)->item)->item_name ?? optional($row->product)->item_name ?? '',
                 'metal_type' => $this->normalizeMetalType(optional(optional($row->itemset)->item)->metal ?? optional($row->product)->metal ?? null),
                 'code' => optional($row->itemset)->qr_code ?? '',
                 'huid' => optional($row->itemset)->HUID ?? '',
+                'qty' => max(1, (int) ($row->qty ?? 1)),
                 'gross_weight' => (float) ($row->gross_weight ?? 0),
                 'other_weight' => (float) ($row->other_weight ?? 0),
                 'net_weight' => (float) ($row->net_weight ?? 0),
@@ -382,6 +396,7 @@ class SaleController extends Controller
         $company = Company::where('slug', $slug)->firstOrFail();
         $search = trim((string) $request->search);
         $customerId = (int) $request->input('customer_id', 0);
+        $currentSaleId = (int) $request->input('sale_id', 0);
         $limit = max(10, min((int) $request->input('limit', 1000), 2000));
 
         $approvalItems = collect();
@@ -398,7 +413,7 @@ class SaleController extends Controller
                     $q->whereNull('status')
                         ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
                 })
-                ->whereNotExists(function ($sub) {
+                ->whereNotExists(function ($sub) use ($currentSaleId) {
                     $sub->select(DB::raw(1))
                         ->from('sale_items')
                         ->where(function ($q) {
@@ -406,6 +421,10 @@ class SaleController extends Controller
                                 ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
                                 ->orWhereColumn('sale_items.itemset_id', 'approval_items.item_id');
                         });
+
+                    if ($currentSaleId > 0) {
+                        $sub->where('sale_items.sale_id', '<>', $currentSaleId);
+                    }
                 })
                 ->where(function ($q) use ($search) {
                     $q->where('approval_items.qr_code', 'like', '%' . $search . '%')
@@ -473,16 +492,23 @@ class SaleController extends Controller
             $gross = (float) ($approvalItem->gross_weight ?? optional($itemSet)->gross_weight ?? 0);
             $otherWeight = (float) ($approvalItem->other_weight ?? optional($itemSet)->other ?? 0);
             $net = (float) ($approvalItem->net_weight ?? optional($itemSet)->net_weight ?? max(0, $gross - $otherWeight));
-            $purity = (float) ($approvalItem->purity ?? optional($item)->outward_purity ?? 0);
+            $approvalPurity = (float) ($approvalItem->purity ?? 0);
+            $itemPurity = (float) (optional($item)->outward_purity ?? 0);
+            $purity = $approvalPurity > 0 ? $approvalPurity : $itemPurity;
             $wastePercent = (float) ($approvalItem->waste_percent ?? 0);
-            $netPurity = (float) ($approvalItem->net_purity ?? max(0, $purity + $wastePercent));
-            $fineWeight = (float) ($approvalItem->total_fine_weight ?? (($net * $netPurity) / 100));
+            $savedNetPurity = (float) ($approvalItem->net_purity ?? 0);
+            $netPurity = $savedNetPurity > 0 ? $savedNetPurity : max(0, $purity + $wastePercent);
+            $savedFineWeight = (float) ($approvalItem->total_fine_weight ?? $approvalItem->fine_weight ?? 0);
+            $fineWeight = $savedFineWeight > 0 ? $savedFineWeight : (($net * $netPurity) / 100);
             $metalRate = (float) ($approvalItem->metal_rate ?? 0);
-            $metalAmount = (float) ($approvalItem->metal_amount ?? ($fineWeight * $metalRate));
+            $savedMetalAmount = (float) ($approvalItem->metal_amount ?? 0);
+            $metalAmount = $savedMetalAmount > 0 ? $savedMetalAmount : ($fineWeight * $metalRate);
             $labourRate = (float) ($approvalItem->labour_rate ?? optional($itemSet)->sale_labour_rate ?? optional($item)->labour_rate ?? 0);
-            $labourAmount = (float) ($approvalItem->labour_amount ?? ($net * $labourRate));
+            $savedLabourAmount = (float) ($approvalItem->labour_amount ?? 0);
+            $labourAmount = $savedLabourAmount > 0 ? $savedLabourAmount : ($net * $labourRate);
             $otherAmount = (float) ($approvalItem->other_amount ?? optional($itemSet)->sale_other ?? 0);
-            $totalAmount = (float) ($approvalItem->total_amount ?? ($metalAmount + $labourAmount + $otherAmount));
+            $savedTotalAmount = (float) ($approvalItem->total_amount ?? 0);
+            $totalAmount = $savedTotalAmount > 0 ? $savedTotalAmount : ($metalAmount + $labourAmount + $otherAmount);
 
             return [
                 'id' => (int) (optional($itemSet)->id ?? 0),
@@ -495,10 +521,13 @@ class SaleController extends Controller
                 'metal_type' => $this->normalizeMetalType(optional($item)->metal ?? null),
                 'code' => (string) ($approvalItem->qr_code ?? optional($itemSet)->qr_code ?? ''),
                 'huid' => (string) ($approvalItem->huid ?? optional($itemSet)->HUID ?? ''),
+                'qty' => 1,
                 'gross_weight' => $gross,
                 'other_weight' => $otherWeight,
                 'net_weight' => $net,
                 'purity' => $purity,
+                'item_purity' => $itemPurity,
+                'outward_purity' => $itemPurity,
                 'waste_percent' => $wastePercent,
                 'net_purity' => $netPurity,
                 'fine_weight' => $fineWeight,
@@ -557,6 +586,7 @@ class SaleController extends Controller
                 'metal_type' => $this->normalizeMetalType(optional($item->item)->metal ?? null),
                 'code' => $item->qr_code,
                 'huid' => $item->HUID,
+                'qty' => 1,
                 'gross_weight' => $gross,
                 'other_weight' => $otherWeight,
                 'net_weight' => $net,
@@ -585,6 +615,7 @@ class SaleController extends Controller
                 'metal_type' => $this->normalizeMetalType($item->metal ?? null),
                 'code' => (string) ($item->item_code ?? ''),
                 'huid' => '',
+                'qty' => 1,
                 'gross_weight' => 0,
                 'other_weight' => 0,
                 'net_weight' => 0,
@@ -611,12 +642,16 @@ class SaleController extends Controller
      */
     public function getItemset(Request $request, $company)
     {
+        $code = trim((string) ($request->input('qr_code') ?? $request->input('code') ?? $request->input('barcode') ?? $request->input('label_code') ?? ''));
 
-        $query = ItemSet::where('company_id', $company->id)
-            ->where('is_sold', 0);
+        $query = ItemSet::where('company_id', $company->id);
 
-        if ($request->qr_code) {
-            $query->where('qr_code', $request->qr_code);
+        if ($code !== '') {
+            $query->where(function ($q) use ($code) {
+                $q->where('qr_code', $code)
+                    ->orWhere('barcode', $code)
+                    ->orWhere('HUID', $code);
+            });
         }
 
         if ($request->itemset_id) {
@@ -629,8 +664,39 @@ class SaleController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Item not found or already sold'
-            ]);
+                'message' => 'Item not found for this company.'
+            ], 404);
+        }
+
+        if ((int) $item->is_sold === 1) {
+            $saleItem = SaleItem::with('sale')
+                ->where('itemset_id', (int) $item->id)
+                ->latest('id')
+                ->first();
+
+            if ($saleItem?->sale) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Item already used in sale voucher: ' . ($saleItem->sale->voucher_no ?? $saleItem->sale->id),
+                ], 422);
+            }
+
+            $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($company) {
+                $q->where('company_id', $company->id);
+            })
+                ->where('itemset_id', (int) $item->id)
+                ->where(function ($q) {
+                    $q->whereNull('status')
+                        ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+                })
+                ->first();
+
+            return response()->json([
+                'success' => false,
+                'message' => $approvalItem
+                    ? 'Item is in approval. Use Add Label from Approval.'
+                    : 'Item is not available in stock.',
+            ], 422);
         }
 
         return response()->json([
@@ -653,8 +719,9 @@ class SaleController extends Controller
             $company = Company::where('slug', $slug)->firstOrFail();
             $request->validate([
                 'customer_id' => 'required|integer',
-                'items' => 'required|array|min:1',
-                'items.*' => 'required|integer',
+                'items_payload' => 'nullable|string',
+                'items' => 'nullable|array',
+                'items.*' => 'nullable|integer',
                 'received_amount' => 'nullable|numeric|min:0',
                 'additional_received_amount' => 'nullable|numeric|min:0',
             ]);
@@ -666,6 +733,11 @@ class SaleController extends Controller
 
             if (!$customerExists) {
                 throw new \Exception('Invalid customer for this company.');
+            }
+
+            $saleRows = $this->saleRowsFromRequest($request);
+            if (empty($saleRows)) {
+                throw new \Exception('Add at least one item.');
             }
 
             $sale = Sale::create([
@@ -699,18 +771,20 @@ class SaleController extends Controller
 
             $total = 0;
             $approvalIds = [];
+            $savedRows = 0;
 
-            foreach ($request->items as $index => $itemsetIdRaw) {
+            foreach ($saleRows as $index => $row) {
 
-                $itemsetId = (int) ($itemsetIdRaw ?? 0);
-                $productId = (int) ($request->item_ids[$index] ?? 0);
+                $itemsetId = (int) ($row['itemset_id'] ?? 0);
+                $productId = (int) ($row['item_id'] ?? $row['product_id'] ?? 0);
 
                 if ($itemsetId <= 0 && $productId <= 0) {
-                    continue;
+                    throw new \Exception('Invalid sale item row at position ' . ($index + 1) . '.');
                 }
 
-                $approvalItemId = $request->approval_item_ids[$index] ?? null;
+                $approvalItemId = $row['approval_item_id'] ?? null;
                 $item = null;
+                $directItem = null;
                 if ($itemsetId > 0) {
                     $itemQuery = ItemSet::where('company_id', $company->id)
                         ->where('id', $itemsetId);
@@ -731,11 +805,23 @@ class SaleController extends Controller
                     }
                 }
 
-                // ❗ prevent double sale
-                // if ($item->is_sold == 1) {
-                //     throw new \Exception("Item already sold ID: " . $itemsetId);
-                // }
-
+                $product = $directItem ?: optional($item)->item;
+                $qty = max(1, (int) ($row['qty'] ?? 1));
+                $grossWeight = (float) ($row['gross_weight'] ?? ($item->gross_weight ?? 0));
+                $otherWeight = (float) ($row['other_weight'] ?? ($item->other ?? 0));
+                $netWeight = (float) ($row['net_weight'] ?? max(0, $grossWeight - $otherWeight));
+                $purity = (float) ($row['purity'] ?? optional($product)->outward_purity ?? 0);
+                $wastePercent = (float) ($row['waste_percent'] ?? $row['waste'] ?? 0);
+                $netPurity = $this->positiveOr($row['net_purity'] ?? null, $purity + $wastePercent);
+                $fineWeight = $this->positiveOr($row['fine_weight'] ?? null, $netWeight * $netPurity / 100);
+                $metalRate = (float) ($row['metal_rate'] ?? 0);
+                $applyMetal = $this->truthy($row['apply_metal'] ?? null, true);
+                $metalAmount = $applyMetal ? $this->positiveOr($row['metal_amount'] ?? null, $fineWeight * $metalRate) : 0;
+                $labourRate = (float) ($row['labour_rate'] ?? $item?->sale_labour_rate ?? optional($product)->labour_rate ?? 0);
+                $applyLabour = $this->truthy($row['apply_labour'] ?? null, true);
+                $labourAmount = $applyLabour ? $this->positiveOr($row['labour_amount'] ?? null, $item?->sale_labour_amount ?? ($netWeight * $labourRate)) : 0;
+                $otherAmount = (float) ($row['other_amount'] ?? $item?->sale_other ?? 0);
+                $lineTotal = $this->positiveOr($row['total_amount'] ?? null, $metalAmount + $labourAmount + $otherAmount);
 
                 // ✅ SAVE SALE ITEM
                 SaleItem::create([
@@ -743,22 +829,24 @@ class SaleController extends Controller
                     'itemset_id'       => $item ? $item->id : null,
                     'product_id'       => $productId ?: (int) ($item->item_id ?? 0),
                     'approval_item_id' => $approvalItemId,
-                    'gross_weight'     => $request->gross_weight[$index] ?? ($item->gross_weight ?? 0),
-                    'other_weight'     => $request->other_weight[$index] ?? ($item->other ?? 0),
-                    'net_weight'       => $request->net_weight[$index] ?? 0,
-                    'purity'           => $request->purity[$index] ?? 0,
-                    'waste_percent'    => $request->waste_percent[$index] ?? 0,
-                    'net_purity'       => $request->net_purity[$index] ?? 0,
-                    'fine_weight'      => $request->fine_weight[$index] ?? 0,
-                    'metal_rate'       => $request->metal_rate[$index] ?? 0,
-                    'metal_amount'     => $request->metal_amount[$index] ?? 0,
-                    'labour_rate'      => $request->labour_rate[$index] ?? 0,
-                    'labour_amount'    => $request->labour_amount[$index] ?? 0,
-                    'other_amount'     => $request->other_amount[$index] ?? 0,
-                    'other_charge_details' => $this->normalizeOtherChargeDetails($request->other_charge_details[$index] ?? null),
-                    'total_amount'     => $request->total_amount[$index] ?? 0,
-                    'remarks'          => $request->remarks[$index] ?? null,
+                    'qty'              => $qty,
+                    'gross_weight'     => $grossWeight,
+                    'other_weight'     => $otherWeight,
+                    'net_weight'       => $netWeight,
+                    'purity'           => $purity,
+                    'waste_percent'    => $wastePercent,
+                    'net_purity'       => $netPurity,
+                    'fine_weight'      => $fineWeight,
+                    'metal_rate'       => $metalRate,
+                    'metal_amount'     => $metalAmount,
+                    'labour_rate'      => $labourRate,
+                    'labour_amount'    => $labourAmount,
+                    'other_amount'     => $otherAmount,
+                    'other_charge_details' => $this->normalizeOtherChargeDetails($row['other_charge_details'] ?? $row['other_charges'] ?? null),
+                    'total_amount'     => $lineTotal,
+                    'remarks'          => $row['remarks'] ?? null,
                 ]);
+                $savedRows++;
 
                 // ✅ mark itemset sold (only for itemset flow)
                 if ($item) {
@@ -782,7 +870,11 @@ class SaleController extends Controller
                     }
                 }
 
-                $total += $request->total_amount[$index] ?? 0;
+                $total += $lineTotal;
+            }
+
+            if ($savedRows !== count($saleRows)) {
+                throw new \Exception('Sale item count mismatch. Submitted ' . count($saleRows) . ' row(s), saved ' . $savedRows . ' row(s).');
             }
 
             $advanceSummaryNow = $this->getAdvanceSummary($company->id, (int) $sale->customer_id);
@@ -850,8 +942,9 @@ class SaleController extends Controller
 
             $request->validate([
                 'customer_id' => 'required|integer',
-                'items' => 'required|array|min:1',
-                'items.*' => 'required|integer',
+                'items_payload' => 'nullable|string',
+                'items' => 'nullable|array',
+                'items.*' => 'nullable|integer',
                 'received_amount' => 'nullable|numeric|min:0',
                 'additional_received_amount' => 'nullable|numeric|min:0',
             ]);
@@ -862,6 +955,11 @@ class SaleController extends Controller
                 ->exists();
             if (!$customerExists) {
                 throw new \Exception('Invalid customer for this company.');
+            }
+
+            $saleRows = $this->saleRowsFromRequest($request);
+            if (empty($saleRows)) {
+                throw new \Exception('Add at least one item.');
             }
 
             $incomingReceived = (float) $request->input('received_amount', $sale->received_amount ?? 0);
@@ -934,7 +1032,7 @@ class SaleController extends Controller
                     }
                 }
 
-                if (!empty($saleItem->itemset_id)) {
+                if (!empty($saleItem->itemset_id) && empty($saleItem->approval_item_id)) {
                     ItemSet::where('company_id', $company->id)
                         ->where('id', (int) $saleItem->itemset_id)
                         ->update(['is_sold' => 0]);
@@ -944,11 +1042,12 @@ class SaleController extends Controller
             }
 
             $total = 0;
+            $savedRows = 0;
 
-            foreach ($request->items as $index => $itemsetIdRaw) {
-                $itemsetId = (int) $itemsetIdRaw;
-                $productId = (int) ($request->item_ids[$index] ?? 0);
-                $approvalItemId = $request->approval_item_ids[$index] ?? null;
+            foreach ($saleRows as $index => $row) {
+                $itemsetId = (int) ($row['itemset_id'] ?? 0);
+                $productId = (int) ($row['item_id'] ?? $row['product_id'] ?? 0);
+                $approvalItemId = $row['approval_item_id'] ?? null;
 
                 $item = null;
                 $directItem = null;
@@ -971,34 +1070,52 @@ class SaleController extends Controller
                         throw new \Exception("Direct item not found: {$productId}");
                     }
                 } else {
-                    continue;
+                    throw new \Exception('Invalid sale item row at position ' . ($index + 1) . '.');
                 }
 
                 $product = $directItem ?: optional($item)->item;
+                $qty = max(1, (int) ($row['qty'] ?? 1));
+                $grossWeight = (float) ($row['gross_weight'] ?? ($item->gross_weight ?? 0));
+                $otherWeight = (float) ($row['other_weight'] ?? ($item->other ?? 0));
+                $netWeight = (float) ($row['net_weight'] ?? max(0, $grossWeight - $otherWeight));
+                $purity = (float) ($row['purity'] ?? optional($product)->outward_purity ?? 0);
+                $wastePercent = (float) ($row['waste_percent'] ?? $row['waste'] ?? 0);
+                $netPurity = $this->positiveOr($row['net_purity'] ?? null, $purity + $wastePercent);
+                $fineWeight = $this->positiveOr($row['fine_weight'] ?? null, $netWeight * $netPurity / 100);
+                $metalRate = (float) ($row['metal_rate'] ?? 0);
+                $applyMetal = $this->truthy($row['apply_metal'] ?? null, true);
+                $metalAmount = $applyMetal ? $this->positiveOr($row['metal_amount'] ?? null, $fineWeight * $metalRate) : 0;
+                $labourRate = (float) ($row['labour_rate'] ?? optional($product)->labour_rate ?? 0);
+                $applyLabour = $this->truthy($row['apply_labour'] ?? null, true);
+                $labourAmount = $applyLabour ? $this->positiveOr($row['labour_amount'] ?? null, $netWeight * $labourRate) : 0;
+                $otherAmount = (float) ($row['other_amount'] ?? 0);
+                $lineTotal = $this->positiveOr($row['total_amount'] ?? null, $metalAmount + $labourAmount + $otherAmount);
 
                 $payload = [
                     'sale_id'          => $sale->id,
                     'itemset_id'       => $item ? $item->id : null,
                     'product_id'       => $productId ?: (int) ($item->item_id ?? optional($product)->id ?? 0),
-                    'gross_weight'     => $request->gross_weight[$index] ?? ($item->gross_weight ?? 0),
-                    'other_weight'     => $request->other_weight[$index] ?? ($item->other ?? 0),
-                    'net_weight'       => $request->net_weight[$index] ?? 0,
-                    'purity'           => $request->purity[$index] ?? optional($product)->outward_purity ?? 0,
-                    'waste_percent'    => $request->waste_percent[$index] ?? 0,
-                    'net_purity'       => $request->net_purity[$index] ?? 0,
-                    'fine_weight'      => $request->fine_weight[$index] ?? 0,
-                    'metal_rate'       => $request->metal_rate[$index] ?? 0,
-                    'metal_amount'     => $request->metal_amount[$index] ?? 0,
-                    'labour_rate'      => $request->labour_rate[$index] ?? optional($product)->labour_rate ?? 0,
-                    'labour_amount'    => $request->labour_amount[$index] ?? 0,
-                    'other_amount'     => $request->other_amount[$index] ?? 0,
-                    'other_charge_details' => $this->normalizeOtherChargeDetails($request->other_charge_details[$index] ?? null),
-                    'total_amount'     => $request->total_amount[$index] ?? 0,
-                    'remarks'          => $request->remarks[$index] ?? null,
+                    'qty'              => $qty,
+                    'gross_weight'     => $grossWeight,
+                    'other_weight'     => $otherWeight,
+                    'net_weight'       => $netWeight,
+                    'purity'           => $purity,
+                    'waste_percent'    => $wastePercent,
+                    'net_purity'       => $netPurity,
+                    'fine_weight'      => $fineWeight,
+                    'metal_rate'       => $metalRate,
+                    'metal_amount'     => $metalAmount,
+                    'labour_rate'      => $labourRate,
+                    'labour_amount'    => $labourAmount,
+                    'other_amount'     => $otherAmount,
+                    'other_charge_details' => $this->normalizeOtherChargeDetails($row['other_charge_details'] ?? $row['other_charges'] ?? null),
+                    'total_amount'     => $lineTotal,
+                    'remarks'          => $row['remarks'] ?? null,
                     'approval_item_id' => $approvalItemId,
                 ];
 
                 SaleItem::create($payload);
+                $savedRows++;
 
                 if ($item) {
                     $item->update(['is_sold' => 1]);
@@ -1016,6 +1133,10 @@ class SaleController extends Controller
                 }
 
                 $total += (float) ($payload['total_amount'] ?? 0);
+            }
+
+            if ($savedRows !== count($saleRows)) {
+                throw new \Exception('Sale item count mismatch. Submitted ' . count($saleRows) . ' row(s), saved ' . $savedRows . ' row(s).');
             }
 
             $advanceSummaryNow = $this->getAdvanceSummary($company->id, (int) $request->customer_id);
@@ -1074,6 +1195,76 @@ class SaleController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
             return back()->with('error', $e->getMessage());
+        }
+    }
+
+    public function destroy(Request $request, $slug, $encryptedId)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $saleId = (int) Crypt::decryptString($encryptedId);
+
+        DB::beginTransaction();
+
+        try {
+            $sale = Sale::with('saleItems')
+                ->where('company_id', $company->id)
+                ->findOrFail($saleId);
+
+            $hasReturns = DB::table('sale_returns')
+                ->where('company_id', $company->id)
+                ->where('sale_id', (int) $sale->id)
+                ->exists();
+
+            if ($hasReturns) {
+                throw new \Exception('This sale has return entries, so it cannot be deleted.');
+            }
+
+            $restoreSummary = $this->restoreSaleItemsToSource((int) $company->id, $sale->saleItems);
+
+            SalePayment::where('company_id', $company->id)
+                ->where('sale_id', (int) $sale->id)
+                ->delete();
+            CustomerAdvanceLedger::where('company_id', $company->id)
+                ->where('reference_type', 'sale')
+                ->where('reference_id', (int) $sale->id)
+                ->delete();
+            SaleItem::where('sale_id', (int) $sale->id)->delete();
+            $sale->delete();
+
+            $this->refreshApprovalHeaderStatus($restoreSummary['approval_ids'], (int) $company->id);
+
+            DB::commit();
+
+            $message = 'Sale deleted successfully. Items moved back to their original position.';
+
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => $message,
+                    'data' => [
+                        'deleted_sale_id' => $saleId,
+                        'approval_items_restored' => $restoreSummary['approval_items'],
+                        'stock_items_restored' => $restoreSummary['stock_items'],
+                    ],
+                ]);
+            }
+
+            return redirect()
+                ->route('company.sales.index', $company->slug)
+                ->with('success', $message);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $e->getMessage(),
+                ], 422);
+            }
+
+            return redirect()
+                ->route('company.sales.index', $company->slug)
+                ->with('error', $e->getMessage());
         }
     }
 
@@ -1201,6 +1392,7 @@ class SaleController extends Controller
                     'sale_id'      => $sale->id,
                     'itemset_id'   => $itemSet->id,
                     'product_id'   => null,
+                    'qty'          => 1,
 
                     'gross_weight' => $gross,
                     'net_weight'   => $net,
@@ -1244,6 +1436,7 @@ class SaleController extends Controller
         $company = Company::where('slug', $slug)->firstOrFail();
 
         $customerId = $request->customer_id;
+        $currentSaleId = (int) $request->input('sale_id', 0);
 
         $approvalIds = ApprovalHeader::where('company_id', $company->id)
             ->where('customer_id', $customerId)
@@ -1258,7 +1451,7 @@ class SaleController extends Controller
                 $q->whereNull('status')
                     ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
             })
-            ->whereNotExists(function ($sub) {
+            ->whereNotExists(function ($sub) use ($currentSaleId) {
                 $sub->select(DB::raw(1))
                     ->from('sale_items')
                     ->where(function ($q) {
@@ -1266,12 +1459,16 @@ class SaleController extends Controller
                             ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
                             ->orWhereColumn('sale_items.itemset_id', 'approval_items.item_id');
                     });
+
+                if ($currentSaleId > 0) {
+                    $sub->where('sale_items.sale_id', '<>', $currentSaleId);
+                }
             })
 
             ->get()
             ->filter(function ($row) {
                 $itemSet = $row->itemSet ?? $row->legacyItemSet;
-                return $itemSet && $itemSet->is_sold == 1;
+                return (bool) $itemSet;
             });
 
         return response()->json($items->values()->map(function ($row) {
@@ -1280,16 +1477,23 @@ class SaleController extends Controller
             $gross = (float) ($row->gross_weight ?? 0);
             $otherWeight = (float) ($row->other_weight ?? 0);
             $net = (float) ($row->net_weight ?? ($gross - $otherWeight));
-            $purity = (float) ($row->purity ?? optional($item)->outward_purity ?? 0);
+            $approvalPurity = (float) ($row->purity ?? 0);
+            $itemPurity = (float) (optional($item)->outward_purity ?? 0);
+            $purity = $approvalPurity > 0 ? $approvalPurity : $itemPurity;
             $wastePercent = (float) ($row->waste_percent ?? 0);
-            $netPurity = (float) ($row->net_purity ?? ($purity + $wastePercent));
-            $fineWeight = (float) ($row->total_fine_weight ?? ($net * $netPurity / 100));
+            $savedNetPurity = (float) ($row->net_purity ?? 0);
+            $netPurity = $savedNetPurity > 0 ? $savedNetPurity : ($purity + $wastePercent);
+            $savedFineWeight = (float) ($row->total_fine_weight ?? $row->fine_weight ?? 0);
+            $fineWeight = $savedFineWeight > 0 ? $savedFineWeight : ($net * $netPurity / 100);
             $metalRate = (float) ($row->metal_rate ?? 0);
-            $metalAmount = (float) ($row->metal_amount ?? ($fineWeight * $metalRate));
+            $savedMetalAmount = (float) ($row->metal_amount ?? 0);
+            $metalAmount = $savedMetalAmount > 0 ? $savedMetalAmount : ($fineWeight * $metalRate);
             $labourRate = (float) ($row->labour_rate ?? optional($itemSet)->sale_labour_rate ?? optional($item)->labour_rate ?? 0);
-            $labourAmount = (float) ($row->labour_amount ?? ($net * $labourRate));
+            $savedLabourAmount = (float) ($row->labour_amount ?? 0);
+            $labourAmount = $savedLabourAmount > 0 ? $savedLabourAmount : ($net * $labourRate);
             $otherAmount = (float) ($row->other_amount ?? optional($itemSet)->sale_other ?? 0);
-            $totalAmount = (float) ($row->total_amount ?? ($metalAmount + $labourAmount + $otherAmount));
+            $savedTotalAmount = (float) ($row->total_amount ?? 0);
+            $totalAmount = $savedTotalAmount > 0 ? $savedTotalAmount : ($metalAmount + $labourAmount + $otherAmount);
 
             return [
                 'approval_item_id' => $row->id,
@@ -1304,6 +1508,8 @@ class SaleController extends Controller
                 'other_weight'       => $otherWeight,
                 'net_weight'         => $net,
                 'purity'             => $purity,
+                'item_purity'         => $itemPurity,
+                'outward_purity'      => $itemPurity,
                 'waste_percent'      => $wastePercent,
                 'net_purity'         => $netPurity,
                 'fine_weight'        => $fineWeight,
@@ -1351,6 +1557,78 @@ class SaleController extends Controller
             'silver' => (float) ($metal['silver'] ?? 0),
             'other' => (float) ($metal['other'] ?? 0),
         ];
+    }
+
+    private function restoreSaleItemsToSource(int $companyId, $saleItems): array
+    {
+        $approvalIds = [];
+        $summary = [
+            'approval_ids' => [],
+            'approval_items' => 0,
+            'stock_items' => 0,
+        ];
+
+        foreach ($saleItems as $saleItem) {
+            if (!empty($saleItem->approval_item_id)) {
+                $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
+                    $q->where('company_id', $companyId);
+                })->find((int) $saleItem->approval_item_id);
+
+                if ($approvalItem) {
+                    $approvalItem->update(['status' => 'pending']);
+                    $approvalIds[] = (int) $approvalItem->approval_id;
+                }
+
+                if (!empty($saleItem->itemset_id)) {
+                    ItemSet::where('company_id', $companyId)
+                        ->where('id', (int) $saleItem->itemset_id)
+                        ->update(['is_sold' => 1]);
+                }
+
+                $summary['approval_items']++;
+                continue;
+            }
+
+            if (!empty($saleItem->itemset_id)) {
+                ItemSet::where('company_id', $companyId)
+                    ->where('id', (int) $saleItem->itemset_id)
+                    ->update(['is_sold' => 0]);
+                $summary['stock_items']++;
+            }
+        }
+
+        $summary['approval_ids'] = array_values(array_unique($approvalIds));
+
+        return $summary;
+    }
+
+    private function refreshApprovalHeaderStatus(array $approvalIds, int $companyId): void
+    {
+        foreach (array_unique($approvalIds) as $approvalId) {
+            if (!$approvalId) {
+                continue;
+            }
+
+            $totalItems = ApprovalItem::where('approval_id', $approvalId)->count();
+            $doneItems = ApprovalItem::where('approval_id', $approvalId)
+                ->whereIn('status', ['sold', 'returned'])
+                ->count();
+
+            if ($totalItems <= 0) {
+                continue;
+            }
+
+            $status = 'open';
+            if ($doneItems === $totalItems) {
+                $status = 'closed';
+            } elseif ($doneItems > 0 && $doneItems < $totalItems) {
+                $status = 'partial';
+            }
+
+            ApprovalHeader::where('company_id', $companyId)
+                ->where('id', $approvalId)
+                ->update(['status' => $status]);
+        }
     }
 
     private function syncSilverAdvanceUsageForSale(int $companyId, Sale $sale, bool $useSilverBalance = false, ?int $userId = null): void
@@ -1447,6 +1725,69 @@ class SaleController extends Controller
 
         $value = trim((string) ($value ?? ''));
         return $value === '' ? null : $value;
+    }
+
+    private function saleRowsFromRequest(Request $request): array
+    {
+        $payload = trim((string) $request->input('items_payload', ''));
+        if ($payload !== '') {
+            $decoded = json_decode($payload, true);
+            if (!is_array($decoded)) {
+                throw new \Exception('Invalid sale items payload.');
+            }
+
+            return array_values(array_filter($decoded, fn($row) => is_array($row)));
+        }
+
+        $items = $request->input('items', []);
+        if (!is_array($items)) {
+            return [];
+        }
+
+        $rows = [];
+        foreach ($items as $index => $itemsetId) {
+            $rows[] = [
+                'itemset_id' => $itemsetId,
+                'item_id' => $request->input("item_ids.$index"),
+                'approval_item_id' => $request->input("approval_item_ids.$index"),
+                'qty' => $request->input("qty.$index", 1),
+                'gross_weight' => $request->input("gross_weight.$index"),
+                'other_weight' => $request->input("other_weight.$index"),
+                'net_weight' => $request->input("net_weight.$index"),
+                'purity' => $request->input("purity.$index"),
+                'waste_percent' => $request->input("waste_percent.$index"),
+                'net_purity' => $request->input("net_purity.$index"),
+                'fine_weight' => $request->input("fine_weight.$index"),
+                'metal_rate' => $request->input("metal_rate.$index"),
+                'apply_metal' => $request->input("apply_metal.$index"),
+                'metal_amount' => $request->input("metal_amount.$index"),
+                'labour_rate' => $request->input("labour_rate.$index"),
+                'apply_labour' => $request->input("apply_labour.$index"),
+                'labour_amount' => $request->input("labour_amount.$index"),
+                'other_amount' => $request->input("other_amount.$index"),
+                'other_charge_details' => $request->input("other_charge_details.$index"),
+                'total_amount' => $request->input("total_amount.$index"),
+                'remarks' => $request->input("remarks.$index"),
+            ];
+        }
+
+        return $rows;
+    }
+
+    private function positiveOr($value, float $fallback): float
+    {
+        $number = (float) ($value ?? 0);
+        return $number > 0 ? $number : $fallback;
+    }
+
+    private function truthy($value, bool $default = true): bool
+    {
+        if ($value === null || $value === '') {
+            return $default;
+        }
+
+        $parsed = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        return $parsed ?? ((float) $value !== 0.0);
     }
 
     public function customerAdvance(Request $request, $slug)

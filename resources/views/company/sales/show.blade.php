@@ -55,6 +55,7 @@
                         <tr>
                             <th>#</th>
                             <th>Item</th>
+                            <th>Qty</th>
                             <th>HUID</th>
                             <th>QR Code</th>
                             <th>Gross Wt</th>
@@ -68,7 +69,13 @@
                         @forelse($sale->saleItems as $index => $row)
                             <tr>
                                 <td>{{ $index + 1 }}</td>
-                                <td>{{ optional(optional($row->itemset)->item)->item_name ?? optional($row->product)->item_name ?? '-' }}</td>
+                                <td>
+                                    {{ optional(optional($row->itemset)->item)->item_name ?? optional($row->product)->item_name ?? '-' }}
+                                    @if(!empty($row->remarks))
+                                        <div class="small text-muted">{{ $row->remarks }}</div>
+                                    @endif
+                                </td>
+                                <td>{{ max(1, (int) ($row->qty ?? 1)) }}</td>
                                 <td>{{ optional($row->itemset)->HUID ?? '-' }}</td>
                                 <td>{{ optional($row->itemset)->qr_code ?? '-' }}</td>
                                 <td>{{ number_format((float) ($row->gross_weight ?? 0), 3) }}</td>
@@ -79,7 +86,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="9" class="text-center">No sale items found</td>
+                                <td colspan="10" class="text-center">No sale items found</td>
                             </tr>
                         @endforelse
                     </tbody>

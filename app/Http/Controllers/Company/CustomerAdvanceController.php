@@ -10,9 +10,11 @@ use App\Models\CustomerAdvanceLedger;
 use App\Models\CustomerAdvanceVoucher;
 use App\Models\SaleItem;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Yajra\DataTables\Facades\DataTables;
 
 class CustomerAdvanceController extends Controller
 {
@@ -41,9 +43,44 @@ class CustomerAdvanceController extends Controller
             $vouchersQuery->where('customer_id', (int) $request->input('customer_id'));
         }
 
-        $vouchers = $vouchersQuery->paginate(25)->withQueryString();
+        if ($request->ajax()) {
+            return DataTables::of($vouchersQuery)
+                ->addIndexColumn()
+                ->editColumn('voucher_date', function ($voucher) {
+                    return $voucher->voucher_date
+                        ? Carbon::parse($voucher->voucher_date)->format('d-m-Y')
+                        : '-';
+                })
+                ->addColumn('customer_name', fn($voucher) => optional($voucher->customer)->name ?? '-')
+                ->editColumn('entry_type', function ($voucher) {
+                    if ($voucher->entry_type === 'convert_to_metal') {
+                        return 'Rupees Convert To Metal';
+                    }
 
-        return view('company.sales.advance_index', compact('company', 'customers', 'vouchers'));
+                    if ($voucher->entry_type === 'convert_to_rupees') {
+                        return 'Metal Convert To Rupees';
+                    }
+
+                    return ucwords(str_replace('_', ' ', (string) $voucher->entry_type));
+                })
+                ->addColumn('payment_mode_label', fn($voucher) => $voucher->payment_mode ? ucfirst($voucher->payment_mode) : '-')
+                ->editColumn('cash_in', fn($voucher) => number_format((float) $voucher->cash_in, 2))
+                ->editColumn('cash_out', fn($voucher) => number_format((float) $voucher->cash_out, 2))
+                ->addColumn('metal_type_label', fn($voucher) => $voucher->metal_type ? ucfirst($voucher->metal_type) : '-')
+                ->editColumn('metal_in', fn($voucher) => number_format((float) $voucher->metal_in, 3))
+                ->editColumn('metal_out', fn($voucher) => number_format((float) $voucher->metal_out, 3))
+                ->editColumn('rate', fn($voucher) => number_format((float) $voucher->rate, 2))
+                ->editColumn('amount', fn($voucher) => number_format((float) $voucher->amount, 2))
+                ->addColumn('pdf', function ($voucher) use ($company) {
+                    return '<a class="btn btn-danger btn-sm" target="_blank" href="'
+                        . route('company.sales.advance.voucher.pdf', [$company->slug, Crypt::encryptString((string) $voucher->id)])
+                        . '">PDF</a>';
+                })
+                ->rawColumns(['pdf'])
+                ->make(true);
+        }
+
+        return view('company.sales.advance_index', compact('company', 'customers'));
     }
 
     public function create(Request $request, $slug)

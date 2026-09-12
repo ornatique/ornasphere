@@ -893,6 +893,8 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
             ->name('sales.edit');
         Route::post('sales/{encryptedId}/update', [SaleController::class, 'update'])
             ->name('sales.update');
+        Route::delete('sales/{encryptedId}', [SaleController::class, 'destroy'])
+            ->name('sales.destroy');
 
         Route::get('sales/get-itemset', [SaleController::class, 'getItemset'])
             ->name('sales.getItemset');
@@ -1091,6 +1093,15 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
                 ->name('barcode-history.suggest');
             Route::get('/sales-summary', [ReportController::class, 'salesSummary'])
                 ->name('sales-summary.index');
+            Route::get('/sales-summary/{sale}/details', [ReportController::class, 'salesSummaryDetails'])
+                ->whereNumber('sale')
+                ->name('sales-summary.details');
+            Route::get('/sales-summary/{sale}/details/export/excel', [ReportController::class, 'salesSummaryDetailsExcel'])
+                ->whereNumber('sale')
+                ->name('sales-summary.details.excel');
+            Route::get('/sales-summary/{sale}/details/export/pdf', [ReportController::class, 'salesSummaryDetailsPdf'])
+                ->whereNumber('sale')
+                ->name('sales-summary.details.pdf');
             Route::get('/sales-summary/export/excel', [ReportController::class, 'salesSummaryExcel'])
                 ->name('sales-summary.export.excel');
             Route::get('/sales-summary/export/pdf', [ReportController::class, 'salesSummaryPdf'])
@@ -1118,6 +1129,12 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
             Route::get('/approval-outstanding/{approval}/details', [ReportController::class, 'approvalOutstandingDetails'])
                 ->whereNumber('approval')
                 ->name('approval-outstanding.details');
+            Route::get('/approval-outstanding/{approval}/details/export/excel', [ReportController::class, 'approvalOutstandingDetailsExcel'])
+                ->whereNumber('approval')
+                ->name('approval-outstanding.details.excel');
+            Route::get('/approval-outstanding/{approval}/details/export/pdf', [ReportController::class, 'approvalOutstandingDetailsPdf'])
+                ->whereNumber('approval')
+                ->name('approval-outstanding.details.pdf');
             Route::get('/approval-outstanding/export/excel', [ReportController::class, 'approvalOutstandingExcel'])
                 ->name('approval-outstanding.export.excel');
             Route::get('/approval-outstanding/export/pdf', [ReportController::class, 'approvalOutstandingPdf'])

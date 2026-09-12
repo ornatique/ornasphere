@@ -11,7 +11,7 @@
         </div>
 
         <div class="card-body">
-            <form method="GET" action="{{ route('company.sales.advance.index', $company->slug) }}" class="row g-3 mb-4 align-items-end">
+            <form method="GET" action="{{ route('company.sales.advance.index', $company->slug) }}" class="row g-3 mb-4 align-items-end" id="advanceVoucherFilterForm">
                 <div class="col-md-3">
                     <label>From Date</label>
                     <input type="date" name="from_date" class="form-control" value="{{ request('from_date') }}">
@@ -32,13 +32,13 @@
                     </select>
                 </div>
                 <div class="col-md-3 d-flex gap-2">
-                    <button class="btn btn-primary flex-fill">Filter</button>
-                    <a href="{{ route('company.sales.advance.index', $company->slug) }}" class="btn btn-secondary flex-fill">Reset</a>
+                    <button type="button" id="filterAdvanceVouchers" class="btn btn-primary flex-fill">Filter</button>
+                    <button type="button" id="resetAdvanceVouchers" class="btn btn-secondary flex-fill">Reset</button>
                 </div>
             </form>
 
             <div class="table-responsive advance-voucher-list-wrap">
-                <table class="table table-bordered mb-0">
+                <table class="table table-bordered mb-0" id="advanceVoucherTable">
                     <thead>
                         <tr>
                             <th>#</th>
@@ -57,39 +57,8 @@
                             <th>PDF</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        @forelse($vouchers as $voucher)
-                            <tr>
-                                <td>{{ $loop->iteration + (($vouchers->currentPage() - 1) * $vouchers->perPage()) }}</td>
-                                <td>{{ $voucher->voucher_no }}</td>
-                                <td>{{ optional($voucher->voucher_date)->format('d-m-Y') }}</td>
-                                <td>{{ optional($voucher->customer)->name ?? '-' }}</td>
-                                <td>{{ ucwords(str_replace('_', ' ', $voucher->entry_type)) }}</td>
-                                <td>{{ $voucher->payment_mode ? ucfirst($voucher->payment_mode) : '-' }}</td>
-                                <td>{{ number_format((float) $voucher->cash_in, 2) }}</td>
-                                <td>{{ number_format((float) $voucher->cash_out, 2) }}</td>
-                                <td>{{ $voucher->metal_type ? ucfirst($voucher->metal_type) : '-' }}</td>
-                                <td>{{ number_format((float) $voucher->metal_in, 3) }}</td>
-                                <td>{{ number_format((float) $voucher->metal_out, 3) }}</td>
-                                <td>{{ number_format((float) $voucher->rate, 2) }}</td>
-                                <td>{{ number_format((float) $voucher->amount, 2) }}</td>
-                                <td>
-                                    <a class="btn btn-danger btn-sm" target="_blank" href="{{ route('company.sales.advance.voucher.pdf', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $voucher->id)]) }}">
-                                        PDF
-                                    </a>
-                                </td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="14" class="text-center">No vouchers available.</td>
-                            </tr>
-                        @endforelse
-                    </tbody>
+                    <tbody></tbody>
                 </table>
-            </div>
-
-            <div class="mt-3">
-                {{ $vouchers->links() }}
             </div>
         </div>
     </div>
@@ -107,12 +76,27 @@
         min-width: 1500px;
     }
 
-    .advance-voucher-list-wrap th {
+    .advance-voucher-list-wrap th,
+    .advance-voucher-list-wrap td {
         white-space: nowrap;
+        vertical-align: middle;
     }
 
     .searchable-party-select {
         width: 100%;
+    }
+
+    #advanceVoucherTable_wrapper .row {
+        align-items: center;
+        margin-left: 0;
+        margin-right: 0;
+    }
+
+    #advanceVoucherTable_wrapper .dataTables_length,
+    #advanceVoucherTable_wrapper .dataTables_filter,
+    #advanceVoucherTable_wrapper .dataTables_info,
+    #advanceVoucherTable_wrapper .dataTables_paginate {
+        padding: 8px 0;
     }
 </style>
 @endpush
@@ -125,6 +109,55 @@ $(function() {
         width: '100%',
         placeholder: 'Select Party',
         allowClear: true
+    });
+
+    const table = $('#advanceVoucherTable').DataTable({
+        processing: true,
+        serverSide: true,
+        pageLength: 25,
+        lengthMenu: [10, 25, 50, 100],
+        scrollX: true,
+        order: [[2, 'desc']],
+        ajax: {
+            url: "{{ route('company.sales.advance.index', $company->slug) }}",
+            data: function (d) {
+                d.from_date = $('input[name="from_date"]').val();
+                d.to_date = $('input[name="to_date"]').val();
+                d.customer_id = $('select[name="customer_id"]').val();
+            }
+        },
+        columns: [
+            { data: 'DT_RowIndex', orderable: false, searchable: false },
+            { data: 'voucher_no', name: 'voucher_no' },
+            { data: 'voucher_date', name: 'voucher_date' },
+            { data: 'customer_name', name: 'customer.name', orderable: false },
+            { data: 'entry_type', name: 'entry_type' },
+            { data: 'payment_mode_label', name: 'payment_mode' },
+            { data: 'cash_in', name: 'cash_in', className: 'text-end' },
+            { data: 'cash_out', name: 'cash_out', className: 'text-end' },
+            { data: 'metal_type_label', name: 'metal_type' },
+            { data: 'metal_in', name: 'metal_in', className: 'text-end' },
+            { data: 'metal_out', name: 'metal_out', className: 'text-end' },
+            { data: 'rate', name: 'rate', className: 'text-end' },
+            { data: 'amount', name: 'amount', className: 'text-end' },
+            { data: 'pdf', orderable: false, searchable: false }
+        ]
+    });
+
+    $('#filterAdvanceVouchers').on('click', function () {
+        table.draw();
+    });
+
+    $('#resetAdvanceVouchers').on('click', function () {
+        $('input[name="from_date"]').val('');
+        $('input[name="to_date"]').val('');
+        $('select[name="customer_id"]').val('').trigger('change.select2');
+        table.search('').draw();
+    });
+
+    $('#advanceVoucherFilterForm').on('submit', function (event) {
+        event.preventDefault();
+        table.draw();
     });
 });
 </script>
