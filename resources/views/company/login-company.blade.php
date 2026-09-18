@@ -10,23 +10,94 @@
     <link rel="stylesheet" href="{{ asset('celestial/assets/vendors/mdi/css/materialdesignicons.min.css') }}">
     <link rel="stylesheet" href="{{ asset('celestial/assets/vendors/css/vendor.bundle.base.css') }}">
     <link rel="stylesheet" href="{{ asset('celestial/assets/css/vertical-layout-dark/style.css') }}">
+    <style>
+        .company-auth-page {
+            min-height: 100vh;
+        }
+
+        .company-auth-panel {
+            text-align: center;
+        }
+
+        .company-login-logo-wrap {
+            margin-bottom: 18px !important;
+            text-align: center;
+        }
+
+        .company-login-logo {
+            width: 320px !important;
+            max-width: 100% !important;
+            height: 100px !important;
+            max-height: none !important;
+            object-fit: contain;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .company-auth-panel .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .company-auth-panel .form-control-lg {
+            height: 50px;
+            padding: 0 28px;
+            font-size: 0.95rem;
+            line-height: 50px;
+        }
+
+        .company-auth-panel .btn-lg {
+            height: 50px;
+            padding: 0 24px;
+            font-size: 0.9rem;
+            line-height: 50px;
+        }
+
+        .company-auth-name {
+            color: #ff1a68;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .company-auth-title {
+            margin-bottom: 6px;
+        }
+
+        .company-auth-subtitle {
+            margin-bottom: 22px;
+        }
+
+        @media (max-width: 575.98px) {
+            .company-login-logo {
+                width: 320px !important;
+            }
+        }
+    </style>
 </head>
 
 <body>
+@php
+    $defaultCompanyLogo = asset('celestial/assets/images/logo.svg') . '?v=' . @filemtime(public_path('celestial/assets/images/logo.svg'));
+    $companyLogo = $defaultCompanyLogo;
+@endphp
 <div class="container-scroller">
     <div class="container-fluid page-body-wrapper full-page-wrapper">
-        <div class="content-wrapper d-flex align-items-center auth px-0">
+        <div class="content-wrapper d-flex align-items-center auth px-0 company-auth-page">
             <div class="row w-100 mx-0">
-                <div class="col-lg-4 mx-auto">
+                <div class="col-lg-4 col-md-7 mx-auto">
 
-                    <div class="auth-form-transparent text-left py-5 px-4 px-sm-5">
+                    <div class="auth-form-transparent company-auth-panel py-5 px-4 px-sm-5">
 
-                        <div class="brand-logo text-center mb-3">
-                            <h3 class="text-primary">{{ $company->name }}</h3>
+                        <div class="brand-logo company-login-logo-wrap">
+                            <img src="{{ $companyLogo }}"
+                                 alt="{{ $company->name }} logo"
+                                 class="company-login-logo"
+                                 onerror="this.onerror=null;this.src='{{ $defaultCompanyLogo }}';">
                         </div>
 
-                        <h4>Company Login</h4>
-                        <h6 class="fw-light">Sign in to your ERP dashboard</h6>
+                        <h3 class="company-auth-name">{{ $company->name }}</h3>
+                        <h4 class="company-auth-title">Company Login</h4>
+                        <h6 class="fw-light company-auth-subtitle">Sign in to your ERP dashboard</h6>
 
                         <form method="POST" action="{{ route('company.login', $company->slug) }}">
                             @csrf

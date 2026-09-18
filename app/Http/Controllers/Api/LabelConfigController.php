@@ -57,10 +57,13 @@ class LabelConfigController extends Controller
 
         $validated = $request->validate([
             'item_id' => 'required|exists:items,id',
+            'prefix' => 'nullable|string|max:50',
             'numeric_length' => 'nullable|integer',
             'min_no' => 'nullable|integer',
             'max_no' => 'nullable|integer',
         ]);
+
+        $prefix = $this->normalizePrefix($request->input('prefix'));
 
         // Optional: Check item belongs to same company
         $item = Item::where('id', $request->item_id)
@@ -82,10 +85,18 @@ class LabelConfigController extends Controller
             ], 422);
         }
 
+        if ($this->prefixExists((int) $companyId, $prefix)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This prefix is already used. Please enter a different prefix.',
+                'code' => 'LABEL_CONFIG_PREFIX_EXISTS'
+            ], 422);
+        }
+
         $config = LabelConfig::create([
             'company_id' => $companyId,
             'item_id' => $item->id,
-            'prefix' => $request->prefix,
+            'prefix' => $prefix,
             'numeric_length' => $request->numeric_length,
             'last_no' => $request->last_no ?? 0,
             'reuse' => $request->boolean('reuse'),
@@ -121,10 +132,13 @@ class LabelConfigController extends Controller
 
         $validated = $request->validate([
             'item_id' => 'required|exists:items,id',
+            'prefix' => 'nullable|string|max:50',
             'numeric_length' => 'nullable|integer',
             'min_no' => 'nullable|integer',
             'max_no' => 'nullable|integer',
         ]);
+
+        $prefix = $this->normalizePrefix($request->input('prefix'));
 
         $item = Item::where('id', $request->item_id)
                     ->where('company_id', $companyId)
@@ -148,9 +162,17 @@ class LabelConfigController extends Controller
             ], 422);
         }
 
+        if ($this->prefixExists((int) $companyId, $prefix, (int) $config->id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This prefix is already used. Please enter a different prefix.',
+                'code' => 'LABEL_CONFIG_PREFIX_EXISTS'
+            ], 422);
+        }
+
         $config->update([
             'item_id' => $item->id,
-            'prefix' => $request->prefix,
+            'prefix' => $prefix,
             'numeric_length' => $request->numeric_length,
             'last_no' => $request->last_no ?? 0,
             'reuse' => $request->boolean('reuse'),
@@ -201,5 +223,24 @@ class LabelConfigController extends Controller
                 })->when($currentItemId, fn($q) => $q->orWhere('id', $currentItemId));
             })
             ->orderBy('item_name');
+    }
+
+    private function normalizePrefix($prefix): ?string
+    {
+        $prefix = trim((string) $prefix);
+
+        return $prefix === '' ? null : $prefix;
+    }
+
+    private function prefixExists(int $companyId, ?string $prefix, ?int $ignoreId = null): bool
+    {
+        if ($prefix === null) {
+            return false;
+        }
+
+        return LabelConfig::where('company_id', $companyId)
+            ->whereRaw('LOWER(TRIM(prefix)) = ?', [strtolower($prefix)])
+            ->when($ignoreId, fn($query) => $query->where('id', '!=', $ignoreId))
+            ->exists();
     }
 }

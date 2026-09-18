@@ -79,7 +79,25 @@
                     <label class="form-label mb-1">To Date</label>
                     <input type="date" id="to_date" class="form-control" value="{{ now()->toDateString() }}">
                 </div>
-                <div class="col-lg-6">
+                <div class="col-lg-3 col-md-6">
+                    <label class="form-label mb-1">Worker Name</label>
+                    <select id="job_worker_id" class="form-control jobwork-search-select">
+                        <option value="">All Workers</option>
+                        @foreach($jobWorkers as $worker)
+                            <option value="{{ $worker->id }}">{{ $worker->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="col-lg-3 col-md-6">
+                    <label class="form-label mb-1">Production Step</label>
+                    <select id="production_step_id" class="form-control jobwork-search-select">
+                        <option value="">All Steps</option>
+                        @foreach($productionSteps as $step)
+                            <option value="{{ $step->id }}">{{ $step->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="col-12">
                     <div class="jobwork-filter-actions">
                         <button type="button" id="filterBtn" class="btn btn-info jobwork-action-btn">Apply Filter</button>
                         <button type="button" id="resetBtn" class="btn btn-secondary jobwork-action-btn">Reset</button>
@@ -120,10 +138,33 @@
 
 @push('scripts')
 <script>
+    let table;
+
+    if ($.fn.select2) {
+        $('#job_worker_id').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'All Workers',
+            allowClear: true,
+            minimumResultsForSearch: 0
+        });
+
+        $('#production_step_id').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'All Steps',
+            allowClear: true,
+            minimumResultsForSearch: 0
+        });
+    }
+
     function exportUrl(baseUrl) {
         const params = new URLSearchParams({
             from_date: $('#from_date').val() || '',
-            to_date: $('#to_date').val() || ''
+            to_date: $('#to_date').val() || '',
+            job_worker_id: $('#job_worker_id').val() || '',
+            production_step_id: $('#production_step_id').val() || '',
+            search_text: table ? table.search() : ''
         });
         return `${baseUrl}?${params.toString()}`;
     }
@@ -138,7 +179,7 @@
         window.location.href = exportUrl("{{ route('company.jobwork-issue.export.pdf', $company->slug) }}");
     });
 
-    const table = $('#jobworkIssueTable').DataTable({
+    table = $('#jobworkIssueTable').DataTable({
         processing: true,
         serverSide: true,
         ajax: {
@@ -146,6 +187,8 @@
             data: function(d) {
                 d.from_date = $('#from_date').val();
                 d.to_date = $('#to_date').val();
+                d.job_worker_id = $('#job_worker_id').val();
+                d.production_step_id = $('#production_step_id').val();
             }
         },
         columns: [{
@@ -216,6 +259,9 @@
                 orderable: false,
                 searchable: false
             }
+        ],
+        order: [
+            [12, 'desc']
         ]
     });
 
@@ -227,6 +273,9 @@
         const today = "{{ now()->toDateString() }}";
         $('#from_date').val(today);
         $('#to_date').val(today);
+        $('#job_worker_id').val('').trigger('change.select2');
+        $('#production_step_id').val('').trigger('change.select2');
+        table.search('');
         table.ajax.reload();
     });
 

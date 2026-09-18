@@ -1572,22 +1572,26 @@ class ReportController extends Controller
     {
         $labelStock = ItemSet::query()
             ->join('items', 'items.id', '=', 'item_sets.item_id')
+            ->leftJoin('customers as supplier_customers', function ($join) use ($company) {
+                $join->on('supplier_customers.name', '=', 'item_sets.supplier_person')
+                    ->where('supplier_customers.company_id', $company->id);
+            })
             ->where('item_sets.company_id', $company->id)
             ->where('item_sets.is_final', 1)
             ->where('item_sets.is_sold', 0)
             ->when($request->filled('item_id'), function ($q) use ($request) {
                 $q->where('item_sets.item_id', (int) $request->item_id);
             })
-            ->when($request->filled('customer_id'), function ($q) {
-                $q->whereRaw('1 = 0');
+            ->when($request->filled('customer_id'), function ($q) use ($request) {
+                $q->where('supplier_customers.id', (int) $request->customer_id);
             })
             ->select([
                 'item_sets.item_id',
                 'items.item_name',
                 DB::raw("'finished_item' as stock_type"),
                 DB::raw("'Finished Item' as stock_type_name"),
-                DB::raw('NULL as customer_id'),
-                DB::raw("'-' as customer_name"),
+                DB::raw('supplier_customers.id as customer_id'),
+                DB::raw("COALESCE(NULLIF(item_sets.supplier_person, ''), '-') as customer_name"),
                 DB::raw('COUNT(item_sets.id) as qty_pcs'),
                 DB::raw('SUM(COALESCE(item_sets.gross_weight,0)) as gross_weight'),
                 DB::raw('SUM(COALESCE(item_sets.other,0)) as other_weight'),
@@ -1596,7 +1600,7 @@ class ReportController extends Controller
                 DB::raw('SUM(COALESCE(item_sets.sale_labour_amount,0)) as labour_amount'),
                 DB::raw('SUM(COALESCE(item_sets.sale_other,0)) as other_amount'),
             ])
-            ->groupBy('item_sets.item_id', 'items.item_name');
+            ->groupBy('item_sets.item_id', 'items.item_name', 'supplier_customers.id', 'item_sets.supplier_person');
 
         $customerReceivedStock = DB::table('customer_advance_voucher_items as cavi')
             ->join('customer_advance_vouchers as cav', 'cav.id', '=', 'cavi.voucher_id')
@@ -1716,21 +1720,26 @@ class ReportController extends Controller
             return $rows;
         }
 
-        if ($stockType === 'finished_item' && $customerId === null) {
+        if ($stockType === 'finished_item') {
             $rows = $rows->merge(
                 ItemSet::query()
                     ->join('items', 'items.id', '=', 'item_sets.item_id')
+                    ->leftJoin('customers as supplier_customers', function ($join) use ($company) {
+                        $join->on('supplier_customers.name', '=', 'item_sets.supplier_person')
+                            ->where('supplier_customers.company_id', $company->id);
+                    })
                     ->where('item_sets.company_id', $company->id)
                     ->where('item_sets.item_id', $itemId)
                     ->where('item_sets.is_final', 1)
                     ->where('item_sets.is_sold', 0)
+                    ->when($customerId !== null, fn($q) => $q->where('supplier_customers.id', $customerId))
                     ->select([
                         DB::raw("'Label Stock' as source"),
                         DB::raw('item_sets.created_at as source_date'),
                         DB::raw('COALESCE(item_sets.qr_code, item_sets.barcode) as reference_no'),
                         'items.item_name',
                         DB::raw("'Finished Item' as stock_type_name"),
-                        DB::raw("'-' as customer_name"),
+                        DB::raw("COALESCE(NULLIF(item_sets.supplier_person, ''), '-') as customer_name"),
                         DB::raw('COALESCE(item_sets.qr_code, item_sets.barcode) as label_code'),
                         'item_sets.HUID as huid',
                         'item_sets.size',

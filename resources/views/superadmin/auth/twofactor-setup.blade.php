@@ -11,6 +11,33 @@
     <link rel="stylesheet" href="{{ asset('celestial/assets/vendors/mdi/css/materialdesignicons.min.css') }}">
     <link rel="stylesheet" href="{{ asset('celestial/assets/vendors/css/vendor.bundle.base.css') }}">
     <link rel="stylesheet" href="{{ asset('celestial/assets/css/vertical-layout-dark/style.css') }}">
+    <style>
+        .two-factor-logo {
+            width: 420px !important;
+            max-width: 100% !important;
+            height: auto !important;
+            max-height: none !important;
+            object-fit: contain;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .two-factor-logo-wrap {
+            margin-bottom: -100px !important;
+            text-align: center;
+        }
+
+        .two-factor-panel {
+            text-align: center;
+        }
+
+        @media (max-width: 575.98px) {
+            .two-factor-logo {
+                width: 320px !important;
+            }
+        }
+    </style>
 </head>
 
 <body>
@@ -21,13 +48,13 @@
                 <div class="row w-100 mx-0">
                     <div class="col-lg-5 mx-auto">
 
-                        <div class="auth-form-transparent text-left py-5 px-4 px-sm-5">
+                        <div class="auth-form-transparent py-5 px-4 px-sm-5 two-factor-panel">
 
-                            <div class="brand-logo text-center">
-                                <img src="{{ asset('celestial/assets/images/logo.svg') }}" alt="logo">
+                            <div class="brand-logo two-factor-logo-wrap">
+                                <img src="{{ asset('celestial/assets/images/logo.svg') }}?v={{ @filemtime(public_path('celestial/assets/images/logo.svg')) }}" alt="logo" class="two-factor-logo">
                             </div>
 
-                            <h4 class="text-center mb-4">🔐 Two Factor Authentication</h4>
+                            <h4 class="mb-4">Two Factor Authentication</h4>
 
                             @php
                             $user = auth('superadmin')->user();
@@ -64,7 +91,7 @@
                                     <div class="d-flex justify-content-center">
                                         <div class="p-3 bg-white rounded shadow-sm">
                                             <div class="text-center">
-                                                <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={{ urlencode($qrCodeUrl) }}">
+                                                <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={{ urlencode($qrCodeUrl) }}" alt="2FA QR Code" style="display:block; margin:auto;">
                                             </div>
                                         </div>
                                     </div>
@@ -78,8 +105,11 @@
                                         <input type="text"
                                             name="code"
                                             maxlength="6"
-                                            class="form-control form-control-lg text-center"
+                                            class="form-control form-control-lg text-center js-otp-code"
                                             placeholder="Enter 6 digit OTP"
+                                            inputmode="numeric"
+                                            pattern="[0-9]{6}"
+                                            autocomplete="one-time-code"
                                             required>
                                     </div>
 
@@ -122,6 +152,13 @@
     <script src="{{ asset('celestial/assets/vendors/js/vendor.bundle.base.js') }}"></script>
     <script src="{{ asset('celestial/assets/js/off-canvas.js') }}"></script>
     <script src="{{ asset('celestial/assets/js/template.js') }}"></script>
+    <script>
+        document.querySelectorAll('.js-otp-code').forEach(function(input) {
+            input.addEventListener('input', function() {
+                this.value = this.value.replace(/\D/g, '').slice(0, 6);
+            });
+        });
+    </script>
 
 </body>
 

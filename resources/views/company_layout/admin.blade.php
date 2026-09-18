@@ -411,7 +411,7 @@ document.addEventListener('hidden.bs.modal', function () {
 
   <!-- End custom js for this page-->
   @stack('scripts')
-  @if(session('success') || session('error') || session('warning') || session('info'))
+@if(session('success') || session('error') || session('warning') || session('info'))
 <script>
 document.addEventListener("DOMContentLoaded", function () {
 
@@ -455,6 +455,57 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     @endif
 
+});
+</script>
+@endif
+@if(data_get($companyPlanStatus ?? [], 'alert.show_popup'))
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const planAlert = @json(data_get($companyPlanStatus, 'alert'));
+    const isBlockingPlanAlert = Boolean(planAlert && planAlert.blocking);
+
+    if (isBlockingPlanAlert) {
+        document.addEventListener('contextmenu', function (event) {
+            event.preventDefault();
+        });
+
+        document.addEventListener('keydown', function (event) {
+            const key = String(event.key || '').toLowerCase();
+            const blocked =
+                event.key === 'F12' ||
+                (event.ctrlKey && event.shiftKey && ['i', 'j', 'c'].includes(key)) ||
+                (event.ctrlKey && key === 'u') ||
+                (event.ctrlKey && key === 's');
+
+            if (blocked) {
+                event.preventDefault();
+                event.stopPropagation();
+                return false;
+            }
+        }, true);
+    }
+
+    if (!window.Swal) {
+        alert(planAlert.message);
+        return;
+    }
+
+    Swal.fire({
+        icon: isBlockingPlanAlert ? 'warning' : 'info',
+        title: planAlert.title || 'Plan alert',
+        text: planAlert.message || '',
+        confirmButtonText: 'OK',
+        showConfirmButton: !isBlockingPlanAlert,
+        showCancelButton: false,
+        showCloseButton: false,
+        allowOutsideClick: !isBlockingPlanAlert,
+        allowEscapeKey: !isBlockingPlanAlert,
+        allowEnterKey: !isBlockingPlanAlert,
+        backdrop: true,
+        customClass: {
+            confirmButton: 'btn btn-primary'
+        }
+    });
 });
 </script>
 @endif

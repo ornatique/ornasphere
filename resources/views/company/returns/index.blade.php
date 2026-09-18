@@ -1,6 +1,22 @@
 @extends('company_layout.admin')
 
 @section('content')
+<style>
+    .approval-return-item-names {
+        display: inline-block;
+        max-width: 520px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        vertical-align: middle;
+        white-space: nowrap;
+    }
+
+    .approval-return-item-more {
+        color: #9fb5ff;
+        font-weight: 700;
+        margin-left: 6px;
+    }
+</style>
 
 <div class="content-wrapper">
     <div class="card">
@@ -88,6 +104,24 @@
             });
         }
 
+        function escapeHtml(value) {
+            return $('<div>').text(value ?? '').html();
+        }
+
+        function renderLimitedItemNames(data) {
+            const fullText = String(data || '-');
+            if (fullText === '-') {
+                return '-';
+            }
+
+            const names = fullText.split(',').map(name => name.trim()).filter(Boolean);
+            const visibleNames = names.slice(0, 4).join(', ');
+            const moreCount = Math.max(names.length - 4, 0);
+            const moreText = moreCount > 0 ? `<span class="approval-return-item-more">+${moreCount} more</span>` : '';
+
+            return `<span class="approval-return-item-names" title="${escapeHtml(fullText)}">${escapeHtml(visibleNames)}${moreText}</span>`;
+        }
+
         let table = $('.yajra-datatable').DataTable({
             processing: true,
             serverSide: true,
@@ -122,7 +156,10 @@
                 {
                     data: 'item_names',
                     orderable: false,
-                    searchable: false
+                    searchable: false,
+                    render: function(data, type) {
+                        return type === 'display' ? renderLimitedItemNames(data) : data;
+                    }
                 },
                 {
                     data: 'qty',

@@ -69,7 +69,7 @@
                                         <small class="text-muted">Leave blank to keep current logo.</small>
                                         <div class="mt-2">
                                             @php
-                                                $defaultLogo = asset('celestial/assets/images/logo.svg');
+                                                $defaultLogo = asset('celestial/assets/images/logo.svg') . '?v=' . @filemtime(public_path('celestial/assets/images/logo.svg'));
                                                 $previewLogo = $company->company_logo_url ?: $defaultLogo;
                                             @endphp
                                             <img src="{{ $previewLogo }}" alt="Company Logo" style="height:52px;width:52px;object-fit:cover;border-radius:6px;" onerror="this.onerror=null;this.src='{{ $defaultLogo }}';">
@@ -79,7 +79,7 @@
                             </div>
                         </div>
 
-                        {{-- Max Users --}}
+                        {{-- Plan & Max Users --}}
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group row">
@@ -124,6 +124,22 @@
                                                autocomplete="new-password"
                                                class="form-control"
                                                placeholder="Re-enter admin password">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="form-group row">
+                                    <label class="col-sm-3 col-form-label">Plan</label>
+                                    <div class="col-sm-9">
+                                        <select name="plan"
+                                                class="form-select @error('plan') is-invalid @enderror">
+                                            <option value="">Select Plan</option>
+                                            <option value="yearly" {{ old('plan', $company->plan) == 'yearly' ? 'selected' : '' }}>Yearly</option>
+                                        </select>
+                                        @error('plan')
+                                            <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
                                     </div>
                                 </div>
                             </div>

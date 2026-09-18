@@ -31,6 +31,8 @@
         ? $user->getRoleNames()->map($formatRoleName)->implode(', ')
         : '';
     $roleLabel = $roleNames ?: $formatRoleName($user->role ?? 'User');
+    $planStatus = $companyPlanStatus ?? \App\Services\CompanyPlanService::status($company);
+    $planExpired = (bool) data_get($planStatus, 'expired', false);
 @endphp
 
 <div class="content-wrapper">
@@ -75,11 +77,24 @@
 
             <div class="profile-section">
                 <h5>Company</h5>
+                <div class="profile-plan-banner {{ $planExpired ? 'is-expired' : 'is-active' }}">
+                    <div>
+                        <span>Plan Status</span>
+                        <strong>{{ $planExpired ? 'Expired' : 'Active' }}</strong>
+                    </div>
+                    <div>
+                        <span>Expire Date & Time</span>
+                        <strong>{{ data_get($planStatus, 'expires_at_view') ?: '-' }}</strong>
+                    </div>
+                </div>
                 <div class="profile-grid">
                     <div><span>Company Name</span><strong>{{ $company->name ?: '-' }}</strong></div>
                     <div><span>Company Email</span><strong>{{ $company->email ?: '-' }}</strong></div>
-                    <div><span>Plan</span><strong>{{ $company->plan ?: '-' }}</strong></div>
+                    <div><span>Plan</span><strong>{{ $company->plan ? ucfirst($company->plan) : '-' }}</strong></div>
                     <div><span>Max Users</span><strong>{{ $company->max_users ?: '-' }}</strong></div>
+                    <div><span>Plan Start Date & Time</span><strong>{{ data_get($planStatus, 'started_at_view') ?: '-' }}</strong></div>
+                    <div><span>Plan Expire Date & Time</span><strong class="{{ $planExpired ? 'profile-status-inactive' : 'profile-status-active' }}">{{ data_get($planStatus, 'expires_at_view') ?: '-' }}</strong></div>
+                    <div><span>Plan Status</span><strong class="{{ $planExpired ? 'profile-status-inactive' : 'profile-status-active' }}">{{ $planExpired ? 'Expired' : 'Active' }}</strong></div>
                     <div class="profile-grid-wide"><span>Company Address</span><strong>{{ trim(($company->address_1 ?? '') . ' ' . ($company->address_2 ?? '')) ?: '-' }}</strong></div>
                     <div><span>City</span><strong>{{ $company->city ?: '-' }}</strong></div>
                     <div><span>State</span><strong>{{ $company->state ?: '-' }}</strong></div>
@@ -173,6 +188,40 @@
         margin-bottom: 12px;
     }
 
+    .profile-plan-banner {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(160px, 1fr));
+        gap: 12px;
+        margin-bottom: 12px;
+        padding: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.035);
+    }
+
+    .profile-plan-banner.is-active {
+        border-color: rgba(0, 210, 106, 0.35);
+        background: rgba(0, 210, 106, 0.08);
+    }
+
+    .profile-plan-banner.is-expired {
+        border-color: rgba(255, 59, 78, 0.45);
+        background: rgba(255, 59, 78, 0.10);
+    }
+
+    .profile-plan-banner span {
+        display: block;
+        color: #b8b8d4;
+        font-size: 12px;
+        margin-bottom: 5px;
+    }
+
+    .profile-plan-banner strong {
+        display: block;
+        color: #fff;
+        font-size: 15px;
+        line-height: 1.35;
+    }
+
     .profile-summary > div,
     .profile-grid > div {
         border: 1px solid rgba(255, 255, 255, 0.08);
@@ -212,14 +261,16 @@
 
     @media (max-width: 1199px) {
         .profile-summary,
-        .profile-grid {
+        .profile-grid,
+        .profile-plan-banner {
             grid-template-columns: repeat(2, minmax(160px, 1fr));
         }
     }
 
     @media (max-width: 575px) {
         .profile-summary,
-        .profile-grid {
+        .profile-grid,
+        .profile-plan-banner {
             grid-template-columns: 1fr;
         }
 

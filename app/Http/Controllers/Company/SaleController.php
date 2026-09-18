@@ -398,9 +398,10 @@ class SaleController extends Controller
         $customerId = (int) $request->input('customer_id', 0);
         $currentSaleId = (int) $request->input('sale_id', 0);
         $limit = max(10, min((int) $request->input('limit', 1000), 2000));
+        $includeApproval = $request->boolean('include_approval', true);
 
         $approvalItems = collect();
-        if ($customerId > 0) {
+        if ($includeApproval && $customerId > 0) {
             $approvalItems = ApprovalItem::with(['approval.customer', 'itemSet.item', 'legacyItemSet.item', 'item'])
                 ->whereExists(function ($q) use ($company, $customerId) {
                     $q->select(DB::raw(1))
@@ -466,6 +467,30 @@ class SaleController extends Controller
             ->unique()
             ->values()
             ->all();
+
+        if (!$includeApproval && $customerId > 0) {
+            $approvalItemsetIds = ApprovalItem::with(['itemSet:id', 'legacyItemSet:id'])
+                ->whereExists(function ($q) use ($company, $customerId) {
+                    $q->select(DB::raw(1))
+                        ->from('approval_headers')
+                        ->whereColumn('approval_headers.id', 'approval_items.approval_id')
+                        ->where('approval_headers.company_id', $company->id)
+                        ->where('approval_headers.customer_id', $customerId);
+                })
+                ->where(function ($q) {
+                    $q->whereNull('status')
+                        ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+                })
+                ->get()
+                ->map(function ($approvalItem) {
+                    $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
+                    return optional($itemSet)->id;
+                })
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+        }
 
         $items = ItemSet::with('item')
             ->where('company_id', $company->id)
@@ -668,6 +693,26 @@ class SaleController extends Controller
             ], 404);
         }
 
+        $pendingApprovalItem = ApprovalItem::whereHas('approval', function ($q) use ($company) {
+            $q->where('company_id', $company->id);
+        })
+            ->where(function ($q) use ($item) {
+                $q->where('itemset_id', (int) $item->id)
+                    ->orWhere('item_id', (int) $item->id);
+            })
+            ->where(function ($q) {
+                $q->whereNull('status')
+                    ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+            })
+            ->first();
+
+        if ($pendingApprovalItem) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Item is in approval. Use Add Label from Approval.',
+            ], 422);
+        }
+
         if ((int) $item->is_sold === 1) {
             $saleItem = SaleItem::with('sale')
                 ->where('itemset_id', (int) $item->id)
@@ -681,21 +726,9 @@ class SaleController extends Controller
                 ], 422);
             }
 
-            $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($company) {
-                $q->where('company_id', $company->id);
-            })
-                ->where('itemset_id', (int) $item->id)
-                ->where(function ($q) {
-                    $q->whereNull('status')
-                        ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
-                })
-                ->first();
-
             return response()->json([
                 'success' => false,
-                'message' => $approvalItem
-                    ? 'Item is in approval. Use Add Label from Approval.'
-                    : 'Item is not available in stock.',
+                'message' => 'Item is not available in stock.',
             ], 422);
         }
 

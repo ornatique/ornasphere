@@ -13,6 +13,9 @@
                 <a href="{{ route('company.jobwork-receive.export-pdf', $company->slug) }}" id="exportPdfBtn" class="btn btn-danger">
                     PDF
                 </a>
+                <a href="{{ route('company.jobwork-receive.direct.create', $company->slug) }}" class="btn btn-success">
+                    + Direct Receive
+                </a>
                 <a href="{{ route('company.jobwork-receive.create', $company->slug) }}" class="btn btn-primary">
                     + Receive Jobwork
                 </a>
@@ -28,12 +31,21 @@
                     <label class="form-label mb-1">To Date</label>
                     <input type="date" id="to_date" class="form-control" value="{{ $defaultToDate }}">
                 </div>
-                <div class="filter-worker-col">
-                    <label class="form-label mb-1">Worker Name</label>
+                <div class="filter-worker-col" id="workerFilterWrap">
+                    <label class="form-label mb-1" id="partyFilterLabel">Worker Name</label>
                     <select id="worker_id" class="form-control filter-control searchable-worker-select">
                         <option value="">All Workers</option>
                         @foreach($jobWorkers as $worker)
                             <option value="{{ $worker->id }}">{{ $worker->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="filter-worker-col d-none" id="customerFilterWrap">
+                    <label class="form-label mb-1">Customer Name</label>
+                    <select id="customer_id" class="form-control filter-control searchable-customer-select">
+                        <option value="">All Customers</option>
+                        @foreach($customers as $customer)
+                            <option value="{{ $customer->id }}">{{ $customer->name }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -44,6 +56,7 @@
                         <option value="pending">Pending</option>
                         <option value="partial">Partial</option>
                         <option value="completed">Completed</option>
+                        <option value="direct">Direct</option>
                     </select>
                 </div>
                 <div class="filter-action-col d-grid">
@@ -61,7 +74,7 @@
                             <th>#</th>
                             <th>Voucher No</th>
                             <th>Voucher Date</th>
-                            <th>Jobworker</th>
+                            <th id="partyColumnHeader">Customer / Jobworker</th>
                             <th>Production Step</th>
                             <th>Issue Net Wt</th>
                             <th>Receive Net Wt</th>
@@ -86,6 +99,13 @@
             placeholder: 'All Workers',
             allowClear: true
         });
+
+        $('#customer_id').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'All Customers',
+            allowClear: true
+        });
     }
 
     const table = $('#jobworkReceiveTable').DataTable({
@@ -97,6 +117,7 @@
                 d.from_date = $('#from_date').val();
                 d.to_date = $('#to_date').val();
                 d.worker_id = $('#worker_id').val();
+                d.customer_id = $('#customer_id').val();
                 d.status = $('#status').val();
             }
         },
@@ -123,9 +144,32 @@
         $('#from_date').val('');
         $('#to_date').val('');
         $('#worker_id').val('').trigger('change.select2');
+        $('#customer_id').val('').trigger('change.select2');
         $('#status').val('');
+        syncPartyFilter();
         table.ajax.reload();
     });
+
+    $('#status').on('change', function() {
+        syncPartyFilter();
+        table.ajax.reload();
+    });
+
+    function syncPartyFilter() {
+        const isDirect = $('#status').val() === 'direct';
+        const status = $('#status').val();
+
+        $('#workerFilterWrap').toggleClass('d-none', isDirect);
+        $('#customerFilterWrap').toggleClass('d-none', !isDirect);
+        $('#partyColumnHeader').text(isDirect ? 'Customer' : (status ? 'Jobworker' : 'Customer / Jobworker'));
+        if (isDirect) {
+            $('#worker_id').val('').trigger('change.select2');
+        } else {
+            $('#customer_id').val('').trigger('change.select2');
+        }
+    }
+
+    syncPartyFilter();
 
     $('#exportPdfBtn').on('click', function(e) {
         e.preventDefault();
@@ -134,6 +178,7 @@
             from_date: $('#from_date').val() || '',
             to_date: $('#to_date').val() || '',
             worker_id: $('#worker_id').val() || '',
+            customer_id: $('#customer_id').val() || '',
             status: $('#status').val() || '',
             search_text: table.search() || '',
         });

@@ -53,7 +53,6 @@ class JobworkIssueApiController extends Controller
         $companyId = (int) $request->user()->company_id;
 
         $rows = $this->baseQuery($request, $companyId)
-            ->latest('jobwork_date')
             ->get();
 
         $data = $rows->map(fn($row) => $this->withActions($row))->values();
@@ -68,7 +67,6 @@ class JobworkIssueApiController extends Controller
     {
         $companyId = (int) $request->user()->company_id;
         $rows = $this->baseQuery($request, $companyId)
-            ->latest('jobwork_date')
             ->get();
 
         return response()->streamDownload(function () use ($rows) {
@@ -100,7 +98,6 @@ class JobworkIssueApiController extends Controller
         $companyId = (int) $request->user()->company_id;
         $company = Company::select('id', 'name')->findOrFail($companyId);
         $rows = $this->baseQuery($request, $companyId)
-            ->latest('jobwork_date')
             ->get();
 
         return Pdf::loadView('company.jobwork_issue.pdf.index', compact('company', 'rows'))
@@ -485,7 +482,9 @@ class JobworkIssueApiController extends Controller
             ->withSum('items as fine_wt_sum', 'fine_wt')
             ->withSum('items as total_amt_sum', 'total_amt')
             ->when($request->filled('from_date'), fn($q) => $q->whereDate('jobwork_date', '>=', $request->from_date))
-            ->when($request->filled('to_date'), fn($q) => $q->whereDate('jobwork_date', '<=', $request->to_date));
+            ->when($request->filled('to_date'), fn($q) => $q->whereDate('jobwork_date', '<=', $request->to_date))
+            ->orderByDesc('jobwork_date')
+            ->orderByDesc('id');
     }
 
     private function excelText(?string $value): string

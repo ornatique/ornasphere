@@ -658,6 +658,11 @@
         display: none;
     }
 
+    body.modal-open #suggestionBox,
+    body.modal-open .grid-label-suggestion-box {
+        display: none !important;
+    }
+
     .grid-label-suggestion-box .list-group-item,
     #suggestionBox .list-group-item {
         background: #302f54;
@@ -1613,6 +1618,7 @@ $(function () {
         return {
             search: query,
             limit: 1000,
+            include_approval: 0,
             customer_id: $('#approvalPersonSelect').val() || $('#customerSelect').val() || '',
             sale_id: currentSaleId
         };
@@ -1857,6 +1863,9 @@ $(function () {
     });
 
     $('#openApprovalModal').click(function() {
+        $('#suggestionBox').hide().empty();
+        $('.grid-label-suggestion-box').hide().empty();
+
         const saleCustomerId = $('#customerSelect').val();
         const approvalCustomerId = $('#approvalPersonSelect').val();
 

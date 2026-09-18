@@ -21,21 +21,27 @@
                 </div>
             </div>
 
-            <table class="table table-bordered" id="barcodeHistoryTable">
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>Item</th>
-                        <th>Label Code</th>
-                        <th>Label Created</th>
-                        <th>Label Printed</th>
-                        <th>Approval History</th>
-                        <th>Sale History</th>
-                        <th>Return History</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-            </table>
+            <div class="barcode-history-table-wrap">
+                <div id="barcodeHistoryLoader" class="barcode-history-loader d-none">
+                    <span class="barcode-history-spinner"></span>
+                    <span>Loading barcode history...</span>
+                </div>
+                <table class="table table-bordered" id="barcodeHistoryTable">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Item</th>
+                            <th>Label Code</th>
+                            <th>Label Created</th>
+                            <th>Label Printed</th>
+                            <th>Approval History</th>
+                            <th>Sale History</th>
+                            <th>Return History</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                </table>
+            </div>
         </div>
     </div>
 </div>
@@ -68,6 +74,46 @@
     #code_results .list-group-item:hover {
         background: #3a3f63;
     }
+
+    .barcode-history-table-wrap {
+        position: relative;
+        min-height: 180px;
+    }
+
+    .barcode-history-loader {
+        position: absolute;
+        inset: 48px 0 0 0;
+        z-index: 25;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        min-height: 132px;
+        background: rgba(31, 34, 54, 0.82);
+        color: #ffffff;
+        font-weight: 700;
+        border: 1px solid rgba(125, 145, 255, 0.25);
+        backdrop-filter: blur(2px);
+    }
+
+    .barcode-history-loader.d-none {
+        display: none !important;
+    }
+
+    .barcode-history-spinner {
+        width: 22px;
+        height: 22px;
+        border: 3px solid rgba(255, 255, 255, 0.28);
+        border-top-color: #ffffff;
+        border-radius: 50%;
+        animation: barcodeHistorySpin 0.8s linear infinite;
+    }
+
+    @keyframes barcodeHistorySpin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
 </style>
 @endpush
 
@@ -76,11 +122,20 @@
 $(function () {
     const $codeInput = $('#code');
     const $codeResults = $('#code_results');
+    const $historyLoader = $('#barcodeHistoryLoader');
     let suggestTimer = null;
+    let suggestRequest = null;
+
+    function setHistoryLoading(isLoading) {
+        $historyLoader.toggleClass('d-none', !isLoading);
+    }
 
     const table = $('#barcodeHistoryTable').DataTable({
         processing: true,
         serverSide: true,
+        language: {
+            processing: 'Loading barcode history...'
+        },
         ajax: {
             url: "{{ route('company.reports.barcode-history.index', $company->slug) }}",
             data: function (d) {
@@ -101,7 +156,13 @@ $(function () {
     });
 
     function loadSuggestions(query) {
-        $.get("{{ route('company.reports.barcode-history.suggest', $company->slug) }}", { q: query }, function (res) {
+        if (suggestRequest && suggestRequest.readyState !== 4) {
+            suggestRequest.abort();
+        }
+
+        $codeResults.html('<div class="list-group-item">Searching...</div>').show();
+
+        suggestRequest = $.get("{{ route('company.reports.barcode-history.suggest', $company->slug) }}", { q: query }, function (res) {
             $codeResults.empty();
             const list = (res && res.data) ? res.data : [];
             if (!list.length) {
@@ -121,8 +182,19 @@ $(function () {
                 `;
             });
             $codeResults.html(html).show();
+        }).fail(function (xhr) {
+            if (xhr.statusText === 'abort') return;
+            $codeResults.html('<div class="list-group-item">Unable to search. Try again.</div>').show();
         });
     }
+
+    $('#barcodeHistoryTable')
+        .on('preXhr.dt', function () {
+            setHistoryLoading(true);
+        })
+        .on('xhr.dt draw.dt error.dt', function () {
+            setHistoryLoading(false);
+        });
 
     $codeInput.on('input', function () {
         const v = $(this).val().trim();
@@ -138,6 +210,7 @@ $(function () {
 
     $codeInput.on('change', function () {
         if ($(this).val().trim() !== '') {
+            setHistoryLoading(true);
             table.draw();
         }
     });
@@ -145,6 +218,7 @@ $(function () {
     $codeInput.on('keydown', function (e) {
         if (e.key === 'Enter') {
             e.preventDefault();
+            setHistoryLoading(true);
             table.draw();
             $codeResults.hide();
         }
@@ -156,6 +230,7 @@ $(function () {
         if (!code) return;
         $codeInput.val(code);
         $codeResults.hide().empty();
+        setHistoryLoading(true);
         table.draw();
     });
 
@@ -165,10 +240,14 @@ $(function () {
         }
     });
 
-    $('#filter').on('click', function () { table.draw(); });
+    $('#filter').on('click', function () {
+        setHistoryLoading(true);
+        table.draw();
+    });
     $('#reset').on('click', function () {
         $('#code').val('');
         $codeResults.hide().empty();
+        setHistoryLoading(true);
         table.draw();
     });
 

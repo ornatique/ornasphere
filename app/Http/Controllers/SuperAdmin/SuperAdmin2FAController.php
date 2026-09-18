@@ -23,7 +23,7 @@ class SuperAdmin2FAController extends Controller
     public function verify(Request $request)
     {
         $request->validate([
-            'code' => 'required',
+            'code' => 'required|digits:6',
         ]);
 
         $user = SuperAdmin::find(session('superadmin_2fa_id'));
@@ -93,7 +93,7 @@ class SuperAdmin2FAController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'code' => 'required'
+            'code' => 'required|digits:6'
         ]);
 
         $user = auth('superadmin')->user();

@@ -7,9 +7,13 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use App\Models\Company;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Spatie\Permission\Models\Role;
+use App\Services\CompanyNotificationService;
+use App\Services\SuperAdminNotificationService;
 
 class CompanyUserController extends Controller
 {
@@ -89,6 +93,13 @@ public function store(Request $request)
     $authUser = $request->user(); // logged in user
     $companyId = $authUser->company_id;
     $company = Company::find($companyId);
+    if (!$company) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Company not found.'
+        ], 404);
+    }
+
     $this->normalizeIdentityFields($request);
     $selectedRole = strtolower((string) $request->role);
 
@@ -101,37 +112,14 @@ public function store(Request $request)
 
     $currentUserCount = User::where('company_id', $companyId)->count();
     $maxUsers = (int) optional($company)->max_users;
-    if ($maxUsers > 0 && $currentUserCount >= $maxUsers) {
-        return response()->json([
-            'success' => false,
-            'message' => 'User limit reached for your plan. Please buy more user seats.',
-            'seat' => [
-                'max_users' => $maxUsers,
-                'current_users' => (int) $currentUserCount,
-            ],
-        ], 422);
-    }
-
-    // 🔹 Employee Limit Check
-    if ($request->role == 'Employee') {
-
-        $employeeCount = User::where('company_id', $companyId)
-            ->where('role', 'Employee')
-            ->count();
-
-        if ($employeeCount >= 2) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Employee limit reached.'
-            ], 422);
-        }
-    }
+    $isPaidAdditionalUser = $maxUsers > 0 && $currentUserCount >= $maxUsers;
 
     // 🔹 Validation
     $validated = $request->validate([
         'name'  => 'required|string',
         'email' => 'required|email|unique:users,email',
         'role'  => 'required',
+        'password' => 'nullable|string|min:6',
         'profile_image' => 'nullable|image|max:2048',
         'mobile_access_allowed' => 'nullable|boolean',
         'mobile_no' => ['nullable', 'digits:10'],
@@ -144,17 +132,30 @@ public function store(Request $request)
         'aadhaar_no' => ['nullable', 'digits:12'],
     ], $this->identityValidationMessages());
 
+    $roleModel = Role::where('company_id', $companyId)
+        ->where('name', $validated['role'])
+        ->first();
+
+    if (!$roleModel) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Selected role is invalid for this company.'
+        ], 422);
+    }
+
     // 🔹 Upload Image (If Provided)
     $imagePath = $this->storeProfileImageToUploads($request);
 
     // 🔹 Create User
+    $plainPassword = $request->filled('password') ? (string) $request->password : $validated['email'];
+
     $user = User::create([
         'company_id' => $companyId,
         'name' => $validated['name'],
         'email' => $validated['email'],
         // Requested behavior: default password = same email id.
-        'password' => Hash::make($request->password),
-        'role' => $validated['role'],
+        'password' => Hash::make($plainPassword),
+        'role' => $roleModel->name,
         'profile_image' => $imagePath,
 
         'person_code' => $request->person_code,
@@ -181,13 +182,55 @@ public function store(Request $request)
     ]);
 
     // 🔹 Assign Role (Spatie)
-    $user->assignRole($validated['role']);
+    $user->syncRoles([$roleModel->id]);
+
+    try {
+        $createdBy = $authUser->name ?: 'Company admin';
+        $usedSeats = User::where('company_id', $companyId)->count();
+        $seatType = $isPaidAdditionalUser ? 'Paid extra user' : 'Paid user';
+        $seatMessage = $seatType . ' "' . $user->name . '" was added by ' . $createdBy . '. Used seats: ' . $usedSeats . '/' . $maxUsers . '.';
+
+        CompanyNotificationService::recordForCompany(
+            (int) $companyId,
+            $authUser,
+            'user',
+            'paid_user_created',
+            'New paid user added',
+            $seatMessage,
+            'company.users.index',
+            ['slug' => $company->slug],
+            $user
+        );
+
+        SuperAdminNotificationService::record(
+            $company,
+            $authUser,
+            'company_user',
+            'paid_user_created',
+            'New paid user added',
+            $company->name . ': ' . $seatMessage,
+            'superadmin.companies.edit',
+            ['company' => $company->id],
+            $user
+        );
+    } catch (\Throwable $e) {
+        Log::error('API user creation notification failed', [
+            'company_id' => $companyId,
+            'user_id' => $user->id,
+            'message' => $e->getMessage(),
+        ]);
+    }
 
     return response()->json([
         'success' => true,
         'message' => 'User created successfully',
-        'default_password' => $validated['email'],
-        'data' => $user->append('profile_image_url')
+        'default_password' => $plainPassword,
+        'seat' => [
+            'max_users' => $maxUsers,
+            'current_users' => (int) User::where('company_id', $companyId)->count(),
+            'is_paid_additional_user' => $isPaidAdditionalUser,
+        ],
+        'data' => $user->fresh()->append('profile_image_url')
     ], 200);
 }
 

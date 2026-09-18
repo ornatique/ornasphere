@@ -452,6 +452,96 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    function shareTextForItems(items) {
+        const labels = items.length
+            ? items.map(function (item) { return `${item.label_code} - ${item.item_name || ''}`.trim(); }).join('\n')
+            : 'Stock gallery filtered list';
+
+        return `Stock Gallery\n${labels}\n\nOpen ERP and export/download the gallery from this page.`;
+    }
+
+    function extensionFromContentType(contentType) {
+        if (contentType.includes('png')) return 'png';
+        if (contentType.includes('webp')) return 'webp';
+        if (contentType.includes('gif')) return 'gif';
+        return 'jpg';
+    }
+
+    async function filesFromDownloadItems(items) {
+        const limitedItems = items.slice(0, 20);
+        const files = [];
+
+        for (const item of limitedItems) {
+            const response = await fetch(item.download_url, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+
+            if (!response.ok) {
+                continue;
+            }
+
+            const blob = await response.blob();
+            const contentType = blob.type || response.headers.get('Content-Type') || 'image/jpeg';
+            const extension = extensionFromContentType(contentType);
+            const name = `${item.label_code || item.id || 'stock-gallery'}.${extension}`;
+
+            files.push(new File([blob], name, { type: contentType }));
+        }
+
+        return files;
+    }
+
+    async function shareWhatsappWithImages() {
+        if (selectedIds.size === 0) {
+            alert('Please select at least one item with image.');
+            return;
+        }
+
+        const response = await fetch(downloadListUrl + '?' + selectedQuery('selected').toString(), {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const result = await response.json();
+
+        if (!result.count) {
+            alert('Items are available in stock, but image is not uploaded for the selected items.');
+            return;
+        }
+
+        const selected = Array.from(selectedIds).map(function (id) {
+            return visibleItems.get(id);
+        }).filter(Boolean);
+        const text = shareTextForItems(selected);
+
+        try {
+            const files = await filesFromDownloadItems(result.items || []);
+
+            if (files.length && navigator.canShare && navigator.canShare({ files: files }) && navigator.share) {
+                await navigator.share({
+                    title: 'Stock Gallery',
+                    text: text,
+                    files: files
+                });
+                return;
+            }
+        } catch (error) {
+            // Fall through to the WhatsApp Web text fallback below.
+        }
+
+        alert('Your browser cannot attach photos directly to WhatsApp. The selected images will download, then WhatsApp text will open.');
+        (result.items || []).forEach(function (item, index) {
+            window.setTimeout(function () {
+                const link = document.createElement('a');
+                link.href = item.download_url;
+                link.target = '_blank';
+                link.download = '';
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+            }, index * 450);
+        });
+        window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+    }
+
     grid.addEventListener('change', function (event) {
         if (!event.target.classList.contains('gallery-check')) return;
 
@@ -507,14 +597,7 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('downloadSelected').addEventListener('click', function () { downloadImages('selected'); });
     document.getElementById('downloadFiltered').addEventListener('click', function () { downloadImages('filtered'); });
     document.getElementById('shareWhatsapp').addEventListener('click', function () {
-        const selected = Array.from(selectedIds).map(function (id) {
-            return visibleItems.get(id);
-        }).filter(Boolean);
-        const labels = selected.length
-            ? selected.map(function (item) { return `${item.label_code} - ${item.item_name}`; }).join('\n')
-            : 'Stock gallery filtered list';
-        const text = `Stock Gallery\n${labels}\n\nOpen ERP and export/download the gallery from this page.`;
-        window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+        shareWhatsappWithImages();
     });
     loadMoreBtn.addEventListener('click', function () {
         if (page < lastPage) {

@@ -37,7 +37,7 @@
                                 <option value="">Select Value</option>
                                 @foreach($labourFormulas as $formula)
                                 <option value="{{ $formula->id }}" {{ (string) old('labour_formula_id', $data->labour_formula_id ?? '') === (string) $formula->id ? 'selected' : '' }}>
-                                    {{ $formula->name }}
+                                    {{ $formula->name }}{{ isset($formula->status) && !$formula->status ? ' (Inactive)' : '' }}
                                 </option>
                                 @endforeach
                             </select>
@@ -51,7 +51,7 @@
                                 <option value="">Select Value</option>
                                 @foreach($productionCosts as $cost)
                                 <option value="{{ $cost->id }}" {{ (string) old('production_cost_id', $data->production_cost_id ?? '') === (string) $cost->id ? 'selected' : '' }}>
-                                    {{ $cost->name }}
+                                    {{ $cost->name }}{{ isset($cost->status) && !$cost->status ? ' (Inactive)' : '' }}
                                 </option>
                                 @endforeach
                             </select>

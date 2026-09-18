@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Company;
 
 use App\Http\Controllers\Controller;
 use App\Models\Company;
+use App\Services\CompanyPlanService;
 use Illuminate\Http\Request;
 
 class CompanyProfileController extends Controller
@@ -15,6 +16,8 @@ class CompanyProfileController extends Controller
 
         abort_if((int) $user->company_id !== (int) $company->id, 403);
 
-        return view('company.profile.show', compact('company', 'user'));
+        $companyPlanStatus = CompanyPlanService::status($company);
+
+        return view('company.profile.show', compact('company', 'user', 'companyPlanStatus'));
     }
 }

@@ -17,6 +17,29 @@
     <link rel="stylesheet" href="{{ asset('celestial/assets/css/vertical-layout-dark/style.css') }}">
     <!-- endinject -->
     <link rel="stylesheet" href="{{ asset('celestial/assets/images/favicon.png') }}">
+    <style>
+        .superadmin-login-logo-wrap {
+            margin-bottom: -100px !important;
+            text-align: center;
+        }
+
+        .superadmin-login-logo {
+            width: 420px !important;
+            max-width: 100% !important;
+            height: auto !important;
+            max-height: none !important;
+            object-fit: contain;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        @media (max-width: 575.98px) {
+            .superadmin-login-logo {
+                width: 320px !important;
+            }
+        }
+    </style>
 </head>
 
 <body>
@@ -26,8 +49,8 @@
                 <div class="row w-100 mx-0">
                     <div class="col-lg-4 mx-auto">
                         <div class="auth-form-transparent text-left py-5 px-4 px-sm-5">
-                            <div class="brand-logo">
-                                <img src="{{ asset('celestial/assets/images/logo.svg') }}" alt="logo">
+                            <div class="brand-logo superadmin-login-logo-wrap">
+                                <img src="{{ asset('celestial/assets/images/logo.svg') }}?v={{ @filemtime(public_path('celestial/assets/images/logo.svg')) }}" alt="logo" class="superadmin-login-logo">
                             </div>
                             <h4>Hello! let's get started</h4>
                             <h6 class="fw-light">Sign in to continue.</h6>

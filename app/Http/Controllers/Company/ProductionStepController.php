@@ -109,8 +109,26 @@ class ProductionStepController extends Controller
         $id = Crypt::decryptString($encryptedId);
 
         $data = ProductionStep::where('company_id', $company->id)->where('id', $id)->firstOrFail();
-        $labourFormulas = LabourFormula::where('company_id', $company->id)->where('status', true)->orderBy('name')->get();
-        $productionCosts = ProductionCost::where('company_id', $company->id)->where('status', true)->orderBy('name')->get();
+        $labourFormulas = LabourFormula::where('company_id', $company->id)
+            ->where(function ($query) use ($data) {
+                $query->where('status', true);
+
+                if (!empty($data->labour_formula_id)) {
+                    $query->orWhere('id', $data->labour_formula_id);
+                }
+            })
+            ->orderBy('name')
+            ->get();
+        $productionCosts = ProductionCost::where('company_id', $company->id)
+            ->where(function ($query) use ($data) {
+                $query->where('status', true);
+
+                if (!empty($data->production_cost_id)) {
+                    $query->orWhere('id', $data->production_cost_id);
+                }
+            })
+            ->orderBy('name')
+            ->get();
 
         return view('company.production_step.create', compact('company', 'data', 'labourFormulas', 'productionCosts'));
     }

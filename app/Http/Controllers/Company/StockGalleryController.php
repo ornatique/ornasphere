@@ -83,6 +83,7 @@ class StockGalleryController extends Controller
             ->map(fn (ItemSet $itemSet) => [
                 'id' => (int) $itemSet->id,
                 'label_code' => (string) ($itemSet->qr_code ?: $itemSet->barcode ?: $itemSet->id),
+                'item_name' => optional($itemSet->item)->item_name ?? '-',
                 'download_url' => route('company.stock-gallery.download-image', [
                     $company->slug,
                     Crypt::encryptString((string) $itemSet->id),

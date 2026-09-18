@@ -13,6 +13,9 @@ class Company extends Model
         'company_logo',
         'max_users',
         'plan',
+        'plan_started_at',
+        'plan_expires_at',
+        'plan_renewed_at',
         'address_1',
         'address_2',
         'city',
@@ -20,6 +23,12 @@ class Company extends Model
         'postcode',
         'country',
         'status'
+    ];
+
+    protected $casts = [
+        'plan_started_at' => 'datetime',
+        'plan_expires_at' => 'datetime',
+        'plan_renewed_at' => 'datetime',
     ];
 
     public function users()
@@ -63,5 +72,10 @@ class Company extends Model
     public function workerAllowedDevices()
     {
         return $this->hasMany(WorkerAllowedDevice::class);
+    }
+
+    public function planRenewals()
+    {
+        return $this->hasMany(CompanyPlanRenewal::class);
     }
 }

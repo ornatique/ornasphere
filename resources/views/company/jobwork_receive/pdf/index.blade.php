@@ -25,7 +25,7 @@
                 <th style="width:4%;">#</th>
                 <th style="width:13%;">Voucher No</th>
                 <th style="width:12%;">Voucher Date</th>
-                <th style="width:16%;">Jobworker</th>
+                <th style="width:16%;">Customer / Jobworker</th>
                 <th style="width:16%;">Production Step</th>
                 <th style="width:12%;" class="num">Issue Net Wt</th>
                 <th style="width:12%;" class="num">Receive Net Wt</th>
@@ -36,26 +36,17 @@
         <tbody>
             @forelse($rows as $index => $row)
                 @php
-                    $issueWt = (float) ($row->issue_net_wt_sum ?? 0);
-                    $receiveWt = (float) ($row->receive?->receive_net_wt_sum ?? 0);
-                    $pendingWt = max(0, $issueWt - $receiveWt);
-                    $status = 'Pending';
-
-                    if ($issueWt > 0 && $pendingWt <= 0.0005) {
-                        $status = 'Completed';
-                    } elseif ($receiveWt > 0) {
-                        $status = 'Partial';
-                    }
+                    $status = strip_tags((string) ($row['status'] ?? '-'));
                 @endphp
                 <tr>
                     <td class="center">{{ $index + 1 }}</td>
-                    <td>{{ $row->voucher_no }}</td>
-                    <td>{{ optional($row->jobwork_date)->format('d-m-Y') ?? '-' }}</td>
-                    <td>{{ $row->jobWorker?->name ?? '-' }}</td>
-                    <td>{{ $row->productionStep?->name ?? '-' }}</td>
-                    <td class="num">{{ number_format($issueWt, 3, '.', '') }}</td>
-                    <td class="num">{{ number_format($receiveWt, 3, '.', '') }}</td>
-                    <td class="num">{{ number_format($pendingWt, 3, '.', '') }}</td>
+                    <td>{{ strip_tags((string) ($row['voucher_no'] ?? '-')) }}</td>
+                    <td>{{ $row['jobwork_date_view'] ?? '-' }}</td>
+                    <td>{{ $row['jobworker_name'] ?? '-' }}</td>
+                    <td>{{ $row['production_step_name'] ?? '-' }}</td>
+                    <td class="num">{{ $row['issue_net_wt_sum'] ?? '0.000' }}</td>
+                    <td class="num">{{ $row['receive_net_wt_sum'] ?? '0.000' }}</td>
+                    <td class="num">{{ $row['pending_net_wt'] ?? '0.000' }}</td>
                     <td class="center">{{ $status }}</td>
                 </tr>
             @empty

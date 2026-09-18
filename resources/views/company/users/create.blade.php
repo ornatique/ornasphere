@@ -17,6 +17,18 @@
                         action="{{ route('company.users.store', $company->slug) }}">
                         @csrf
 
+                        @if (session('error'))
+                        <div class="alert alert-danger">
+                            {{ session('error') }}
+                        </div>
+                        @endif
+
+                        @if (session('success'))
+                        <div class="alert alert-success">
+                            {{ session('success') }}
+                        </div>
+                        @endif
+
                         {{-- GLOBAL ERROR --}}
                         @if ($errors->any())
                         <div class="alert alert-danger">
@@ -248,22 +260,6 @@
         </div>
     </div>
 
-    {{-- Employee Limit Modal --}}
-    <div class="modal fade" id="employeeLimitModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Limit Reached</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    You have reached your employee limit.
-                    Please contact Super Admin to upgrade your plan.
-                </div>
-            </div>
-        </div>
-    </div>
-
     @endsection
 
     @include('company.customers.partials.identity_input_rules')
@@ -277,22 +273,6 @@
                     width: '100%',
                     minimumResultsForSearch: 0
                 });
-            }
-        });
-
-        document.getElementById('roleSelect').addEventListener('change', function() {
-            if (this.value === 'Employee') {
-                fetch("{{ route('company.check.employee.limit', $company->slug) }}")
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.employee_limit_reached) {
-                            new bootstrap.Modal(document.getElementById('employeeLimitModal')).show();
-                            this.value = '';
-                            if (window.jQuery && $.fn.select2) {
-                                $('#roleSelect').trigger('change.select2');
-                            }
-                        }
-                    });
             }
         });
     </script>

@@ -86,7 +86,7 @@
                                 @forelse($recentCompanies as $company)
                                     <tr>
                                         <td>{{ $company->name }}</td>
-                                        <td>{{ $company->plan ?: '-' }}</td>
+                                        <td>{{ $company->plan ? ucfirst($company->plan) : '-' }}</td>
                                         <td>
                                             @if($company->status)
                                                 <span class="badge bg-success">Active</span>

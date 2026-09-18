@@ -9,7 +9,12 @@ class JobworkReceive extends Model
     protected $fillable = [
         'company_id',
         'jobwork_issue_id',
+        'receive_no',
         'receive_date',
+        'job_worker_id',
+        'customer_id',
+        'production_step_id',
+        'receive_type',
         'remarks',
         'created_by',
         'updated_by',
@@ -19,6 +24,9 @@ class JobworkReceive extends Model
     protected $casts = [
         'company_id' => 'integer',
         'jobwork_issue_id' => 'integer',
+        'job_worker_id' => 'integer',
+        'customer_id' => 'integer',
+        'production_step_id' => 'integer',
         'receive_date' => 'date',
         'created_by' => 'integer',
         'updated_by' => 'integer',
@@ -33,6 +41,21 @@ class JobworkReceive extends Model
     public function jobworkIssue()
     {
         return $this->belongsTo(JobworkIssue::class);
+    }
+
+    public function jobWorker()
+    {
+        return $this->belongsTo(JobWorker::class);
+    }
+
+    public function customer()
+    {
+        return $this->belongsTo(Customer::class);
+    }
+
+    public function productionStep()
+    {
+        return $this->belongsTo(ProductionStep::class);
     }
 
     public function items()

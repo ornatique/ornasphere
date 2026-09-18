@@ -17,7 +17,11 @@ class CompanySecurityController extends Controller
     public function showSetup($slug)
     {
         $user = Auth::user();
-        $company = Company::where('slug', $slug)->first();
+        $company = Company::where('slug', $slug)->firstOrFail();
+
+        if (!$user) {
+            return redirect()->route('company.login', $slug);
+        }
             
         if ($user->two_factor_enabled) {
             return redirect()->route('company.2fa.challenge', $slug);
@@ -48,6 +52,10 @@ class CompanySecurityController extends Controller
 
         $google2fa = new Google2FA();
         $user = Auth::user();
+
+        if (!$user) {
+            return redirect()->route('company.login', $slug);
+        }
 
         // FIRST TIME SETUP
         if (!$user->two_factor_enabled) {
@@ -100,10 +108,16 @@ class CompanySecurityController extends Controller
      */
     public function challenge($slug)
     {
-        $company = Company::where('slug', $slug)->first();
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $user = Auth::user();
+
+        if (!$user) {
+            return redirect()->route('company.login', $slug);
+        }
+
         return view('company.2fa-challenge', [
             'slug' => $slug,
-            'user' => Auth::user(),
+            'user' => $user,
             'company' => $company,
         ]);
     }

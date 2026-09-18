@@ -32,6 +32,8 @@ use App\Models\VacuumVoucher;
 use App\Models\VisitingCard;
 use App\Observers\CompanyActivityObserver;
 use App\Services\CompanyNotificationService;
+use App\Services\CompanyPlanService;
+use App\Services\SuperAdminNotificationService;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
@@ -84,6 +86,14 @@ class AppServiceProvider extends ServiceProvider
 
         View::composer(['company_layout.header', 'company_layout.sidebar'], function ($view) {
             $view->with('companyNotificationSummary', CompanyNotificationService::summary(auth()->user()));
+        });
+
+        View::composer('company_layout.admin', function ($view) {
+            $view->with('companyPlanStatus', CompanyPlanService::status(optional(auth()->user())->company));
+        });
+
+        View::composer('layout.header', function ($view) {
+            $view->with('superAdminNotificationSummary', SuperAdminNotificationService::summary());
         });
     }
 }

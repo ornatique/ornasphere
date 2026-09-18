@@ -92,7 +92,10 @@ class LabelConfigController extends Controller
 
         $request->validate([
             'item_id' => 'required|exists:items,id',
+            'prefix' => 'nullable|string|max:50',
         ]);
+
+        $prefix = $this->normalizePrefix($request->input('prefix'));
 
         if (! $this->availableItemsQuery($company)->where('id', $request->item_id)->exists()) {
             return back()
@@ -100,10 +103,16 @@ class LabelConfigController extends Controller
                 ->withErrors(['item_id' => 'Label Config already exists for selected item.']);
         }
 
+        if ($this->prefixExists((int) $company->id, $prefix)) {
+            return back()
+                ->withInput()
+                ->withErrors(['prefix' => 'This prefix is already used. Please enter a different prefix.']);
+        }
+
         LabelConfig::create([
             'company_id' => $company->id,
             'item_id' => $request->item_id,
-            'prefix' => $request->prefix,
+            'prefix' => $prefix,
             'numeric_length' => $request->numeric_length,
             'last_no' => $request->last_no ?? 0,
             'reuse' => $request->reuse ? 1 : 0,
@@ -162,10 +171,13 @@ class LabelConfigController extends Controller
 
         $request->validate([
             'item_id' => 'required|exists:items,id',
+            'prefix' => 'nullable|string|max:50',
             'numeric_length' => 'nullable|integer',
             'min_no' => 'nullable|integer',
             'max_no' => 'nullable|integer',
         ]);
+
+        $prefix = $this->normalizePrefix($request->input('prefix'));
 
         if (! $this->availableItemsQuery($company, $labelConfig->item_id)->where('id', $request->item_id)->exists()) {
             return back()
@@ -173,10 +185,16 @@ class LabelConfigController extends Controller
                 ->withErrors(['item_id' => 'Label Config already exists for selected item.']);
         }
 
+        if ($this->prefixExists((int) $company->id, $prefix, (int) $labelConfig->id)) {
+            return back()
+                ->withInput()
+                ->withErrors(['prefix' => 'This prefix is already used. Please enter a different prefix.']);
+        }
+
         $labelConfig->update([
 
             'item_id' => $request->item_id,
-            'prefix' => $request->prefix,
+            'prefix' => $prefix,
             'numeric_length' => $request->numeric_length,
             'last_no' => $request->last_no ?? 0,
             'reuse' => $request->reuse ? 1 : 0,
@@ -221,5 +239,24 @@ class LabelConfigController extends Controller
                     ->when($currentItemId, fn($q) => $q->orWhere('id', $currentItemId));
             })
             ->orderBy('item_name');
+    }
+
+    private function normalizePrefix($prefix): ?string
+    {
+        $prefix = trim((string) $prefix);
+
+        return $prefix === '' ? null : $prefix;
+    }
+
+    private function prefixExists(int $companyId, ?string $prefix, ?int $ignoreId = null): bool
+    {
+        if ($prefix === null) {
+            return false;
+        }
+
+        return LabelConfig::where('company_id', $companyId)
+            ->whereRaw('LOWER(TRIM(prefix)) = ?', [strtolower($prefix)])
+            ->when($ignoreId, fn($query) => $query->where('id', '!=', $ignoreId))
+            ->exists();
     }
 }

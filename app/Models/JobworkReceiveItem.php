@@ -14,11 +14,19 @@ class JobworkReceiveItem extends Model
         'other_wt',
         'other_amt',
         'other_charge_details',
+        'purity',
+        'waste_percent',
+        'net_purity',
         'receive_net_wt',
         'receive_fine_wt',
+        'metal_rate',
+        'metal_amount',
+        'labour_rate',
+        'labour_amount',
         'receive_qty_pcs',
         'loss_wt',
         'remarks',
+        'total_amount',
     ];
 
     protected $casts = [
@@ -28,10 +36,18 @@ class JobworkReceiveItem extends Model
         'receive_gross_wt' => 'float',
         'other_wt' => 'float',
         'other_amt' => 'float',
+        'purity' => 'float',
+        'waste_percent' => 'float',
+        'net_purity' => 'float',
         'receive_net_wt' => 'float',
         'receive_fine_wt' => 'float',
+        'metal_rate' => 'float',
+        'metal_amount' => 'float',
+        'labour_rate' => 'float',
+        'labour_amount' => 'float',
         'receive_qty_pcs' => 'integer',
         'loss_wt' => 'float',
+        'total_amount' => 'float',
     ];
 
     public function jobworkReceive()

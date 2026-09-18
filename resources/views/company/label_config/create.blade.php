@@ -60,6 +60,10 @@
                                 value="{{ old('prefix') }}"
                                 class="form-control">
 
+                            @error('prefix')
+                                <div class="text-danger mt-1">{{ $message }}</div>
+                            @enderror
+
                         </div>
                     </div>
 

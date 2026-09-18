@@ -23,7 +23,7 @@
 
                         {{-- Logo --}}
                         <div class="brand-logo text-center">
-                            <img src="{{ asset('celestial/assets/images/logo.svg') }}" alt="logo">
+                            <img src="{{ asset('celestial/assets/images/logo.svg') }}?v={{ @filemtime(public_path('celestial/assets/images/logo.svg')) }}" alt="logo">
                         </div>
 
                         <h4 class="text-center">Set Your Password 🔐</h4>

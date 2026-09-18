@@ -6,7 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\CategoryPerson;
 use App\Models\Company;
+use App\Models\CompanyPlanRenewal;
 use App\Models\User;
+use App\Services\CompanyPlanService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
@@ -28,13 +31,16 @@ class CompanyController extends Controller
     {
         if ($request->ajax()) {
 
-            $companies = Company::query()->withCount('users')
+            $companies = Company::query()
+                ->withCount('users')
+                ->withCount(['planRenewals as plan_renewals_count'])
                 ->with(['users' => function ($query) {
                     $query->select('id', 'company_id', 'password_set_url')
                         ->whereHas('roles', function ($q) {
                             $q->where('name', 'company_admin');
                         });
-                }]);
+                }])
+                ->orderByDesc('id');
 
             return DataTables::of($companies)
 
@@ -62,9 +68,22 @@ class CompanyController extends Controller
                     return '<span class="text-danger">Not Available</span>';
                 })
                 ->addColumn('logo', function ($row) {
-                    $defaultLogo = asset('celestial/assets/images/logo.svg');
+                    $defaultLogo = asset('celestial/assets/images/logo.svg') . '?v=' . @filemtime(public_path('celestial/assets/images/logo.svg'));
                     $src = $row->company_logo_url ?: $defaultLogo;
                     return '<img src="' . e($src) . '" alt="logo" style="height:40px;width:40px;object-fit:cover;border-radius:6px;" onerror="this.onerror=null;this.src=\'' . e($defaultLogo) . '\';">';
+                })
+                ->addColumn('plan_status', function ($row) {
+                    $status = CompanyPlanService::status($row);
+                    $badgeClass = $status['expired'] ? 'badge-danger' : 'badge-success';
+                    $label = $status['expired'] ? 'Expired' : 'Active';
+
+                    return '
+                        <div class="plan-status-cell">
+                            <span class="badge ' . $badgeClass . '">' . $label . '</span>
+                            <small>Expire: ' . e($status['expires_at_view'] ?: '-') . '</small>
+                            <small>Renewed: ' . (int) $row->plan_renewals_count . ' time(s)</small>
+                        </div>
+                    ';
                 })
 
                 ->filterColumn('users_count', function ($query, $keyword) {
@@ -86,9 +105,24 @@ class CompanyController extends Controller
                     ';
                 })
                 ->addColumn('action', function ($row) {
+                    $planStatus = CompanyPlanService::status($row);
+
                     return '
                         <a href="' . route('superadmin.companies.edit', $row->id) . '"
                         class="btn btn-sm btn-primary">Edit</a>
+
+                        <button type="button"
+                                class="btn btn-sm btn-success renewPlanBtn"
+                                data-url="' . route('superadmin.companies.renew-plan', $row->id) . '"
+                                data-name="' . e($row->name) . '"
+                                data-expiry="' . e($planStatus['expires_at_view'] ?: '-') . '">
+                            Renew Plan
+                        </button>
+
+                        <a href="' . url('superadmin/companies/' . $row->id . '/plan-history') . '"
+                           class="btn btn-sm btn-info">
+                            History
+                        </a>
 
                         
                         <form method="POST"
@@ -109,11 +143,25 @@ class CompanyController extends Controller
 
 
 
-                ->rawColumns(['password_set_url', 'logo', 'action', 'status'])
+                ->rawColumns(['password_set_url', 'logo', 'plan_status', 'action', 'status'])
                 ->make(true);
         }
 
         return view('superadmin.auth.company.index');
+    }
+
+    public function planHistory(Company $company)
+    {
+        $company->loadCount('users');
+
+        $renewals = $company->planRenewals()
+            ->with('renewedBy:id,name,email')
+            ->latest()
+            ->paginate(15);
+
+        $planStatus = CompanyPlanService::status($company);
+
+        return view('superadmin.auth.company.plan-history', compact('company', 'renewals', 'planStatus'));
     }
 
     public function create()
@@ -130,8 +178,11 @@ class CompanyController extends Controller
     {
         $request->validate([
             'name'      => 'required|unique:companies,name',
+            'admin_name' => 'nullable|string|max:255',
             'email'     => 'required|email|unique:users,email',
             'max_users' => 'required|integer|min:1',
+            'plan'      => 'required|string|in:yearly',
+            'status'    => 'nullable|boolean',
             'company_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
         ]);
 
@@ -163,6 +214,9 @@ class CompanyController extends Controller
                 'email'      => $request->email,
                 'company_logo' => $logoPath,
                 'max_users'  => $request->max_users,
+                'plan'       => $request->plan,
+                'plan_started_at' => now(),
+                'plan_expires_at' => now()->addYear(),
 
                 // Address fields
                 'address_1'  => $request->address_1,
@@ -172,8 +226,7 @@ class CompanyController extends Controller
                 'postcode'   => $request->postcode,
                 'country'    => $request->country,
 
-                // default inactive
-                'status'     => 0,
+                'status'     => $request->boolean('status'),
             ]);
 
             CategoryPerson::ensureCompanyDefaults((int) $company->id);
@@ -186,7 +239,7 @@ class CompanyController extends Controller
             $tempPassword = Str::password(10);
 
             $user = User::create([
-                'name'             => $company->name . ' Admin',
+                'name'             => $request->filled('admin_name') ? $request->admin_name : $company->name . ' Admin',
                 'email'            => $request->email,
                 'password'         => Hash::make($tempPassword),
                 'company_id'       => $company->id,
@@ -278,6 +331,7 @@ class CompanyController extends Controller
             'name'       => 'required|string|max:255|unique:companies,name,' . $company->id,
             'email'      => 'required|email|max:255',
             'max_users'  => 'required|integer|min:1',
+            'plan'       => 'required|string|in:yearly',
             'company_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
             'admin_password' => 'nullable|string|min:6|confirmed',
         ]);
@@ -303,6 +357,7 @@ class CompanyController extends Controller
             'email'      => $request->email,
             'company_logo' => $logoPath,
             'max_users'  => $request->max_users,
+            'plan'       => $request->plan,
 
             'address_1'  => $request->address_1,
             'address_2'  => $request->address_2,
@@ -390,7 +445,7 @@ class CompanyController extends Controller
 
         // Update Admin user of that company
         User::where('company_id', $company->id)
-            ->where('role', 'Admin') // adjust if using role column
+            ->where('role', 'admin')
             ->update([
                 'is_active' => $newStatus
             ]);
@@ -406,6 +461,49 @@ class CompanyController extends Controller
             'success' => true,
             'status'  => $newStatus
         ]);
+    }
+
+    public function renewPlan(Request $request, Company $company)
+    {
+        $request->validate([
+            'remarks' => 'nullable|string|max:1000',
+        ]);
+
+        $planStatus = CompanyPlanService::status($company);
+        $oldExpiresAt = $planStatus['expires_at'] ? Carbon::parse($planStatus['expires_at']) : null;
+        $baseDate = ($oldExpiresAt && $oldExpiresAt->isFuture()) ? $oldExpiresAt->copy() : now();
+        $newExpiresAt = $baseDate->copy()->addYear();
+
+        DB::transaction(function () use ($company, $planStatus, $oldExpiresAt, $newExpiresAt, $request) {
+            $company->update([
+                'plan_started_at' => $company->plan_started_at ?: $planStatus['started_at'],
+                'plan_expires_at' => $newExpiresAt,
+                'plan_renewed_at' => now(),
+            ]);
+
+            CompanyPlanRenewal::create([
+                'company_id' => $company->id,
+                'old_expires_at' => $oldExpiresAt,
+                'new_expires_at' => $newExpiresAt,
+                'renewed_by' => auth('superadmin')->id(),
+                'remarks' => $request->remarks,
+            ]);
+        });
+
+        AuditLog::logEvent(
+            'renew_plan',
+            'company',
+            'Renewed plan for company "' . $company->name . '" until ' . $newExpiresAt->format('d-m-Y h:i A'),
+            [
+                'company_id' => $company->id,
+                'old_expires_at' => optional($oldExpiresAt)->toDateTimeString(),
+                'new_expires_at' => $newExpiresAt->toDateTimeString(),
+            ]
+        );
+
+        return redirect()
+            ->back()
+            ->with('success', 'Plan renewed until ' . $newExpiresAt->format('d-m-Y h:i A'));
     }
 
     public function resendLogin(Company $company)

@@ -12,8 +12,11 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Yajra\DataTables\Facades\DataTables;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use App\Services\CompanyNotificationService;
+use App\Services\SuperAdminNotificationService;
 
 class CompanyUserController extends Controller
 {
@@ -225,22 +228,7 @@ class CompanyUserController extends Controller
         }
 
         $currentUserCount = User::where('company_id', $company->id)->count();
-        if ($currentUserCount >= (int) $company->max_users) {
-            return back()->withErrors([
-                'error' => 'User limit reached for your plan. Please buy more user seats.'
-            ])->withInput();
-        }
-
-        // Employee Limit Check
-        if ($request->role == 'Employee') {
-            $employeeCount = User::where('company_id', $company->id)
-                ->where('role', 'Employee')
-                ->count();
-
-            if ($employeeCount >= 2) {
-                return back()->with('error', 'Employee limit reached.');
-            }
-        }
+        $isPaidAdditionalUser = $currentUserCount >= (int) $company->max_users;
 
         $request->validate([
             'name' => 'required|string',
@@ -303,6 +291,43 @@ class CompanyUserController extends Controller
         ]);
 
         $user->syncRoles([$roleModel->id]);
+
+        try {
+            $createdBy = $request->user()?->name ?: 'Company admin';
+            $usedSeats = User::where('company_id', $company->id)->count();
+            $seatType = $isPaidAdditionalUser ? 'Paid extra user' : 'Paid user';
+            $seatMessage = $seatType . ' "' . $user->name . '" was added by ' . $createdBy . '. Used seats: ' . $usedSeats . '/' . $company->max_users . '.';
+
+            CompanyNotificationService::recordForCompany(
+                (int) $company->id,
+                $request->user(),
+                'user',
+                'paid_user_created',
+                'New paid user added',
+                $seatMessage,
+                'company.users.index',
+                ['slug' => $company->slug],
+                $user
+            );
+
+            SuperAdminNotificationService::record(
+                $company,
+                $request->user(),
+                'company_user',
+                'paid_user_created',
+                'New paid user added',
+                $company->name . ': ' . $seatMessage,
+                'superadmin.companies.edit',
+                ['company' => $company->id],
+                $user
+            );
+        } catch (\Throwable $e) {
+            Log::error('User creation notification failed', [
+                'company_id' => $company->id,
+                'user_id' => $user->id,
+                'message' => $e->getMessage(),
+            ]);
+        }
 
         return redirect()
             ->route('company.users.index', $company->slug)

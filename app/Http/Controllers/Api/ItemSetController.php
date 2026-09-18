@@ -460,7 +460,7 @@ public function bulkSave(Request $request)
     public function listset_data(Request $request)
     {
         $companyId = $request->user()->company_id;
-        $perPage = max(1, min((int) $request->input('per_page', 100), 500));
+        $perPage = max(1, min((int) $request->input('per_page', 100), 1000));
 
         if ($request->input('view_mode') === 'bulk') {
             return $this->bulkListsetData($request);

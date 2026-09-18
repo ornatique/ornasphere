@@ -105,8 +105,6 @@
         $company->contact_no ?? null,
         $company->whatsapp_no ?? null,
     ])));
-    $companyEmail = trim((string) ($company->email ?? ''));
-
     $name = optional($approval->customer)->name ?? '-';
     $city = optional($approval->customer)->city ?? '-';
     $customerGst = trim((string) (optional($approval->customer)->gst_no ?? ''));
@@ -139,16 +137,13 @@
 
 <div class="sheet">
     <div class="company-title">{{ $company->company_name ?? ($company->name ?? 'Company') }}</div>
-    @if($companyAddress !== '' || $companyPhones !== '' || $companyEmail !== '')
+    @if($companyAddress !== '' || $companyPhones !== '')
         <div class="company-meta">
             @if($companyAddress !== '')
                 <div>{{ $companyAddress }}</div>
             @endif
             @if($companyPhones !== '')
                 <div><strong>Phone:</strong> {{ $companyPhones }}</div>
-            @endif
-            @if($companyEmail !== '')
-                <div><strong>Email:</strong> {{ $companyEmail }}</div>
             @endif
         </div>
     @endif

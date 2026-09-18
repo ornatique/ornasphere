@@ -9,7 +9,10 @@
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
             <h4 class="card-title">Add Jobwork Receive Voucher</h4>
-            <a href="{{ route('company.jobwork-receive.index', $company->slug) }}" class="btn btn-info">Back</a>
+            <div class="d-flex gap-2">
+                <a href="{{ route('company.jobwork-receive.direct.create', $company->slug) }}" class="btn btn-success">Direct Receive</a>
+                <a href="{{ route('company.jobwork-receive.index', $company->slug) }}" class="btn btn-info">Back</a>
+            </div>
         </div>
         <div class="card-body" id="jobworkReceiveCreateCardBody">
             <form class="row g-2 mb-3 align-items-end jobwork-receive-filter">

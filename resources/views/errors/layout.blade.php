@@ -35,9 +35,18 @@
         }
 
         .error-logo {
-            height: 44px;
-            width: auto;
-            margin-bottom: 18px;
+            width: 420px;
+            max-width: 100%;
+            height: auto;
+            margin: 0 auto 15px;
+            display: block;
+            object-fit: contain;
+        }
+
+        @media (max-width: 575.98px) {
+            .error-logo {
+                width: 320px;
+            }
         }
 
         .error-code {
@@ -91,7 +100,7 @@
 </head>
 <body>
 @php
-    $defaultLogo = asset('celestial/assets/images/logo.svg');
+    $defaultLogo = asset('celestial/assets/images/logo.svg') . '?v=' . @filemtime(public_path('celestial/assets/images/logo.svg'));
     $logo = $defaultLogo;
 
     $companyUser = auth()->user();

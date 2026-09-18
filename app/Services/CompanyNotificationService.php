@@ -82,6 +82,42 @@ class CompanyNotificationService
         ]);
     }
 
+    public static function recordForCompany(
+        int $companyId,
+        ?User $actor,
+        string $module,
+        string $action,
+        string $title,
+        ?string $message = null,
+        ?string $routeName = null,
+        array $routeParams = [],
+        ?Model $subject = null
+    ): void {
+        if (!self::isReady() || !$companyId) {
+            return;
+        }
+
+        $subjectType = $subject ? $subject::class : null;
+        $subjectId = $subject?->getKey();
+
+        if (self::hasRecentDuplicate($companyId, $module, $action, $subjectType, $subjectId, $message)) {
+            return;
+        }
+
+        CompanyActivityNotification::create([
+            'company_id' => $companyId,
+            'actor_user_id' => $actor?->id,
+            'module' => $module,
+            'action' => $action,
+            'title' => $title,
+            'message' => $message,
+            'route_name' => $routeName,
+            'route_params' => $routeParams ?: null,
+            'subject_type' => $subjectType,
+            'subject_id' => $subjectId,
+        ]);
+    }
+
     public static function summary(?User $user): array
     {
         if (!self::canRead($user)) {

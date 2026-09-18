@@ -9,6 +9,7 @@ use App\Models\Permission;
 use App\Models\User;
 use App\Models\WorkerAllowedDevice;
 use App\Models\WorkerAccessLog;
+use App\Services\CompanyPlanService;
 use App\Services\OfficeAccessGuard;
 use Illuminate\Support\Facades\Schema;
 use PragmaRX\Google2FA\Google2FA;
@@ -70,6 +71,8 @@ class AuthController extends Controller
             return response()->json(['message' => 'Company inactive'], 403);
         }
 
+        $planStatus = $this->companyPlanStatus($user->company);
+
         if ($user->is_active != 1) {
             return response()->json(['message' => 'User inactive'], 403);
         }
@@ -81,6 +84,11 @@ class AuthController extends Controller
                 'id' => (int) $user->company->id,
                 'name' => $user->company->name,
                 'slug' => $user->company->slug,
+                'plan' => $user->company->plan,
+                'plan_started_at' => $planStatus['started_at'],
+                'plan_expires_at' => $planStatus['expires_at'],
+                'plan_expired' => $planStatus['expired'],
+                'plan_alert' => $planStatus['alert'],
             ],
         ]);
     }
@@ -88,8 +96,8 @@ class AuthController extends Controller
     public function verifyOtp(Request $request, OfficeAccessGuard $officeAccessGuard)
     {
         $request->validate([
-            'user_id' => 'required',
-            'otp' => 'required',
+            'user_id' => 'required|integer',
+            'otp' => 'required|digits:6',
             'device_id' => 'nullable|string|max:191',
             'device_name' => 'nullable|string|max:255',
             'platform' => 'nullable|string|max:100',
@@ -163,6 +171,7 @@ class AuthController extends Controller
         ]);
 
         $token = $user->createToken('api-token')->plainTextToken;
+        $planStatus = $this->companyPlanStatus($user->company);
 
         return response()->json([
             'message' => 'Login successful',
@@ -186,6 +195,11 @@ class AuthController extends Controller
                 'id' => (int) optional($user->company)->id,
                 'name' => optional($user->company)->name,
                 'slug' => optional($user->company)->slug,
+                'plan' => optional($user->company)->plan,
+                'plan_started_at' => $planStatus['started_at'],
+                'plan_expires_at' => $planStatus['expires_at'],
+                'plan_expired' => $planStatus['expired'],
+                'plan_alert' => $planStatus['alert'],
             ],
         ]);
     }
@@ -223,12 +237,15 @@ class AuthController extends Controller
             ->values();
 
         $profile = $this->profilePayload($user, $expandedPermissions);
+        $userData = $user->append('profile_image_url')->toArray();
+        $userData['company'] = $profile['company'];
 
         return response()->json([
             'success' => true,
-            'data' => $user->append('profile_image_url'),
+            'data' => $userData,
             'profile' => $profile,
             'company' => $profile['company'],
+            'plan_alert' => $profile['company']['plan_alert'] ?? null,
             'role_names' => $user->roles->pluck('name')->values(),
             'permissions' => $expandedPermissions,
         ]);
@@ -268,6 +285,7 @@ class AuthController extends Controller
     private function profilePayload(User $user, $permissions): array
     {
         $company = $user->company;
+        $planStatus = $this->companyPlanStatus($company);
 
         return [
             'id' => (int) $user->id,
@@ -315,6 +333,13 @@ class AuthController extends Controller
                 'company_logo_url' => $this->companyLogoUrl($company->company_logo),
                 'max_users' => $company->max_users,
                 'plan' => $company->plan,
+                'plan_started_at' => $planStatus['started_at'],
+                'plan_started_at_view' => $planStatus['started_at_view'],
+                'plan_expires_at' => $planStatus['expires_at'],
+                'plan_expires_at_view' => $planStatus['expires_at_view'],
+                'plan_expired' => $planStatus['expired'],
+                'plan_days_remaining' => $planStatus['days_remaining'],
+                'plan_alert' => $planStatus['alert'],
                 'address_1' => $company->address_1,
                 'address_2' => $company->address_2,
                 'city' => $company->city,
@@ -324,6 +349,23 @@ class AuthController extends Controller
                 'status' => $company->status == 1 ? 'Active' : 'Inactive',
             ] : null,
         ];
+    }
+
+    private function companyPlanStatus($company): array
+    {
+        if (!$company) {
+            return [
+                'started_at' => null,
+                'started_at_view' => null,
+                'expires_at' => null,
+                'expires_at_view' => null,
+                'expired' => false,
+                'days_remaining' => null,
+                'alert' => null,
+            ];
+        }
+
+        return CompanyPlanService::status($company);
     }
 
     private function mobileAccessAllowed(User $user): bool

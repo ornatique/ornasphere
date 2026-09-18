@@ -11,6 +11,33 @@
     <link rel="stylesheet" href="{{ asset('celestial/assets/vendors/mdi/css/materialdesignicons.min.css') }}">
     <link rel="stylesheet" href="{{ asset('celestial/assets/vendors/css/vendor.bundle.base.css') }}">
     <link rel="stylesheet" href="{{ asset('celestial/assets/css/vertical-layout-dark/style.css') }}">
+    <style>
+        .two-factor-logo {
+            width: 420px !important;
+            max-width: 100% !important;
+            height: auto !important;
+            max-height: none !important;
+            object-fit: contain;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .two-factor-logo-wrap {
+            margin-bottom: -100px !important;
+            text-align: center;
+        }
+
+        .two-factor-panel {
+            text-align: center;
+        }
+
+        @media (max-width: 575.98px) {
+            .two-factor-logo {
+                width: 320px !important;
+            }
+        }
+    </style>
 </head>
 
 <body>
@@ -20,13 +47,13 @@
             <div class="row w-100 mx-0">
                 <div class="col-lg-4 mx-auto">
 
-                    <div class="auth-form-transparent text-left py-5 px-4 px-sm-5">
+                    <div class="auth-form-transparent py-5 px-4 px-sm-5 two-factor-panel">
 
-                        <div class="brand-logo text-center">
-                            <img src="{{ asset('celestial/assets/images/logo.svg') }}" alt="logo">
+                        <div class="brand-logo two-factor-logo-wrap">
+                            <img src="{{ asset('celestial/assets/images/logo.svg') }}?v={{ @filemtime(public_path('celestial/assets/images/logo.svg')) }}" alt="logo" class="two-factor-logo">
                         </div>
 
-                        <h4>Two-Factor Verification 🔐</h4>
+                        <h4>Two-Factor Verification</h4>
                         <h6 class="fw-light">Enter the OTP from Google Authenticator</h6>
 
                         <form method="POST" action="/superadmin/two-factor-challenge">
@@ -35,8 +62,11 @@
                             <div class="form-group mt-4">
                                 <input type="text"
                                        name="code"
-                                       class="form-control form-control-lg text-center"
+                                       class="form-control form-control-lg text-center js-otp-code"
                                        placeholder="Enter 6 digit OTP"
+                                       inputmode="numeric"
+                                       pattern="[0-9]{6}"
+                                       autocomplete="one-time-code"
                                        maxlength="6"
                                        required>
                             </div>
@@ -67,7 +97,13 @@
 <script src="{{ asset('celestial/assets/vendors/js/vendor.bundle.base.js') }}"></script>
 <script src="{{ asset('celestial/assets/js/off-canvas.js') }}"></script>
 <script src="{{ asset('celestial/assets/js/template.js') }}"></script>
+<script>
+    document.querySelectorAll('.js-otp-code').forEach(function(input) {
+        input.addEventListener('input', function() {
+            this.value = this.value.replace(/\D/g, '').slice(0, 6);
+        });
+    });
+</script>
 
 </body>
 </html>
-

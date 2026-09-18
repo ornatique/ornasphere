@@ -17,6 +17,21 @@
         white-space: normal;
     }
 
+    #approvalTable .approval-item-names {
+        display: inline-block;
+        max-width: 560px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        vertical-align: middle;
+        white-space: nowrap;
+    }
+
+    #approvalTable .approval-item-more {
+        color: #9fb5ff;
+        font-weight: 700;
+        margin-left: 6px;
+    }
+
     .approval-list-grid-wrap {
         overflow-x: auto;
         overflow-y: hidden;
@@ -156,6 +171,10 @@
         });
     }
 
+    function escapeHtml(value) {
+        return $('<div>').text(value ?? '').html();
+    }
+
     let table = $('#approvalTable').DataTable({
         processing: true,
         serverSide: true,
@@ -190,7 +209,24 @@
             {
                 data: 'item_names',
                 orderable: false,
-                searchable: false
+                searchable: false,
+                render: function(data, type) {
+                    if (type !== 'display') {
+                        return data;
+                    }
+
+                    const fullText = String(data || '-');
+                    if (fullText === '-') {
+                        return '-';
+                    }
+
+                    const names = fullText.split(',').map(name => name.trim()).filter(Boolean);
+                    const visibleNames = names.slice(0, 4).join(', ');
+                    const moreCount = Math.max(names.length - 4, 0);
+                    const moreText = moreCount > 0 ? `<span class="approval-item-more">+${moreCount} more</span>` : '';
+
+                    return `<span class="approval-item-names" title="${escapeHtml(fullText)}">${escapeHtml(visibleNames)}${moreText}</span>`;
+                }
             },
             {
                 data: 'total_qty'

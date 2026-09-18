@@ -3,11 +3,20 @@
 @section('content')
 <div class="content-wrapper">
     <div class="card worker-loss-report">
-        <div class="card-header">
-            <h4 class="card-title mb-0">Worker Loss Report</h4>
+        <div class="card-header worker-loss-header">
+            <div>
+                <h4 class="card-title mb-0">Worker Loss Report</h4>
+                <div class="report-subtitle">Track source, receive, bhuko, and loss by worker, voucher, and stage.</div>
+            </div>
         </div>
         <div class="card-body">
             <div class="filter-box mb-3">
+                <div class="filter-title-row">
+                    <div>
+                        <div class="filter-title">Filters</div>
+                        <div class="filter-subtitle">Use voucher, worker, stage, and loss type to narrow the report.</div>
+                    </div>
+                </div>
                 <div class="row g-3 align-items-end">
                     <div class="col-md-2">
                         <label>From Date</label>
@@ -62,42 +71,42 @@
                             <label class="form-check-label" for="only_loss">Show Only Loss</label>
                         </div>
                     </div>
-                    <div class="col-md-12 d-flex justify-content-end gap-2">
-                        <button id="filter" class="btn btn-primary">Filter</button>
-                        <button id="reset" class="btn btn-secondary">Reset</button>
-                        <button id="export_excel" class="btn btn-info">Excel</button>
-                        <button id="export_pdf" class="btn btn-success">PDF</button>
+                    <div class="col-md-12 d-flex justify-content-end gap-2 flex-wrap worker-loss-actions">
+                        <button id="filter" class="btn btn-primary report-action-btn">Filter</button>
+                        <button id="reset" class="btn btn-secondary report-action-btn">Reset</button>
+                        <button id="export_excel" class="btn btn-info report-action-btn">Excel</button>
+                        <button id="export_pdf" class="btn btn-success report-action-btn">PDF</button>
                     </div>
                 </div>
             </div>
 
             <div class="row g-3 mb-3">
-                <div class="col-md-2">
-                    <div class="summary-card">
+                <div class="col-xl col-md-4 col-sm-6">
+                    <div class="summary-card summary-card-rows">
                         <span>Rows</span>
                         <strong id="total_rows">0</strong>
                     </div>
                 </div>
-                <div class="col-md-2">
-                    <div class="summary-card">
+                <div class="col-xl col-md-4 col-sm-6">
+                    <div class="summary-card summary-card-source">
                         <span>Source Wt</span>
                         <strong id="total_source_wt">0.000</strong>
                     </div>
                 </div>
-                <div class="col-md-2">
-                    <div class="summary-card">
+                <div class="col-xl col-md-4 col-sm-6">
+                    <div class="summary-card summary-card-receive">
                         <span>Receive Wt</span>
                         <strong id="total_receive_wt">0.000</strong>
                     </div>
                 </div>
-                <div class="col-md-2">
-                    <div class="summary-card">
+                <div class="col-xl col-md-4 col-sm-6">
+                    <div class="summary-card summary-card-bhuko">
                         <span>Bhuko</span>
                         <strong id="total_bhuko">0.000</strong>
                     </div>
                 </div>
-                <div class="col-md-2">
-                    <div class="summary-card">
+                <div class="col-xl col-md-4 col-sm-6">
+                    <div class="summary-card summary-card-loss">
                         <span>Loss</span>
                         <strong id="total_loss">0.000</strong>
                     </div>
@@ -151,7 +160,9 @@
                 </div>
             </div>
 
-            <div class="table-responsive">
+            <div class="report-table-panel">
+                <div class="report-table-title">Voucher Details</div>
+                <div class="table-responsive">
                 <table class="table table-bordered w-100" id="workerLossTable" style="width: 100%;">
                     <thead>
                         <tr>
@@ -168,6 +179,7 @@
                         </tr>
                     </thead>
                 </table>
+                </div>
             </div>
         </div>
     </div>
@@ -176,18 +188,142 @@
 
 @push('styles')
 <style>
+    .worker-loss-report {
+        border-color: rgba(125, 145, 255, 0.18);
+        background: #24263c;
+    }
+
+    .worker-loss-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px 22px;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+        background: #272a43;
+    }
+
+    .worker-loss-header .card-title {
+        color: #ffffff;
+        font-size: 22px;
+        font-weight: 800;
+    }
+
+    .report-subtitle,
+    .filter-subtitle {
+        color: #aeb7d0;
+        font-size: 13px;
+        margin-top: 4px;
+    }
+
     .filter-box,
     .summary-card,
+    .summary-panel,
+    .report-table-panel {
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: #292c45;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+    }
+
+    .filter-box {
+        padding: 18px;
+        border-radius: 8px;
+    }
+
+    .filter-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        margin-bottom: 16px;
+    }
+
+    .filter-title,
+    .report-table-title {
+        color: #ffffff;
+        font-size: 16px;
+        font-weight: 800;
+    }
+
+    .worker-loss-report label {
+        color: #dbe3f7;
+        font-size: 13px;
+        font-weight: 700;
+        margin-bottom: 6px;
+    }
+
+    .worker-loss-report .form-control,
+    .worker-loss-report .form-select,
+    .worker-loss-report .select2-container--bootstrap4 .select2-selection {
+        min-height: 46px;
+        border: 1px solid rgba(125, 145, 255, 0.28);
+        background: #303357;
+        color: #ffffff;
+    }
+
+    .worker-loss-report .form-control:focus,
+    .worker-loss-report .form-select:focus {
+        border-color: #5f8cff;
+        box-shadow: 0 0 0 0.15rem rgba(95, 140, 255, 0.18);
+    }
+
+    .worker-loss-actions {
+        padding-top: 8px;
+    }
+
+    .report-action-btn {
+        min-width: 92px;
+        min-height: 44px;
+        font-weight: 700;
+        border: 0;
+    }
+
+    .summary-card {
+        position: relative;
+        min-height: 84px;
+        overflow: hidden;
+        padding: 15px 16px;
+        border-radius: 8px;
+    }
+
+    .summary-card::before {
+        content: "";
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 4px;
+        background: #6ea8ff;
+    }
+
+    .summary-card-rows::before { background: #8b9cff; }
+    .summary-card-source::before { background: #2dd4bf; }
+    .summary-card-receive::before { background: #22c55e; }
+    .summary-card-bhuko::before { background: #f59e0b; }
+    .summary-card-loss::before { background: #fb2f72; }
+
+    .summary-card span {
+        display: block;
+        color: #bcc6dd;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0;
+        margin-bottom: 8px;
+    }
+
+    .summary-card strong {
+        color: #ffffff;
+        font-size: 21px;
+        line-height: 1.1;
+    }
+
     .summary-panel {
-        border: 1px solid #343852;
-        background: #282a3f;
-        padding: 12px;
+        padding: 14px;
+        border-radius: 8px;
     }
 
     .summary-panel h5 {
         color: #fff;
-        font-size: 14px;
-        margin-bottom: 10px;
+        font-size: 15px;
+        font-weight: 800;
+        margin-bottom: 12px;
     }
 
     .summary-panel th,
@@ -196,27 +332,50 @@
         vertical-align: middle;
     }
 
+    .summary-panel .table,
+    .report-table-panel .table {
+        color: #f8fafc;
+        margin-bottom: 0;
+    }
+
+    .summary-panel .table th,
+    .summary-panel .table td,
+    .report-table-panel .table th,
+    .report-table-panel .table td {
+        border-color: rgba(148, 163, 184, 0.16);
+        padding: 12px 14px;
+    }
+
+    .summary-panel .table thead th,
+    .report-table-panel .table thead th {
+        background: #313655;
+        color: #ffffff;
+        font-weight: 800;
+    }
+
+    .summary-panel .table tbody tr:nth-child(even) td,
+    .report-table-panel .table tbody tr:nth-child(even) td {
+        background: rgba(255, 255, 255, 0.025);
+    }
+
     .summary-panel td:not(:first-child),
     .summary-panel th:not(:first-child) {
         text-align: right;
-    }
-
-    .summary-card span {
-        display: block;
-        color: #c6c8dc;
-        font-size: 12px;
-        margin-bottom: 4px;
-    }
-
-    .summary-card strong {
-        color: #fff;
-        font-size: 15px;
     }
 
     #workerLossTable th,
     #workerLossTable td {
         white-space: nowrap;
         vertical-align: middle;
+    }
+
+    .report-table-panel {
+        padding: 14px;
+        border-radius: 8px;
+    }
+
+    .report-table-title {
+        margin-bottom: 12px;
     }
 
     .worker-loss-report .dataTables_wrapper,
@@ -232,6 +391,10 @@
 
     .worker-loss-report .dataTables_filter input {
         min-width: 190px;
+        margin-left: 8px;
+        border-color: rgba(125, 145, 255, 0.28);
+        background: #303357;
+        color: #ffffff;
     }
 
     .worker-loss-report #workerLossTable {
@@ -307,8 +470,9 @@
         align-items: center;
         gap: 6px;
         padding-left: 28px;
-        border: 1px solid #343852;
+        border: 1px solid rgba(125, 145, 255, 0.28);
         background: #30324f;
+        border-radius: 4px;
     }
 
     .stage-all-check {

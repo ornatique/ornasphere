@@ -153,6 +153,15 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
 
     Route::get('/jobwork-receive', [JobworkReceiveApiController::class, 'index']);
     Route::get('/jobwork-receive/other-charges', [JobworkReceiveApiController::class, 'otherCharges']);
+    Route::get('/jobwork-receive/direct', [JobworkReceiveApiController::class, 'directIndex']);
+    Route::get('/jobwork-receive/direct/options', [JobworkReceiveApiController::class, 'directOptions']);
+    Route::post('/jobwork-receive/direct', [JobworkReceiveApiController::class, 'directStore']);
+    Route::get('/jobwork-receive/direct/pdf/{id}', [JobworkReceiveApiController::class, 'directPdf'])->whereNumber('id');
+    Route::delete('/jobwork-receive/direct/{id}/items/{itemId}', [JobworkReceiveApiController::class, 'directDestroyItem'])->whereNumber(['id', 'itemId']);
+    Route::get('/jobwork-receive/direct/{id}', [JobworkReceiveApiController::class, 'directShow'])->whereNumber('id');
+    Route::put('/jobwork-receive/direct/{id}', [JobworkReceiveApiController::class, 'directUpdate'])->whereNumber('id');
+    Route::post('/jobwork-receive/direct/{id}', [JobworkReceiveApiController::class, 'directUpdate'])->whereNumber('id');
+    Route::delete('/jobwork-receive/direct/{id}', [JobworkReceiveApiController::class, 'directDestroy'])->whereNumber('id');
     Route::get('/jobwork-receive/pdf/{id}', [JobworkReceiveApiController::class, 'pdf'])->whereNumber('id');
     Route::delete('/jobwork-receive/{id}/items/{itemId}', [JobworkReceiveApiController::class, 'destroyItem'])->whereNumber(['id', 'itemId']);
     Route::get('/jobwork-receive/{id}', [JobworkReceiveApiController::class, 'show'])->whereNumber('id');
@@ -160,6 +169,14 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
     Route::post('/jobwork-receive/{id}', [JobworkReceiveApiController::class, 'update'])->whereNumber('id');
     Route::get('/jobwork_receive_list', [JobworkReceiveApiController::class, 'index']);
     Route::get('/jobwork_receive_other_charges', [JobworkReceiveApiController::class, 'otherCharges']);
+    Route::get('/direct_jobwork_receive_list', [JobworkReceiveApiController::class, 'directIndex']);
+    Route::get('/direct_jobwork_receive_options', [JobworkReceiveApiController::class, 'directOptions']);
+    Route::post('/create_direct_jobwork_receive', [JobworkReceiveApiController::class, 'directStore']);
+    Route::get('/direct_jobwork_receive_show/{id}', [JobworkReceiveApiController::class, 'directShow'])->whereNumber('id');
+    Route::get('/direct_jobwork_receive_pdf/{id}', [JobworkReceiveApiController::class, 'directPdf'])->whereNumber('id');
+    Route::post('/update_direct_jobwork_receive/{id}', [JobworkReceiveApiController::class, 'directUpdate'])->whereNumber('id');
+    Route::delete('/delete_direct_jobwork_receive/{id}', [JobworkReceiveApiController::class, 'directDestroy'])->whereNumber('id');
+    Route::delete('/delete_direct_jobwork_receive_items/{id}/{itemId}', [JobworkReceiveApiController::class, 'directDestroyItem'])->whereNumber(['id', 'itemId']);
     Route::get('/jobwork_receive_show/{id}', [JobworkReceiveApiController::class, 'show'])->whereNumber('id');
     Route::get('/jobwork_receive_pdf/{id}', [JobworkReceiveApiController::class, 'pdf'])->whereNumber('id');
     Route::post('/update_jobwork_receive/{id}', [JobworkReceiveApiController::class, 'update'])->whereNumber('id');

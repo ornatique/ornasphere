@@ -3,8 +3,8 @@
      $company = optional(auth()->user())->company;
      $companyName = optional($company)->name ?: config('app.name', 'Company');
      $companyShortName = \Illuminate\Support\Str::limit($companyName, 20, '...');
-     $defaultCompanyLogo = asset('celestial/assets/images/logo.svg');
-     $defaultMiniLogo = asset('celestial/assets/images/logo-mini.svg');
+     $defaultCompanyLogo = asset('celestial/assets/images/logo.svg') . '?v=' . @filemtime(public_path('celestial/assets/images/logo.svg'));
+     $defaultMiniLogo = asset('celestial/assets/images/logo-mini.svg') . '?v=' . @filemtime(public_path('celestial/assets/images/logo-mini.svg'));
      $companyLogo = optional($company)->company_logo_url ?: $defaultCompanyLogo;
      $miniLogo = optional($company)->company_logo_url ?: $defaultMiniLogo;
      $notificationSummary = $companyNotificationSummary ?? ['total' => 0, 'latest' => collect()];

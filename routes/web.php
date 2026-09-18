@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Auth;
 use App\Http\Controllers\SuperAdmin\AuthController as SuperAdminAuthController;
 use App\Http\Controllers\SuperAdmin\CompanyController;
+use App\Http\Controllers\SuperAdmin\NotificationController as SuperAdminNotificationController;
 use App\Http\Controllers\Company\CompanyAuthController;
 use App\Http\Controllers\Company\CompanyDashboardController;
 use App\Http\Controllers\Company\CompanyProfileController;
@@ -236,12 +237,31 @@ Route::middleware([
     Route::get('/dashboard', [SuperAdminAuthController::class, 'dashboard'])
         ->name('dashboard');
 
+    Route::get('/notifications', [SuperAdminNotificationController::class, 'index'])
+        ->name('notifications.index');
+
+    Route::get('/notifications/{notification}/open', [SuperAdminNotificationController::class, 'open'])
+        ->name('notifications.open');
+
+    Route::post('/notifications/read', [SuperAdminNotificationController::class, 'markAllRead'])
+        ->name('notifications.read');
+
     Route::resource('companies', CompanyController::class);
 
     Route::post(
         'companies/{company}/toggle-status',
         [CompanyController::class, 'toggleStatus']
     )->name('companies.toggle-status');
+
+    Route::post(
+        'companies/{company}/renew-plan',
+        [CompanyController::class, 'renewPlan']
+    )->name('companies.renew-plan');
+
+    Route::get(
+        'companies/{company}/plan-history',
+        [CompanyController::class, 'planHistory']
+    )->name('companies.plan-history');
 
     Route::post(
         'companies/{company}/resend-login',
@@ -385,6 +405,18 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
             ->name('jobwork-receive.export-pdf');
         Route::get('/jobwork-receive/create', [JobworkReceiveController::class, 'create'])
             ->name('jobwork-receive.create');
+        Route::get('/jobwork-receive/direct/create', [JobworkReceiveController::class, 'createDirect'])
+            ->name('jobwork-receive.direct.create');
+        Route::post('/jobwork-receive/direct', [JobworkReceiveController::class, 'storeDirect'])
+            ->name('jobwork-receive.direct.store');
+        Route::get('/jobwork-receive/direct/{encryptedId}/edit', [JobworkReceiveController::class, 'editDirect'])
+            ->name('jobwork-receive.direct.edit');
+        Route::put('/jobwork-receive/direct/{encryptedId}', [JobworkReceiveController::class, 'updateDirect'])
+            ->name('jobwork-receive.direct.update');
+        Route::delete('/jobwork-receive/direct/{encryptedId}', [JobworkReceiveController::class, 'destroyDirect'])
+            ->name('jobwork-receive.direct.destroy');
+        Route::get('/jobwork-receive/direct/{encryptedId}/pdf', [JobworkReceiveController::class, 'directPdf'])
+            ->name('jobwork-receive.direct.pdf');
         Route::get('/jobwork-receive/{encryptedId}/view', [JobworkReceiveController::class, 'show'])
             ->name('jobwork-receive.show');
         Route::put('/jobwork-receive/{encryptedId}', [JobworkReceiveController::class, 'update'])

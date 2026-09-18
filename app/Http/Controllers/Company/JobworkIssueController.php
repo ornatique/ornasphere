@@ -28,6 +28,9 @@ class JobworkIssueController extends Controller
             $rows = $this->baseQuery($company, $request);
 
             return DataTables::of($rows)
+                ->filter(function ($query) use ($request) {
+                    $this->applySearchFilter($query, trim((string) data_get($request->input('search'), 'value', '')));
+                })
                 ->addIndexColumn()
                 ->addColumn('jobworker_name', fn($row) => $row->jobWorker?->name ?? '-')
                 ->addColumn('production_step_name', fn($row) => $row->productionStep?->name ?? '-')
@@ -55,7 +58,13 @@ class JobworkIssueController extends Controller
                 ->make(true);
         }
 
-        return view('company.jobwork_issue.index', compact('company'));
+        $jobWorkers = WorkerPersonService::activeWorkers((int) $company->id);
+        $productionSteps = ProductionStep::where('company_id', $company->id)
+            ->where('status', true)
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        return view('company.jobwork_issue.index', compact('company', 'jobWorkers', 'productionSteps'));
     }
 
     public function show($slug, $encryptedId)
@@ -223,7 +232,10 @@ class JobworkIssueController extends Controller
     public function exportExcel(Request $request, $slug): StreamedResponse
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        $rows = $this->baseQuery($company, $request)->latest('jobwork_date')->get();
+        $rows = $this->baseQuery($company, $request)
+            ->latest('created_at')
+            ->latest('id')
+            ->get();
 
         return response()->streamDownload(function () use ($rows) {
             $out = fopen('php://output', 'w');
@@ -253,7 +265,10 @@ class JobworkIssueController extends Controller
     public function exportPdf(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        $rows = $this->baseQuery($company, $request)->latest('jobwork_date')->get();
+        $rows = $this->baseQuery($company, $request)
+            ->latest('created_at')
+            ->latest('id')
+            ->get();
 
         return Pdf::loadView('company.jobwork_issue.pdf.index', compact('company', 'rows'))
             ->setPaper('a4', 'landscape')
@@ -328,7 +343,29 @@ class JobworkIssueController extends Controller
             ->withSum('items as fine_wt_sum', 'fine_wt')
             ->withSum('items as total_amt_sum', 'total_amt')
             ->when($request->filled('from_date'), fn($q) => $q->whereDate('jobwork_date', '>=', $request->from_date))
-            ->when($request->filled('to_date'), fn($q) => $q->whereDate('jobwork_date', '<=', $request->to_date));
+            ->when($request->filled('to_date'), fn($q) => $q->whereDate('jobwork_date', '<=', $request->to_date))
+            ->when($request->filled('job_worker_id'), fn($q) => $q->where('job_worker_id', $request->job_worker_id))
+            ->when($request->filled('production_step_id'), fn($q) => $q->where('production_step_id', $request->production_step_id))
+            ->when(trim((string) $request->input('search_text', '')) !== '', function ($q) use ($request) {
+                $this->applySearchFilter($q, trim((string) $request->input('search_text', '')));
+            })
+            ->latest('created_at')
+            ->latest('id');
+    }
+
+    private function applySearchFilter($query, string $search): void
+    {
+        if ($search === '') {
+            return;
+        }
+
+        $query->where(function ($q) use ($search) {
+            $q->where('voucher_no', 'like', "%{$search}%")
+                ->orWhereHas('jobWorker', fn($workerQ) => $workerQ->where('name', 'like', "%{$search}%"))
+                ->orWhereHas('productionStep', fn($stepQ) => $stepQ->where('name', 'like', "%{$search}%"))
+                ->orWhereRaw("DATE_FORMAT(jobwork_date, '%d-%m-%Y') like ?", ["%{$search}%"])
+                ->orWhereRaw("DATE_FORMAT(jobwork_date, '%Y-%m-%d') like ?", ["%{$search}%"]);
+        });
     }
 
     private function excelText(?string $value): string
