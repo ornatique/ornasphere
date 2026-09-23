@@ -15,8 +15,7 @@
                 <div class="row g-3 align-items-end">
                     <div class="col-md-3">
                         <label>Item</label>
-                        <select id="itemFilter" class="form-select stock-gallery-search-select">
-                            <option value="">All Items</option>
+                        <select id="itemFilter" class="form-select stock-gallery-search-select" multiple>
                             @foreach($items as $item)
                                 <option value="{{ $item->id }}">{{ $item->item_name }}</option>
                             @endforeach
@@ -163,6 +162,75 @@
         border-color: #565e64;
         color: #fff;
     }
+    .stock-gallery-page .select2-container--bootstrap4 .select2-selection--multiple {
+        min-height: 46px;
+        height: 46px;
+        background: #302c55;
+        border-color: #4b4580;
+        overflow: hidden;
+    }
+    .stock-gallery-page #itemFilter + .select2-container .select2-selection--multiple .select2-selection__rendered {
+        display: flex;
+        align-items: center;
+        height: 44px;
+        padding: 6px 12px;
+        overflow: hidden;
+    }
+    .stock-gallery-page #itemFilter + .select2-container .select2-selection--multiple .select2-selection__choice {
+        display: none;
+    }
+    .stock-gallery-page #itemFilter + .select2-container .select2-search--inline {
+        width: 100%;
+    }
+    .stock-gallery-page #itemFilter + .select2-container .select2-search--inline .select2-search__field {
+        width: 100% !important;
+        margin-top: 0;
+        height: 30px;
+        padding: 5px 8px;
+        color: #fff;
+    }
+    .stock-gallery-page .select2-dropdown .select2-search--dropdown .select2-search__field,
+    .select2-container--bootstrap4 .select2-dropdown .select2-search--dropdown .select2-search__field,
+    .select2-container .select2-search--dropdown .select2-search__field,
+    input.select2-search__field {
+        color: #111 !important;
+        -webkit-text-fill-color: #111 !important;
+        caret-color: #111 !important;
+        background: #fff !important;
+        opacity: 1 !important;
+        font-size: 14px !important;
+        line-height: 20px !important;
+        text-shadow: none !important;
+        visibility: visible !important;
+    }
+    .stock-gallery-page .select2-results__option--selected,
+    .stock-gallery-page .select2-results__option[aria-selected=true] {
+        background: #1c75ff !important;
+        color: #fff !important;
+    }
+    .stock-gallery-item-option {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        width: 100%;
+    }
+    .stock-gallery-item-option span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .stock-gallery-item-option input {
+        width: 16px;
+        height: 16px;
+        accent-color: #1c75ff;
+        flex: 0 0 auto;
+        pointer-events: none;
+    }
+    .stock-gallery-item-option.is-selected span {
+        color: #fff;
+        font-weight: 700;
+    }
     .gallery-status { color: #d5d7e4; margin-bottom: 12px; }
     .stock-gallery-grid {
         display: grid;
@@ -274,7 +342,46 @@ document.addEventListener('DOMContentLoaded', function () {
     let loading = false;
 
     if (window.jQuery && jQuery.fn.select2) {
-        jQuery('.stock-gallery-search-select').select2({
+        function itemOptionTemplate(option) {
+            if (!option.id) {
+                return option.text;
+            }
+
+            const selectedValues = jQuery('#itemFilter').val() || [];
+            const checked = selectedValues.map(String).includes(String(option.id)) ? 'checked' : '';
+            const selectedClass = checked ? ' is-selected' : '';
+
+            return jQuery(`
+                <div class="stock-gallery-item-option${selectedClass}">
+                    <span></span>
+                    <input type="checkbox" ${checked} tabindex="-1">
+                </div>
+            `).find('span').text(option.text).end();
+        }
+
+        jQuery('#itemFilter').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            minimumResultsForSearch: 0,
+            placeholder: 'All Items',
+            templateResult: itemOptionTemplate,
+            templateSelection: function(option) {
+                return option.text;
+            },
+            escapeMarkup: function(markup) {
+                return markup;
+            },
+            dropdownParent: jQuery('.stock-gallery-page')
+        });
+        jQuery('#itemFilter').on('change', function () {
+            const count = jQuery(this).val()?.length || 0;
+            const placeholder = count > 0 ? `${count} item selected` : 'All Items';
+            const selection = jQuery(this).next('.select2-container').find('.select2-search__field');
+            selection.attr('placeholder', placeholder);
+        });
+        jQuery('#itemFilter').trigger('change');
+
+        jQuery('#stockStatusFilter, #imageStatusFilter').select2({
             theme: 'bootstrap4',
             width: '100%',
             minimumResultsForSearch: 0,
@@ -284,13 +391,19 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function filters(extra = {}) {
         const params = new URLSearchParams({
-            item_id: document.getElementById('itemFilter').value,
             stock_status: document.getElementById('stockStatusFilter').value,
             image_status: document.getElementById('imageStatusFilter').value,
             search: document.getElementById('searchFilter').value.trim(),
             page: page,
             per_page: 24,
             ...extra
+        });
+        const itemIds = Array.from(document.getElementById('itemFilter').selectedOptions)
+            .map(function (option) { return option.value; })
+            .filter(Boolean);
+
+        itemIds.forEach(function (itemId) {
+            params.append('item_id[]', itemId);
         });
 
         Array.from(params.keys()).forEach(function (key) {
@@ -555,11 +668,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     document.getElementById('applyFilter').addEventListener('click', function () { loadGallery(true); });
     document.getElementById('resetFilter').addEventListener('click', function () {
-        document.getElementById('itemFilter').value = '';
+        Array.from(document.getElementById('itemFilter').options).forEach(function (option) {
+            option.selected = false;
+        });
         document.getElementById('stockStatusFilter').value = 'in';
         document.getElementById('imageStatusFilter').value = '';
         if (window.jQuery && jQuery.fn.select2) {
-            jQuery('#itemFilter').val('').trigger('change');
+            jQuery('#itemFilter').val(null).trigger('change');
             jQuery('#stockStatusFilter').val('in').trigger('change');
             jQuery('#imageStatusFilter').val('').trigger('change');
         }

@@ -146,10 +146,62 @@ class ItemSetController extends Controller
         return (int) $id;
     }
 
+    private function ownDraftRows($query, ?int $userId)
+    {
+        return $query->where(function ($ownerQuery) use ($userId) {
+            $ownerQuery->where('created_by', $userId)
+                ->orWhereNull('created_by');
+        });
+    }
+
+    private function requestUpdatedAt(Request $request): ?string
+    {
+        return $request->input('updated_at') ?: $request->input('last_updated_at');
+    }
+
+    private function rowUpdatedAt(array $row): ?string
+    {
+        return $row['updated_at'] ?? ($row['last_updated_at'] ?? null);
+    }
+
+    private function hasStaleTimestamp(ItemSet $itemSet, ?string $updatedAt): bool
+    {
+        if (!$updatedAt || !$itemSet->updated_at) {
+            return false;
+        }
+
+        try {
+            return !$itemSet->updated_at->equalTo(\Carbon\Carbon::parse($updatedAt));
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    private function staleItemSetResponse()
+    {
+        return response()->json([
+            'success' => false,
+            'status' => false,
+            'message' => 'This item was changed from another device. Please reload and try again.',
+            'code' => 'STALE_ITEM_SET',
+        ], 409);
+    }
+
+    private function itemAlreadyUsedResponse()
+    {
+        return response()->json([
+            'success' => false,
+            'status' => false,
+            'message' => 'This item is already used in sale or approval. Please reload.',
+            'code' => 'ITEM_ALREADY_USED',
+        ], 409);
+    }
+
     // ================= DEFAULT LOAD GRID =================
     public function index(Request $request)
     {
         $companyId = $request->user()->company_id;
+        $userId = optional($request->user())->id;
 
         $itemId = $request->item_id;
 
@@ -161,9 +213,11 @@ class ItemSetController extends Controller
             ], 422);
         }
 
-        $sets = ItemSet::where('company_id', $companyId)
+        $setsQuery = ItemSet::where('company_id', $companyId)
             ->where('item_id', $itemId)
-            ->where('is_final', 0)
+            ->where('is_final', 0);
+
+        $sets = $this->ownDraftRows($setsQuery, $userId)
             ->orderBy('id')
             ->limit(500)
             ->get();
@@ -180,6 +234,7 @@ class ItemSetController extends Controller
     public function saveCell(Request $request)
     {
         $companyId = $request->user()->company_id;
+        $userId = optional($request->user())->id;
         $toNumber = function ($value): float {
             if ($value === null || $value === '') {
                 return 0;
@@ -216,6 +271,10 @@ class ItemSetController extends Controller
         if (!empty($incomingId)) {
             $set = ItemSet::where('company_id', $companyId)
                 ->where('item_id', $request->item_id)
+                ->where(function ($query) use ($userId) {
+                    $query->where('created_by', $userId)
+                        ->orWhereNull('created_by');
+                })
                 ->where('id', $incomingId)
                 ->first();
 
@@ -226,10 +285,21 @@ class ItemSetController extends Controller
                 ], 404);
             }
 
+            if ($this->hasStaleTimestamp($set, $this->requestUpdatedAt($request))) {
+                return $this->staleItemSetResponse();
+            }
+
+            if (!$set->created_by) {
+                $payload['created_by'] = $userId;
+            }
+            $payload['updated_by'] = $userId;
+
             $set->update($payload);
         } else {
             $set = ItemSet::create(array_merge($payload, [
                 'company_id' => $companyId,
+                'created_by' => $userId,
+                'updated_by' => $userId,
                 'item_id' => $request->item_id,
                 'is_final' => 0,
             ]));
@@ -240,6 +310,7 @@ class ItemSetController extends Controller
             $gross = $toNumber($request->gross_weight ?? $set->gross_weight);
             $other = $toNumber($request->other ?? $set->other);
             $set->net_weight = max(0, $gross - $other);
+            $set->updated_by = $userId;
             $set->save();
         }
 
@@ -255,6 +326,7 @@ class ItemSetController extends Controller
 public function bulkSave(Request $request)
 {
     $companyId = $request->user()->company_id;
+    $userId = optional($request->user())->id;
 
     $request->validate([
         'item_id' => 'required',
@@ -274,9 +346,11 @@ public function bulkSave(Request $request)
     DB::beginTransaction();
 
     try {
-        $existingDrafts = ItemSet::where('company_id', $companyId)
+        $existingDraftsQuery = ItemSet::where('company_id', $companyId)
             ->where('item_id', $request->item_id)
-            ->where('is_final', 0)
+            ->where('is_final', 0);
+
+        $existingDrafts = $this->ownDraftRows($existingDraftsQuery, $userId)
             ->orderBy('id')
             ->get()
             ->keyBy('id');
@@ -313,13 +387,24 @@ public function bulkSave(Request $request)
             $incomingId = $this->resolveIncomingRowId($row) ?? 0;
 
             if ($incomingId > 0) {
-                $set = ItemSet::where('company_id', $companyId)
+                $setQuery = ItemSet::where('company_id', $companyId)
                     ->where('item_id', $request->item_id)
                     ->where('id', $incomingId)
-                    ->first();
+                    ->lockForUpdate();
+
+                $set = $this->ownDraftRows($setQuery, $userId)->first();
             }
 
             if ($set) {
+                if ($this->hasStaleTimestamp($set, $this->rowUpdatedAt($row))) {
+                    throw new \RuntimeException('STALE_ITEM_SET');
+                }
+
+                if (!$set->created_by) {
+                    $data['created_by'] = $userId;
+                }
+                $data['updated_by'] = $userId;
+
                 $set->update($data);
                 if ((int) $set->is_final === 0) {
                     $touchedExistingIds[] = (int) $set->id;
@@ -327,6 +412,8 @@ public function bulkSave(Request $request)
             } else {
                 $set = ItemSet::create(array_merge($data, [
                     'company_id' => $companyId,
+                    'created_by' => $userId,
+                    'updated_by' => $userId,
                     'item_id' => $request->item_id,
                     'is_final' => 0,
                 ]));
@@ -336,6 +423,7 @@ public function bulkSave(Request $request)
             $other = (float) ($set->other ?? 0);
             if ($set->net_weight === null || $set->net_weight === '') {
                 $set->net_weight = max(0, $gross - $other);
+                $set->updated_by = $userId;
                 $set->save();
             }
 
@@ -348,12 +436,13 @@ public function bulkSave(Request $request)
 
         // Remove stale old draft rows that were not part of this save payload.
         $staleIds = array_values(array_diff($existingIds, array_unique($touchedExistingIds)));
-        if (!empty($staleIds)) {
-            ItemSet::where('company_id', $companyId)
+        if (!empty($staleIds) && $request->boolean('replace_drafts', true)) {
+            $staleQuery = ItemSet::where('company_id', $companyId)
                 ->where('item_id', $request->item_id)
                 ->where('is_final', 0)
-                ->whereIn('id', $staleIds)
-                ->delete();
+                ->whereIn('id', $staleIds);
+
+            $this->ownDraftRows($staleQuery, $userId)->delete();
         }
 
         DB::commit();
@@ -366,6 +455,10 @@ public function bulkSave(Request $request)
     } catch (\Exception $e) {
         DB::rollBack();
 
+        if ($e->getMessage() === 'STALE_ITEM_SET') {
+            return $this->staleItemSetResponse();
+        }
+
         return response()->json([
             'success' => false,
             'message' => $e->getMessage(),
@@ -377,6 +470,7 @@ public function bulkSave(Request $request)
     public function finalize(Request $request)
     {
         $companyId = $request->user()->company_id;
+        $userId = optional($request->user())->id;
 
         $item = $this->configuredItem($companyId, $request->item_id);
 
@@ -387,15 +481,24 @@ public function bulkSave(Request $request)
             ], 422);
         }
 
-        $config = LabelConfig::where('company_id', $companyId)
-            ->where('item_id', $item->id)
-            ->first();
-
         DB::beginTransaction();
 
         try {
+            $config = LabelConfig::where('company_id', $companyId)
+                ->where('item_id', $item->id)
+                ->lockForUpdate()
+                ->first();
 
-            $draftSets = ItemSet::where('company_id', $companyId)
+            if (!$config) {
+                DB::rollBack();
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Label Config not found for selected item. Please create Label Config first.',
+                ], 422);
+            }
+
+            $draftSetsQuery = ItemSet::where('company_id', $companyId)
                 ->where('item_id', $item->id)
                 ->where('is_final', 0)
                 ->where(function ($q) {
@@ -403,11 +506,16 @@ public function bulkSave(Request $request)
                         ->orWhereNotNull('net_weight')
                         ->orWhereNotNull('size')
                         ->orWhereNotNull('HUID');
-                })
+                });
+
+            $draftSets = $this->ownDraftRows($draftSetsQuery, $userId)
                 ->orderBy('id')
+                ->lockForUpdate()
                 ->get();
 
             if ($draftSets->isEmpty()) {
+                DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'No draft rows found'
@@ -433,7 +541,9 @@ public function bulkSave(Request $request)
                     'qr_code'   => $qrText,
                     'barcode'   => $qrText,
                     'net_weight' => $net,
-                    'is_final'  => 1
+                    'is_final'  => 1,
+                    'created_by' => $set->created_by ?: $userId,
+                    'updated_by' => $userId,
                 ]);
             }
 
@@ -702,6 +812,7 @@ public function bulkSave(Request $request)
     public function uploadLabelImage(Request $request)
     {
         $companyId = $request->user()->company_id;
+        $userId = optional($request->user())->id;
 
         $validated = $request->validate([
             'item_id' => 'required',
@@ -736,10 +847,11 @@ public function bulkSave(Request $request)
         $itemSet = null;
 
         if ($itemSetId) {
-            $itemSet = ItemSet::where('company_id', $companyId)
+            $itemSetQuery = ItemSet::where('company_id', $companyId)
                 ->where('item_id', $validated['item_id'])
-                ->where('id', (int) $itemSetId)
-                ->first();
+                ->where('id', (int) $itemSetId);
+
+            $itemSet = $this->ownDraftRows($itemSetQuery, $userId)->first();
         }
 
         $data = [
@@ -758,12 +870,19 @@ public function bulkSave(Request $request)
         $data = array_filter($data, fn ($value) => $value !== null);
 
         if ($itemSet) {
+            if (!$itemSet->created_by) {
+                $data['created_by'] = $userId;
+            }
+            $data['updated_by'] = $userId;
+
             if ($data) {
                 $itemSet->update($data);
             }
         } else {
             $itemSet = ItemSet::create(array_merge($data, [
                 'company_id' => $companyId,
+                'created_by' => $userId,
+                'updated_by' => $userId,
                 'item_id' => $validated['item_id'],
                 'is_final' => 0,
             ]));
@@ -847,47 +966,102 @@ public function bulkSave(Request $request)
     public function update(Request $request, $id)
     {
         $companyId = $request->user()->company_id;
+        $userId = optional($request->user())->id;
 
-        $item = ItemSet::where('company_id', $companyId)
-            ->findOrFail($id);
+        DB::beginTransaction();
 
-        $grossWeight = (float) ($request->gross_weight ?? $item->gross_weight ?? 0);
-        $otherWeight = (float) ($request->other ?? $request->other_weight ?? $item->other ?? 0);
-        $netWeight = max(0, $grossWeight - $otherWeight);
-        $saleOtherInput = $request->sale_other ?? $request->other_charges;
-        $saleOther = ($saleOtherInput === null || $saleOtherInput === '')
-            ? $item->sale_other
-            : (float) str_replace(',', '', (string) $saleOtherInput);
+        try {
+            $item = ItemSet::where('company_id', $companyId)
+                ->where('id', $id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        $item->update([
-            'gross_weight' => $grossWeight,
-            'net_weight'   => $netWeight,
-            'other'        => $otherWeight,
-            'size'         => $request->size,
-            'HUID'         => $request->HUID ?? $request->huid,
-            'sale_labour_rate' => $request->sale_labour_rate ?? $request->labour_rate,
-            'sale_labour_amount' => $request->sale_labour_amount ?? $request->labour_amount,
-            'sale_other' => $saleOther,
-        ]);
+            if ((int) ($item->is_sold ?? 0) === 1) {
+                DB::rollBack();
 
-        return response()->json([
-            'status' => true,
-            'message' => 'Updated successfully'
-        ]);
+                return $this->itemAlreadyUsedResponse();
+            }
+
+            if ($this->hasStaleTimestamp($item, $this->requestUpdatedAt($request))) {
+                DB::rollBack();
+
+                return $this->staleItemSetResponse();
+            }
+
+            $grossWeight = (float) ($request->gross_weight ?? $item->gross_weight ?? 0);
+            $otherWeight = (float) ($request->other ?? $request->other_weight ?? $item->other ?? 0);
+            $netWeight = max(0, $grossWeight - $otherWeight);
+            $saleOtherInput = $request->sale_other ?? $request->other_charges;
+            $saleOther = ($saleOtherInput === null || $saleOtherInput === '')
+                ? $item->sale_other
+                : (float) str_replace(',', '', (string) $saleOtherInput);
+
+            $item->update([
+                'gross_weight' => $grossWeight,
+                'net_weight'   => $netWeight,
+                'other'        => $otherWeight,
+                'size'         => $request->size,
+                'HUID'         => $request->HUID ?? $request->huid,
+                'sale_labour_rate' => $request->sale_labour_rate ?? $request->labour_rate,
+                'sale_labour_amount' => $request->sale_labour_amount ?? $request->labour_amount,
+                'sale_other' => $saleOther,
+                'updated_by' => $userId,
+            ]);
+
+            DB::commit();
+
+            $freshItem = $item->fresh('item');
+
+            return response()->json([
+                'success' => true,
+                'status' => true,
+                'message' => 'Updated successfully',
+                'data' => $this->itemSetApiPayload($freshItem),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            throw $e;
+        }
     }
 
     // ✅ DELETE
     public function destroy(Request $request, $id)
     {
         $companyId = $request->user()->company_id;
+        DB::beginTransaction();
 
-        $item = ItemSet::where('company_id', $companyId)
-            ->findOrFail($id);
-        $item->delete();
+        try {
+            $item = ItemSet::where('company_id', $companyId)
+                ->where('id', $id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        return response()->json([
-            'status' => true,
-            'message' => 'Deleted successfully'
-        ]);
+            if ((int) ($item->is_sold ?? 0) === 1) {
+                DB::rollBack();
+
+                return $this->itemAlreadyUsedResponse();
+            }
+
+            if ($this->hasStaleTimestamp($item, $this->requestUpdatedAt($request))) {
+                DB::rollBack();
+
+                return $this->staleItemSetResponse();
+            }
+
+            $item->delete();
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'status' => true,
+                'message' => 'Deleted successfully'
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            throw $e;
+        }
     }
 }

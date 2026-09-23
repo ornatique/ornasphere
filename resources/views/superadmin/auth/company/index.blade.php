@@ -208,6 +208,55 @@
             }
         });
     });
+
+    $(document).on('click', '.deleteBtn', function() {
+        const companyName = String($(this).data('name') || '');
+        const url = $(this).data('url');
+
+        Swal.fire({
+            title: 'Delete company permanently?',
+            html: 'This will permanently delete <strong>' + companyName + '</strong> and all related data from all tables.<br><br>Type the company name to confirm.',
+            input: 'text',
+            inputPlaceholder: companyName,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Delete Permanently',
+            confirmButtonColor: '#ff1a1a',
+            cancelButtonText: 'Cancel',
+            preConfirm: (value) => {
+                if (value !== companyName) {
+                    Swal.showValidationMessage('Company name does not match.');
+                    return false;
+                }
+
+                return true;
+            }
+        }).then((result) => {
+            if (!result.isConfirmed) {
+                return;
+            }
+
+            const form = $('<form>', {
+                method: 'POST',
+                action: url
+            });
+
+            form.append($('<input>', {
+                type: 'hidden',
+                name: '_token',
+                value: "{{ csrf_token() }}"
+            }));
+
+            form.append($('<input>', {
+                type: 'hidden',
+                name: '_method',
+                value: 'DELETE'
+            }));
+
+            $('body').append(form);
+            form.trigger('submit');
+        });
+    });
 </script>
 <script>
 

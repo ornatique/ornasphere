@@ -18,6 +18,7 @@ use App\Models\ApprovalItem;
 use Illuminate\Support\Facades\Schema;
 use App\Models\ItemSet;
 use App\Models\Company;
+use App\Services\TransactionItemGuard;
 
 class SaleReturnApiController extends Controller
 {
@@ -1293,31 +1294,24 @@ class SaleReturnApiController extends Controller
 
             $saleItems = collect();
             if ($saleItemIds->isNotEmpty()) {
-                $saleItems = SaleItem::with(['sale', 'itemset'])
-                    ->whereIn('id', $saleItemIds)
-                    ->whereHas('sale', function ($q) use ($companyId) {
-                        $q->where('company_id', $companyId);
-                    })
-                    ->get()
-                    ->filter(function ($saleItem) {
-                        return !SaleReturnItem::where('sale_item_id', $saleItem->id)->exists();
-                    })
+                $saleItems = $saleItemIds
+                    ->map(fn($id) => TransactionItemGuard::lockSaleItemForReturn($companyId, (int) $id)->load(['sale', 'itemset']))
                     ->values();
             }
 
             $approvalItems = collect();
             if ($approvalItemIds->isNotEmpty()) {
-                $approvalItems = ApprovalItem::with(['approval', 'itemSet', 'legacyItemSet'])
-                    ->whereIn('id', $approvalItemIds)
-                    ->where(function ($statusQuery) {
-                        $statusQuery->whereNull('status')
-                            ->orWhereRaw('LOWER(status) = ?', ['pending']);
+                $approvalItems = $approvalItemIds
+                    ->map(function ($id) use ($companyId, $customerId) {
+                        $approvalItem = TransactionItemGuard::lockApprovalItemForReturn($companyId, (int) $id)
+                            ->load(['approval', 'itemSet', 'legacyItemSet']);
+
+                        if ((int) optional($approvalItem->approval)->customer_id !== $customerId) {
+                            throw new \Exception('Approval item customer mismatch.');
+                        }
+
+                        return $approvalItem;
                     })
-                    ->whereHas('approval', function ($approvalQuery) use ($companyId, $customerId) {
-                        $approvalQuery->where('company_id', $companyId)
-                            ->where('customer_id', $customerId);
-                    })
-                    ->get()
                     ->values();
             }
 

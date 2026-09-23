@@ -50,22 +50,41 @@
                     </div>
                 </div>
 
-                <div class="row mb-3">
-                    <div class="col-md-3">
+                <div class="row mb-3 align-items-end">
+                    <div class="col-md-2">
                         <label id="advance_cash_balance_label">Advance Cash Balance Credit</label>
                         <input type="text" class="form-control" id="advance_cash_balance" value="0.00" readonly>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-2">
                         <label id="advance_silver_balance_label">Metal Fine Balance Credit</label>
                         <input type="text" class="form-control" id="advance_silver_balance" value="0.000" readonly>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-2">
                         <label id="advance_silver_used_label">Metal Used (Fine Wt)</label>
                         <input type="text" class="form-control" id="advance_silver_used" value="0.000" readonly>
                     </div>
                     <div class="col-md-3">
                         <label id="advance_silver_after_label">Metal Balance After Use Credit</label>
                         <input type="text" class="form-control" id="advance_silver_after" value="0.000" readonly>
+                    </div>
+                    <div class="col-md-3">
+                        <label>Fine Adjustment</label>
+                        <div class="fine-adjust-control">
+                            <div class="fine-adjust-main">
+                                <input type="checkbox"
+                                       class="form-check-input"
+                                       id="use_silver_balance"
+                                       name="use_silver_balance"
+                                       value="1"
+                                       {{ old('use_silver_balance', !empty($sale) ? (bool) ($sale->use_silver_balance ?? false) : false) ? 'checked' : '' }}>
+                                <label class="fine-adjust-label" for="use_silver_balance">
+                                    Adjust Fine Balance
+                                </label>
+                            </div>
+                            <div class="fine-adjust-help">
+                                Deduct sale fine from customer metal balance.
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -731,6 +750,48 @@
         min-width: 230px;
     }
 
+    .fine-adjust-control {
+        min-height: 47px;
+        padding: 8px 12px;
+        border: 1px solid rgba(150, 170, 255, 0.35);
+        background: #302c55;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+
+    .fine-adjust-main {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        min-height: 20px;
+    }
+
+    .fine-adjust-main .form-check-input {
+        position: static;
+        margin: 0;
+        width: 16px;
+        height: 16px;
+        flex: 0 0 16px;
+        cursor: pointer;
+    }
+
+    .fine-adjust-label {
+        margin: 0;
+        color: #ffffff;
+        font-weight: 600;
+        line-height: 1.2;
+        cursor: pointer;
+    }
+
+    .fine-adjust-help {
+        margin-left: 25px;
+        margin-top: 3px;
+        color: rgba(255, 255, 255, 0.68);
+        font-size: 12px;
+        line-height: 1.25;
+    }
+
     #saleTable .other-amount-wrap .other-amount {
         flex: 1 1 auto;
         min-width: 0;
@@ -1027,20 +1088,23 @@ $(function () {
     function updateSilverPreview() {
         const activeMetal = getActiveMetalType();
         const activeLabel = metalLabel(activeMetal);
+        const shouldAdjustFineBalance = $('#use_silver_balance').is(':checked');
         const metalBal = activeMetal === 'gold'
             ? advanceGoldBalance
             : (activeMetal === 'silver' ? advanceSilverBalance : advanceOtherBalance);
         let used = 0;
-        Object.values(selectedRows).forEach(row => {
-            if (normalizeMetalType(row.metal_type) === activeMetal) {
-                used += toNum(row.fine_weight || 0);
-            }
-        });
+        if (shouldAdjustFineBalance) {
+            Object.values(selectedRows).forEach(row => {
+                if (normalizeMetalType(row.metal_type) === activeMetal) {
+                    used += toNum(row.fine_weight || 0);
+                }
+            });
+        }
         const after = metalBal - used;
         const afterType = after >= 0 ? 'Credit' : 'Debit';
         const balType = metalBal >= 0 ? 'Credit' : 'Debit';
         $('#advance_silver_balance_label').text(`${activeLabel} Fine Balance ${balType}`);
-        $('#advance_silver_used_label').text(`${activeLabel} Used (Fine Wt)`);
+        $('#advance_silver_used_label').text(shouldAdjustFineBalance ? `${activeLabel} Used (Fine Wt)` : `${activeLabel} Used Not Adjusted`);
         $('#advance_silver_after_label').text(`${activeLabel} Balance After Use ${afterType}`);
         $('#advance_silver_balance').val(nfix(Math.abs(metalBal), 3));
         $('#advance_silver_used').val(nfix(used, 3));
@@ -1497,11 +1561,14 @@ $(function () {
     }
 
     function calculateCashPayableTotal() {
-        const remainingMetal = {
-            gold: Math.max(0, advanceGoldBalance),
-            silver: Math.max(0, advanceSilverBalance),
-            other: Math.max(0, advanceOtherBalance),
-        };
+        const shouldAdjustFineBalance = $('#use_silver_balance').is(':checked');
+        const remainingMetal = shouldAdjustFineBalance
+            ? {
+                gold: Math.max(0, advanceGoldBalance),
+                silver: Math.max(0, advanceSilverBalance),
+                other: Math.max(0, advanceOtherBalance),
+            }
+            : { gold: 0, silver: 0, other: 0 };
         let cashTotal = 0;
 
         Object.values(selectedRows).forEach(row => {
@@ -2210,6 +2277,10 @@ $(function () {
 
     $('#received_amount').on('input', recalcPendingAmount);
     $('#additional_received_amount').on('input', recalcPendingAmount);
+    $('#use_silver_balance').on('change', function () {
+        updateSilverPreview();
+        recalcTotals();
+    });
 
     $('#sale_item_name_search').on('input', function () {
         const query = $(this).val().toLowerCase().trim();

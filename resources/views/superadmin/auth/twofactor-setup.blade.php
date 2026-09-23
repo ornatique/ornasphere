@@ -12,11 +12,13 @@
     <link rel="stylesheet" href="{{ asset('celestial/assets/vendors/css/vendor.bundle.base.css') }}">
     <link rel="stylesheet" href="{{ asset('celestial/assets/css/vertical-layout-dark/style.css') }}">
     <style>
+        .auth .brand-logo img.two-factor-logo,
         .two-factor-logo {
-            width: 420px !important;
+            width: 340px !important;
             max-width: 100% !important;
             height: auto !important;
             max-height: none !important;
+            aspect-ratio: 1319 / 729;
             object-fit: contain;
             display: block;
             margin-left: auto;
@@ -24,8 +26,9 @@
         }
 
         .two-factor-logo-wrap {
-            margin-bottom: -100px !important;
+            margin-bottom: 8px !important;
             text-align: center;
+            line-height: 0;
         }
 
         .two-factor-panel {
@@ -33,8 +36,9 @@
         }
 
         @media (max-width: 575.98px) {
+            .auth .brand-logo img.two-factor-logo,
             .two-factor-logo {
-                width: 320px !important;
+                width: 280px !important;
             }
         }
     </style>
@@ -51,7 +55,7 @@
                         <div class="auth-form-transparent py-5 px-4 px-sm-5 two-factor-panel">
 
                             <div class="brand-logo two-factor-logo-wrap">
-                                <img src="{{ asset('celestial/assets/images/logo.svg') }}?v={{ @filemtime(public_path('celestial/assets/images/logo.svg')) }}" alt="logo" class="two-factor-logo">
+                                <img src="{{ asset('celestial/assets/images/ornasphere-auth-logo.svg') }}?v={{ @filemtime(public_path('celestial/assets/images/ornasphere-auth-logo.svg')) }}" alt="logo" class="two-factor-logo">
                             </div>
 
                             <h4 class="mb-4">Two Factor Authentication</h4>

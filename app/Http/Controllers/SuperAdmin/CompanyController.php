@@ -8,6 +8,7 @@ use App\Models\CategoryPerson;
 use App\Models\Company;
 use App\Models\CompanyPlanRenewal;
 use App\Models\User;
+use App\Services\CompanyPurgeService;
 use App\Services\CompanyPlanService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -134,7 +135,10 @@ class CompanyController extends Controller
                                 Reset 2FA
                             </button>
                         </form>
-                        <button data-id="' . $row->id . '"
+                        <button type="button"
+                                data-id="' . $row->id . '"
+                                data-name="' . e($row->name) . '"
+                                data-url="' . route('superadmin.companies.destroy', $row->id) . '"
                                 class="btn btn-sm btn-danger deleteBtn">
                             Delete
                         </button>
@@ -416,22 +420,22 @@ class CompanyController extends Controller
     DELETE COMPANY
     ======================================================
     */
-    public function destroy(Company $company)
+    public function destroy(Company $company, CompanyPurgeService $companyPurgeService)
     {
         $companyId = $company->id;
         $companyName = $company->name;
-        $company->delete(); // cascade deletes users automatically
+        $summary = $companyPurgeService->purge($company);
 
         AuditLog::logEvent(
-            'delete',
+            'delete_permanent',
             'company',
-            'Deleted company "' . $companyName . '" (ID: ' . $companyId . ')',
-            ['company_id' => $companyId]
+            'Permanently deleted company "' . $companyName . '" (ID: ' . $companyId . '). Deleted rows from ' . count($summary['tables']) . ' table(s); files deleted: ' . $summary['files_deleted'],
+            []
         );
 
         return redirect()
             ->route('superadmin.companies.index')
-            ->with('success', 'Company deleted successfully');
+            ->with('success', 'Company and all related data deleted permanently');
     }
 
     public function toggleStatus(Company $company)

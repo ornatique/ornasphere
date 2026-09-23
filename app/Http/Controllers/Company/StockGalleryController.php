@@ -140,8 +140,15 @@ class StockGalleryController extends Controller
             ->where('item_sets.is_final', 1)
             ->whereNotNull('item_sets.qr_code');
 
-        if ($request->filled('item_id')) {
-            $query->where('item_sets.item_id', $request->input('item_id'));
+        $itemIds = collect((array) $request->input('item_id', []))
+            ->flatMap(fn($value) => is_string($value) ? explode(',', $value) : [$value])
+            ->map(fn($value) => (int) $value)
+            ->filter(fn($value) => $value > 0)
+            ->unique()
+            ->values();
+
+        if ($itemIds->isNotEmpty()) {
+            $query->whereIn('item_sets.item_id', $itemIds->all());
         }
 
         if ($request->input('stock_status') === 'in') {

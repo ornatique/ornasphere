@@ -17,6 +17,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use App\Services\TransactionItemGuard;
 
 class ApprovalApiController extends Controller
 {
@@ -53,49 +54,40 @@ class ApprovalApiController extends Controller
     public function index(Request $request)
     {
         $companyId = $request->user()->company_id;
+        $pendingItemFilter = function ($q) {
+            return $q->where(function ($statusQuery) {
+                $statusQuery->whereNull('status')
+                    ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+            });
+        };
 
         $query = ApprovalHeader::with(['customer', 'creator'])
             ->withCount([
-                'items as active_items_count' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
+                'items as active_items_count' => $pendingItemFilter
             ])
             ->withSum([
-                'items as active_gross_weight' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
+                'items as active_gross_weight' => $pendingItemFilter
             ], 'gross_weight')
             ->withSum([
-                'items as active_net_weight' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
+                'items as active_net_weight' => $pendingItemFilter
             ], 'net_weight')
             ->withSum([
-                'items as active_fine_weight' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
+                'items as active_fine_weight' => $pendingItemFilter
             ], 'total_fine_weight')
             ->withSum([
-                'items as active_metal_amount' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
+                'items as active_metal_amount' => $pendingItemFilter
             ], 'metal_amount')
             ->withSum([
-                'items as active_labour_amount' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
+                'items as active_labour_amount' => $pendingItemFilter
             ], 'labour_amount')
             ->withSum([
-                'items as active_other_amount' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
+                'items as active_other_amount' => $pendingItemFilter
             ], 'other_amount')
             ->withSum([
-                'items as active_item_amount' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
+                'items as active_item_amount' => $pendingItemFilter
             ], 'total_amount')
             ->where('company_id', $companyId)
+            ->whereHas('items', $pendingItemFilter)
             ->whereHas('customer', function ($customer) {
                 $customer->saleParties();
             });
@@ -370,10 +362,16 @@ class ApprovalApiController extends Controller
         $request->validate([
             'qr_code' => 'required|string',
             'customer_id' => 'required|integer',
+            'device_id' => 'required|string|max:191',
+            'voucher_session_id' => 'required|string|max:191',
+            'device_entry_id' => 'required|string|max:191',
         ]);
 
         $qrCode = trim((string) $request->qr_code);
         $customerId = (int) $request->customer_id;
+        $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        $voucherSessionId = trim((string) $request->input('voucher_session_id'));
+        $deviceEntryId = trim((string) $request->input('device_entry_id'));
 
         try {
             $customerExists = Customer::where('company_id', $companyId)
@@ -386,6 +384,9 @@ class ApprovalApiController extends Controller
                     'user_id' => $userId,
                     'customer_id' => $customerId,
                     'qr_code' => $qrCode,
+                    'device_id' => $deviceId ?: null,
+                    'voucher_session_id' => $voucherSessionId ?: null,
+                    'device_entry_id' => $deviceEntryId ?: null,
                 ]);
 
                 return response()->json([
@@ -394,67 +395,109 @@ class ApprovalApiController extends Controller
                 ], 422);
             }
 
-            $row = ItemSet::with('item')
-                ->where('company_id', $companyId)
-                ->where('is_final', 1)
-                ->where('is_sold', 0)
-                ->where('qr_code', $qrCode)
-                ->first();
+            return DB::transaction(function () use ($companyId, $userId, $customerId, $qrCode, $deviceId, $voucherSessionId, $deviceEntryId) {
+                $row = ItemSet::with('item')
+                    ->where('company_id', $companyId)
+                    ->where('is_final', 1)
+                    ->where('is_sold', 0)
+                    ->where('qr_code', $qrCode)
+                    ->lockForUpdate()
+                    ->first();
 
-            if (!$row) {
-                Log::warning('Approval scanQr failed: QR not found or already used.', [
-                    'company_id' => $companyId,
+                if (!$row) {
+                    Log::warning('Approval scanQr failed: QR not found or already used.', [
+                        'company_id' => $companyId,
+                        'user_id' => $userId,
+                        'customer_id' => $customerId,
+                        'qr_code' => $qrCode,
+                    ]);
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'QR not found or already used',
+                    ], 404);
+                }
+
+                $existingCart = ApprovalCart::where('company_id', $companyId)
+                    ->where('itemset_id', $row->id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($existingCart) {
+                    Log::warning('Approval scanQr failed: product already scanned in active approval cart.', [
+                        'company_id' => $companyId,
+                        'user_id' => $userId,
+                        'existing_user_id' => (int) $existingCart->user_id,
+                        'customer_id' => $customerId,
+                        'existing_customer_id' => (int) $existingCart->customer_id,
+                        'qr_code' => $qrCode,
+                        'itemset_id' => (int) $row->id,
+                        'cart_id' => (int) $existingCart->id,
+                        'device_id' => $deviceId ?: null,
+                        'voucher_session_id' => $voucherSessionId ?: null,
+                        'device_entry_id' => $deviceEntryId ?: null,
+                    ]);
+
+                    $message = ((int) $existingCart->user_id === (int) $userId)
+                        ? 'Product already scanned'
+                        : 'This QR is already scanned by another user.';
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => $message,
+                        'code' => 'APPROVAL_CART_ITEM_LOCKED',
+                        'cart_id' => $existingCart->id,
+                        'user_id' => $existingCart->user_id,
+                        'customer_id' => $existingCart->customer_id,
+                        'device_id' => $existingCart->device_id,
+                        'voucher_session_id' => $existingCart->voucher_session_id,
+                    ], 409);
+                }
+
+                $cart = ApprovalCart::create([
                     'user_id' => $userId,
+                    'device_id' => $deviceId ?: null,
+                    'voucher_session_id' => $voucherSessionId ?: null,
+                    'device_entry_id' => $deviceEntryId ?: null,
+                    'company_id' => $companyId,
                     'customer_id' => $customerId,
-                    'qr_code' => $qrCode,
+                    'itemset_id' => $row->id,
                 ]);
 
+                $cartPayload = [
+                    'cart_id' => $cart->id,
+                    'device_id' => $cart->device_id,
+                    'voucher_session_id' => $cart->voucher_session_id,
+                    'device_entry_id' => $cart->device_entry_id,
+                    'customer_id' => $cart->customer_id,
+                    'itemset_id' => $cart->itemset_id,
+                    'item_id' => $row->item_id,
+                    'serial_no' => $row->serial_no,
+                    'huid' => $row->HUID,
+                    'qr_code' => $row->qr_code,
+                    'item_name' => optional($row->item)->item_name,
+                    'gross_weight' => (float) ($row->gross_weight ?? 0),
+                    'other_weight' => (float) ($row->other ?? 0),
+                    'net_weight' => (float) ($row->net_weight ?? 0),
+                    'sale_other' => (float) ($row->sale_other ?? 0),
+                ];
+
                 return response()->json([
-                    'success' => false,
-                    'message' => 'QR not found or already used',
-                ], 404);
-            }
-
-            $exists = ApprovalCart::where('user_id', $userId)
-                ->where('company_id', $companyId)
-                ->where('customer_id', $customerId)
-                ->where('itemset_id', $row->id)
-                ->exists();
-
-            if ($exists) {
-                Log::warning('Approval scanQr failed: product already scanned.', [
-                    'company_id' => $companyId,
-                    'user_id' => $userId,
-                    'customer_id' => $customerId,
-                    'qr_code' => $qrCode,
-                    'itemset_id' => (int) $row->id,
+                    'success' => true,
+                    'message' => 'Added to approval cart',
+                    'cart_id' => $cart->id,
+                    'data' => $cartPayload,
                 ]);
-
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Product already scanned',
-                ], 409);
-            }
-
-            $cart = ApprovalCart::create([
-                'user_id' => $userId,
-                'company_id' => $companyId,
-                'customer_id' => $customerId,
-                'itemset_id' => $row->id,
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Added to approval cart',
-                'cart_id' => $cart->id,
-                'data' => $row,
-            ]);
+            });
         } catch (\Throwable $e) {
             Log::error('Approval scanQr exception.', [
                 'company_id' => $companyId,
                 'user_id' => $userId,
                 'customer_id' => $customerId,
                 'qr_code' => $qrCode,
+                'device_id' => $deviceId ?? null,
+                'voucher_session_id' => $voucherSessionId ?? null,
+                'device_entry_id' => $deviceEntryId ?? null,
                 'error' => $e->getMessage(),
             ]);
 
@@ -470,6 +513,8 @@ class ApprovalApiController extends Controller
         $companyId = $request->user()->company_id;
         $userId = $request->user()->id;
         $customerId = (int) ($request->input('customer_id') ?? 0);
+        $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        $voucherSessionId = trim((string) $request->input('voucher_session_id'));
 
         $query = ApprovalCart::with('itemset.item')
             ->where('user_id', $userId)
@@ -477,6 +522,14 @@ class ApprovalApiController extends Controller
 
         if ($customerId > 0) {
             $query->where('customer_id', $customerId);
+        }
+
+        if ($deviceId !== '') {
+            $query->where('device_id', $deviceId);
+        }
+
+        if ($voucherSessionId !== '') {
+            $query->where('voucher_session_id', $voucherSessionId);
         }
 
         $rows = $query->latest()
@@ -489,6 +542,9 @@ class ApprovalApiController extends Controller
 
                 return [
                     'cart_id' => $cart->id,
+                    'device_id' => $cart->device_id,
+                    'voucher_session_id' => $cart->voucher_session_id,
+                    'device_entry_id' => $cart->device_entry_id,
                     'customer_id' => $cart->customer_id,
                     'itemset_id' => $set->id,
                     'item_id' => $set->item_id,
@@ -541,10 +597,14 @@ class ApprovalApiController extends Controller
     {
         $companyId = $request->user()->company_id;
         $userId = $request->user()->id;
+        $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        $voucherSessionId = trim((string) $request->input('voucher_session_id'));
 
         $request->validate([
             'customer_id' => 'required|integer',
             'remarks' => 'nullable|string',
+            'device_id' => 'required|string|max:191',
+            'voucher_session_id' => 'required|string|max:191',
         ]);
 
         $customerExists = Customer::where('company_id', $companyId)
@@ -562,27 +622,51 @@ class ApprovalApiController extends Controller
         DB::beginTransaction();
 
         try {
+            $sessionCartQuery = ApprovalCart::where('user_id', $userId)
+                ->where('company_id', $companyId)
+                ->where('customer_id', (int) $request->customer_id)
+                ->where('device_id', $deviceId)
+                ->where('voucher_session_id', $voucherSessionId);
+
+            $sessionCartItemSetIds = $sessionCartQuery
+                ->pluck('itemset_id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+
             $itemsPayload = $request->input('items', []);
             if (!is_array($itemsPayload) || count($itemsPayload) === 0) {
                 $itemsPayload = ApprovalCart::where('user_id', $userId)
                     ->where('company_id', $companyId)
                     ->where('customer_id', (int) $request->customer_id)
+                    ->where('device_id', $deviceId)
+                    ->where('voucher_session_id', $voucherSessionId)
                     ->get()
                     ->map(fn($c) => ['itemset_id' => (int) $c->itemset_id])
+                    ->all();
+            } else {
+                $allowedIds = array_flip($sessionCartItemSetIds);
+                $itemsPayload = collect($itemsPayload)
+                    ->filter(function ($row) use ($allowedIds) {
+                        $itemSetId = (int) ($row['itemset_id'] ?? $row['id'] ?? 0);
+
+                        return $itemSetId > 0 && isset($allowedIds[$itemSetId]);
+                    })
+                    ->values()
                     ->all();
             }
 
             if (empty($itemsPayload)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'No approval items selected.',
+                    'message' => 'No approval items selected for this device voucher session.',
+                    'code' => 'APPROVAL_SESSION_EMPTY',
                 ], 422);
             }
 
             $approval = ApprovalHeader::create([
                 'company_id' => $companyId,
                 'customer_id' => $request->customer_id,
-                'approval_no' => 'APP' . time(),
+                'approval_no' => 'APP' . now()->format('YmdHis') . substr((string) ((int) (microtime(true) * 1000)), -3) . $userId,
                 'approval_date' => now(),
                 'status' => 'open',
                 'remarks' => $request->input('remarks', $request->input('remark')),
@@ -598,13 +682,10 @@ class ApprovalApiController extends Controller
                     continue;
                 }
 
-                $itemSet = ItemSet::with('item')
-                    ->where('company_id', $companyId)
-                    ->where('is_final', 1)
-                    ->findOrFail($itemSetId);
+                $itemSet = TransactionItemGuard::lockItemSetForUse($companyId, $itemSetId)->load('item');
 
-                if ((int) $itemSet->is_sold === 1) {
-                    throw new \Exception("Item already sold/used: {$itemSet->qr_code}");
+                if ((int) $itemSet->is_final !== 1) {
+                    throw new \Exception("Item is not finalized: {$itemSet->qr_code}");
                 }
 
                 $gross = (float) ($row['gross_weight'] ?? $itemSet->gross_weight ?? 0);
@@ -623,6 +704,8 @@ class ApprovalApiController extends Controller
 
                 ApprovalItem::create([
                     'approval_id' => $approval->id,
+                    'device_id' => $deviceId,
+                    'voucher_session_id' => $voucherSessionId,
                     'itemset_id' => $itemSet->id,
                     'item_id' => $itemSet->item_id,
                     'huid' => $row['huid'] ?? $itemSet->HUID,
@@ -652,7 +735,9 @@ class ApprovalApiController extends Controller
 
             $cartDeleteQuery = ApprovalCart::where('user_id', $userId)
                 ->where('company_id', $companyId)
-                ->where('customer_id', (int) $request->customer_id);
+                ->where('customer_id', (int) $request->customer_id)
+                ->where('device_id', $deviceId)
+                ->where('voucher_session_id', $voucherSessionId);
 
             if (!empty($processedItemSetIds)) {
                 $cartDeleteQuery->whereIn('itemset_id', $processedItemSetIds);
@@ -668,6 +753,8 @@ class ApprovalApiController extends Controller
                 'data' => [
                     'approval_id' => $approval->id,
                     'approval_no' => $approval->approval_no,
+                    'device_id' => $deviceId,
+                    'voucher_session_id' => $voucherSessionId,
                     'removed_from_cart' => $removedFromCart,
                 ]
             ]);
@@ -912,13 +999,8 @@ class ApprovalApiController extends Controller
         try {
             $approvalIds = [];
             foreach ($request->items as $id) {
-                $item = ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
-                    $q->where('company_id', $companyId);
-                })->findOrFail($id);
-
-                if ($item->status === 'pending') {
-                    $item->update(['status' => 'sold']);
-                }
+                $item = TransactionItemGuard::lockApprovalItemForSale($companyId, (int) $id);
+                $item->update(['status' => 'sold']);
 
                 $approvalIds[] = $item->approval_id;
             }
@@ -958,12 +1040,35 @@ class ApprovalApiController extends Controller
             ], 422);
         }
 
+        $hasReturnApprovalItemId = Schema::hasColumn('sale_return_items', 'approval_item_id');
+        $hasReturnItemsetId = Schema::hasColumn('sale_return_items', 'itemset_id');
+
         $items = ApprovalItem::with('itemSet.item', 'legacyItemSet.item')
             ->whereHas('approval', function ($q) use ($companyId, $request) {
                 $q->where('company_id', $companyId)
                     ->where('customer_id', $request->customer_id);
             })
-            ->where('status', 'pending')
+            ->where(function ($q) {
+                $q->whereNull('status')
+                    ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+            })
+            ->whereNotExists(function ($sub) use ($hasReturnApprovalItemId, $hasReturnItemsetId) {
+                $sub->select(DB::raw(1))
+                    ->from('sale_return_items');
+
+                if ($hasReturnApprovalItemId && $hasReturnItemsetId) {
+                    $sub->where(function ($q) {
+                        $q->whereColumn('sale_return_items.approval_item_id', 'approval_items.id')
+                            ->orWhereColumn('sale_return_items.itemset_id', 'approval_items.itemset_id');
+                    });
+                } elseif ($hasReturnApprovalItemId) {
+                    $sub->whereColumn('sale_return_items.approval_item_id', 'approval_items.id');
+                } elseif ($hasReturnItemsetId) {
+                    $sub->whereColumn('sale_return_items.itemset_id', 'approval_items.itemset_id');
+                } else {
+                    $sub->whereRaw('1 = 0');
+                }
+            })
             ->orderByDesc('id')
             ->get();
 
@@ -1153,56 +1258,46 @@ class ApprovalApiController extends Controller
     {
         $companyId = (int) $request->user()->company_id;
         $company = Company::findOrFail($companyId);
+        $pendingItemFilter = function ($q) {
+            return $q->where(function ($statusQuery) {
+                $statusQuery->whereNull('status')
+                    ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+            });
+        };
 
         $query = ApprovalHeader::with([
             'customer',
             'creator',
-            'items' => function ($q) {
-                $q->where('status', '!=', 'returned')
-                    ->with(['itemSet.item', 'legacyItemSet.item']);
+            'items' => function ($q) use ($pendingItemFilter) {
+                $pendingItemFilter($q)->with(['itemSet.item', 'legacyItemSet.item']);
             }
         ])
             ->withCount([
-                'items as active_items_count' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
+                'items as active_items_count' => $pendingItemFilter
             ])
             ->withSum([
-                'items as active_gross_weight' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
+                'items as active_gross_weight' => $pendingItemFilter
             ], 'gross_weight')
             ->withSum([
-                'items as active_net_weight' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
+                'items as active_net_weight' => $pendingItemFilter
             ], 'net_weight')
             ->withSum([
-                'items as active_fine_weight' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
+                'items as active_fine_weight' => $pendingItemFilter
             ], 'total_fine_weight')
             ->withSum([
-                'items as active_metal_amount' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
+                'items as active_metal_amount' => $pendingItemFilter
             ], 'metal_amount')
             ->withSum([
-                'items as active_labour_amount' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
+                'items as active_labour_amount' => $pendingItemFilter
             ], 'labour_amount')
             ->withSum([
-                'items as active_other_amount' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
+                'items as active_other_amount' => $pendingItemFilter
             ], 'other_amount')
             ->withSum([
-                'items as active_item_amount' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
+                'items as active_item_amount' => $pendingItemFilter
             ], 'total_amount')
             ->where('company_id', $company->id)
+            ->whereHas('items', $pendingItemFilter)
             ->whereHas('customer', function ($customer) {
                 $customer->saleParties();
             })

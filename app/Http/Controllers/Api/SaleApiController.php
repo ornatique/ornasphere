@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\Schema;
 use Endroid\QrCode\Builder\Builder;
 use Endroid\QrCode\Writer\PngWriter;
 use Barryvdh\DomPDF\Facade\Pdf;
+use App\Services\TransactionItemGuard;
 
 class SaleApiController extends Controller
 {
@@ -290,9 +291,11 @@ class SaleApiController extends Controller
                     $q->whereNull('status')
                         ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
                 })
-                ->whereNotExists(function ($sub) use ($currentSaleId) {
+                ->whereNotExists(function ($sub) use ($companyId, $currentSaleId) {
                     $sub->select(DB::raw(1))
                         ->from('sale_items')
+                        ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+                        ->where('sales.company_id', $companyId)
                         ->where(function ($q) {
                             $q->whereColumn('sale_items.approval_item_id', 'approval_items.id')
                                 ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
@@ -620,9 +623,11 @@ class SaleApiController extends Controller
                         ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
                 })
                 ->whereRaw('TRIM(qr_code) = ?', [$qrCode])
-                ->whereNotExists(function ($sub) {
+                ->whereNotExists(function ($sub) use ($user) {
                     $sub->select(DB::raw(1))
                         ->from('sale_items')
+                        ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+                        ->where('sales.company_id', $user->company_id)
                         ->where(function ($q) {
                             $q->whereColumn('sale_items.approval_item_id', 'approval_items.id')
                                 ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
@@ -1129,7 +1134,7 @@ class SaleApiController extends Controller
                 'payment_mode' => $request->input('payment_mode'),
                 'payment_reference' => $request->input('payment_reference'),
                 'payment_note' => $request->input('payment_note'),
-                'use_silver_balance' => (bool) $request->input('use_silver_balance', true),
+                'use_silver_balance' => $request->boolean('use_silver_balance'),
                 'employee_id' => $user->id,
                 'modified_count' => 0,
             ]);
@@ -1152,23 +1157,11 @@ class SaleApiController extends Controller
 
             foreach ($cartItems as $cart) {
                 if (!empty($cart->approval_item_id)) {
-                    $approvalItem = ApprovalItem::with(['itemSet.item', 'legacyItemSet.item', 'item'])
-                        ->whereExists(function ($q) use ($user, $request) {
-                            $q->select(DB::raw(1))
-                                ->from('approval_headers')
-                                ->whereColumn('approval_headers.id', 'approval_items.approval_id')
-                                ->where('approval_headers.company_id', $user->company_id)
-                                ->where('approval_headers.customer_id', (int) $request->customer_id);
-                        })
-                        ->where(function ($q) {
-                            $q->whereNull('status')
-                                ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
-                        })
-                        ->find($cart->approval_item_id);
-
-                    if (!$approvalItem) {
-                        throw new \Exception('Approval item not available for sale');
-                    }
+                    $approvalItem = TransactionItemGuard::lockApprovalItemForSale(
+                        $user->company_id,
+                        (int) $cart->approval_item_id,
+                        (int) $request->customer_id
+                    )->load(['itemSet.item', 'legacyItemSet.item', 'item']);
 
                     $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
                     $item = optional($itemSet)->item ?? $approvalItem->item;
@@ -1216,14 +1209,7 @@ class SaleApiController extends Controller
                     continue;
                 }
 
-                $item = ItemSet::with('item')
-                    ->where('company_id', $user->company_id)
-                    ->where('is_sold', 0)
-                    ->find($cart->itemset_id);
-
-                if (!$item) {
-                    throw new \Exception('Item not available for sale');
-                }
+                $item = TransactionItemGuard::lockItemSetForUse($user->company_id, (int) $cart->itemset_id)->load('item');
 
                 $purity = (float) (optional($item->item)->outward_purity ?? 0);
                 $labourAmount = (float) ($item->sale_labour_amount ?? (($item->net_weight ?? 0) * ($item->sale_labour_rate ?? 0)));
@@ -1258,7 +1244,7 @@ class SaleApiController extends Controller
             $this->syncSilverAdvanceUsageForSale(
                 $companyId,
                 $sale,
-                (bool) $request->input('use_silver_balance', true),
+                (bool) $sale->use_silver_balance,
                 (int) $user->id
             );
 
@@ -1388,20 +1374,23 @@ class SaleApiController extends Controller
             ]);
         }
 
-        $approvalIds = ApprovalHeader::where('company_id', $companyId)
-            ->where('customer_id', $customerId)
-            ->whereIn('status', ['open', 'partial'])
-            ->pluck('id');
-
         $rows = ApprovalItem::with(['approval.customer', 'itemSet.item', 'legacyItemSet.item'])
-            ->whereIn('approval_id', $approvalIds)
+            ->whereExists(function ($q) use ($companyId, $customerId) {
+                $q->select(DB::raw(1))
+                    ->from('approval_headers')
+                    ->whereColumn('approval_headers.id', 'approval_items.approval_id')
+                    ->where('approval_headers.company_id', $companyId)
+                    ->where('approval_headers.customer_id', $customerId);
+            })
             ->where(function ($q) {
                 $q->whereNull('status')
                     ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
             })
-            ->whereNotExists(function ($sub) use ($currentSaleId) {
+            ->whereNotExists(function ($sub) use ($companyId, $currentSaleId) {
                 $sub->select(DB::raw(1))
                     ->from('sale_items')
+                    ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+                    ->where('sales.company_id', $companyId)
                     ->where(function ($q) {
                         $q->whereColumn('sale_items.approval_item_id', 'approval_items.id')
                             ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
@@ -1602,7 +1591,7 @@ class SaleApiController extends Controller
                 'payment_mode' => $request->input('payment_mode'),
                 'payment_reference' => $request->input('payment_reference'),
                 'payment_note' => $request->input('payment_note'),
-                'use_silver_balance' => (bool) $request->input('use_silver_balance', true),
+                'use_silver_balance' => $request->boolean('use_silver_balance'),
                 'employee_id' => $user->id,
                 'modified_count' => 0,
             ]);
@@ -1662,6 +1651,11 @@ class SaleApiController extends Controller
                     }
 
                     $approvalItemId = (int) $approvalItem->id;
+                    $approvalItem = TransactionItemGuard::lockApprovalItemForSale(
+                        $companyId,
+                        $approvalItemId,
+                        $rowApprovalCustomerId > 0 ? $rowApprovalCustomerId : (int) $request->customer_id
+                    )->load(['approval', 'itemSet', 'legacyItemSet']);
                 } elseif ($rowApprovalCustomerId > 0 && $itemsetId > 0) {
                     $approvalItem = $this->resolveApprovalItemForSale(
                         $companyId,
@@ -1673,21 +1667,17 @@ class SaleApiController extends Controller
 
                     if ($approvalItem) {
                         $approvalItemId = (int) $approvalItem->id;
+                        $approvalItem = TransactionItemGuard::lockApprovalItemForSale(
+                            $companyId,
+                            $approvalItemId,
+                            $rowApprovalCustomerId
+                        )->load(['approval', 'itemSet', 'legacyItemSet']);
                     }
                 }
 
                 $itemSet = null;
                 if ($itemsetId > 0) {
-                    $itemSetQuery = ItemSet::where('company_id', $companyId)
-                        ->where('id', $itemsetId);
-
-                    // For normal sale/scanner/manual rows, only unsold labels are allowed.
-                    // For approval-conversion rows, label can already be marked sold (outward on approval).
-                    if ($approvalItemId <= 0) {
-                        $itemSetQuery->where('is_sold', 0);
-                    }
-
-                    $itemSet = $itemSetQuery->first();
+                    $itemSet = TransactionItemGuard::lockItemSetForUse($companyId, $itemsetId, $approvalItemId > 0);
                     if (!$itemSet && $approvalItemId <= 0 && $itemsetId > 0) {
                         $approvalItem = $this->resolveApprovalItemForSale($companyId, null, $itemsetId, null, false);
                         if ($approvalItem) {
@@ -1754,9 +1744,11 @@ class SaleApiController extends Controller
                 ]);
 
                 if ($approvalItemId > 0) {
-                    $approvalItem = $approvalItem ?: ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
-                        $q->where('company_id', $companyId);
-                    })->find($approvalItemId);
+                    $approvalItem = $approvalItem ?: TransactionItemGuard::lockApprovalItemForSale(
+                        $companyId,
+                        (int) $approvalItemId,
+                        (int) $request->customer_id
+                    );
                     if ($approvalItem) {
                         $approvalItem->update(['status' => 'sold']);
                         $approvalIds[] = $approvalItem->approval_id;
@@ -1774,7 +1766,7 @@ class SaleApiController extends Controller
             $this->syncSilverAdvanceUsageForSale(
                 $companyId,
                 $sale,
-                (bool) ($sale->use_silver_balance ?? true),
+                (bool) $sale->use_silver_balance,
                 (int) $user->id
             );
             $this->refreshApprovalHeaderStatus($approvalIds);
@@ -1879,7 +1871,9 @@ class SaleApiController extends Controller
                 'payment_mode' => $request->input('payment_mode', $sale->payment_mode),
                 'payment_reference' => $request->input('payment_reference', $sale->payment_reference),
                 'payment_note' => $request->input('payment_note', $sale->payment_note),
-                'use_silver_balance' => (bool) $request->input('use_silver_balance', $sale->use_silver_balance ?? true),
+                'use_silver_balance' => $request->has('use_silver_balance')
+                    ? $request->boolean('use_silver_balance')
+                    : (bool) ($sale->use_silver_balance ?? false),
             ]);
 
             if ($additionalReceived > 0) {
@@ -2034,6 +2028,11 @@ class SaleApiController extends Controller
                     }
 
                     $approvalItemId = (int) $approvalItem->id;
+                    $approvalItem = TransactionItemGuard::lockApprovalItemForSale(
+                        $companyId,
+                        $approvalItemId,
+                        $rowApprovalCustomerId > 0 ? $rowApprovalCustomerId : (int) $request->customer_id
+                    )->load(['approval', 'itemSet', 'legacyItemSet']);
                 } elseif ($rowApprovalCustomerId > 0) {
                     $approvalItem = $this->resolveApprovalItemForSale(
                         $companyId,
@@ -2045,12 +2044,29 @@ class SaleApiController extends Controller
 
                     if ($approvalItem) {
                         $approvalItemId = (int) $approvalItem->id;
+                        $approvalItem = TransactionItemGuard::lockApprovalItemForSale(
+                            $companyId,
+                            $approvalItemId,
+                            $rowApprovalCustomerId
+                        )->load(['approval', 'itemSet', 'legacyItemSet']);
                     }
                 } elseif ($itemSet && (int) $itemSet->is_sold === 1 && !in_array($itemsetId, $existingSaleItemsetIds, true)) {
                     $approvalItem = $this->resolveApprovalItemForSale($companyId, null, $itemsetId, null, false);
                     if ($approvalItem) {
                         $approvalItemId = (int) $approvalItem->id;
+                        $approvalItem = TransactionItemGuard::lockApprovalItemForSale(
+                            $companyId,
+                            $approvalItemId
+                        )->load(['approval', 'itemSet', 'legacyItemSet']);
                     }
+                }
+
+                if ($itemSet) {
+                    $itemSet = TransactionItemGuard::lockItemSetForUse(
+                        $companyId,
+                        $itemsetId,
+                        $approvalItemId > 0 || in_array($itemsetId, $existingSaleItemsetIds, true)
+                    );
                 }
 
                 if ($itemSet && $approvalItemId <= 0 && (int) $itemSet->is_sold === 1 && !in_array($itemsetId, $existingSaleItemsetIds, true)) {
@@ -2106,9 +2122,11 @@ class SaleApiController extends Controller
                 }
 
                 if ($approvalItemId > 0) {
-                    $approvalItem = $approvalItem ?: ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
-                        $q->where('company_id', $companyId);
-                    })->find($approvalItemId);
+                    $approvalItem = $approvalItem ?: TransactionItemGuard::lockApprovalItemForSale(
+                        $companyId,
+                        (int) $approvalItemId,
+                        (int) $request->customer_id
+                    );
                     if ($approvalItem) {
                         $approvalItem->update(['status' => 'sold']);
                         $approvalIds[] = (int) $approvalItem->approval_id;
@@ -2128,7 +2146,7 @@ class SaleApiController extends Controller
             $this->syncSilverAdvanceUsageForSale(
                 $companyId,
                 $sale,
-                (bool) ($sale->use_silver_balance ?? true),
+                (bool) $sale->use_silver_balance,
                 (int) $user->id
             );
             $sale->increment('modified_count');
@@ -2281,7 +2299,7 @@ class SaleApiController extends Controller
             $this->syncSilverAdvanceUsageForSale(
                 $companyId,
                 $sale->fresh('saleItems.itemset.item', 'saleItems.product'),
-                (bool) ($sale->use_silver_balance ?? true),
+                (bool) $sale->use_silver_balance,
                 (int) $user->id
             );
             $sale->increment('modified_count');
@@ -2374,9 +2392,11 @@ class SaleApiController extends Controller
                 $q->whereNull('status')
                     ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
             })
-                ->whereNotExists(function ($sub) {
+                ->whereNotExists(function ($sub) use ($companyId) {
                     $sub->select(DB::raw(1))
                         ->from('sale_items')
+                        ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+                        ->where('sales.company_id', $companyId)
                         ->where(function ($q) {
                             $q->whereColumn('sale_items.approval_item_id', 'approval_items.id')
                                 ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
@@ -2445,11 +2465,14 @@ class SaleApiController extends Controller
             ? $sale->saleItems
             : $sale->saleItems()->with(['itemset.item', 'product'])->get();
 
-        $availableMetal = $availableMetalOverride ?: $this->getAdvanceSummary(
-            (int) $sale->company_id,
-            (int) ($sale->customer_id ?? 0),
-            $sale->sale_date
-        );
+        $useMetalBalance = (bool) ($sale->use_silver_balance ?? false);
+        $availableMetal = $useMetalBalance
+            ? ($availableMetalOverride ?: $this->getAdvanceSummary(
+                (int) $sale->company_id,
+                (int) ($sale->customer_id ?? 0),
+                $sale->sale_date
+            ))
+            : ['gold' => 0, 'silver' => 0, 'other' => 0];
 
         $remainingMetal = [
             'gold' => max(0, (float) ($availableMetal['gold'] ?? 0)),
@@ -2690,7 +2713,6 @@ class SaleApiController extends Controller
         $asOnDate = Carbon::parse($sale->sale_date ?? now())->toDateString();
         $items = $sale->saleItems()->with(['itemset.item', 'product'])->get();
         $metalFineUsage = ['gold' => 0.0, 'silver' => 0.0, 'other' => 0.0];
-        $availableMetal = $this->getAdvanceSummary($companyId, (int) $sale->customer_id, $asOnDate);
 
         foreach ($items as $row) {
             $fine = (float) ($row->fine_weight ?? 0);
@@ -2703,11 +2725,9 @@ class SaleApiController extends Controller
         }
 
         foreach ($metalFineUsage as $metalType => $metalOut) {
-            $coveredMetalOut = min((float) $metalOut, max(0, (float) ($availableMetal[$metalType] ?? 0)));
-            if ($coveredMetalOut <= 0) {
+            if ((float) $metalOut <= 0) {
                 continue;
             }
-            $availableMetal[$metalType] = max(0, (float) ($availableMetal[$metalType] ?? 0) - $coveredMetalOut);
             CustomerAdvanceLedger::create([
                 'company_id' => $companyId,
                 'customer_id' => (int) $sale->customer_id,
@@ -2718,7 +2738,7 @@ class SaleApiController extends Controller
                 'cash_out' => 0,
                 'metal_type' => $metalType,
                 'metal_in' => 0,
-                'metal_out' => round((float) $coveredMetalOut, 3),
+                'metal_out' => round((float) $metalOut, 3),
                 'rate' => 0,
                 'reference_type' => 'sale',
                 'reference_id' => (int) $sale->id,
@@ -2740,6 +2760,58 @@ class SaleApiController extends Controller
         return 'other';
     }
 
+    private function previousPendingSalesForVoucher(Sale $sale)
+    {
+        if (empty($sale->company_id) || empty($sale->customer_id) || empty($sale->sale_date)) {
+            return collect();
+        }
+
+        $saleDate = Carbon::parse($sale->sale_date)->toDateString();
+
+        return Sale::query()
+            ->withSum('saleItems as sum_qty', 'qty')
+            ->withSum('saleItems as sum_fine_weight', 'fine_weight')
+            ->withSum('saleItems as sum_metal_amount', 'metal_amount')
+            ->where('company_id', (int) $sale->company_id)
+            ->where('customer_id', (int) $sale->customer_id)
+            ->where('id', '<>', (int) $sale->id)
+            ->where(function ($query) use ($sale, $saleDate) {
+                $query->whereDate('sale_date', '<', $saleDate)
+                    ->orWhere(function ($sameDate) use ($sale, $saleDate) {
+                        $sameDate->whereDate('sale_date', $saleDate)
+                            ->where('id', '<', (int) $sale->id);
+                    });
+            })
+            ->orderBy('sale_date')
+            ->orderBy('id')
+            ->get(['id', 'voucher_no', 'sale_date', 'net_total', 'received_amount', 'paid_amount', 'use_silver_balance'])
+            ->map(function (Sale $row) {
+                $received = (float) ($row->received_amount ?? 0);
+                $refundPaid = (float) ($row->paid_amount ?? 0);
+                $pending = max(0, (float) ($row->net_total ?? 0) - ($received - $refundPaid));
+                $fineWeight = (float) ($row->sum_fine_weight ?? 0);
+                $metalAmount = (float) ($row->sum_metal_amount ?? 0);
+                $metalDebit = (!(bool) ($row->use_silver_balance ?? false) && $metalAmount <= 0.000001) ? $fineWeight : 0;
+
+                return [
+                    'id' => (int) $row->id,
+                    'voucher_no' => (string) ($row->voucher_no ?? '-'),
+                    'sale_date' => $row->sale_date ? Carbon::parse($row->sale_date)->format('d-m-Y') : '-',
+                    'qty' => (float) ($row->sum_qty ?? 0),
+                    'total_amount' => (float) ($row->net_total ?? 0),
+                    'received_amount' => $received,
+                    'refund_paid' => $refundPaid,
+                    'pending_amount' => $pending,
+                    'fine_weight' => $fineWeight,
+                    'metal_amount' => $metalAmount,
+                    'fine_adjusted' => (bool) ($row->use_silver_balance ?? false),
+                    'metal_debit' => $metalDebit,
+                ];
+            })
+            ->filter(fn($row) => (float) $row['pending_amount'] > 0.000001)
+            ->values();
+    }
+
     public function pdf(Request $request, $id)
     {
         $companyId = $request->user()->company_id;
@@ -2759,8 +2831,9 @@ class SaleApiController extends Controller
         $advanceSummary = $this->getAdvanceSummary($companyId, (int) ($sale->customer_id ?? 0), $sale->sale_date);
         $saleAdvanceUsage = $this->getSaleAdvanceUsage($companyId, $sale);
         $cashPayableTotal = $this->saleCashPayableTotal($sale);
+        $previousPendingSales = $this->previousPendingSalesForVoucher($sale);
 
-        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale', 'company', 'advanceSummary', 'saleAdvanceUsage', 'cashPayableTotal'))
+        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale', 'company', 'advanceSummary', 'saleAdvanceUsage', 'cashPayableTotal', 'previousPendingSales'))
             ->setPaper('a4', 'portrait');
 
         $filename = 'sale-voucher-' . ($sale->voucher_no ?: $sale->id) . '.pdf';
@@ -2806,8 +2879,9 @@ class SaleApiController extends Controller
         $advanceSummary = $this->getAdvanceSummary($companyId, (int) ($sale->customer_id ?? 0), $sale->sale_date);
         $saleAdvanceUsage = $this->getSaleAdvanceUsage($companyId, $sale);
         $cashPayableTotal = $this->saleCashPayableTotal($sale);
+        $previousPendingSales = $this->previousPendingSalesForVoucher($sale);
 
-        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale', 'company', 'advanceSummary', 'saleAdvanceUsage', 'cashPayableTotal'))
+        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale', 'company', 'advanceSummary', 'saleAdvanceUsage', 'cashPayableTotal', 'previousPendingSales'))
             ->setPaper('a4', 'portrait');
 
         $filename = 'sale-voucher-' . ($sale->voucher_no ?: $sale->id) . '.pdf';

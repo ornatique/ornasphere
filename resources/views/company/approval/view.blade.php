@@ -74,7 +74,26 @@
         </div>
 
         {{-- ITEMS TABLE --}}
-        <h5>Items</h5>
+        <div class="d-flex align-items-end justify-content-between gap-3 mb-2 flex-wrap">
+            <div>
+                <h5 class="mb-1">Items</h5>
+                <div class="approval-item-counts">
+                    Item Count: <strong id="approvalVisibleItemCount">0</strong>
+                    <span>/</span>
+                    <strong id="approvalTotalItemCount">{{ $approval->items->count() }}</strong>
+                </div>
+            </div>
+            <div class="approval-status-filter">
+                <label for="approvalItemStatusFilter"><strong>Status Filter</strong></label>
+                <select id="approvalItemStatusFilter" class="form-select">
+                    <option value="all" selected>All Items</option>
+                    <option value="pending">Pending</option>
+                    <option value="partial">Partial</option>
+                    <option value="sold">Sold</option>
+                    <option value="returned">Return</option>
+                </select>
+            </div>
+        </div>
 
         <div class="approval-items-scroll">
             <table class="table table-bordered approval-items-table">
@@ -103,7 +122,12 @@
                             }
                         @endphp
 
-                        <tr>
+                        <tr class="approval-item-row"
+                            data-status="{{ $row->status ?: 'pending' }}"
+                            data-gross="{{ (float) ($row->gross_weight ?? 0) }}"
+                            data-other="{{ (float) ($row->other_weight ?? 0) }}"
+                            data-net="{{ (float) ($row->net_weight ?? 0) }}"
+                            data-amount="{{ (float) ($row->total_amount ?? 0) }}">
                             <td>{{ $index + 1 }}</td>
 
                             <td>{{ optional(optional($row->itemSet ?? $row->legacyItemSet)->item)->item_name ?? '-' }}</td>
@@ -139,10 +163,10 @@
                 <tfoot>
                     <tr>
                         <th colspan="4" class="text-end">Total</th>
-                        <th>{{ number_format($totalGross, 3) }}</th>
-                        <th>{{ number_format($totalOther, 3) }}</th>
-                        <th>{{ number_format($totalNet, 3) }}</th>
-                        <th>{{ number_format($totalAmount, 2) }}</th>
+                        <th id="approvalVisibleGrossTotal">{{ number_format($totalGross, 3) }}</th>
+                        <th id="approvalVisibleOtherTotal">{{ number_format($totalOther, 3) }}</th>
+                        <th id="approvalVisibleNetTotal">{{ number_format($totalNet, 3) }}</th>
+                        <th id="approvalVisibleAmountTotal">{{ number_format($totalAmount, 2) }}</th>
                         <th></th>
                     </tr>
                 </tfoot>
@@ -206,5 +230,87 @@
         border-color: rgba(185, 198, 255, 0.22) !important;
         white-space: nowrap;
     }
+
+    .approval-status-filter {
+        width: 220px;
+    }
+
+    .approval-item-counts {
+        color: #b8b8c7;
+        font-size: 13px;
+    }
+
+    .approval-item-counts strong {
+        color: #fff;
+    }
 </style>
+@endpush
+
+@push('scripts')
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const filter = document.getElementById('approvalItemStatusFilter');
+        const rows = Array.from(document.querySelectorAll('.approval-item-row'));
+        const totals = {
+            gross: document.getElementById('approvalVisibleGrossTotal'),
+            other: document.getElementById('approvalVisibleOtherTotal'),
+            net: document.getElementById('approvalVisibleNetTotal'),
+            amount: document.getElementById('approvalVisibleAmountTotal'),
+        };
+        const visibleItemCount = document.getElementById('approvalVisibleItemCount');
+
+        function numberValue(row, key) {
+            return Number(row.dataset[key] || 0);
+        }
+
+        function format(value, decimals) {
+            return value.toLocaleString('en-IN', {
+                minimumFractionDigits: decimals,
+                maximumFractionDigits: decimals
+            });
+        }
+
+        function rowMatches(row, selectedStatus) {
+            const status = row.dataset.status || 'pending';
+
+            if (selectedStatus === 'all') {
+                return true;
+            }
+
+            if (selectedStatus === 'partial') {
+                return status === 'pending' || status === 'sold';
+            }
+
+            return status === selectedStatus;
+        }
+
+        function applyStatusFilter() {
+            const selectedStatus = filter.value;
+            const sums = { gross: 0, other: 0, net: 0, amount: 0 };
+            let count = 0;
+
+            rows.forEach(function (row) {
+                const visible = rowMatches(row, selectedStatus);
+                row.classList.toggle('d-none', !visible);
+
+                if (visible) {
+                    count += 1;
+                    sums.gross += numberValue(row, 'gross');
+                    sums.other += numberValue(row, 'other');
+                    sums.net += numberValue(row, 'net');
+                    sums.amount += numberValue(row, 'amount');
+                }
+            });
+
+            totals.gross.textContent = format(sums.gross, 3);
+            totals.other.textContent = format(sums.other, 3);
+            totals.net.textContent = format(sums.net, 3);
+            totals.amount.textContent = format(sums.amount, 2);
+            visibleItemCount.textContent = count.toLocaleString('en-IN');
+        }
+
+        filter.addEventListener('change', applyStatusFilter);
+        applyStatusFilter();
+    });
+</script>
 @endpush

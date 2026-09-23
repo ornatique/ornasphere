@@ -53,7 +53,13 @@ class User extends Authenticatable
         'two_factor_recovery_codes',
         'two_factor_enabled',
         'password_changed',
-        'password_set_at'
+        'password_set_at',
+        'active_web_session_id',
+        'active_api_token_id',
+        'active_device_id',
+        'active_device_name',
+        'active_platform',
+        'active_login_at',
     ];
 
 
@@ -82,6 +88,7 @@ class User extends Authenticatable
     protected $casts = [
         'two_factor_recovery_codes' => 'array',
         'mobile_access_allowed' => 'boolean',
+        'active_login_at' => 'datetime',
     ];
     public function company()
     {

@@ -48,6 +48,12 @@ class SuperAdmin2FAController extends Controller
         session()->forget('superadmin_2fa_id');
 
         Auth::guard('superadmin')->login($user);
+        $request->session()->regenerate();
+
+        $user->forceFill([
+            'active_web_session_id' => $request->session()->getId(),
+            'active_login_at' => now(),
+        ])->save();
 
         AuditLog::logEvent(
             '2fa_verified',

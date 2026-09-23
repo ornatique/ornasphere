@@ -49,6 +49,101 @@
                 <div class="col-md-5"><strong>Silver Balance (Fine):</strong> {{ number_format($silverBeforeUse, 3) }} - {{ number_format($silverUsed, 3) }} = {{ number_format($silverBalance, 3) }}</div>
             </div>
 
+            @php
+                $previousPendingSales = collect($previousPendingSales ?? []);
+                $previousQtyTotal = $previousPendingSales->sum('qty');
+                $previousAmountTotal = $previousPendingSales->sum('total_amount');
+                $previousFineTotal = $previousPendingSales->sum('fine_weight');
+                $previousPendingTotal = $previousPendingSales->sum('pending_amount');
+                $previousMetalDebitTotal = $previousPendingSales->sum('metal_debit');
+                $currentBillAmount = (float) ($cashPayableTotal ?? $sale->net_total ?? 0);
+                $currentFineTotal = (float) $sale->saleItems->sum('fine_weight');
+                $currentMetalAmountTotal = (float) $sale->saleItems->sum('metal_amount');
+                $currentFineDebit = $currentMetalAmountTotal <= 0.000001 ? $currentFineTotal : 0;
+                $finalGrandAmount = $currentBillAmount + $previousPendingTotal;
+                $finalGrandFineDebit = $currentFineDebit + $previousMetalDebitTotal;
+            @endphp
+            @if($previousPendingSales->isNotEmpty())
+                <div class="mb-3">
+                    <h5 class="mb-2">Previous Pending Bills</h5>
+                    <div class="table-responsive">
+                        <table class="table table-bordered">
+                            <thead>
+                                <tr>
+                                    <th>Voucher No</th>
+                                    <th>Date</th>
+                                    <th>Total Item</th>
+                                    <th>Total Amount</th>
+                                    <th>Fine Wt</th>
+                                    <th>Received</th>
+                                    <th>Refund Paid</th>
+                                    <th>Pending</th>
+                                    <th>Metal Dr</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach($previousPendingSales as $pendingSale)
+                                    <tr>
+                                        <td>{{ $pendingSale['voucher_no'] }}</td>
+                                        <td>{{ $pendingSale['sale_date'] }}</td>
+                                        <td>{{ number_format((float) ($pendingSale['qty'] ?? 0), 0) }}</td>
+                                        <td>{{ number_format((float) $pendingSale['total_amount'], 2) }}</td>
+                                        <td>{{ number_format((float) ($pendingSale['fine_weight'] ?? 0), 3) }}</td>
+                                        <td>{{ number_format((float) $pendingSale['received_amount'], 2) }}</td>
+                                        <td>{{ number_format((float) $pendingSale['refund_paid'], 2) }}</td>
+                                        <td>{{ number_format((float) $pendingSale['pending_amount'], 2) }}</td>
+                                        <td>
+                                            @if((float) ($pendingSale['metal_debit'] ?? 0) > 0.000001)
+                                                Dr. {{ number_format((float) $pendingSale['metal_debit'], 3) }} F
+                                            @else
+                                                -
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <th colspan="2" class="text-end">Previous Pending Total</th>
+                                    <th>{{ number_format((float) $previousQtyTotal, 0) }}</th>
+                                    <th>{{ number_format((float) $previousAmountTotal, 2) }}</th>
+                                    <th>{{ number_format((float) $previousFineTotal, 3) }}</th>
+                                    <th></th>
+                                    <th></th>
+                                    <th>{{ number_format((float) $previousPendingTotal, 2) }}</th>
+                                    <th>
+                                        @if((float) $previousMetalDebitTotal > 0.000001)
+                                            Dr. {{ number_format((float) $previousMetalDebitTotal, 3) }} F
+                                        @else
+                                            -
+                                        @endif
+                                    </th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-bordered">
+                            <tbody>
+                                <tr>
+                                    <th>Final Grand Total</th>
+                                    <th>Amount</th>
+                                    <td>{{ $finalGrandAmount >= 0 ? 'Dr.' : 'Cr.' }} {{ number_format(abs($finalGrandAmount), 2) }}</td>
+                                    <th>Metal</th>
+                                    <td>
+                                        @if($finalGrandFineDebit > 0.000001)
+                                            Dr. {{ number_format($finalGrandFineDebit, 3) }} F
+                                        @else
+                                            -
+                                        @endif
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            @endif
+
             <div class="table-responsive">
                 <table class="table table-bordered">
                     <thead>

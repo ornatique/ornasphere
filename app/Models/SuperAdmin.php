@@ -12,10 +12,16 @@ class SuperAdmin extends Authenticatable
         'name',
         'email',
         'password',
+        'active_web_session_id',
+        'active_login_at',
     ];
 
     protected $hidden = [
         'password',
         'remember_token',
+    ];
+
+    protected $casts = [
+        'active_login_at' => 'datetime',
     ];
 }

@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Crypt;
 use Carbon\Carbon;
+use App\Services\TransactionItemGuard;
 
 class ApprovalController extends Controller
 {
@@ -32,65 +33,6 @@ class ApprovalController extends Controller
             ->get();
 
         if ($request->ajax()) {
-            $query = ApprovalHeader::with([
-                'customer',
-                'creator',
-                'items' => function ($q) {
-                    $q->where('status', '!=', 'returned')
-                        ->with(['itemSet.item', 'legacyItemSet.item']);
-                }
-            ])
-                ->withCount([
-                    'items as active_items_count' => function ($q) {
-                        $q->where('status', '!=', 'returned');
-                    }
-                ])
-                ->withSum([
-                    'items as active_gross_weight' => function ($q) {
-                        $q->where('status', '!=', 'returned');
-                    }
-                ], 'gross_weight')
-                ->withSum([
-                    'items as active_net_weight' => function ($q) {
-                        $q->where('status', '!=', 'returned');
-                    }
-                ], 'net_weight')
-                ->withSum([
-                    'items as active_fine_weight' => function ($q) {
-                        $q->where('status', '!=', 'returned');
-                    }
-                ], 'total_fine_weight')
-                ->withSum([
-                    'items as active_metal_amount' => function ($q) {
-                        $q->where('status', '!=', 'returned');
-                    }
-                ], 'metal_amount')
-                ->withSum([
-                    'items as active_labour_amount' => function ($q) {
-                        $q->where('status', '!=', 'returned');
-                    }
-                ], 'labour_amount')
-                ->withSum([
-                    'items as active_other_amount' => function ($q) {
-                        $q->where('status', '!=', 'returned');
-                    }
-                ], 'other_amount')
-                ->withSum([
-                    'items as active_item_amount' => function ($q) {
-                        $q->where('status', '!=', 'returned');
-                    }
-                ], 'total_amount')
-                ->where('company_id', $company->id)
-                ->whereHas('customer', function ($customer) {
-                    $customer->saleParties();
-                })
-                ->orderByDesc('approval_date')
-                ->orderByDesc('id');
-
-            if ($request->filled('customer_id')) {
-                $query->where('customer_id', $request->customer_id);
-            }
-
             $fromDate = $request->input('from_date');
             $toDate = $request->input('to_date');
             $today = now()->toDateString();
@@ -104,9 +46,191 @@ class ApprovalController extends Controller
                 $fromDate = $toDate;
             }
 
-            if (!empty($fromDate) && !empty($toDate)) {
-                $query->whereBetween('approval_date', [$fromDate, $toDate]);
+            $viewType = $request->input('view_type') === 'voucher' ? 'voucher' : 'item';
+
+            if ($viewType === 'voucher') {
+                $pendingItemFilter = function ($q) {
+                    return $q->where(function ($statusQuery) {
+                        $statusQuery->whereNull('status')
+                            ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+                    });
+                };
+
+                $query = ApprovalHeader::with([
+                    'customer',
+                    'creator',
+                    'items' => function ($q) use ($pendingItemFilter) {
+                        $pendingItemFilter($q)->with(['item', 'itemSet.item', 'legacyItemSet.item']);
+                    },
+                ])
+                    ->withCount([
+                        'items as active_items_count' => $pendingItemFilter,
+                    ])
+                    ->withSum([
+                        'items as active_gross_weight' => $pendingItemFilter,
+                    ], 'gross_weight')
+                    ->withSum([
+                        'items as active_net_weight' => $pendingItemFilter,
+                    ], 'net_weight')
+                    ->withSum([
+                        'items as active_fine_weight' => $pendingItemFilter,
+                    ], 'total_fine_weight')
+                    ->withSum([
+                        'items as active_metal_amount' => $pendingItemFilter,
+                    ], 'metal_amount')
+                    ->withSum([
+                        'items as active_labour_amount' => $pendingItemFilter,
+                    ], 'labour_amount')
+                    ->withSum([
+                        'items as active_other_amount' => $pendingItemFilter,
+                    ], 'other_amount')
+                    ->withSum([
+                        'items as active_item_amount' => $pendingItemFilter,
+                    ], 'total_amount')
+                    ->where('company_id', $company->id)
+                    ->whereHas('items', $pendingItemFilter)
+                    ->whereHas('customer', function ($customer) {
+                        $customer->saleParties();
+                    })
+                    ->orderByDesc('approval_date')
+                    ->orderByDesc('id');
+
+                if ($request->filled('customer_id')) {
+                    $query->where('customer_id', $request->customer_id);
+                }
+
+                if (!empty($fromDate) && !empty($toDate)) {
+                    $query->whereBetween('approval_date', [$fromDate, $toDate]);
+                }
+
+                $summaryRows = (clone $query)->get();
+                $summary = [
+                    'total_qty' => (int) $summaryRows->sum(fn($row) => (int) ($row->active_items_count ?? 0)),
+                    'total_gross_wt' => (float) $summaryRows->sum(fn($row) => (float) ($row->active_gross_weight ?? 0)),
+                    'total_net_wt' => (float) $summaryRows->sum(fn($row) => (float) ($row->active_net_weight ?? 0)),
+                ];
+
+                return datatables()->of($query)
+                    ->filter(function ($q) use ($request) {
+                        $searchValue = trim((string) data_get($request->input('search'), 'value', ''));
+                        if ($searchValue === '') {
+                            return;
+                        }
+
+                        $q->where(function ($innerQ) use ($searchValue) {
+                            $innerQ->where('approval_no', 'like', "%{$searchValue}%")
+                                ->orWhereHas('customer', function ($cq) use ($searchValue) {
+                                    $cq->where('name', 'like', "%{$searchValue}%");
+                                })
+                                ->orWhereHas('items', function ($iq) use ($searchValue) {
+                                    $iq->where('qr_code', 'like', "%{$searchValue}%")
+                                        ->orWhere('huid', 'like', "%{$searchValue}%")
+                                        ->orWhereHas('item', function ($itemQ) use ($searchValue) {
+                                            $itemQ->where('item_name', 'like', "%{$searchValue}%");
+                                        })
+                                        ->orWhereHas('itemSet.item', function ($itemQ) use ($searchValue) {
+                                            $itemQ->where('item_name', 'like', "%{$searchValue}%");
+                                        })
+                                        ->orWhereHas('legacyItemSet.item', function ($itemQ) use ($searchValue) {
+                                            $itemQ->where('item_name', 'like', "%{$searchValue}%");
+                                        });
+                                })
+                                ->orWhereRaw("DATE_FORMAT(approval_date, '%d-%m-%Y') like ?", ["%{$searchValue}%"])
+                                ->orWhereRaw("DATE_FORMAT(approval_date, '%Y-%m-%d') like ?", ["%{$searchValue}%"]);
+
+                            if (preg_match('/^\d{2}\-\d{2}\-\d{4}$/', $searchValue)) {
+                                try {
+                                    $searchDate = Carbon::createFromFormat('d-m-Y', $searchValue)->format('Y-m-d');
+                                    $innerQ->orWhereDate('approval_date', $searchDate);
+                                } catch (\Throwable $e) {
+                                }
+                            } elseif (preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $searchValue)) {
+                                $innerQ->orWhereDate('approval_date', $searchValue);
+                            }
+                        });
+                    })
+                    ->addIndexColumn()
+                    ->addColumn('approval_no', fn($row) => $row->approval_no ?? '-')
+                    ->addColumn('customer_name', fn($row) => optional($row->customer)->name ?? '-')
+                    ->addColumn('approval_date', fn($row) => $row->approval_date ? Carbon::parse($row->approval_date)->format('d-m-Y') : '-')
+                    ->addColumn('item_names', function ($row) {
+                        $names = collect($row->items ?? [])
+                            ->map(function ($it) {
+                                $set = $it->itemSet ?? $it->legacyItemSet;
+                                return optional(optional($set)->item)->item_name
+                                    ?? optional($it->item)->item_name;
+                            })
+                            ->filter()
+                            ->unique()
+                            ->values();
+
+                        return $names->isEmpty() ? '-' : $names->implode(', ');
+                    })
+                    ->addColumn('qr_code', fn() => '-')
+                    ->addColumn('total_qty', fn($row) => (int) ($row->active_items_count ?? 0))
+                    ->addColumn('total_gross_weight', fn($row) => number_format((float) ($row->active_gross_weight ?? 0), 3))
+                    ->addColumn('total_net_weight', fn($row) => number_format((float) ($row->active_net_weight ?? 0), 3))
+                    ->addColumn('total_fine_weight', fn($row) => number_format((float) ($row->active_fine_weight ?? 0), 3))
+                    ->addColumn('total_metal_amount', fn($row) => number_format((float) ($row->active_metal_amount ?? 0), 2))
+                    ->addColumn('total_labour_amount', fn($row) => number_format((float) ($row->active_labour_amount ?? 0), 2))
+                    ->addColumn('total_other_amount', fn($row) => number_format((float) ($row->active_other_amount ?? 0), 2))
+                    ->addColumn('total_amount', fn($row) => number_format((float) ($row->active_item_amount ?? 0), 2))
+                    ->addColumn('creator_name', fn($row) => optional($row->creator)->name ?? '-')
+                    ->addColumn('modified_at', fn($row) => $row->updated_at ? Carbon::parse($row->updated_at)->format('d-m-Y h:i A') : '-')
+                    ->addColumn('modified_count', fn($row) => (int) ($row->modified_count ?? 0))
+                    ->addColumn('status', fn($row) => $row->status_badge)
+                    ->addColumn('action', function ($row) use ($slug) {
+                        $encryptedId = Crypt::encryptString((string) $row->id);
+                        $url = route('company.approval.view', [$slug, $encryptedId]);
+                        $pdfUrl = route('company.approval.pdf', [$slug, $encryptedId]);
+                        $editBtn = '';
+                        if (in_array((string) $row->status, ['open', 'partial'], true)) {
+                            $editUrl = route('company.approval.edit', [$slug, $encryptedId]);
+                            $editBtn = '<a href="' . $editUrl . '" class="btn btn-sm btn-warning me-1">Edit</a>';
+                        }
+
+                        return $editBtn . '<a href="' . $url . '" class="btn btn-sm btn-info me-1">View</a>
+                                <a href="' . $pdfUrl . '" class="btn btn-sm btn-primary" target="_blank">PDF</a>';
+                    })
+                    ->rawColumns(['status', 'action'])
+                    ->with('summary', $summary)
+                    ->make(true);
             }
+
+            $query = ApprovalItem::with([
+                'approval.customer',
+                'approval.creator',
+                'item',
+                'itemSet.item',
+                'legacyItemSet.item',
+            ])
+                ->join('approval_headers', 'approval_headers.id', '=', 'approval_items.approval_id')
+                ->where('approval_headers.company_id', $company->id)
+                ->where(function ($statusQuery) {
+                    $statusQuery->whereNull('approval_items.status')
+                        ->orWhereRaw('LOWER(TRIM(approval_items.status)) = ?', ['pending']);
+                })
+                ->whereHas('approval.customer', function ($customer) {
+                    $customer->saleParties();
+                })
+                ->select('approval_items.*')
+                ->orderByDesc('approval_headers.approval_date')
+                ->orderByDesc('approval_items.id');
+
+            if ($request->filled('customer_id')) {
+                $query->where('approval_headers.customer_id', $request->customer_id);
+            }
+
+            if (!empty($fromDate) && !empty($toDate)) {
+                $query->whereBetween('approval_headers.approval_date', [$fromDate, $toDate]);
+            }
+
+            $summaryRows = (clone $query)->get();
+            $summary = [
+                'total_qty' => (int) $summaryRows->count(),
+                'total_gross_wt' => (float) $summaryRows->sum(fn($row) => (float) ($row->gross_weight ?? 0)),
+                'total_net_wt' => (float) $summaryRows->sum(fn($row) => (float) ($row->net_weight ?? 0)),
+            ];
 
             return datatables()->of($query)
                 ->filter(function ($q) use ($request) {
@@ -116,70 +240,79 @@ class ApprovalController extends Controller
                     }
 
                     $q->where(function ($innerQ) use ($searchValue) {
-                        $innerQ->where('approval_no', 'like', "%{$searchValue}%")
-                            ->orWhereHas('customer', function ($cq) use ($searchValue) {
+                        $innerQ->where('approval_headers.approval_no', 'like', "%{$searchValue}%")
+                            ->orWhere('approval_items.qr_code', 'like', "%{$searchValue}%")
+                            ->orWhere('approval_items.huid', 'like', "%{$searchValue}%")
+                            ->orWhereHas('approval.customer', function ($cq) use ($searchValue) {
                                 $cq->where('name', 'like', "%{$searchValue}%");
                             })
-                            ->orWhereHas('items', function ($iq) use ($searchValue) {
-                                $iq->where(function ($itemsQ) use ($searchValue) {
-                                    $itemsQ->whereHas('item', function ($itemQ) use ($searchValue) {
-                                        $itemQ->where('item_name', 'like', "%{$searchValue}%");
-                                    })->orWhereHas('itemSet.item', function ($itemQ) use ($searchValue) {
-                                        $itemQ->where('item_name', 'like', "%{$searchValue}%");
-                                    })->orWhereHas('legacyItemSet.item', function ($itemQ) use ($searchValue) {
-                                        $itemQ->where('item_name', 'like', "%{$searchValue}%");
-                                    });
-                                });
+                            ->orWhereHas('item', function ($itemQ) use ($searchValue) {
+                                $itemQ->where('item_name', 'like', "%{$searchValue}%");
                             })
-                            ->orWhereRaw("DATE_FORMAT(approval_date, '%d-%m-%Y') like ?", ["%{$searchValue}%"])
-                            ->orWhereRaw("DATE_FORMAT(approval_date, '%Y-%m-%d') like ?", ["%{$searchValue}%"]);
+                            ->orWhereHas('itemSet.item', function ($itemQ) use ($searchValue) {
+                                $itemQ->where('item_name', 'like', "%{$searchValue}%");
+                            })
+                            ->orWhereHas('legacyItemSet.item', function ($itemQ) use ($searchValue) {
+                                $itemQ->where('item_name', 'like', "%{$searchValue}%");
+                            })
+                            ->orWhereRaw("DATE_FORMAT(approval_headers.approval_date, '%d-%m-%Y') like ?", ["%{$searchValue}%"])
+                            ->orWhereRaw("DATE_FORMAT(approval_headers.approval_date, '%Y-%m-%d') like ?", ["%{$searchValue}%"]);
 
                         if (preg_match('/^\d{2}\-\d{2}\-\d{4}$/', $searchValue)) {
                             try {
                                 $searchDate = Carbon::createFromFormat('d-m-Y', $searchValue)->format('Y-m-d');
-                                $innerQ->orWhereDate('approval_date', $searchDate);
+                                $innerQ->orWhereDate('approval_headers.approval_date', $searchDate);
                             } catch (\Throwable $e) {
                             }
                         } elseif (preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $searchValue)) {
-                            $innerQ->orWhereDate('approval_date', $searchValue);
+                            $innerQ->orWhereDate('approval_headers.approval_date', $searchValue);
                         }
                     });
                 })
                 ->addIndexColumn()
-                ->addColumn('customer_name', fn($row) => $row->customer->name ?? '-')
-                ->addColumn('approval_date', fn($row) => \Carbon\Carbon::parse($row->approval_date)->format('d-m-Y'))
+                ->addColumn('approval_no', fn($row) => optional($row->approval)->approval_no ?? '-')
+                ->addColumn('customer_name', fn($row) => optional(optional($row->approval)->customer)->name ?? '-')
+                ->addColumn('approval_date', function ($row) {
+                    $approval = $row->approval;
+                    return $approval && $approval->approval_date
+                        ? Carbon::parse($approval->approval_date)->format('d-m-Y')
+                        : '-';
+                })
                 ->addColumn('item_names', function ($row) {
-                    $names = collect($row->items ?? [])
-                        ->map(function ($it) {
-                            $set = $it->itemSet ?? $it->legacyItemSet;
-                            return optional(optional($set)->item)->item_name;
-                        })
-                        ->filter()
-                        ->unique()
-                        ->values();
-
-                    return $names->isEmpty() ? '-' : $names->implode(', ');
+                    $set = $row->itemSet ?? $row->legacyItemSet;
+                    return optional(optional($set)->item)->item_name
+                        ?? optional($row->item)->item_name
+                        ?? '-';
                 })
-                ->addColumn('total_qty', fn($row) => (int) ($row->active_items_count ?? 0))
-                ->addColumn('total_gross_weight', fn($row) => number_format((float) ($row->active_gross_weight ?? 0), 3))
-                ->addColumn('total_net_weight', fn($row) => number_format((float) ($row->active_net_weight ?? 0), 3))
-                ->addColumn('total_fine_weight', fn($row) => number_format((float) ($row->active_fine_weight ?? 0), 3))
-                ->addColumn('total_metal_amount', fn($row) => number_format((float) ($row->active_metal_amount ?? 0), 2))
-                ->addColumn('total_labour_amount', fn($row) => number_format((float) ($row->active_labour_amount ?? 0), 2))
-                ->addColumn('total_other_amount', fn($row) => number_format((float) ($row->active_other_amount ?? 0), 2))
-                ->addColumn('total_amount', fn($row) => number_format((float) ($row->active_item_amount ?? 0), 2))
-                ->addColumn('creator_name', fn($row) => optional($row->creator)->name ?? '-')
+                ->addColumn('qr_code', fn($row) => $row->qr_code ?: '-')
+                ->addColumn('total_qty', fn() => 1)
+                ->addColumn('total_gross_weight', fn($row) => number_format((float) ($row->gross_weight ?? 0), 3))
+                ->addColumn('total_net_weight', fn($row) => number_format((float) ($row->net_weight ?? 0), 3))
+                ->addColumn('total_fine_weight', fn($row) => number_format((float) ($row->total_fine_weight ?? 0), 3))
+                ->addColumn('total_metal_amount', fn($row) => number_format((float) ($row->metal_amount ?? 0), 2))
+                ->addColumn('total_labour_amount', fn($row) => number_format((float) ($row->labour_amount ?? 0), 2))
+                ->addColumn('total_other_amount', fn($row) => number_format((float) ($row->other_amount ?? 0), 2))
+                ->addColumn('total_amount', fn($row) => number_format((float) ($row->total_amount ?? 0), 2))
+                ->addColumn('creator_name', fn($row) => optional(optional($row->approval)->creator)->name ?? '-')
                 ->addColumn('modified_at', function ($row) {
-                    return $row->updated_at ? \Carbon\Carbon::parse($row->updated_at)->format('d-m-Y h:i A') : '-';
+                    $approval = $row->approval;
+                    return $approval && $approval->updated_at
+                        ? Carbon::parse($approval->updated_at)->format('d-m-Y h:i A')
+                        : '-';
                 })
-                ->addColumn('modified_count', fn($row) => (int) ($row->modified_count ?? 0))
-                ->addColumn('status', fn($row) => $row->status_badge)
+                ->addColumn('modified_count', fn($row) => (int) (optional($row->approval)->modified_count ?? 0))
+                ->addColumn('status', fn() => '<span class="badge bg-warning">Pending</span>')
                 ->addColumn('action', function ($row) use ($slug) {
-                    $encryptedId = Crypt::encryptString((string) $row->id);
+                    $approval = $row->approval;
+                    if (!$approval) {
+                        return '-';
+                    }
+
+                    $encryptedId = Crypt::encryptString((string) $approval->id);
                     $url = route('company.approval.view', [$slug, $encryptedId]);
                     $pdfUrl = route('company.approval.pdf', [$slug, $encryptedId]);
                     $editBtn = '';
-                    if (in_array((string) $row->status, ['open', 'partial'], true)) {
+                    if (in_array((string) $approval->status, ['open', 'partial'], true)) {
                         $editUrl = route('company.approval.edit', [$slug, $encryptedId]);
                         $editBtn = '<a href="' . $editUrl . '" class="btn btn-sm btn-warning me-1">Edit</a>';
                     }
@@ -187,6 +320,7 @@ class ApprovalController extends Controller
                             <a href="' . $pdfUrl . '" class="btn btn-sm btn-primary" target="_blank">PDF</a>';
                 })
                 ->rawColumns(['status', 'action'])
+                ->with('summary', $summary)
                 ->make(true);
         }
 
@@ -196,66 +330,6 @@ class ApprovalController extends Controller
     public function exportListPdf(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-
-        $query = ApprovalHeader::with([
-            'customer',
-            'creator',
-            'items' => function ($q) {
-                $q->where('status', '!=', 'returned')
-                    ->with(['itemSet.item', 'legacyItemSet.item']);
-            }
-        ])
-            ->withCount([
-                'items as active_items_count' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
-            ])
-            ->withSum([
-                'items as active_gross_weight' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
-            ], 'gross_weight')
-            ->withSum([
-                'items as active_net_weight' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
-            ], 'net_weight')
-            ->withSum([
-                'items as active_fine_weight' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
-            ], 'total_fine_weight')
-            ->withSum([
-                'items as active_metal_amount' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
-            ], 'metal_amount')
-            ->withSum([
-                'items as active_labour_amount' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
-            ], 'labour_amount')
-            ->withSum([
-                'items as active_other_amount' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
-            ], 'other_amount')
-            ->withSum([
-                'items as active_item_amount' => function ($q) {
-                    $q->where('status', '!=', 'returned');
-                }
-            ], 'total_amount')
-            ->where('company_id', $company->id)
-            ->whereHas('customer', function ($customer) {
-                $customer->saleParties();
-            })
-            ->orderByDesc('approval_date')
-            ->orderByDesc('id');
-
-        if ($request->filled('customer_id')) {
-            $query->where('customer_id', (int) $request->customer_id);
-        }
-
         $fromDate = $request->input('from_date');
         $toDate = $request->input('to_date');
         $today = now()->toDateString();
@@ -267,34 +341,154 @@ class ApprovalController extends Controller
         } elseif (empty($fromDate) && !empty($toDate)) {
             $fromDate = $toDate;
         }
+
+        $viewType = $request->input('view_type') === 'voucher' ? 'voucher' : 'item';
+
+        if ($viewType === 'voucher') {
+            $pendingItemFilter = function ($q) {
+                return $q->where(function ($statusQuery) {
+                    $statusQuery->whereNull('status')
+                        ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+                });
+            };
+
+            $query = ApprovalHeader::with([
+                'customer',
+                'creator',
+                'items' => function ($q) use ($pendingItemFilter) {
+                    $pendingItemFilter($q)->with(['item', 'itemSet.item', 'legacyItemSet.item']);
+                },
+            ])
+                ->withCount([
+                    'items as active_items_count' => $pendingItemFilter,
+                ])
+                ->withSum([
+                    'items as active_gross_weight' => $pendingItemFilter,
+                ], 'gross_weight')
+                ->withSum([
+                    'items as active_net_weight' => $pendingItemFilter,
+                ], 'net_weight')
+                ->withSum([
+                    'items as active_fine_weight' => $pendingItemFilter,
+                ], 'total_fine_weight')
+                ->withSum([
+                    'items as active_metal_amount' => $pendingItemFilter,
+                ], 'metal_amount')
+                ->withSum([
+                    'items as active_labour_amount' => $pendingItemFilter,
+                ], 'labour_amount')
+                ->withSum([
+                    'items as active_other_amount' => $pendingItemFilter,
+                ], 'other_amount')
+                ->withSum([
+                    'items as active_item_amount' => $pendingItemFilter,
+                ], 'total_amount')
+                ->where('company_id', $company->id)
+                ->whereHas('items', $pendingItemFilter)
+                ->whereHas('customer', function ($customer) {
+                    $customer->saleParties();
+                })
+                ->orderByDesc('approval_date')
+                ->orderByDesc('id');
+
+            if ($request->filled('customer_id')) {
+                $query->where('customer_id', (int) $request->customer_id);
+            }
+
+            if (!empty($fromDate) && !empty($toDate)) {
+                $query->whereBetween('approval_date', [$fromDate, $toDate]);
+            }
+
+            $rows = $query->get()->map(function ($row) {
+                $names = collect($row->items ?? [])
+                    ->map(function ($it) {
+                        $set = $it->itemSet ?? $it->legacyItemSet;
+                        return optional(optional($set)->item)->item_name
+                            ?? optional($it->item)->item_name;
+                    })
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                return [
+                    'approval_no' => (string) ($row->approval_no ?? '-'),
+                    'approval_date' => $row->approval_date ? Carbon::parse($row->approval_date)->format('d-m-Y') : '-',
+                    'customer_name' => optional($row->customer)->name ?? '-',
+                    'item_names' => $names->isEmpty() ? '-' : $names->implode(', '),
+                    'qr_code' => '-',
+                    'total_qty' => (int) ($row->active_items_count ?? 0),
+                    'gross_wt' => (float) ($row->active_gross_weight ?? 0),
+                    'net_wt' => (float) ($row->active_net_weight ?? 0),
+                    'fine_wt' => (float) ($row->active_fine_weight ?? 0),
+                    'metal_amt' => (float) ($row->active_metal_amount ?? 0),
+                    'labour_amt' => (float) ($row->active_labour_amount ?? 0),
+                    'other_amt' => (float) ($row->active_other_amount ?? 0),
+                    'total_amt' => (float) ($row->active_item_amount ?? 0),
+                    'created_by' => optional($row->creator)->name ?? '-',
+                ];
+            })->values();
+
+            $pdf = Pdf::loadView('company.approval.list_pdf', [
+                'company' => $company,
+                'rows' => $rows,
+                'fromDate' => $fromDate,
+                'toDate' => $toDate,
+                'viewType' => $viewType,
+            ])->setPaper([0, 0, 841.89, 595.28]);
+
+            return $pdf->stream('approval-list-' . now()->format('YmdHis') . '.pdf');
+        }
+
+        $query = ApprovalItem::with([
+            'approval.customer',
+            'approval.creator',
+            'item',
+            'itemSet.item',
+            'legacyItemSet.item',
+        ])
+            ->join('approval_headers', 'approval_headers.id', '=', 'approval_items.approval_id')
+            ->where('approval_headers.company_id', $company->id)
+            ->where(function ($statusQuery) {
+                $statusQuery->whereNull('approval_items.status')
+                    ->orWhereRaw('LOWER(TRIM(approval_items.status)) = ?', ['pending']);
+            })
+            ->whereHas('approval.customer', function ($customer) {
+                $customer->saleParties();
+            })
+            ->select('approval_items.*')
+            ->orderByDesc('approval_headers.approval_date')
+            ->orderByDesc('approval_items.id');
+
+        if ($request->filled('customer_id')) {
+            $query->where('approval_headers.customer_id', (int) $request->customer_id);
+        }
+
         if (!empty($fromDate) && !empty($toDate)) {
-            $query->whereBetween('approval_date', [$fromDate, $toDate]);
+            $query->whereBetween('approval_headers.approval_date', [$fromDate, $toDate]);
         }
 
         $rows = $query->get()->map(function ($row) {
-            $names = collect($row->items ?? [])
-                ->map(function ($it) {
-                    $set = $it->itemSet ?? $it->legacyItemSet;
-                    return optional(optional($set)->item)->item_name;
-                })
-                ->filter()
-                ->unique()
-                ->values();
+            $approval = $row->approval;
+            $set = $row->itemSet ?? $row->legacyItemSet;
+            $itemName = optional(optional($set)->item)->item_name
+                ?? optional($row->item)->item_name
+                ?? '-';
 
             return [
-                'approval_no' => (string) ($row->approval_no ?? '-'),
-                'approval_date' => $row->approval_date ? Carbon::parse($row->approval_date)->format('d-m-Y') : '-',
-                'customer_name' => optional($row->customer)->name ?? '-',
-                'item_names' => $names->isEmpty() ? '-' : $names->implode(', '),
-                'total_qty' => (int) ($row->active_items_count ?? 0),
-                'gross_wt' => (float) ($row->active_gross_weight ?? 0),
-                'net_wt' => (float) ($row->active_net_weight ?? 0),
-                'fine_wt' => (float) ($row->active_fine_weight ?? 0),
-                'metal_amt' => (float) ($row->active_metal_amount ?? 0),
-                'labour_amt' => (float) ($row->active_labour_amount ?? 0),
-                'other_amt' => (float) ($row->active_other_amount ?? 0),
-                'total_amt' => (float) ($row->active_item_amount ?? 0),
-                'created_by' => optional($row->creator)->name ?? '-',
+                'approval_no' => (string) (optional($approval)->approval_no ?? '-'),
+                'approval_date' => $approval && $approval->approval_date ? Carbon::parse($approval->approval_date)->format('d-m-Y') : '-',
+                'customer_name' => optional(optional($approval)->customer)->name ?? '-',
+                'item_names' => $itemName,
+                'qr_code' => $row->qr_code ?: '-',
+                'total_qty' => 1,
+                'gross_wt' => (float) ($row->gross_weight ?? 0),
+                'net_wt' => (float) ($row->net_weight ?? 0),
+                'fine_wt' => (float) ($row->total_fine_weight ?? 0),
+                'metal_amt' => (float) ($row->metal_amount ?? 0),
+                'labour_amt' => (float) ($row->labour_amount ?? 0),
+                'other_amt' => (float) ($row->other_amount ?? 0),
+                'total_amt' => (float) ($row->total_amount ?? 0),
+                'created_by' => optional(optional($approval)->creator)->name ?? '-',
             ];
         })->values();
 
@@ -303,7 +497,8 @@ class ApprovalController extends Controller
             'rows' => $rows,
             'fromDate' => $fromDate,
             'toDate' => $toDate,
-        ])->setPaper('a4', 'landscape');
+            'viewType' => $viewType,
+        ])->setPaper([0, 0, 841.89, 595.28]);
 
         return $pdf->stream('approval-list-' . now()->format('YmdHis') . '.pdf');
     }
@@ -543,13 +738,7 @@ class ApprovalController extends Controller
                     continue;
                 }
 
-                $itemSet = ItemSet::with('item')
-                    ->where('company_id', $company->id)
-                    ->findOrFail($itemSetId);
-
-                if ((int) $itemSet->is_sold === 1) {
-                    throw new \Exception("Item already sold/used: {$itemSet->qr_code}");
-                }
+                $itemSet = TransactionItemGuard::lockItemSetForUse($company->id, $itemSetId)->load('item');
 
                 $gross = (float) ($row['gross_weight'] ?? $itemSet->gross_weight ?? 0);
                 $otherWeight = (float) ($row['other_weight'] ?? $itemSet->other ?? 0);
@@ -676,9 +865,11 @@ class ApprovalController extends Controller
                     continue;
                 }
 
-                $itemSet = ItemSet::with('item')
-                    ->where('company_id', $company->id)
-                    ->findOrFail($itemSetId);
+                $itemSet = TransactionItemGuard::lockItemSetForUse(
+                    $company->id,
+                    $itemSetId,
+                    $pendingByItemset->has($itemSetId)
+                )->load('item');
 
                 // If this label was not already pending in this approval, it must be free.
                 if (!$pendingByItemset->has($itemSetId) && (int) $itemSet->is_sold === 1) {
@@ -812,9 +1003,7 @@ class ApprovalController extends Controller
             }
 
             foreach ($ids as $id) {
-                $item = ApprovalItem::whereHas('approval', function ($q) use ($company) {
-                    $q->where('company_id', $company->id);
-                })->findOrFail($id);
+                $item = TransactionItemGuard::lockApprovalItemForSale($company->id, (int) $id);
                 $item->update(['status' => 'sold']);
             }
 
@@ -841,13 +1030,35 @@ class ApprovalController extends Controller
         $company = Company::where('slug', $slug)->firstOrFail();
 
         $customerId = $request->customer_id;
+        $hasReturnApprovalItemId = Schema::hasColumn('sale_return_items', 'approval_item_id');
+        $hasReturnItemsetId = Schema::hasColumn('sale_return_items', 'itemset_id');
 
         $items = ApprovalItem::with('itemSet.item', 'legacyItemSet.item')
             ->whereHas('approval', function ($q) use ($company, $customerId) {
                 $q->where('company_id', $company->id)
                     ->where('customer_id', $customerId);
             })
-            ->where('status', 'pending')
+            ->where(function ($q) {
+                $q->whereNull('status')
+                    ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+            })
+            ->whereNotExists(function ($sub) use ($hasReturnApprovalItemId, $hasReturnItemsetId) {
+                $sub->select(DB::raw(1))
+                    ->from('sale_return_items');
+
+                if ($hasReturnApprovalItemId && $hasReturnItemsetId) {
+                    $sub->where(function ($q) {
+                        $q->whereColumn('sale_return_items.approval_item_id', 'approval_items.id')
+                            ->orWhereColumn('sale_return_items.itemset_id', 'approval_items.itemset_id');
+                    });
+                } elseif ($hasReturnApprovalItemId) {
+                    $sub->whereColumn('sale_return_items.approval_item_id', 'approval_items.id');
+                } elseif ($hasReturnItemsetId) {
+                    $sub->whereColumn('sale_return_items.itemset_id', 'approval_items.itemset_id');
+                } else {
+                    $sub->whereRaw('1 = 0');
+                }
+            })
             ->get();
 
         return response()->json($items->map(function ($row) {

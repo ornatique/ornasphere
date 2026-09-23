@@ -45,7 +45,7 @@ Route::post('/company/login', [AuthController::class, 'login']);
 Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
 Route::get('/live-metal-rates', [MetalRateApiController::class, 'index']);
 
-Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
+Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group(function () {
     Route::post('/company/logout', [AuthController::class, 'logout']);
     Route::get('/company/me', [AuthController::class, 'me']);
     Route::get('/company/profile', [AuthController::class, 'profile']);
@@ -68,7 +68,7 @@ Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
 
 
 
-Route::middleware(['auth:sanctum', 'company.active'])->group(function () {
+Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group(function () {
 
     Route::get('/notifications/summary', [NotificationApiController::class, 'summary']);
     Route::get('/notifications', [NotificationApiController::class, 'index']);

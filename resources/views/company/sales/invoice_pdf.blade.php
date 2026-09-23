@@ -162,6 +162,11 @@
         $silverUsed = (float)($saleAdvanceUsage['silver_used'] ?? 0);
         $silverDebit = (float)($saleAdvanceUsage['silver_debit'] ?? 0);
         $silverCredit = (float)($saleAdvanceUsage['silver_credit'] ?? 0);
+        $fineBalanceAdjustmentEnabled = (bool) ($sale->use_silver_balance ?? false);
+        $adjustedGoldFine = (float) data_get($saleAdvanceUsage, 'metal_used.gold', data_get($saleAdvanceUsage, 'gold_used', 0));
+        $adjustedSilverFine = (float) data_get($saleAdvanceUsage, 'metal_used.silver', data_get($saleAdvanceUsage, 'silver_used', 0));
+        $adjustedOtherFine = (float) data_get($saleAdvanceUsage, 'metal_used.other', data_get($saleAdvanceUsage, 'other_used', 0));
+        $adjustedFineTotal = $adjustedGoldFine + $adjustedSilverFine + $adjustedOtherFine;
         $silverBalance = (float)($advanceSummary['silver'] ?? 0);
         $silverBalanceType = $silverBalance < 0 ? 'Debit' : 'Credit';
         $silverBalanceAbs = abs($silverBalance);
@@ -256,7 +261,7 @@
     @php
         $grandTotalType = $cashPayable >= 0 ? 'DR' : 'CR';
         $hasMetalRateCharge = $sumMetalRate > 0.000001 || $sumMetalAmount > 0.000001;
-        $fineDebit = !$hasMetalRateCharge && $silverDebit > 0.000001 ? $silverDebit : 0;
+        $fineDebit = (!$fineBalanceAdjustmentEnabled && !$hasMetalRateCharge && $sumFine > 0.000001) ? $sumFine : 0;
         $silverOpening = (float)($saleAdvanceUsage['silver_opening'] ?? ($silverBalance + $silverUsed));
         $hasCustomerAccountActivity =
             abs($advCashRaw) > 0.000001 ||
@@ -286,6 +291,15 @@
         while (count($metalSummaryBoxes) < 4) {
             $metalSummaryBoxes[] = null;
         }
+        $previousPendingSales = collect($previousPendingSales ?? []);
+        $previousQtyTotal = $previousPendingSales->sum('qty');
+        $previousAmountTotal = $previousPendingSales->sum('total_amount');
+        $previousFineTotal = $previousPendingSales->sum('fine_weight');
+        $previousPendingTotal = $previousPendingSales->sum('pending_amount');
+        $previousMetalDebitTotal = $previousPendingSales->sum('metal_debit');
+        $finalGrandAmount = $cashPayable + $previousPendingTotal;
+        $finalGrandAmountType = $finalGrandAmount >= 0 ? 'DR' : 'CR';
+        $finalGrandFineDebit = $fineDebit + $previousMetalDebitTotal;
     @endphp
     <div class="grand-total">
         <table class="grand-total-grid">
@@ -306,6 +320,30 @@
             </tr>
         </table>
     </div>
+    <table class="summary-grid" style="margin-top:2px;">
+        <tr>
+            <td>
+                <div class="metric-card">
+                    <table class="metric-top"><tr><td class="metric-label">Fine Balance Adjusted</td><td class="metric-value">{{ $fineBalanceAdjustmentEnabled ? 'Yes' : 'No' }}</td></tr></table>
+                </div>
+            </td>
+            <td>
+                <div class="metric-card">
+                    <table class="metric-top"><tr><td class="metric-label">Adjusted Fine Wt</td><td class="metric-value">{{ number_format($adjustedFineTotal, 3) }}</td></tr></table>
+                </div>
+            </td>
+            <td>
+                <div class="metric-card">
+                    <table class="metric-top"><tr><td class="metric-label">Gold / Silver</td><td class="metric-value">{{ number_format($adjustedGoldFine, 3) }} / {{ number_format($adjustedSilverFine, 3) }}</td></tr></table>
+                </div>
+            </td>
+            <td>
+                <div class="metric-card">
+                    <table class="metric-top"><tr><td class="metric-label">Other Fine</td><td class="metric-value">{{ number_format($adjustedOtherFine, 3) }}</td></tr></table>
+                </div>
+            </td>
+        </tr>
+    </table>
     @if($hasCustomerAccountActivity)
         <table class="summary-grid">
             <tr>
@@ -346,6 +384,85 @@
                 @endforeach
             </tr>
         </table>
+    @endif
+
+    @if($previousPendingSales->isNotEmpty())
+        <table class="voucher-grid" style="margin-top:8px;">
+            <thead>
+                <tr>
+                    <th colspan="9" style="text-align:left;">Previous Pending Bills</th>
+                </tr>
+                <tr>
+                    <th style="width:5%;">Sr</th>
+                    <th style="width:17%; text-align:left;">Voucher No</th>
+                    <th style="width:11%;">Date</th>
+                    <th style="width:7%;">Items</th>
+                    <th style="width:13%;">Total Amt</th>
+                    <th style="width:11%;">Fine Wt</th>
+                    <th style="width:12%;">Received</th>
+                    <th style="width:13%;">Pending</th>
+                    <th style="width:11%;">Metal Dr</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($previousPendingSales as $index => $pendingSale)
+                    <tr>
+                        <td class="text-center">{{ $index + 1 }}</td>
+                        <td>{{ $pendingSale['voucher_no'] }}</td>
+                        <td class="text-center">{{ $pendingSale['sale_date'] }}</td>
+                        <td class="text-center">{{ number_format((float) ($pendingSale['qty'] ?? 0), 0) }}</td>
+                        <td class="text-right">Rs {{ number_format((float) $pendingSale['total_amount'], 2) }}</td>
+                        <td class="text-right">{{ number_format((float) ($pendingSale['fine_weight'] ?? 0), 3) }}</td>
+                        <td class="text-right">Rs {{ number_format((float) $pendingSale['received_amount'], 2) }}</td>
+                        <td class="text-right">Rs {{ number_format((float) $pendingSale['pending_amount'], 2) }}</td>
+                        <td class="text-right">
+                            @if((float) ($pendingSale['metal_debit'] ?? 0) > 0.000001)
+                                Dr. {{ number_format((float) $pendingSale['metal_debit'], 3) }} <span class="unit-circle">F</span>
+                            @else
+                                -
+                            @endif
+                        </td>
+                    </tr>
+                @endforeach
+            </tbody>
+            <tfoot>
+                <tr>
+                    <th colspan="3" class="text-right">Previous Pending Total</th>
+                    <th class="text-center">{{ number_format((float) $previousQtyTotal, 0) }}</th>
+                    <th class="text-right">Rs {{ number_format((float) $previousAmountTotal, 2) }}</th>
+                    <th class="text-right">{{ number_format((float) $previousFineTotal, 3) }}</th>
+                    <th></th>
+                    <th class="text-right">Rs {{ number_format((float) $previousPendingTotal, 2) }}</th>
+                    <th class="text-right">
+                        @if((float) $previousMetalDebitTotal > 0.000001)
+                            Dr. {{ number_format((float) $previousMetalDebitTotal, 3) }} <span class="unit-circle">F</span>
+                        @else
+                            -
+                        @endif
+                    </th>
+                </tr>
+            </tfoot>
+        </table>
+
+        <div class="grand-total" style="margin-top:8px;">
+            <table class="grand-total-grid">
+                <tr>
+                    <td class="grand-label" rowspan="2">Final Grand Total :</td>
+                    <td class="grand-head">Amount</td>
+                    <td class="grand-head grand-metal">Metal</td>
+                </tr>
+                <tr>
+                    <td class="grand-number">{{ $finalGrandAmountType === 'DR' ? 'Dr.' : 'Cr.' }} {{ number_format(abs($finalGrandAmount), 2) }}</td>
+                    <td class="grand-number grand-metal">
+                        @if($finalGrandFineDebit > 0.000001)
+                            Dr. {{ number_format($finalGrandFineDebit, 3) }} <span class="unit-circle">F</span>
+                        @else
+                            -
+                        @endif
+                    </td>
+                </tr>
+            </table>
+        </div>
     @endif
 </div>
 

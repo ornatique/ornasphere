@@ -42,6 +42,14 @@ class ItemSetController extends Controller
             ->first();
     }
 
+    private function ownDraftRows($query, ?int $userId)
+    {
+        return $query->where(function ($ownerQuery) use ($userId) {
+            $ownerQuery->where('created_by', $userId)
+                ->orWhereNull('created_by');
+        });
+    }
+
     private function normalizeLabourFormulaValue(?string $formula): string
     {
         $raw = strtolower(str_replace(' ', '', trim((string) $formula)));
@@ -263,7 +271,9 @@ class ItemSetController extends Controller
             return response()->json([]);
         }
 
-        return ItemSet::where('company_id', $company->id)
+        $userId = optional(auth()->user())->id;
+
+        $query = ItemSet::where('company_id', $company->id)
             ->where('item_id', $request->item_id)
             ->where('is_final', 0)
             ->where(function ($q) {
@@ -274,7 +284,9 @@ class ItemSetController extends Controller
                     ->orWhereNotNull('sale_other')
                     ->orWhereNotNull('size')
                     ->orWhereNotNull('HUID');
-            })
+            });
+
+        return $this->ownDraftRows($query, $userId)
             ->orderBy('id')
             ->offset($request->offset)
             ->limit(10)
@@ -301,6 +313,7 @@ class ItemSetController extends Controller
     public function saveCell(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $userId = optional(auth()->user())->id;
         $toNumber = function ($value): float {
             if ($value === null || $value === '') {
                 return 0;
@@ -331,6 +344,10 @@ class ItemSetController extends Controller
             $set = ItemSet::where('company_id', $company->id)
                 ->where('id', $request->id)
                 ->where('is_final', 0)
+                ->where(function ($query) use ($userId) {
+                    $query->where('created_by', $userId)
+                        ->orWhereNull('created_by');
+                })
                 ->first();
 
             if ($set) {
@@ -349,6 +366,10 @@ class ItemSetController extends Controller
                 if (empty($set->sale_labour_formula)) {
                     $set->sale_labour_formula = $requestedLabourFormula ?: $defaultLabourFormula;
                 }
+                if (!$set->created_by) {
+                    $set->created_by = $userId;
+                }
+                $set->updated_by = $userId;
 
                 $set->save();
 
@@ -366,6 +387,8 @@ class ItemSetController extends Controller
 
         $payload = [
             'company_id' => $company->id,
+            'created_by' => $userId,
+            'updated_by' => $userId,
             'item_id' => $request->item_id,
             $request->column => $request->value,
             'sale_labour_formula' => $requestedLabourFormula ?: $defaultLabourFormula,
@@ -426,6 +449,7 @@ class ItemSetController extends Controller
     public function finalize(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $userId = optional(auth()->user())->id;
 
         $item = $this->configuredItem($company->id, $request->item_id);
 
@@ -436,16 +460,25 @@ class ItemSetController extends Controller
             ], 422);
         }
 
-        $config = LabelConfig::where('company_id', $company->id)
-            ->where('item_id', $item->id)
-            ->first();
-
         DB::beginTransaction();
 
         try {
+            $config = LabelConfig::where('company_id', $company->id)
+                ->where('item_id', $item->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$config) {
+                DB::rollBack();
+
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Label Config not found for selected item. Please create Label Config first.',
+                ], 422);
+            }
 
             // ONLY VALID ROWS
-            $draftSets = ItemSet::where('company_id', $company->id)
+            $draftSetsQuery = ItemSet::where('company_id', $company->id)
                 ->where('item_id', $item->id)
                 ->where('is_final', 0)
                 ->where(function ($q) {
@@ -453,11 +486,16 @@ class ItemSetController extends Controller
                         ->orWhereNotNull('net_weight')
                         ->orWhereNotNull('size')
                         ->orWhereNotNull('HUID');
-                })
+                });
+
+            $draftSets = $this->ownDraftRows($draftSetsQuery, $userId)
                 ->orderBy('id')
+                ->lockForUpdate()
                 ->get();
 
             if ($draftSets->isEmpty()) {
+                DB::rollBack();
+
                 return response()->json([
                     'status' => false,
                     'message' => 'No valid item sets to finalize'
@@ -484,7 +522,9 @@ class ItemSetController extends Controller
                     'qr_code'   => $qrText,
                     'barcode'   => $qrText,
                     'net_weight' => $net,
-                    'is_final'  => 1
+                    'is_final'  => 1,
+                    'created_by' => $set->created_by ?: $userId,
+                    'updated_by' => $userId,
                 ]);
             }
 
@@ -1054,25 +1094,53 @@ class ItemSetController extends Controller
 
     public function update(Request $request, $slug, $encryptedId)
     {
-        [, $item] = $this->findCompanyItemSet($slug, $encryptedId);
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $id = (int) Crypt::decryptString($encryptedId);
+        $userId = optional(auth()->user())->id;
 
-        $gross = (float) ($request->gross_weight ?? 0);
-        $otherWeight = (float) ($request->other ?? 0);
-        $netWeight = max(0, $gross - $otherWeight);
-        $saleOtherInput = $request->other_charges;
-        $saleOther = ($saleOtherInput === null || $saleOtherInput === '')
-            ? $item->sale_other
-            : (float) str_replace(',', '', (string) $saleOtherInput);
+        DB::beginTransaction();
 
-        $item->update([
-            'gross_weight' => $gross,
-            'net_weight' => $netWeight,
-            'size' => $request->size,
-            'other' => $otherWeight,
-            'sale_other' => $saleOther,
-        ]);
+        try {
+            $item = ItemSet::where('company_id', $company->id)
+                ->where('id', $id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        return response()->json(['success' => true]);
+            if ((int) ($item->is_sold ?? 0) === 1) {
+                DB::rollBack();
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This item is already used in sale or approval. Please reload.',
+                    'code' => 'ITEM_ALREADY_USED',
+                ], 409);
+            }
+
+            $gross = (float) ($request->gross_weight ?? 0);
+            $otherWeight = (float) ($request->other ?? 0);
+            $netWeight = max(0, $gross - $otherWeight);
+            $saleOtherInput = $request->other_charges;
+            $saleOther = ($saleOtherInput === null || $saleOtherInput === '')
+                ? $item->sale_other
+                : (float) str_replace(',', '', (string) $saleOtherInput);
+
+            $item->update([
+                'gross_weight' => $gross,
+                'net_weight' => $netWeight,
+                'size' => $request->size,
+                'other' => $otherWeight,
+                'sale_other' => $saleOther,
+                'updated_by' => $userId,
+            ]);
+
+            DB::commit();
+
+            return response()->json(['success' => true]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            throw $e;
+        }
     }
 
     public function destroy($slug, $encryptedId)
@@ -1080,12 +1148,33 @@ class ItemSetController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
         $id = (int) Crypt::decryptString($encryptedId);
 
-        $item = ItemSet::where('company_id', $company->id)
-            ->where('id', $id)
-            ->firstOrFail();
+        DB::beginTransaction();
 
-        $item->delete();
+        try {
+            $item = ItemSet::where('company_id', $company->id)
+                ->where('id', $id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        return response()->json(['success' => true]);
+            if ((int) ($item->is_sold ?? 0) === 1) {
+                DB::rollBack();
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This item is already used in sale or approval. Please reload.',
+                    'code' => 'ITEM_ALREADY_USED',
+                ], 409);
+            }
+
+            $item->delete();
+
+            DB::commit();
+
+            return response()->json(['success' => true]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            throw $e;
+        }
     }
 }

@@ -217,9 +217,11 @@ Route::prefix('superadmin')->name('superadmin.')->group(function () {
         ->name('2fa.verify');
 
     Route::get('/two-factor-setup', [SuperAdmin2FAController::class, 'setup'])
+        ->middleware(['auth:superadmin', 'single.web.session'])
         ->name('2fa.setup');
 
     Route::post('/two-factor-setup', [SuperAdmin2FAController::class, 'store'])
+        ->middleware(['auth:superadmin', 'single.web.session'])
         ->name('2fa.store');
 });
 
@@ -231,6 +233,7 @@ Route::prefix('superadmin')->name('superadmin.')->group(function () {
 // 'superadmin.ip',
 Route::middleware([
     'auth:superadmin',
+    'single.web.session',
     'superadmin.2fa',
 ])->prefix('superadmin')->name('superadmin.')->group(function () {
 
@@ -298,7 +301,7 @@ Route::prefix('company/{slug}')
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permission', 'company.notification.read'])
+Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa', 'company.route.permission', 'company.notification.read'])
     ->prefix('company/{slug}')
     ->name('company.')
     ->group(function () {
@@ -1004,6 +1007,16 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
             [SaleReturnController::class, 'show']
         )->name('returns.show');
 
+        Route::delete(
+            '/returns/{encryptedReturnId}/items/{encryptedItemId}',
+            [SaleReturnController::class, 'destroyItem']
+        )->name('returns.items.destroy');
+
+        Route::delete(
+            '/returns/{encryptedReturnId}',
+            [SaleReturnController::class, 'destroy']
+        )->name('returns.destroy');
+
         Route::get(
             '/returns/select-sale-data',
             [SaleReturnController::class, 'getSalesForReturn']
@@ -1217,7 +1230,7 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
         });
     });
 
-Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permission', 'company.notification.read'])
+Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa', 'company.route.permission', 'company.notification.read'])
     ->prefix('company/{slug}')
     ->name('company.')
     ->group(function () {
@@ -1243,6 +1256,7 @@ Route::middleware(['auth', 'company.active', 'company.2fa', 'company.route.permi
     });
 Route::prefix('company/{slug}')
     ->name('company.')
+    ->middleware(['auth', 'single.web.session', 'company.active'])
     ->group(function () {
 
         Route::get('/2fa/setup', [CompanySecurityController::class, 'showSetup'])

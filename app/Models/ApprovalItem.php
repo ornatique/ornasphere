@@ -13,6 +13,8 @@ class ApprovalItem extends Model
 
     protected $fillable = [
         'approval_id',
+        'device_id',
+        'voucher_session_id',
         'itemset_id',
         'item_id',
         'huid',

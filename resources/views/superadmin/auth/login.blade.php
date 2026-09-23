@@ -19,15 +19,18 @@
     <link rel="stylesheet" href="{{ asset('celestial/assets/images/favicon.png') }}">
     <style>
         .superadmin-login-logo-wrap {
-            margin-bottom: -100px !important;
+            margin-bottom: 8px !important;
             text-align: center;
+            line-height: 0;
         }
 
+        .auth .brand-logo img.superadmin-login-logo,
         .superadmin-login-logo {
-            width: 420px !important;
+            width: 340px !important;
             max-width: 100% !important;
             height: auto !important;
             max-height: none !important;
+            aspect-ratio: 1319 / 729;
             object-fit: contain;
             display: block;
             margin-left: auto;
@@ -35,8 +38,9 @@
         }
 
         @media (max-width: 575.98px) {
+            .auth .brand-logo img.superadmin-login-logo,
             .superadmin-login-logo {
-                width: 320px !important;
+                width: 280px !important;
             }
         }
     </style>
@@ -50,7 +54,7 @@
                     <div class="col-lg-4 mx-auto">
                         <div class="auth-form-transparent text-left py-5 px-4 px-sm-5">
                             <div class="brand-logo superadmin-login-logo-wrap">
-                                <img src="{{ asset('celestial/assets/images/logo.svg') }}?v={{ @filemtime(public_path('celestial/assets/images/logo.svg')) }}" alt="logo" class="superadmin-login-logo">
+                                <img src="{{ asset('celestial/assets/images/ornasphere-auth-logo.svg') }}?v={{ @filemtime(public_path('celestial/assets/images/ornasphere-auth-logo.svg')) }}" alt="logo" class="superadmin-login-logo">
                             </div>
                             <h4>Hello! let's get started</h4>
                             <h6 class="fw-light">Sign in to continue.</h6>

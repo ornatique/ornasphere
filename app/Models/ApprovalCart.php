@@ -13,6 +13,9 @@ class ApprovalCart extends Model
 
     protected $fillable = [
         'user_id',
+        'device_id',
+        'voucher_session_id',
+        'device_entry_id',
         'company_id',
         'customer_id',
         'itemset_id',
@@ -38,4 +41,3 @@ class ApprovalCart extends Model
         return $this->belongsTo(ItemSet::class);
     }
 }
-

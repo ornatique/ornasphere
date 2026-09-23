@@ -17,6 +17,7 @@ use DB;
 use App\Models\Customer;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Crypt;
+use App\Services\TransactionItemGuard;
 
 class SaleReturnController extends Controller
 {
@@ -38,14 +39,24 @@ class SaleReturnController extends Controller
                 'approval.creator',
                 'approval.items.itemSet.item',
                 'approval.items.item',
+                'items.approvalItem.approval.customer',
+                'items.approvalItem.approval.creator',
+                'items.approvalItem.itemSet.item',
+                'items.approvalItem.legacyItemSet.item',
+                'items.approvalItem.item',
                 'items.itemSet.item',
             ])
                 ->where('company_id', $company->id)
                 ->where('source_type', 'approval');
 
             if ($request->filled('customer_id')) {
-                $returns->whereHas('approval', function ($query) use ($request) {
-                    $query->where('customer_id', (int) $request->customer_id);
+                $customerId = (int) $request->customer_id;
+                $returns->where(function ($query) use ($customerId) {
+                    $query->whereHas('approval', function ($approvalQuery) use ($customerId) {
+                        $approvalQuery->where('customer_id', $customerId);
+                    })->orWhereHas('items.approvalItem.approval', function ($approvalQuery) use ($customerId) {
+                        $approvalQuery->where('customer_id', $customerId);
+                    });
                 });
             }
 
@@ -56,6 +67,12 @@ class SaleReturnController extends Controller
                 ->get()
                 ->map(fn(SaleReturn $return) => $this->summarizeApprovalReturn($return));
 
+            $summary = [
+                'total_qty' => (int) $returns->sum(fn($row) => (int) ($row['qty'] ?? 0)),
+                'total_gross_wt' => (float) $returns->sum(fn($row) => (float) ($row['gross_wt'] ?? 0)),
+                'total_net_wt' => (float) $returns->sum(fn($row) => (float) ($row['net_wt'] ?? 0)),
+            ];
+
             return DataTables::of($returns)
 
                 ->addIndexColumn()
@@ -63,21 +80,40 @@ class SaleReturnController extends Controller
                 ->addColumn('action', function ($return) use ($company) {
                     $encryptedReturnId = Crypt::encryptString((string) $return['return_id']);
 
+                    $viewUrl = route('company.returns.show', [
+                        'slug' => $company->slug,
+                        'encryptedReturnId' => $encryptedReturnId
+                    ]);
+
                     $pdfUrl = route('company.returns.pdf', [
                         'slug' => $company->slug,
                         'encryptedReturnId' => $encryptedReturnId
                     ]);
 
+                    $deleteUrl = route('company.returns.destroy', [
+                        'slug' => $company->slug,
+                        'encryptedReturnId' => $encryptedReturnId
+                    ]);
+
                     return '
+                    <a href="' . $viewUrl . '" class="btn btn-sm btn-warning">
+                       Edit
+                    </a>
                     <a href="' . $pdfUrl . '" 
                        class="btn btn-sm btn-info"
                        target="_blank">
                        View PDF
                     </a>
+                    <form action="' . $deleteUrl . '" method="POST" class="d-inline"
+                        onsubmit="return confirm(\'Delete this approval return and move items back to approval?\')">
+                        ' . csrf_field() . method_field('DELETE') . '
+                        <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                    </form>
                 ';
                 })
 
                 ->rawColumns(['action'])
+                ->with('summary', $summary)
                 ->make(true);
         }
 
@@ -100,6 +136,11 @@ class SaleReturnController extends Controller
             'approval.creator',
             'approval.items.itemSet.item',
             'approval.items.item',
+            'items.approvalItem.approval.customer',
+            'items.approvalItem.approval.creator',
+            'items.approvalItem.itemSet.item',
+            'items.approvalItem.legacyItemSet.item',
+            'items.approvalItem.item',
             'items.itemSet.item',
         ])
             ->where('company_id', $company->id)
@@ -109,8 +150,13 @@ class SaleReturnController extends Controller
             ->latest('id');
 
         if ($request->filled('customer_id')) {
-            $query->whereHas('approval', function ($approvalQuery) use ($request) {
-                $approvalQuery->where('customer_id', (int) $request->customer_id);
+            $customerId = (int) $request->customer_id;
+            $query->where(function ($returnQuery) use ($customerId) {
+                $returnQuery->whereHas('approval', function ($approvalQuery) use ($customerId) {
+                    $approvalQuery->where('customer_id', $customerId);
+                })->orWhereHas('items.approvalItem.approval', function ($approvalQuery) use ($customerId) {
+                    $approvalQuery->where('customer_id', $customerId);
+                });
             });
         }
 
@@ -161,10 +207,23 @@ class SaleReturnController extends Controller
         ];
 
         foreach ($return->items as $returnItem) {
+            $approvalItem = $returnItem->approvalItem;
             $itemSet = $returnItem->itemSet;
-            $approvalItem = $itemSet
-                ? $approvalItemsByItemSet->get($itemSet->id)
-                : null;
+            if (!$approvalItem && $itemSet) {
+                $approvalItem = $approvalItemsByItemSet->get($itemSet->id);
+            }
+
+            if (!$approvalItem && $itemSet) {
+                $approvalItem = ApprovalItem::with(['approval.customer', 'approval.creator', 'itemSet.item', 'legacyItemSet.item', 'item'])
+                    ->where(function ($query) use ($itemSet) {
+                        $query->where('itemset_id', (int) $itemSet->id)
+                            ->orWhere('item_id', (int) $itemSet->id);
+                    })
+                    ->where('status', 'returned')
+                    ->whereHas('approval', fn($query) => $query->where('company_id', (int) $return->company_id))
+                    ->latest('id')
+                    ->first();
+            }
 
             if (!$approvalItem) {
                 $approvalItem = $remainingApprovalItems->first(function ($item) use ($returnItem) {
@@ -178,7 +237,7 @@ class SaleReturnController extends Controller
                     ->values();
             }
 
-            $itemSet = $itemSet ?? optional($approvalItem)->itemSet;
+            $itemSet = $itemSet ?? optional($approvalItem)->itemSet ?? optional($approvalItem)->legacyItemSet;
             $itemNames->push(
                 optional(optional($itemSet)->item)->item_name
                 ?? optional(optional($approvalItem)->item)->item_name
@@ -186,7 +245,7 @@ class SaleReturnController extends Controller
             $totals['qty']++;
             $totals['gross_wt'] += (float) ($approvalItem->gross_weight ?? 0);
             $totals['net_wt'] += (float) ($approvalItem->net_weight ?? 0);
-            $totals['fine_wt'] += (float) ($approvalItem->total_fine_weight ?? 0);
+            $totals['fine_wt'] += (float) ($approvalItem->total_fine_weight ?? $approvalItem->fine_weight ?? 0);
             $totals['metal_amt'] += (float) ($approvalItem->metal_amount ?? 0);
             $totals['labour_amt'] += (float) ($approvalItem->labour_amount ?? 0);
             $totals['other_amt'] += (float) ($approvalItem->other_amount ?? 0);
@@ -199,9 +258,13 @@ class SaleReturnController extends Controller
             'return_date' => $return->return_date
                 ? \Carbon\Carbon::parse($return->return_date)->format('d-m-Y')
                 : '-',
-            'customer_name' => optional(optional($return->approval)->customer)->name ?? '-',
+            'customer_name' => optional(optional($return->approval)->customer)->name
+                ?? optional(optional(optional(optional($return->items->first())->approvalItem)->approval)->customer)->name
+                ?? '-',
             'item_names' => $itemNames->filter()->unique()->implode(', ') ?: '-',
-            'created_by' => optional(optional($return->approval)->creator)->name ?? '-',
+            'created_by' => optional(optional($return->approval)->creator)->name
+                ?? optional(optional(optional(optional($return->items->first())->approvalItem)->approval)->creator)->name
+                ?? '-',
         ] + $totals;
     }
 
@@ -308,6 +371,7 @@ class SaleReturnController extends Controller
             'approval.customer',
             'approval.items.itemSet.item',
             'items.saleItem.itemset.item',
+            'items.approvalItem.approval.customer',
             'items.approvalItem.itemSet.item',
             'items.approvalItem.legacyItemSet.item',
             'items.approvalItem.item',
@@ -317,6 +381,188 @@ class SaleReturnController extends Controller
             ->findOrFail($returnId);
 
         return view('company.returns.show', compact('company', 'return'));
+    }
+
+    public function destroyItem($slug, $encryptedReturnId, $encryptedItemId)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $returnId = (int) Crypt::decryptString($encryptedReturnId);
+        $returnItemId = (int) Crypt::decryptString($encryptedItemId);
+
+        DB::beginTransaction();
+
+        try {
+            $return = SaleReturn::with([
+                'approval.items.itemSet',
+                'approval.items.legacyItemSet',
+            ])
+                ->where('company_id', $company->id)
+                ->where('source_type', 'approval')
+                ->lockForUpdate()
+                ->findOrFail($returnId);
+
+            $returnItem = SaleReturnItem::with([
+                'approvalItem.itemSet',
+                'approvalItem.legacyItemSet',
+                'itemSet',
+            ])
+                ->where('sale_return_id', $return->id)
+                ->lockForUpdate()
+                ->findOrFail($returnItemId);
+
+            $approvalItem = $this->resolveReturnedApprovalItem($return, $returnItem, $company->id);
+
+            if (!$approvalItem) {
+                throw new \RuntimeException('Approval item not found for this return item.');
+            }
+
+            $approvalItem->update(['status' => 'pending']);
+
+            $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet ?? $returnItem->itemSet;
+            if ($itemSet) {
+                $itemSet->update(['is_sold' => 1]);
+            }
+
+            $approvalId = (int) $approvalItem->approval_id;
+            $returnItem->delete();
+
+            $remainingItems = $return->items()->count();
+            if ($remainingItems === 0) {
+                $return->delete();
+            } else {
+                $return->update([
+                    'return_total' => (float) $return->items()->sum('return_amount'),
+                ]);
+            }
+
+            $this->refreshApprovalStatus($approvalId);
+
+            DB::commit();
+
+            if ($remainingItems === 0) {
+                return redirect()
+                    ->route('company.returns.index', $company->slug)
+                    ->with('success', 'Return item removed, item moved back to approval, and empty return voucher deleted.');
+            }
+
+            return back()->with('success', 'Return item removed and moved back to approval.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    private function resolveReturnedApprovalItem(SaleReturn $return, SaleReturnItem $returnItem, int $companyId): ?ApprovalItem
+    {
+        if ($returnItem->approvalItem) {
+            return $returnItem->approvalItem;
+        }
+
+        $fallbackApprovalItems = collect(optional($return->approval)->items ?? []);
+
+        if ($returnItem->itemset_id) {
+            $approvalItem = $fallbackApprovalItems
+                ->first(fn($item) => (int) ($item->itemset_id ?? 0) === (int) $returnItem->itemset_id);
+
+            if ($approvalItem) {
+                return $approvalItem;
+            }
+
+            $approvalItem = ApprovalItem::with(['itemSet', 'legacyItemSet'])
+                ->where(function ($query) use ($returnItem) {
+                    $query->where('itemset_id', (int) $returnItem->itemset_id)
+                        ->orWhere('item_id', (int) $returnItem->itemset_id);
+                })
+                ->where('status', 'returned')
+                ->whereHas('approval', fn($query) => $query->where('company_id', $companyId))
+                ->latest('id')
+                ->first();
+
+            if ($approvalItem) {
+                return $approvalItem;
+            }
+        }
+
+        return $fallbackApprovalItems
+            ->first(fn($item) => (string) $item->status === 'returned');
+    }
+
+    public function destroy($slug, $encryptedReturnId)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $returnId = (int) Crypt::decryptString($encryptedReturnId);
+
+        DB::beginTransaction();
+
+        try {
+            $return = SaleReturn::with([
+                'approval.items.itemSet',
+                'approval.items.legacyItemSet',
+                'items.approvalItem.itemSet',
+                'items.approvalItem.legacyItemSet',
+                'items.itemSet',
+            ])
+                ->where('company_id', $company->id)
+                ->where('source_type', 'approval')
+                ->lockForUpdate()
+                ->findOrFail($returnId);
+
+            $approvalIds = collect();
+            $fallbackApprovalItems = collect(optional($return->approval)->items ?? []);
+
+            foreach ($return->items as $returnItem) {
+                $approvalItem = $returnItem->approvalItem;
+
+                if (!$approvalItem && $returnItem->itemset_id) {
+                    $approvalItem = $fallbackApprovalItems
+                        ->first(fn($item) => (int) ($item->itemset_id ?? 0) === (int) $returnItem->itemset_id);
+                }
+
+                if (!$approvalItem && $returnItem->itemset_id) {
+                    $approvalItem = ApprovalItem::with(['itemSet', 'legacyItemSet'])
+                        ->where(function ($query) use ($returnItem) {
+                            $query->where('itemset_id', (int) $returnItem->itemset_id)
+                                ->orWhere('item_id', (int) $returnItem->itemset_id);
+                        })
+                        ->where('status', 'returned')
+                        ->whereHas('approval', fn($query) => $query->where('company_id', $company->id))
+                        ->latest('id')
+                        ->first();
+                }
+
+                if (!$approvalItem) {
+                    $approvalItem = $fallbackApprovalItems
+                        ->first(fn($item) => (string) $item->status === 'returned');
+                }
+
+                if ($approvalItem) {
+                    $approvalItem->update(['status' => 'pending']);
+                    $approvalIds->push((int) $approvalItem->approval_id);
+
+                    $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet ?? $returnItem->itemSet;
+                    if ($itemSet) {
+                        $itemSet->update(['is_sold' => 1]);
+                    }
+                }
+
+                $returnItem->delete();
+            }
+
+            $return->delete();
+
+            $approvalIds->unique()->each(fn($approvalId) => $this->refreshApprovalStatus((int) $approvalId));
+
+            DB::commit();
+
+            return redirect()
+                ->route('company.returns.index', $company->slug)
+                ->with('success', 'Approval return deleted and items moved back to approval.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return back()->with('error', $e->getMessage());
+        }
     }
     public function getSalesForReturn(Request $request, $slug)
     {
@@ -522,31 +768,20 @@ class SaleReturnController extends Controller
         try {
             $hasItemsetIdColumn = Schema::hasColumn('sale_return_items', 'itemset_id');
             $hasProductIdColumn = Schema::hasColumn('sale_return_items', 'product_id');
+            $hasApprovalItemIdColumn = Schema::hasColumn('sale_return_items', 'approval_item_id');
             $total = 0;
 
             $saleItems = collect();
             if ($saleItemIds->isNotEmpty()) {
-                $saleItems = SaleItem::with(['sale', 'itemset'])
-                    ->whereIn('id', $saleItemIds)
-                    ->whereHas('sale', function ($q) use ($company) {
-                        $q->where('company_id', $company->id);
-                    })
-                    ->get()
-                    ->filter(function ($saleItem) {
-                        return !SaleReturnItem::where('sale_item_id', $saleItem->id)->exists();
-                    })
+                $saleItems = $saleItemIds
+                    ->map(fn($id) => TransactionItemGuard::lockSaleItemForReturn($company->id, (int) $id)->load(['sale', 'itemset']))
                     ->values();
             }
 
             $approvalItems = collect();
             if ($approvalItemIds->isNotEmpty()) {
-                $approvalItems = ApprovalItem::with(['approval', 'itemSet'])
-                    ->whereIn('id', $approvalItemIds)
-                    ->where('status', 'pending')
-                    ->whereHas('approval', function ($q) use ($company) {
-                        $q->where('company_id', $company->id);
-                    })
-                    ->get()
+                $approvalItems = $approvalItemIds
+                    ->map(fn($id) => TransactionItemGuard::lockApprovalItemForReturn($company->id, (int) $id)->load(['approval', 'itemSet', 'legacyItemSet']))
                     ->values();
             }
 
@@ -608,7 +843,7 @@ class SaleReturnController extends Controller
 
             if ($approvalItems->isNotEmpty()) {
                 foreach ($approvalItems as $approvalItem) {
-                    $itemSet = $approvalItem->itemSet;
+                    $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
                     if (!$itemSet) {
                         continue;
                     }
@@ -626,6 +861,10 @@ class SaleReturnController extends Controller
                         'return_amount' => $amount,
                         'remarks' => $payloadMap[$rowKey]['remarks'] ?? null,
                     ];
+
+                    if ($hasApprovalItemIdColumn) {
+                        $returnItemPayload['approval_item_id'] = $approvalItem->id;
+                    }
 
                     if ($hasItemsetIdColumn) {
                         $returnItemPayload['itemset_id'] = $itemSet->id;

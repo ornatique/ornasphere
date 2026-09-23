@@ -16,6 +16,38 @@
         font-weight: 700;
         margin-left: 6px;
     }
+
+    .approval-return-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(160px, 1fr));
+        gap: 14px;
+        margin-bottom: 18px;
+    }
+
+    .approval-return-summary-box {
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.03);
+        padding: 12px 14px;
+    }
+
+    .approval-return-summary-box span {
+        display: block;
+        color: #b8b8c7;
+        font-size: 13px;
+        margin-bottom: 6px;
+    }
+
+    .approval-return-summary-box strong {
+        color: #fff;
+        font-size: 24px;
+        line-height: 1;
+    }
+
+    @media (max-width: 767px) {
+        .approval-return-summary-grid {
+            grid-template-columns: 1fr;
+        }
+    }
 </style>
 
 <div class="content-wrapper">
@@ -57,6 +89,21 @@
                     <a class="btn btn-danger" id="exportPdfBtn" target="_blank">PDF</a>
                 </div>
 
+            </div>
+
+            <div class="approval-return-summary-grid">
+                <div class="approval-return-summary-box">
+                    <span>Total Qty</span>
+                    <strong id="approvalReturnSummaryQty">0</strong>
+                </div>
+                <div class="approval-return-summary-box">
+                    <span>Total Gross Wt</span>
+                    <strong id="approvalReturnSummaryGross">0.000</strong>
+                </div>
+                <div class="approval-return-summary-box">
+                    <span>Total Net Wt</span>
+                    <strong id="approvalReturnSummaryNet">0.000</strong>
+                </div>
             </div>
 
             <table class="table table-bordered yajra-datatable">
@@ -120,6 +167,19 @@
             const moreText = moreCount > 0 ? `<span class="approval-return-item-more">+${moreCount} more</span>` : '';
 
             return `<span class="approval-return-item-names" title="${escapeHtml(fullText)}">${escapeHtml(visibleNames)}${moreText}</span>`;
+        }
+
+        function updateApprovalReturnSummary(summary) {
+            const totals = summary || {};
+            $('#approvalReturnSummaryQty').text(Number(totals.total_qty || 0).toLocaleString('en-IN'));
+            $('#approvalReturnSummaryGross').text(Number(totals.total_gross_wt || 0).toLocaleString('en-IN', {
+                minimumFractionDigits: 3,
+                maximumFractionDigits: 3
+            }));
+            $('#approvalReturnSummaryNet').text(Number(totals.total_net_wt || 0).toLocaleString('en-IN', {
+                minimumFractionDigits: 3,
+                maximumFractionDigits: 3
+            }));
         }
 
         let table = $('.yajra-datatable').DataTable({
@@ -219,6 +279,10 @@
                     searchable: false
                 }
             ]
+        });
+
+        table.on('xhr.dt', function(e, settings, json) {
+            updateApprovalReturnSummary(json && json.summary);
         });
 
         // 🔍 FILTER

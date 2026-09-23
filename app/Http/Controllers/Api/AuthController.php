@@ -170,7 +170,19 @@ class AuthController extends Controller
             'user_agent' => substr((string) $request->userAgent(), 0, 500),
         ]);
 
-        $token = $user->createToken('api-token')->plainTextToken;
+        $newToken = $user->createToken('api-token');
+        $token = $newToken->plainTextToken;
+        $plainDeviceName = $request->input('device_name') ?: $request->header('X-Device-Name');
+        $plainPlatform = $request->input('platform') ?: $request->header('X-Platform');
+
+        $user->forceFill([
+            'active_api_token_id' => $newToken->accessToken->id,
+            'active_device_id' => $deviceId !== '' ? $deviceId : null,
+            'active_device_name' => $plainDeviceName ? substr((string) $plainDeviceName, 0, 255) : null,
+            'active_platform' => $plainPlatform ? substr((string) $plainPlatform, 0, 100) : null,
+            'active_login_at' => now(),
+        ])->save();
+
         $planStatus = $this->companyPlanStatus($user->company);
 
         return response()->json([
@@ -206,7 +218,19 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
-        $request->user()->currentAccessToken()->delete();
+        $user = $request->user();
+        $token = $user?->currentAccessToken();
+
+        if ($user && $token && (int) $user->active_api_token_id === (int) $token->id) {
+            $user->forceFill([
+                'active_api_token_id' => null,
+                'active_device_id' => null,
+                'active_device_name' => null,
+                'active_platform' => null,
+            ])->save();
+        }
+
+        $token?->delete();
 
         return response()->json(['message' => 'Logged out']);
     }

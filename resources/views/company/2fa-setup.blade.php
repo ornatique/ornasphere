@@ -15,11 +15,13 @@
             min-height: 100vh;
         }
 
+        .auth .brand-logo img.two-factor-logo,
         .two-factor-logo {
-            width: 420px !important;
+            width: 340px !important;
             max-width: 100% !important;
             height: auto !important;
             max-height: none !important;
+            aspect-ratio: 1319 / 729;
             object-fit: contain;
             display: block;
             margin-left: auto;
@@ -27,8 +29,9 @@
         }
 
         .two-factor-logo-wrap {
-            margin-bottom: 18px !important;
+            margin-bottom: 8px !important;
             text-align: center;
+            line-height: 0;
         }
 
         .two-factor-panel {
@@ -56,7 +59,8 @@
         .company-auth-name {
             color: #ff1a68;
             font-weight: 700;
-            margin-bottom: 10px;
+            margin-top: 0;
+            margin-bottom: 6px;
         }
 
         .company-auth-title {
@@ -81,8 +85,9 @@
         }
 
         @media (max-width: 575.98px) {
+            .auth .brand-logo img.two-factor-logo,
             .two-factor-logo {
-                width: 320px !important;
+                width: 280px !important;
             }
 
             .company-auth-qr-box img {
@@ -105,7 +110,7 @@
                             @php
                                 $user = auth()->user();
                                 $companyName = optional($company)->name ?? optional($user->company)->name ?? config('app.name');
-                                $defaultCompanyLogo = asset('celestial/assets/images/logo.svg') . '?v=' . @filemtime(public_path('celestial/assets/images/logo.svg'));
+                                $defaultCompanyLogo = asset('celestial/assets/images/ornasphere-auth-logo.svg') . '?v=' . @filemtime(public_path('celestial/assets/images/ornasphere-auth-logo.svg'));
                                 $companyLogo = $defaultCompanyLogo;
                             @endphp
 

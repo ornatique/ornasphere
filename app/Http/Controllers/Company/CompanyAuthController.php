@@ -53,6 +53,11 @@ class CompanyAuthController extends Controller
         Auth::login($user);
         $request->session()->regenerate();
 
+        $user->forceFill([
+            'active_web_session_id' => $request->session()->getId(),
+            'active_login_at' => now(),
+        ])->save();
+
         if (!$user->two_factor_enabled) {
             return redirect()
                 ->route('company.2fa.setup', $user->company->slug);
@@ -67,6 +72,13 @@ class CompanyAuthController extends Controller
     public function logout(Request $request)
     {
         $user = auth()->user();
+        $sessionId = $request->session()->getId();
+
+        if ($user && $user->active_web_session_id === $sessionId) {
+            $user->forceFill([
+                'active_web_session_id' => null,
+            ])->save();
+        }
 
         auth()->logout();
 

@@ -20,6 +20,7 @@ use DB;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Schema;
+use App\Services\TransactionItemGuard;
 
 class SaleController extends Controller
 {
@@ -240,13 +241,66 @@ class SaleController extends Controller
         ];
     }
 
+    private function previousPendingSalesForVoucher(Sale $sale)
+    {
+        if (empty($sale->company_id) || empty($sale->customer_id) || empty($sale->sale_date)) {
+            return collect();
+        }
+
+        $saleDate = Carbon::parse($sale->sale_date)->toDateString();
+
+        return Sale::query()
+            ->withSum('saleItems as sum_qty', 'qty')
+            ->withSum('saleItems as sum_fine_weight', 'fine_weight')
+            ->withSum('saleItems as sum_metal_amount', 'metal_amount')
+            ->where('company_id', (int) $sale->company_id)
+            ->where('customer_id', (int) $sale->customer_id)
+            ->where('id', '<>', (int) $sale->id)
+            ->where(function ($query) use ($sale, $saleDate) {
+                $query->whereDate('sale_date', '<', $saleDate)
+                    ->orWhere(function ($sameDate) use ($sale, $saleDate) {
+                        $sameDate->whereDate('sale_date', $saleDate)
+                            ->where('id', '<', (int) $sale->id);
+                    });
+            })
+            ->orderBy('sale_date')
+            ->orderBy('id')
+            ->get(['id', 'voucher_no', 'sale_date', 'net_total', 'received_amount', 'paid_amount', 'use_silver_balance'])
+            ->map(function (Sale $row) {
+                $received = (float) ($row->received_amount ?? 0);
+                $refundPaid = (float) ($row->paid_amount ?? 0);
+                $pending = max(0, (float) ($row->net_total ?? 0) - ($received - $refundPaid));
+                $fineWeight = (float) ($row->sum_fine_weight ?? 0);
+                $metalAmount = (float) ($row->sum_metal_amount ?? 0);
+                $metalDebit = (!(bool) ($row->use_silver_balance ?? false) && $metalAmount <= 0.000001) ? $fineWeight : 0;
+
+                return [
+                    'id' => (int) $row->id,
+                    'voucher_no' => (string) ($row->voucher_no ?? '-'),
+                    'sale_date' => $row->sale_date ? Carbon::parse($row->sale_date)->format('d-m-Y') : '-',
+                    'qty' => (float) ($row->sum_qty ?? 0),
+                    'total_amount' => (float) ($row->net_total ?? 0),
+                    'received_amount' => $received,
+                    'refund_paid' => $refundPaid,
+                    'pending_amount' => $pending,
+                    'fine_weight' => $fineWeight,
+                    'metal_amount' => $metalAmount,
+                    'fine_adjusted' => (bool) ($row->use_silver_balance ?? false),
+                    'metal_debit' => $metalDebit,
+                ];
+            })
+            ->filter(fn($row) => (float) $row['pending_amount'] > 0.000001)
+            ->values();
+    }
+
     private function saleCashPayableTotal(Sale $sale, ?array $availableMetalOverride = null): float
     {
         $items = $sale->relationLoaded('saleItems')
             ? $sale->saleItems
             : $sale->saleItems()->with(['itemset.item', 'product'])->get();
 
-        $availableMetal = $availableMetalOverride;
+        $useMetalBalance = (bool) ($sale->use_silver_balance ?? false);
+        $availableMetal = $useMetalBalance ? $availableMetalOverride : ['gold' => 0, 'silver' => 0, 'other' => 0];
         if ($availableMetal === null) {
             $summary = $this->getAdvanceSummary(
                 (int) $sale->company_id,
@@ -414,9 +468,11 @@ class SaleController extends Controller
                     $q->whereNull('status')
                         ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
                 })
-                ->whereNotExists(function ($sub) use ($currentSaleId) {
+                ->whereNotExists(function ($sub) use ($company, $currentSaleId) {
                     $sub->select(DB::raw(1))
                         ->from('sale_items')
+                        ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+                        ->where('sales.company_id', $company->id)
                         ->where(function ($q) {
                             $q->whereColumn('sale_items.approval_item_id', 'approval_items.id')
                                 ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
@@ -783,6 +839,7 @@ class SaleController extends Controller
                 'payment_mode' => $request->input('payment_mode'),
                 'payment_reference' => $request->input('payment_reference'),
                 'payment_note' => $request->input('payment_note'),
+                'use_silver_balance' => $request->boolean('use_silver_balance'),
                 'remarks'     => $request->input('voucher_remarks'),
                 'employee_id' => optional($request->user())->id,
                 'modified_count' => 0,
@@ -819,18 +876,7 @@ class SaleController extends Controller
                 $item = null;
                 $directItem = null;
                 if ($itemsetId > 0) {
-                    $itemQuery = ItemSet::where('company_id', $company->id)
-                        ->where('id', $itemsetId);
-
-                    if (empty($approvalItemId)) {
-                        $itemQuery->where('is_sold', 0);
-                    }
-
-                    $item = $itemQuery->first();
-
-                    if (!$item) {
-                        throw new \Exception("Item not found/already sold: {$itemsetId}");
-                    }
+                    $item = TransactionItemGuard::lockItemSetForUse($company->id, $itemsetId, !empty($approvalItemId));
                 } else {
                     $directItem = Item::where('company_id', $company->id)->find($productId);
                     if (!$directItem) {
@@ -888,19 +934,9 @@ class SaleController extends Controller
 
                 // ✅ UPDATE APPROVAL ITEM
                 if (!empty($approvalItemId)) {
-
-                    ApprovalItem::whereHas('approval', function ($q) use ($company) {
-                        $q->where('company_id', $company->id);
-                    })->where('id', (int) $approvalItemId)
-                        ->update(['status' => 'sold']);
-
-                    $approval = ApprovalItem::whereHas('approval', function ($q) use ($company) {
-                        $q->where('company_id', $company->id);
-                    })->find((int) $approvalItemId);
-
-                    if ($approval) {
-                        $approvalIds[] = $approval->approval_id;
-                    }
+                    $approval = TransactionItemGuard::lockApprovalItemForSale($company->id, (int) $approvalItemId);
+                    $approval->update(['status' => 'sold']);
+                    $approvalIds[] = $approval->approval_id;
                 }
 
                 $total += $lineTotal;
@@ -1009,6 +1045,7 @@ class SaleController extends Controller
                 'payment_mode' => $request->input('payment_mode'),
                 'payment_reference' => $request->input('payment_reference'),
                 'payment_note' => $request->input('payment_note'),
+                'use_silver_balance' => $request->boolean('use_silver_balance'),
                 'remarks' => $request->input('voucher_remarks'),
             ]);
 
@@ -1086,17 +1123,7 @@ class SaleController extends Controller
                 $directItem = null;
 
                 if ($itemsetId > 0) {
-                    $itemQuery = ItemSet::where('company_id', $company->id)
-                        ->where('id', $itemsetId);
-
-                    if (empty($approvalItemId)) {
-                        $itemQuery->where('is_sold', 0);
-                    }
-
-                    $item = $itemQuery->first();
-                    if (!$item) {
-                        throw new \Exception("Item not available for sale: {$itemsetId}");
-                    }
+                    $item = TransactionItemGuard::lockItemSetForUse($company->id, $itemsetId, !empty($approvalItemId));
                 } elseif ($productId > 0) {
                     $directItem = Item::where('company_id', $company->id)->find($productId);
                     if (!$directItem) {
@@ -1155,9 +1182,7 @@ class SaleController extends Controller
                 }
 
                 if (!empty($approvalItemId)) {
-                    $approval = ApprovalItem::whereHas('approval', function ($q) use ($company) {
-                        $q->where('company_id', $company->id);
-                    })->find((int) $approvalItemId);
+                    $approval = TransactionItemGuard::lockApprovalItemForSale($company->id, (int) $approvalItemId);
 
                     if ($approval) {
                         $approval->update(['status' => 'sold']);
@@ -1196,7 +1221,7 @@ class SaleController extends Controller
             $this->syncSilverAdvanceUsageForSale(
                 $company->id,
                 $sale,
-                true,
+                (bool) $sale->use_silver_balance,
                 optional($request->user())->id
             );
             $sale->increment('modified_count');
@@ -1315,13 +1340,15 @@ class SaleController extends Controller
         $advanceSummary = $this->getAdvanceSummary($company->id, (int) ($sale->customer_id ?? 0), $sale->sale_date);
         $saleAdvanceUsage = $this->getSaleAdvanceUsage($company->id, (int) $sale->id);
         $cashPayableTotal = $this->saleCashPayableTotal($sale);
+        $previousPendingSales = $this->previousPendingSalesForVoucher($sale);
 
         return view('company.sales.show', compact(
             'company',
             'sale',
             'advanceSummary',
             'saleAdvanceUsage',
-            'cashPayableTotal'
+            'cashPayableTotal',
+            'previousPendingSales'
         ));
     }
 
@@ -1342,7 +1369,8 @@ class SaleController extends Controller
         $advanceSummary = $this->getAdvanceSummary($company->id, (int) ($sale->customer_id ?? 0), $sale->sale_date);
         $saleAdvanceUsage = $this->getSaleAdvanceUsage($company->id, (int) $sale->id);
         $cashPayableTotal = $this->saleCashPayableTotal($sale);
-        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale', 'company', 'advanceSummary', 'saleAdvanceUsage', 'cashPayableTotal'))
+        $previousPendingSales = $this->previousPendingSalesForVoucher($sale);
+        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale', 'company', 'advanceSummary', 'saleAdvanceUsage', 'cashPayableTotal', 'previousPendingSales'))
             ->setPaper('a4', 'portrait');
 
         return $pdf->stream('Invoice-' . $sale->voucher_no . '.pdf');
@@ -1394,7 +1422,13 @@ class SaleController extends Controller
                 $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($company, $request) {
                     $q->where('company_id', $company->id)
                         ->where('id', (int) $request->approval_id);
-                })->findOrFail((int) $id);
+                })
+                    ->where(function ($q) {
+                        $q->whereNull('status')
+                            ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+                    })
+                    ->lockForUpdate()
+                    ->findOrFail((int) $id);
 
                 // ✅ Find correct item set
                 $itemSet = $approvalItem->itemSet ?: ItemSet::where('company_id', $company->id)
@@ -1471,22 +1505,23 @@ class SaleController extends Controller
         $customerId = $request->customer_id;
         $currentSaleId = (int) $request->input('sale_id', 0);
 
-        $approvalIds = ApprovalHeader::where('company_id', $company->id)
-            ->where('customer_id', $customerId)
-            ->whereIn('status', ['open', 'partial'])
-            ->pluck('id');
-
         $items = ApprovalItem::with(['itemSet.item', 'legacyItemSet.item'])
-            ->whereIn('approval_id', $approvalIds)
-
-            // 🔥 IMPORTANT FILTER
+            ->whereExists(function ($q) use ($company, $customerId) {
+                $q->select(DB::raw(1))
+                    ->from('approval_headers')
+                    ->whereColumn('approval_headers.id', 'approval_items.approval_id')
+                    ->where('approval_headers.company_id', $company->id)
+                    ->where('approval_headers.customer_id', $customerId);
+            })
             ->where(function ($q) {
                 $q->whereNull('status')
                     ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
             })
-            ->whereNotExists(function ($sub) use ($currentSaleId) {
+            ->whereNotExists(function ($sub) use ($company, $currentSaleId) {
                 $sub->select(DB::raw(1))
                     ->from('sale_items')
+                    ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+                    ->where('sales.company_id', $company->id)
                     ->where(function ($q) {
                         $q->whereColumn('sale_items.approval_item_id', 'approval_items.id')
                             ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
@@ -1684,7 +1719,6 @@ class SaleController extends Controller
         $asOnDate = Carbon::parse($sale->sale_date ?? now())->toDateString();
         $items = $sale->saleItems()->with(['itemset.item', 'product'])->get();
         $metalFineUsage = ['gold' => 0.0, 'silver' => 0.0, 'other' => 0.0];
-        $availableMetal = $this->getAdvanceSummary($companyId, (int) $sale->customer_id, $asOnDate);
 
         foreach ($items as $row) {
             $fine = (float) ($row->fine_weight ?? 0);
@@ -1697,11 +1731,9 @@ class SaleController extends Controller
         }
 
         foreach ($metalFineUsage as $metalType => $metalOut) {
-            $coveredMetalOut = min((float) $metalOut, max(0, (float) ($availableMetal[$metalType] ?? 0)));
-            if ($coveredMetalOut <= 0) {
+            if ((float) $metalOut <= 0) {
                 continue;
             }
-            $availableMetal[$metalType] = max(0, (float) ($availableMetal[$metalType] ?? 0) - $coveredMetalOut);
             CustomerAdvanceLedger::create([
                 'company_id' => $companyId,
                 'customer_id' => (int) $sale->customer_id,
@@ -1712,7 +1744,7 @@ class SaleController extends Controller
                 'cash_out' => 0,
                 'metal_type' => $metalType,
                 'metal_in' => 0,
-                'metal_out' => round((float) $coveredMetalOut, 3),
+                'metal_out' => round((float) $metalOut, 3),
                 'rate' => 0,
                 'reference_type' => 'sale',
                 'reference_id' => (int) $sale->id,

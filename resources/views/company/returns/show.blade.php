@@ -35,23 +35,45 @@
                             <th>HUID</th>
                             <th>QR Code</th>
                             <th class="text-end">Return Amount</th>
+                            <th class="text-center">Action</th>
                         </tr>
                     </thead>
                     <tbody>
                         @forelse($return->items as $index => $row)
                             @php
-                                $itemset = $row->itemSet ?? optional($row->saleItem)->itemset;
+                                $approvalItem = $row->approvalItem;
+                                $itemset = $row->itemSet
+                                    ?? optional($row->saleItem)->itemset
+                                    ?? optional($approvalItem)->itemSet
+                                    ?? optional($approvalItem)->legacyItemSet;
+                                $itemName = optional(optional($itemset)->item)->item_name
+                                    ?? optional(optional($approvalItem)->item)->item_name
+                                    ?? '-';
                             @endphp
                             <tr>
                                 <td>{{ $index + 1 }}</td>
-                                <td>{{ optional(optional($itemset)->item)->item_name ?? '-' }}</td>
+                                <td>{{ $itemName }}</td>
                                 <td>{{ optional($itemset)->HUID ?? '-' }}</td>
                                 <td>{{ optional($itemset)->qr_code ?? '-' }}</td>
                                 <td class="text-end">{{ number_format((float) ($row->return_amount ?? 0), 2) }}</td>
+                                <td class="text-center">
+                                    <form action="{{ route('company.returns.items.destroy', [
+                                            $company->slug,
+                                            \Illuminate\Support\Facades\Crypt::encryptString((string) $return->id),
+                                            \Illuminate\Support\Facades\Crypt::encryptString((string) $row->id)
+                                        ]) }}"
+                                        method="POST"
+                                        class="d-inline"
+                                        onsubmit="return confirm('Remove this item from approval return and move it back to approval?')">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit" class="btn btn-sm btn-danger">Remove</button>
+                                    </form>
+                                </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="5" class="text-center">No return items found</td>
+                                <td colspan="6" class="text-center">No return items found</td>
                             </tr>
                         @endforelse
                     </tbody>

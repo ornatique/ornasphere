@@ -66,6 +66,38 @@
     .approval-list-grid-wrap:hover::-webkit-scrollbar-track {
         background: rgba(255, 255, 255, 0.08);
     }
+
+    .approval-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(160px, 1fr));
+        gap: 14px;
+        margin-bottom: 18px;
+    }
+
+    .approval-summary-box {
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.03);
+        padding: 12px 14px;
+    }
+
+    .approval-summary-box span {
+        display: block;
+        color: #b8b8c7;
+        font-size: 13px;
+        margin-bottom: 6px;
+    }
+
+    .approval-summary-box strong {
+        color: #fff;
+        font-size: 24px;
+        line-height: 1;
+    }
+
+    @media (max-width: 767px) {
+        .approval-summary-grid {
+            grid-template-columns: 1fr;
+        }
+    }
 </style>
 
 <div class="content-wrapper">
@@ -85,12 +117,12 @@
         <div class="card-body border-bottom">
             <div class="row">
 
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label>From Date</label>
                     <input type="date" id="from_date" class="form-control">
                 </div>
 
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label>To Date</label>
                     <input type="date" id="to_date" class="form-control">
                 </div>
@@ -104,6 +136,14 @@
                             {{ $customer->name }}
                         </option>
                         @endforeach
+                    </select>
+                </div>
+
+                <div class="col-md-2">
+                    <label>View Type</label>
+                    <select id="view_type" class="form-select">
+                        <option value="item">Item Wise</option>
+                        <option value="voucher">Voucher Wise</option>
                     </select>
                 </div>
 
@@ -122,6 +162,21 @@
 
         {{-- TABLE --}}
         <div class="card-body">
+            <div class="approval-summary-grid">
+                <div class="approval-summary-box">
+                    <span>Total Qty</span>
+                    <strong id="approvalSummaryQty">0</strong>
+                </div>
+                <div class="approval-summary-box">
+                    <span>Total Gross Wt</span>
+                    <strong id="approvalSummaryGross">0.000</strong>
+                </div>
+                <div class="approval-summary-box">
+                    <span>Total Net Wt</span>
+                    <strong id="approvalSummaryNet">0.000</strong>
+                </div>
+            </div>
+
             <div class="table-responsive approval-list-grid-wrap">
                 <table class="table table-bordered" id="approvalTable">
                     <thead>
@@ -131,6 +186,7 @@
                             <th>Date</th>
                             <th>Customer</th>
                             <th>Item Name</th>
+                            <th>QR Code</th>
                             <th>Qty</th>
                             <th>Gross Wt</th>
                             <th>Net Wt</th>
@@ -175,6 +231,19 @@
         return $('<div>').text(value ?? '').html();
     }
 
+    function updateApprovalSummary(summary) {
+        const totals = summary || {};
+        $('#approvalSummaryQty').text(Number(totals.total_qty || 0).toLocaleString('en-IN'));
+        $('#approvalSummaryGross').text(Number(totals.total_gross_wt || 0).toLocaleString('en-IN', {
+            minimumFractionDigits: 3,
+            maximumFractionDigits: 3
+        }));
+        $('#approvalSummaryNet').text(Number(totals.total_net_wt || 0).toLocaleString('en-IN', {
+            minimumFractionDigits: 3,
+            maximumFractionDigits: 3
+        }));
+    }
+
     let table = $('#approvalTable').DataTable({
         processing: true,
         serverSide: true,
@@ -189,6 +258,7 @@
                 d.customer_id = $('#customer_id').val();
                 d.from_date = $('#from_date').val();
                 d.to_date = $('#to_date').val();
+                d.view_type = $('#view_type').val();
             }
         },
 
@@ -227,6 +297,9 @@
 
                     return `<span class="approval-item-names" title="${escapeHtml(fullText)}">${escapeHtml(visibleNames)}${moreText}</span>`;
                 }
+            },
+            {
+                data: 'qr_code'
             },
             {
                 data: 'total_qty'
@@ -285,9 +358,13 @@
             targets: '_all',
             className: 'text-nowrap'
         }, {
-            targets: [17],
+            targets: [18],
             className: ''
         }]
+    });
+
+    table.on('xhr.dt', function(e, settings, json) {
+        updateApprovalSummary(json && json.summary);
     });
 
     $('#filterBtn').click(function() {
@@ -299,6 +376,7 @@
         $('#customer_id').val('').trigger('change.select2');
         $('#from_date').val(today);
         $('#to_date').val(today);
+        $('#view_type').val('item');
         updateApprovalPdfLink();
         table.draw();
     });
@@ -309,11 +387,15 @@
             customer_id: $('#customer_id').val() || '',
             from_date: $('#from_date').val() || '',
             to_date: $('#to_date').val() || '',
+            view_type: $('#view_type').val() || 'item',
         });
         $('#exportPdfBtn').attr('href', `${base}?${params.toString()}`);
     }
 
-    $('#customer_id, #from_date, #to_date').on('change', updateApprovalPdfLink);
+    $('#customer_id, #from_date, #to_date, #view_type').on('change', updateApprovalPdfLink);
+    $('#view_type').on('change', function() {
+        table.draw();
+    });
 
     updateApprovalPdfLink();
     $('#customer_id').val('').trigger('change.select2');

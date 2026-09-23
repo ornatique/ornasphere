@@ -47,6 +47,11 @@ class AuthController extends Controller
             |--------------------------------------------------------------------------
             */
             if (!$user->two_factor_secret || !$user->two_factor_confirmed_at) {
+                $user->forceFill([
+                    'active_web_session_id' => $request->session()->getId(),
+                    'active_login_at' => now(),
+                ])->save();
+
                 return redirect()->route('superadmin.dashboard');
             }
 
@@ -79,6 +84,8 @@ class AuthController extends Controller
     public function logout(Request $request)
     {
         $superAdmin = Auth::guard('superadmin')->user();
+        $sessionId = $request->session()->getId();
+
         if ($superAdmin) {
             AuditLog::logEvent(
                 'logout',
@@ -86,6 +93,12 @@ class AuthController extends Controller
                 'Super admin logged out: ' . $superAdmin->email,
                 ['super_admin_id' => $superAdmin->id]
             );
+
+            if ($superAdmin->active_web_session_id === $sessionId) {
+                $superAdmin->forceFill([
+                    'active_web_session_id' => null,
+                ])->save();
+            }
         }
 
         Auth::guard('superadmin')->logout();

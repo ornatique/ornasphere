@@ -14,6 +14,8 @@ class ItemSet extends Model
     protected $fillable = [
 
         'company_id',
+        'created_by',
+        'updated_by',
         'item_id',
 
         'gross_weight',

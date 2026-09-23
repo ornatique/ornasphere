@@ -40,6 +40,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'company.active' => \App\Http\Middleware\EnsureCompanyIsActive::class,
             'company.notification.read' => \App\Http\Middleware\MarkCompanyNotificationModuleRead::class,
             'worker.office.access' => \App\Http\Middleware\CheckWorkerOfficeAccess::class,
+            'single.web.session' => \App\Http\Middleware\EnsureSingleActiveWebSession::class,
+            'single.api.token' => \App\Http\Middleware\EnsureSingleActiveApiToken::class,
         ]);
 
     })
