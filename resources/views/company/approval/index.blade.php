@@ -142,8 +142,8 @@
                 <div class="col-md-2">
                     <label>View Type</label>
                     <select id="view_type" class="form-select">
+                        <option value="voucher" selected>Voucher Wise</option>
                         <option value="item">Item Wise</option>
-                        <option value="voucher">Voucher Wise</option>
                     </select>
                 </div>
 
@@ -376,7 +376,7 @@
         $('#customer_id').val('').trigger('change.select2');
         $('#from_date').val(today);
         $('#to_date').val(today);
-        $('#view_type').val('item');
+        $('#view_type').val('voucher');
         updateApprovalPdfLink();
         table.draw();
     });
@@ -387,7 +387,7 @@
             customer_id: $('#customer_id').val() || '',
             from_date: $('#from_date').val() || '',
             to_date: $('#to_date').val() || '',
-            view_type: $('#view_type').val() || 'item',
+            view_type: $('#view_type').val() || 'voucher',
         });
         $('#exportPdfBtn').attr('href', `${base}?${params.toString()}`);
     }

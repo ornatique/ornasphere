@@ -205,7 +205,7 @@ class TreeCuttingReceiveController extends Controller
             ->where('vacuum_voucher_id', $voucher->id)
             ->whereNotNull('job_worker_id')
             ->where('receive_tree_wt', '>', 0)
-            ->with(['voucherItem:id,buch_no', 'jobWorker:id,name'])
+            ->with(['voucherItem:id,buch_no,item_name,remarks', 'jobWorker:id,name'])
             ->get()
             ->values();
 
@@ -377,7 +377,7 @@ class TreeCuttingReceiveController extends Controller
             ->where('vacuum_voucher_id', $voucher->id)
             ->whereNotNull('job_worker_id')
             ->where('receive_tree_wt', '>', 0)
-            ->with(['voucherItem:id,buch_no', 'jobWorker:id,name'])
+            ->with(['voucherItem:id,buch_no,item_name,remarks', 'jobWorker:id,name'])
             ->orderBy('is_custom')
             ->orderBy('id')
             ->get();
@@ -449,6 +449,18 @@ class TreeCuttingReceiveController extends Controller
                     ->filter()
                     ->values()
                     ->implode(', ');
+                $itemNames = $items
+                    ->map(fn($item) => $item->is_custom ? null : $item->voucherItem?->item_name)
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->implode(', ');
+                $remarks = $items
+                    ->map(fn($item) => $item->is_custom ? null : $item->voucherItem?->remarks)
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->implode(', ');
 
                 return (object) [
                     'id' => $key,
@@ -456,6 +468,8 @@ class TreeCuttingReceiveController extends Controller
                     'issue_group_keys' => $items->pluck('issue_group_key')->filter()->unique()->values()->all(),
                     'primary_item' => $primary,
                     'buch_no' => $buchNos,
+                    'item_name' => $itemNames,
+                    'remarks' => $remarks,
                     'jobWorker' => $primary->jobWorker,
                     'office_cut_wt' => $items->sum(fn($item) => (float) ($officeItems->get($this->treeSourceKey($item))?->office_cut_wt ?? 0)),
                     'receive_tree_wt' => $items->sum(fn($item) => (float) ($item->receive_tree_wt ?? 0)),

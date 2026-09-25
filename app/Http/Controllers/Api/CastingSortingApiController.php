@@ -225,7 +225,7 @@ class CastingSortingApiController extends Controller
     {
         $companyId = (int) $request->user()->company_id;
         $voucher = VacuumVoucher::where('company_id', $companyId)
-            ->with(['process:id,name', 'jobWorker:id,name'])
+            ->with(['process:id,name', 'jobWorker:id,name', 'items:id,vacuum_voucher_id,buch_no,item_name,remarks'])
             ->find($id);
 
         if (!$voucher) {
@@ -319,6 +319,13 @@ class CastingSortingApiController extends Controller
             $rows[] = $this->blankSortingRow();
         }
 
+        $voucherItems = $voucher->items->map(fn($item) => [
+            'id' => (int) $item->id,
+            'buch_no' => $item->buch_no,
+            'item_name' => $item->item_name,
+            'remarks' => $item->remarks,
+        ])->values();
+
         return [
             'id' => (int) $voucher->id,
             'voucher_no' => $voucher->voucher_no,
@@ -335,6 +342,7 @@ class CastingSortingApiController extends Controller
             'quantity_total' => (int) $sortingItems->sum(fn($item) => (int) ($item->quantity ?? 0)),
             'created_at' => optional($voucher->created_at)->format('Y-m-d H:i:s'),
             'created_at_view' => optional($voucher->created_at)->format('d-m-Y / h:i A'),
+            'voucher_items' => $voucherItems,
             'items' => $rows,
             'item_options' => $items->map(fn($item) => [
                 'id' => (int) $item->id,

@@ -12,6 +12,7 @@ use App\Models\Company;
 use App\Models\ApprovalHeader;
 use App\Models\ApprovalItem;
 use App\Models\Item;
+use App\Models\SaleCart;
 use App\Models\SalePayment;
 use App\Models\CustomerAdvanceLedger;
 use Yajra\DataTables\Facades\DataTables;
@@ -72,6 +73,13 @@ class SaleController extends Controller
             }
 
             $query->orderByDesc('id');
+
+            $summaryRows = (clone $query)->get();
+            $summary = [
+                'total_qty' => (int) $summaryRows->sum(fn($sale) => (int) ($sale->sum_qty ?? 0)),
+                'total_gross_wt' => (float) $summaryRows->sum(fn($sale) => (float) ($sale->sum_gross_weight ?? 0)),
+                'total_net_wt' => (float) $summaryRows->sum(fn($sale) => (float) ($sale->sum_net_weight ?? 0)),
+            ];
 
             return DataTables::of($query)
 
@@ -148,6 +156,7 @@ class SaleController extends Controller
                 })
 
                 ->rawColumns(['action'])
+                ->with('summary', $summary)
 
                 ->make(true);
         }
@@ -448,6 +457,7 @@ class SaleController extends Controller
     public function search(Request $request, $slug)
     {
         $company = Company::where('slug', $slug)->firstOrFail();
+        $userId = optional($request->user())->id;
         $search = trim((string) $request->search);
         $customerId = (int) $request->input('customer_id', 0);
         $currentSaleId = (int) $request->input('sale_id', 0);
@@ -552,6 +562,9 @@ class SaleController extends Controller
             ->where('company_id', $company->id)
             ->where('is_final', 1)
             ->where('is_sold', 0)
+            ->when(Schema::hasTable('sale_carts'), function ($q) use ($company, $userId) {
+                $this->excludeSaleCartLocks($q, (int) $company->id, $userId ? (int) $userId : null);
+            })
             ->when(!empty($approvalItemsetIds), function ($q) use ($approvalItemsetIds) {
                 $q->whereNotIn('id', $approvalItemsetIds);
             })
@@ -788,9 +801,132 @@ class SaleController extends Controller
             ], 422);
         }
 
+        $existingLock = $this->activeSaleCartLock((int) $company->id, (int) $item->id);
+        if ($existingLock && (int) $existingLock->user_id !== (int) optional($request->user())->id) {
+            return response()->json([
+                'success' => false,
+                'message' => $this->saleCartLockMessage($item),
+                'code' => 'SALE_CART_ITEM_LOCKED',
+                'locked_item' => $this->saleCartLockPayload($item, $existingLock),
+                'data' => [$this->saleCartLockPayload($item, $existingLock)],
+            ], 409);
+        }
+
         return response()->json([
             'success' => true,
             'data' => $item
+        ]);
+    }
+
+    public function reserveCartItem(Request $request, $slug)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $userId = optional($request->user())->id;
+
+        if (!$userId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Login required.',
+            ], 401);
+        }
+
+        $request->validate([
+            'itemset_id' => 'required|integer',
+        ]);
+
+        $itemsetId = (int) $request->input('itemset_id');
+
+        return DB::transaction(function () use ($company, $userId, $itemsetId) {
+            $item = ItemSet::with('item')
+                ->where('company_id', $company->id)
+                ->where('id', $itemsetId)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$item) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Item not found for this company.',
+                ], 404);
+            }
+
+            if ((int) $item->is_final !== 1 || (int) $item->is_sold === 1) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Item is not available in stock.',
+                ], 422);
+            }
+
+            $pendingApprovalItem = ApprovalItem::whereHas('approval', function ($q) use ($company) {
+                $q->where('company_id', $company->id);
+            })
+                ->where(function ($q) use ($item) {
+                    $q->where('itemset_id', (int) $item->id)
+                        ->orWhere('item_id', (int) $item->id);
+                })
+                ->where(function ($q) {
+                    $q->whereNull('status')
+                        ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+                })
+                ->first();
+
+            if ($pendingApprovalItem) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Item is in approval. Use Add Label from Approval.',
+                ], 422);
+            }
+
+            $existingLock = $this->activeSaleCartLock((int) $company->id, (int) $item->id);
+            if ($existingLock && (int) $existingLock->user_id !== (int) $userId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $this->saleCartLockMessage($item),
+                    'code' => 'SALE_CART_ITEM_LOCKED',
+                    'locked_item' => $this->saleCartLockPayload($item, $existingLock),
+                    'data' => [$this->saleCartLockPayload($item, $existingLock)],
+                ], 409);
+            }
+
+            $cart = SaleCart::updateOrCreate(
+                [
+                    'user_id' => (int) $userId,
+                    'company_id' => (int) $company->id,
+                    'itemset_id' => (int) $item->id,
+                ],
+                [
+                    'approval_item_id' => null,
+                    'updated_at' => now(),
+                    'created_at' => now(),
+                ]
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Item reserved.',
+                'cart_id' => (int) $cart->id,
+                'data' => [
+                    'cart_id' => (int) $cart->id,
+                    'itemset_id' => (int) $item->id,
+                ],
+            ]);
+        });
+    }
+
+    public function removeCartItem(Request $request, $slug, $id)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $userId = optional($request->user())->id;
+
+        if ($userId) {
+            SaleCart::where('company_id', $company->id)
+                ->where('user_id', (int) $userId)
+                ->where('id', (int) $id)
+                ->delete();
+        }
+
+        return response()->json([
+            'success' => true,
         ]);
     }
 
@@ -862,6 +998,7 @@ class SaleController extends Controller
             $total = 0;
             $approvalIds = [];
             $savedRows = 0;
+            $processedItemSetIds = [];
 
             foreach ($saleRows as $index => $row) {
 
@@ -930,6 +1067,7 @@ class SaleController extends Controller
                 // ✅ mark itemset sold (only for itemset flow)
                 if ($item) {
                     $item->update(['is_sold' => 1]);
+                    $processedItemSetIds[] = (int) $item->id;
                 }
 
                 // ✅ UPDATE APPROVAL ITEM
@@ -983,6 +1121,8 @@ class SaleController extends Controller
                     ->where('id', $approvalId)
                     ->update(['status' => $status]);
             }
+
+            $this->clearSaleCartLocks($company->id, optional($request->user())->id, $processedItemSetIds);
 
             DB::commit();
 
@@ -1089,6 +1229,7 @@ class SaleController extends Controller
             }
 
             $approvalIds = [];
+            $processedItemSetIds = [];
 
             foreach ($sale->saleItems as $saleItem) {
                 if (!empty($saleItem->approval_item_id)) {
@@ -1179,6 +1320,7 @@ class SaleController extends Controller
 
                 if ($item) {
                     $item->update(['is_sold' => 1]);
+                    $processedItemSetIds[] = (int) $item->id;
                 }
 
                 if (!empty($approvalItemId)) {
@@ -1244,6 +1386,8 @@ class SaleController extends Controller
                     ->where('id', $approvalId)
                     ->update(['status' => $status]);
             }
+
+            $this->clearSaleCartLocks($company->id, optional($request->user())->id, $processedItemSetIds);
 
             DB::commit();
 
@@ -1697,6 +1841,74 @@ class SaleController extends Controller
                 ->where('id', $approvalId)
                 ->update(['status' => $status]);
         }
+    }
+
+    private function excludeSaleCartLocks($query, int $companyId, ?int $userId = null): void
+    {
+        $activeLockCutoff = now()->subMinutes(30);
+
+        $query->whereNotExists(function ($sub) use ($companyId, $userId, $activeLockCutoff) {
+            $sub->select(DB::raw(1))
+                ->from('sale_carts')
+                ->whereColumn('sale_carts.itemset_id', 'item_sets.id')
+                ->where('sale_carts.company_id', $companyId)
+                ->whereNotNull('sale_carts.itemset_id')
+                ->where('sale_carts.created_at', '>=', $activeLockCutoff);
+
+            if ($userId) {
+                $sub->where('sale_carts.user_id', '<>', $userId);
+            }
+        });
+    }
+
+    private function activeSaleCartLock(int $companyId, int $itemsetId): ?SaleCart
+    {
+        if (!Schema::hasTable('sale_carts')) {
+            return null;
+        }
+
+        return SaleCart::with('user')
+            ->where('company_id', $companyId)
+            ->where('itemset_id', $itemsetId)
+            ->where('created_at', '>=', now()->subMinutes(30))
+            ->latest('id')
+            ->first();
+    }
+
+    private function saleCartLockMessage(ItemSet $item): string
+    {
+        $label = trim((string) ($item->qr_code ?: $item->barcode ?: $item->HUID ?: optional($item->item)->item_name ?: 'This item'));
+
+        return $label . ' is already selected by another user.';
+    }
+
+    private function saleCartLockPayload(ItemSet $item, SaleCart $cart): array
+    {
+        return [
+            'cart_id' => (int) $cart->id,
+            'itemset_id' => (int) $item->id,
+            'item_id' => (int) ($item->item_id ?? 0),
+            'item_name' => (string) (optional($item->item)->item_name ?? ''),
+            'qr_code' => (string) ($item->qr_code ?? ''),
+            'barcode' => (string) ($item->barcode ?? ''),
+            'huid' => (string) ($item->HUID ?? ''),
+            'locked_by_user_id' => (int) ($cart->user_id ?? 0),
+            'locked_by' => (string) (optional($cart->user)->name ?? ''),
+            'locked_at' => optional($cart->created_at)->toDateTimeString(),
+        ];
+    }
+
+    private function clearSaleCartLocks(int $companyId, ?int $userId, array $itemsetIds): void
+    {
+        $itemsetIds = array_values(array_unique(array_filter(array_map('intval', $itemsetIds))));
+        if (!$userId || empty($itemsetIds) || !Schema::hasTable('sale_carts')) {
+            return;
+        }
+
+        SaleCart::where('company_id', $companyId)
+            ->where('user_id', (int) $userId)
+            ->whereIn('itemset_id', $itemsetIds)
+            ->delete();
     }
 
     private function syncSilverAdvanceUsageForSale(int $companyId, Sale $sale, bool $useSilverBalance = false, ?int $userId = null): void

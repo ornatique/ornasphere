@@ -7,6 +7,7 @@ use App\Models\CastingHeatingItem;
 use App\Models\CastingMetalIssueItem;
 use App\Models\CastingReleaseItem;
 use App\Models\Company;
+use App\Models\Item;
 use App\Models\TreeCuttingIssueItem;
 use App\Models\TreeCuttingReceiveItem;
 use App\Models\VacuumBuch;
@@ -293,6 +294,9 @@ class VacuumVoucherController extends Controller
             'data' => $data,
             'processes' => VacuumProcess::where('company_id', $company->id)->orderBy('name')->get(['id', 'name']),
             'jobWorkers' => WorkerPersonService::activeWorkers((int) $company->id),
+            'items' => Item::where('company_id', $company->id)
+                ->orderBy('item_name')
+                ->get(['id', 'item_name']),
             'buchs' => VacuumBuch::where('company_id', $company->id)
                 ->when($usedBuchIds !== [], fn($q) => $q->whereNotIn('id', $usedBuchIds))
                 ->orderBy('buch_no')
@@ -332,8 +336,10 @@ class VacuumVoucherController extends Controller
                 Rule::exists('vacuum_buchs', 'id')->where(fn($q) => $q->where('company_id', $companyId)),
                 Rule::notIn($usedBuchIds),
             ],
+            'items.*.item_name' => ['nullable', 'string', 'max:255'],
             'items.*.gross_wt' => ['required', 'numeric'],
             'items.*.buch_wt' => ['required', 'numeric'],
+            'items.*.remarks' => ['nullable', 'string'],
         ], [
             'items.*.vacuum_buch_id.distinct' => 'Each Buch No can be selected only one time in the voucher.',
             'items.*.vacuum_buch_id.not_in' => 'Selected Buch No is already used in another pending voucher.',
@@ -405,10 +411,12 @@ class VacuumVoucherController extends Controller
             $rows[] = [
                 'vacuum_buch_id' => $item['vacuum_buch_id'],
                 'buch_no' => $buch?->buch_no,
+                'item_name' => $this->nullableString($item['item_name'] ?? null),
                 'gross_wt' => $gross,
                 'buch_wt' => $buchWt,
                 'net_wt' => $net,
                 'silver_wt' => $silver,
+                'remarks' => $this->nullableString($item['remarks'] ?? null),
             ];
 
             $grossTotal += $gross;
@@ -446,6 +454,13 @@ class VacuumVoucherController extends Controller
     private function fmt($value, int $decimals): string
     {
         return number_format((float) ($value ?? 0), $decimals, '.', '');
+    }
+
+    private function nullableString($value): ?string
+    {
+        $value = trim((string) ($value ?? ''));
+
+        return $value !== '' ? $value : null;
     }
 
     private function syncVoucherItems(VacuumVoucher $voucher, array $rows): void

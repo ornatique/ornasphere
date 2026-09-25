@@ -122,10 +122,12 @@
     <table class="items">
         <thead>
             <tr>
-                <th style="width: 5%;">Sr. No</th>
-                <th style="width: 9%;">B. No</th>
-                <th class="center" style="width: 11%;">Status</th>
-                <th class="num" style="width: 11%;">Silver Weight</th>
+                <th style="width: 4%;">Sr. No</th>
+                <th style="width: 8%;">B. No</th>
+                <th style="width: 11%;">Item Name</th>
+                <th style="width: 10%;">Voucher Remark</th>
+                <th class="center" style="width: 9%;">Status</th>
+                <th class="num" style="width: 9%;">Silver Weight</th>
                 <th class="center" style="width: 5%;">I/F</th>
                 <th class="num" style="width: 8%;">Melting %</th>
                 <th class="num" style="width: 11%;">Pure Fine</th>
@@ -156,6 +158,8 @@
             <tr>
                 <td>{{ $loop->iteration }}</td>
                 <td>{{ $item->buch_no }}</td>
+                <td>{{ $item->item_name ?: '-' }}</td>
+                <td>{{ $item->remarks ?: '-' }}</td>
                 <td class="center">
                     <span class="status {{ $inBhati ? 'status-in' : 'status-out' }}">
                         {{ $inBhati ? 'In Bhati' : 'Not In Bhati' }}
@@ -172,12 +176,12 @@
             </tr>
             @empty
             <tr>
-                <td colspan="11" class="center">No Buch rows found</td>
+                <td colspan="13" class="center">No Buch rows found</td>
             </tr>
             @endforelse
             @if($voucher->items->count() > 0)
             <tr class="total-row">
-                <td colspan="3">Total</td>
+                <td colspan="5">Total</td>
                 <td class="num">{{ number_format($silverWeightTotal, 3, '.', '') }}</td>
                 <td></td>
                 <td></td>

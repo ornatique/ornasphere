@@ -194,7 +194,7 @@ class TreeCuttingReceiveApiController extends Controller
             ->where('vacuum_voucher_id', $voucher->id)
             ->whereNotNull('job_worker_id')
             ->where('receive_tree_wt', '>', 0)
-            ->with(['voucherItem:id,buch_no', 'jobWorker:id,name'])
+            ->with(['voucherItem:id,buch_no,item_name,remarks', 'jobWorker:id,name'])
             ->get()
             ->values();
 
@@ -411,7 +411,7 @@ class TreeCuttingReceiveApiController extends Controller
             ->where('vacuum_voucher_id', $voucher->id)
             ->whereNotNull('job_worker_id')
             ->where('receive_tree_wt', '>', 0)
-            ->with(['voucherItem:id,buch_no', 'jobWorker:id,name'])
+            ->with(['voucherItem:id,buch_no,item_name,remarks', 'jobWorker:id,name'])
             ->orderBy('is_custom')
             ->orderBy('id')
             ->get();
@@ -477,6 +477,8 @@ class TreeCuttingReceiveApiController extends Controller
                 'vacuum_voucher_item_id' => $primaryItem->vacuum_voucher_item_id ? (int) $primaryItem->vacuum_voucher_item_id : null,
                 'buch_no' => $issueItem->buch_no,
                 'custom_buch_no' => $primaryItem->custom_buch_no,
+                'item_name' => $issueItem->item_name,
+                'remarks' => $issueItem->remarks,
                 'is_custom' => (bool) $primaryItem->is_custom,
                 'job_worker_id' => $primaryItem->job_worker_id ? (int) $primaryItem->job_worker_id : null,
                 'worker_name' => $issueItem->jobWorker?->name,
@@ -502,6 +504,8 @@ class TreeCuttingReceiveApiController extends Controller
                 'vacuum_voucher_item_id' => null,
                 'buch_no' => $item->custom_buch_no ?: 'Custom',
                 'custom_buch_no' => $item->custom_buch_no,
+                'item_name' => null,
+                'remarks' => null,
                 'is_custom' => true,
                 'job_worker_id' => null,
                 'worker_name' => null,
@@ -591,6 +595,18 @@ class TreeCuttingReceiveApiController extends Controller
                     ->filter()
                     ->values()
                     ->implode(', ');
+                $itemNames = $items
+                    ->map(fn($item) => $item->is_custom ? null : $item->voucherItem?->item_name)
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->implode(', ');
+                $remarks = $items
+                    ->map(fn($item) => $item->is_custom ? null : $item->voucherItem?->remarks)
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->implode(', ');
 
                 return (object) [
                     'id' => $key,
@@ -598,6 +614,8 @@ class TreeCuttingReceiveApiController extends Controller
                     'issue_group_keys' => $items->pluck('issue_group_key')->filter()->unique()->values()->all(),
                     'primary_item' => $primary,
                     'buch_no' => $buchNos,
+                    'item_name' => $itemNames,
+                    'remarks' => $remarks,
                     'jobWorker' => $primary->jobWorker,
                     'office_cut_wt' => $items->sum(fn($item) => (float) ($officeItems->get($this->treeSourceKey($item))?->office_cut_wt ?? 0)),
                     'receive_tree_wt' => $items->sum(fn($item) => (float) ($item->receive_tree_wt ?? 0)),

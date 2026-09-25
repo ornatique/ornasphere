@@ -8,6 +8,9 @@ class ReturnCart extends Model
 {
     protected $fillable = [
         'user_id',
+        'device_id',
+        'voucher_session_id',
+        'device_entry_id',
         'company_id',
         'sale_item_id',
         'approval_item_id',

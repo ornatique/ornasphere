@@ -40,6 +40,8 @@
             if (!isset($issuePdfRows[$rowKey])) {
                 $issuePdfRows[$rowKey] = [
                     'buch_nos' => [],
+                    'item_names' => [],
+                    'remarks' => [],
                     'office_cut_wt' => 0,
                     'receive_tree_wt' => 0,
                     'worker_name' => $treeCuttingItem?->jobWorker?->name ?? '-',
@@ -47,6 +49,12 @@
             }
 
             $issuePdfRows[$rowKey]['buch_nos'][] = $item->buch_no;
+            if ($item->item_name) {
+                $issuePdfRows[$rowKey]['item_names'][] = $item->item_name;
+            }
+            if ($item->remarks) {
+                $issuePdfRows[$rowKey]['remarks'][] = $item->remarks;
+            }
             $issuePdfRows[$rowKey]['office_cut_wt'] += $officeCutWt;
             $issuePdfRows[$rowKey]['receive_tree_wt'] += $receiveTreeWt;
         }
@@ -54,6 +62,8 @@
         foreach ($customTreeCuttingItems as $customItem) {
             $issuePdfRows['custom_' . $customItem->id] = [
                 'buch_nos' => [$customItem->custom_buch_no ?: '-'],
+                'item_names' => [],
+                'remarks' => [],
                 'office_cut_wt' => 0,
                 'receive_tree_wt' => (float) ($customItem->receive_tree_wt ?? 0),
                 'worker_name' => $customItem->jobWorker?->name ?? '-',
@@ -83,10 +93,12 @@
         <thead>
             <tr>
                 <th style="width: 10%;">Sr. No</th>
-                <th style="width: 28%;">B. No</th>
-                <th class="num" style="width: 20%;">Office Cut Wt</th>
-                <th class="num" style="width: 22%;">Receive Tree Wt</th>
-                <th style="width: 20%;">Worker</th>
+                <th style="width: 16%;">B. No</th>
+                <th style="width: 18%;">Item Name</th>
+                <th style="width: 18%;">Remarks</th>
+                <th class="num" style="width: 14%;">Office Cut Wt</th>
+                <th class="num" style="width: 14%;">Receive Tree Wt</th>
+                <th style="width: 10%;">Worker</th>
             </tr>
         </thead>
         <tbody>
@@ -98,6 +110,8 @@
             <tr>
                 <td>{{ $loop->iteration }}</td>
                 <td>{{ implode(', ', $row['buch_nos']) }}</td>
+                <td>{{ implode(', ', array_unique($row['item_names'] ?? [])) ?: '-' }}</td>
+                <td>{{ implode(', ', array_unique($row['remarks'] ?? [])) ?: '-' }}</td>
                 <td class="num">{{ number_format((float) ($row['office_cut_wt'] ?? 0), 3, '.', '') }}</td>
                 <td class="num">{{ number_format((float) ($row['receive_tree_wt'] ?? 0), 3, '.', '') }}</td>
                 <td>{{ $row['worker_name'] }}</td>
@@ -105,12 +119,12 @@
             @endforeach
             @if(count($issuePdfRows) === 0)
             <tr>
-                <td colspan="5" class="center">No tree cutting issue rows found</td>
+                <td colspan="7" class="center">No tree cutting issue rows found</td>
             </tr>
             @endif
             @if(count($issuePdfRows) > 0)
             <tr class="total-row">
-                <td colspan="2">Total</td>
+                <td colspan="4">Total</td>
                 <td class="num">{{ number_format($officeCutWtTotal, 3, '.', '') }}</td>
                 <td class="num">{{ number_format($receiveTreeWtTotal, 3, '.', '') }}</td>
                 <td></td>

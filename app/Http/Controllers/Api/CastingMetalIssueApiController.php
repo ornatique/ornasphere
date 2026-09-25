@@ -324,6 +324,8 @@ class CastingMetalIssueApiController extends Controller
                     'vacuum_voucher_item_id' => (int) $item->id,
                     'vacuum_buch_id' => $item->vacuum_buch_id ? (int) $item->vacuum_buch_id : null,
                     'buch_no' => $item->buch_no,
+                    'item_name' => $item->item_name,
+                    'voucher_remarks' => $item->remarks,
                     'silver_wt' => $this->decimalValue($item->silver_wt, 3),
                     'in_bhati' => (bool) ($heatingItem?->in_bhati ?? false),
                     'in_bhati_at' => optional($heatingItem?->checked_at)->format('Y-m-d H:i:s'),

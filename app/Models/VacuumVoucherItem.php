@@ -10,10 +10,12 @@ class VacuumVoucherItem extends Model
         'vacuum_voucher_id',
         'vacuum_buch_id',
         'buch_no',
+        'item_name',
         'gross_wt',
         'buch_wt',
         'net_wt',
         'silver_wt',
+        'remarks',
     ];
 
     protected $casts = [

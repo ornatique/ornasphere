@@ -51,14 +51,16 @@
     <table class="items">
         <thead>
             <tr>
-                <th style="width: 7%;">Sr. No</th>
-                <th style="width: 14%;">B. No</th>
-                <th style="width: 16%;">Worker</th>
-                <th class="num" style="width: 13%;">Office Cut</th>
-                <th class="num" style="width: 13%;">Issue Tree</th>
-                <th class="num" style="width: 13%;">Receive Pc</th>
-                <th class="num" style="width: 14%;">Tree Bhuko</th>
-                <th class="num" style="width: 10%;">Loss</th>
+                <th style="width: 6%;">Sr. No</th>
+                <th style="width: 12%;">B. No</th>
+                <th style="width: 14%;">Item Name</th>
+                <th style="width: 14%;">Remarks</th>
+                <th style="width: 12%;">Worker</th>
+                <th class="num" style="width: 10%;">Office Cut</th>
+                <th class="num" style="width: 10%;">Issue Tree</th>
+                <th class="num" style="width: 10%;">Receive Pc</th>
+                <th class="num" style="width: 8%;">Tree Bhuko</th>
+                <th class="num" style="width: 4%;">Loss</th>
             </tr>
         </thead>
         <tbody>
@@ -80,6 +82,8 @@
             <tr>
                 <td>{{ $loop->iteration }}</td>
                 <td>{{ $issueItem->buch_no }}</td>
+                <td>{{ $issueItem->item_name ?: '-' }}</td>
+                <td>{{ $issueItem->remarks ?: '-' }}</td>
                 <td>{{ $issueItem->jobWorker?->name ?? '-' }}</td>
                 <td class="num">{{ number_format($officeCutWt, 3, '.', '') }}</td>
                 <td class="num">{{ number_format($issueTreeWt, 3, '.', '') }}</td>
@@ -89,7 +93,7 @@
             </tr>
             @empty
             <tr>
-                <td colspan="8" class="center">No tree cutting issue rows found</td>
+                <td colspan="10" class="center">No tree cutting issue rows found</td>
             </tr>
             @endforelse
             @foreach($customReceiveItems ?? [] as $customItem)
@@ -103,6 +107,8 @@
             <tr>
                 <td>{{ $rowCount }}</td>
                 <td>{{ $customItem->custom_buch_no ?: 'Custom' }}</td>
+                <td>-</td>
+                <td>-</td>
                 <td>Custom</td>
                 <td class="num">0.000</td>
                 <td class="num">0.000</td>
@@ -113,7 +119,7 @@
             @endforeach
             @if($rowCount > 0)
             <tr class="total-row">
-                <td colspan="3">Total</td>
+                <td colspan="5">Total</td>
                 <td class="num">{{ number_format($officeCutWtTotal, 3, '.', '') }}</td>
                 <td class="num">{{ number_format($issueTreeWtTotal, 3, '.', '') }}</td>
                 <td class="num">{{ number_format($receivePcWtTotal, 3, '.', '') }}</td>

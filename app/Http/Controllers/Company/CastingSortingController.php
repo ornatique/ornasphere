@@ -206,7 +206,7 @@ class CastingSortingController extends Controller
         $id = Crypt::decryptString($encryptedId);
 
         $voucher = VacuumVoucher::where('company_id', $company->id)
-            ->with(['process:id,name', 'jobWorker:id,name'])
+            ->with(['process:id,name', 'jobWorker:id,name', 'items:id,vacuum_voucher_id,buch_no,item_name,remarks'])
             ->findOrFail($id);
 
         $issueCount = TreeCuttingIssueItem::where('company_id', $company->id)

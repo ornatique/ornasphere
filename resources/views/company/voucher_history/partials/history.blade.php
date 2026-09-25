@@ -18,12 +18,12 @@
         </div>
         <div class="history-table-wrap">
             <table class="table table-bordered table-sm history-table">
-                <thead><tr><th>Sr No</th><th>Buch No</th><th>In Bhati</th><th>Checked At</th></tr></thead>
+                <thead><tr><th>Sr No</th><th>Buch No</th><th>Item Name</th><th>Voucher Remark</th><th>In Bhati</th><th>Checked At</th></tr></thead>
                 <tbody>
                     @forelse($history['casting_heating']['rows'] as $row)
-                    <tr><td>{{ $loop->iteration }}</td><td>{{ $row['buch_no'] }}</td><td>{{ $row['in_bhati'] }}</td><td>{{ $row['checked_at'] }}</td></tr>
+                    <tr><td>{{ $loop->iteration }}</td><td>{{ $row['buch_no'] }}</td><td>{{ $row['item_name'] ?? '-' }}</td><td>{{ $row['voucher_remarks'] ?? '-' }}</td><td>{{ $row['in_bhati'] }}</td><td>{{ $row['checked_at'] }}</td></tr>
                     @empty
-                    <tr><td colspan="4" class="text-center">No data found</td></tr>
+                    <tr><td colspan="6" class="text-center">No data found</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -35,18 +35,18 @@
         <div class="history-title"><h5>Casting Metal Issue</h5></div>
         <div class="history-table-wrap">
             <table class="table table-bordered table-sm history-table">
-                <thead><tr><th>Sr No</th><th>Buch No</th><th>Silver Wt</th><th>Issue Silver Wt</th><th>Issued At</th></tr></thead>
+                <thead><tr><th>Sr No</th><th>Buch No</th><th>Item Name</th><th>Voucher Remark</th><th>Silver Wt</th><th>Issue Silver Wt</th><th>Issued At</th></tr></thead>
                 <tbody>
                     @forelse($history['casting_metal_issue']['rows'] as $row)
-                    <tr><td>{{ $loop->iteration }}</td><td>{{ $row['buch_no'] }}</td><td>{{ $row['silver_wt'] }}</td><td>{{ $row['issue_silver_wt'] }}</td><td>{{ $row['issued_at'] }}</td></tr>
+                    <tr><td>{{ $loop->iteration }}</td><td>{{ $row['buch_no'] }}</td><td>{{ $row['item_name'] ?? '-' }}</td><td>{{ $row['voucher_remarks'] ?? '-' }}</td><td>{{ $row['silver_wt'] }}</td><td>{{ $row['issue_silver_wt'] }}</td><td>{{ $row['issued_at'] }}</td></tr>
                     @empty
-                    <tr><td colspan="5" class="text-center">No data found</td></tr>
+                    <tr><td colspan="7" class="text-center">No data found</td></tr>
                     @endforelse
                 </tbody>
                 @if($history['casting_metal_issue']['rows']->isNotEmpty())
                 <tfoot>
                     <tr class="history-total-row">
-                        <td colspan="2"><strong>Total</strong></td>
+                        <td colspan="4"><strong>Total</strong></td>
                         <td><strong>{{ $history['casting_metal_issue']['totals']['silver_wt'] }}</strong></td>
                         <td><strong>{{ $history['casting_metal_issue']['totals']['issue_silver_wt'] }}</strong></td>
                         <td></td>
@@ -62,18 +62,18 @@
         <div class="history-title"><h5>Casting Receive</h5></div>
         <div class="history-table-wrap">
             <table class="table table-bordered table-sm history-table">
-                <thead><tr><th>Sr No</th><th>Buch No</th><th>Release Tree Wt</th><th>Tree Bhuko</th><th>Loss</th><th>Received At</th></tr></thead>
+                <thead><tr><th>Sr No</th><th>Buch No</th><th>Item Name</th><th>Voucher Remark</th><th>Release Tree Wt</th><th>Tree Bhuko</th><th>Loss</th><th>Received At</th></tr></thead>
                 <tbody>
                     @forelse($history['casting_receive']['rows'] as $row)
-                    <tr><td>{{ $loop->iteration }}</td><td>{{ $row['buch_no'] }}</td><td>{{ $row['release_tree_wt'] }}</td><td>{{ $row['release_tree_bhuko'] }}</td><td>{{ $row['loss'] }}</td><td>{{ $row['received_at'] }}</td></tr>
+                    <tr><td>{{ $loop->iteration }}</td><td>{{ $row['buch_no'] }}</td><td>{{ $row['item_name'] ?? '-' }}</td><td>{{ $row['voucher_remarks'] ?? '-' }}</td><td>{{ $row['release_tree_wt'] }}</td><td>{{ $row['release_tree_bhuko'] }}</td><td>{{ $row['loss'] }}</td><td>{{ $row['received_at'] }}</td></tr>
                     @empty
-                    <tr><td colspan="6" class="text-center">No data found</td></tr>
+                    <tr><td colspan="8" class="text-center">No data found</td></tr>
                     @endforelse
                 </tbody>
                 @if($history['casting_receive']['rows']->isNotEmpty())
                 <tfoot>
                     <tr class="history-total-row">
-                        <td colspan="2"><strong>Total</strong></td>
+                        <td colspan="4"><strong>Total</strong></td>
                         <td><strong>{{ $history['casting_receive']['totals']['release_tree_wt'] }}</strong></td>
                         <td><strong>{{ $history['casting_receive']['totals']['release_tree_bhuko'] }}</strong></td>
                         <td><strong>{{ $history['casting_receive']['totals']['loss'] }}</strong></td>
@@ -90,18 +90,18 @@
         <div class="history-title"><h5>Tree Cutting Issue Office</h5></div>
         <div class="history-table-wrap">
             <table class="table table-bordered table-sm history-table">
-                <thead><tr><th>Sr No</th><th>Buch No</th><th>Tree Wt</th><th>Tree Bhuko</th><th>Remaining Tree Wt</th><th>Office At</th></tr></thead>
+                <thead><tr><th>Sr No</th><th>Buch No</th><th>Item Name</th><th>Voucher Remark</th><th>Tree Wt</th><th>Tree Bhuko</th><th>Remaining Tree Wt</th><th>Office At</th></tr></thead>
                 <tbody>
                     @forelse($history['tree_cutting_office']['rows'] as $row)
-                    <tr><td>{{ $loop->iteration }}</td><td>{{ $row['buch_no'] }}</td><td>{{ $row['tree_wt'] }}</td><td>{{ $row['tree_bhuko'] }}</td><td>{{ $row['remaining_tree_wt'] }}</td><td>{{ $row['office_at'] }}</td></tr>
+                    <tr><td>{{ $loop->iteration }}</td><td>{{ $row['buch_no'] }}</td><td>{{ $row['item_name'] ?? '-' }}</td><td>{{ $row['voucher_remarks'] ?? '-' }}</td><td>{{ $row['tree_wt'] }}</td><td>{{ $row['tree_bhuko'] }}</td><td>{{ $row['remaining_tree_wt'] }}</td><td>{{ $row['office_at'] }}</td></tr>
                     @empty
-                    <tr><td colspan="6" class="text-center">No data found</td></tr>
+                    <tr><td colspan="8" class="text-center">No data found</td></tr>
                     @endforelse
                 </tbody>
                 @if($history['tree_cutting_office']['rows']->isNotEmpty())
                 <tfoot>
                     <tr class="history-total-row">
-                        <td colspan="2"><strong>Total</strong></td>
+                        <td colspan="4"><strong>Total</strong></td>
                         <td><strong>{{ $history['tree_cutting_office']['totals']['tree_wt'] }}</strong></td>
                         <td><strong>{{ $history['tree_cutting_office']['totals']['tree_bhuko'] }}</strong></td>
                         <td><strong>{{ $history['tree_cutting_office']['totals']['remaining_tree_wt'] }}</strong></td>
@@ -118,18 +118,18 @@
         <div class="history-title"><h5>Tree Cutting Issue</h5></div>
         <div class="history-table-wrap">
             <table class="table table-bordered table-sm history-table">
-                <thead><tr><th>Sr No</th><th>Buch No</th><th>Worker</th><th>Receive Tree Wt</th><th>Issued At</th></tr></thead>
+                <thead><tr><th>Sr No</th><th>Buch No</th><th>Item Name</th><th>Voucher Remark</th><th>Worker</th><th>Receive Tree Wt</th><th>Issued At</th></tr></thead>
                 <tbody>
                     @forelse($history['tree_cutting_issue']['rows'] as $row)
-                    <tr><td>{{ $loop->iteration }}</td><td>{{ $row['buch_no'] }}</td><td>{{ $row['worker'] }}</td><td>{{ $row['receive_tree_wt'] }}</td><td>{{ $row['issued_at'] }}</td></tr>
+                    <tr><td>{{ $loop->iteration }}</td><td>{{ $row['buch_no'] }}</td><td>{{ $row['item_name'] ?? '-' }}</td><td>{{ $row['voucher_remarks'] ?? '-' }}</td><td>{{ $row['worker'] }}</td><td>{{ $row['receive_tree_wt'] }}</td><td>{{ $row['issued_at'] }}</td></tr>
                     @empty
-                    <tr><td colspan="5" class="text-center">No data found</td></tr>
+                    <tr><td colspan="7" class="text-center">No data found</td></tr>
                     @endforelse
                 </tbody>
                 @if($history['tree_cutting_issue']['rows']->isNotEmpty())
                 <tfoot>
                     <tr class="history-total-row">
-                        <td colspan="3"><strong>Total</strong></td>
+                        <td colspan="5"><strong>Total</strong></td>
                         <td><strong>{{ $history['tree_cutting_issue']['totals']['receive_tree_wt'] }}</strong></td>
                         <td></td>
                     </tr>
@@ -144,18 +144,18 @@
         <div class="history-title"><h5>Tree Cutting Receive</h5></div>
         <div class="history-table-wrap">
             <table class="table table-bordered table-sm history-table">
-                <thead><tr><th>Sr No</th><th>Buch No</th><th>Worker</th><th>Receive Pc Wt</th><th>Tree Bhuko</th><th>Loss</th><th>Received At</th></tr></thead>
+                <thead><tr><th>Sr No</th><th>Buch No</th><th>Item Name</th><th>Voucher Remark</th><th>Worker</th><th>Receive Pc Wt</th><th>Tree Bhuko</th><th>Loss</th><th>Received At</th></tr></thead>
                 <tbody>
                     @forelse($history['tree_cutting_receive']['rows'] as $row)
-                    <tr><td>{{ $loop->iteration }}</td><td>{{ $row['buch_no'] }}</td><td>{{ $row['worker'] }}</td><td>{{ $row['receive_pc_wt'] }}</td><td>{{ $row['receive_tree_bhuko'] }}</td><td>{{ $row['loss'] }}</td><td>{{ $row['received_at'] }}</td></tr>
+                    <tr><td>{{ $loop->iteration }}</td><td>{{ $row['buch_no'] }}</td><td>{{ $row['item_name'] ?? '-' }}</td><td>{{ $row['voucher_remarks'] ?? '-' }}</td><td>{{ $row['worker'] }}</td><td>{{ $row['receive_pc_wt'] }}</td><td>{{ $row['receive_tree_bhuko'] }}</td><td>{{ $row['loss'] }}</td><td>{{ $row['received_at'] }}</td></tr>
                     @empty
-                    <tr><td colspan="7" class="text-center">No data found</td></tr>
+                    <tr><td colspan="9" class="text-center">No data found</td></tr>
                     @endforelse
                 </tbody>
                 @if($history['tree_cutting_receive']['rows']->isNotEmpty())
                 <tfoot>
                     <tr class="history-total-row">
-                        <td colspan="3"><strong>Total</strong></td>
+                        <td colspan="5"><strong>Total</strong></td>
                         <td><strong>{{ $history['tree_cutting_receive']['totals']['receive_pc_wt'] }}</strong></td>
                         <td><strong>{{ $history['tree_cutting_receive']['totals']['receive_tree_bhuko'] }}</strong></td>
                         <td><strong>{{ $history['tree_cutting_receive']['totals']['loss'] }}</strong></td>

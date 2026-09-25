@@ -228,6 +228,8 @@ class CastingHeatingApiController extends Controller
                     'vacuum_voucher_item_id' => (int) $item->id,
                     'vacuum_buch_id' => (int) $item->vacuum_buch_id,
                     'buch_no' => $item->buch_no,
+                    'item_name' => $item->item_name,
+                    'voucher_remarks' => $item->remarks,
                     'gross_wt' => (float) $item->gross_wt,
                     'buch_wt' => (float) $item->buch_wt,
                     'net_wt' => (float) $item->net_wt,

@@ -47,6 +47,8 @@
                                     <input type="checkbox" id="check-all-tree-office" aria-label="Check all office tree rows">
                                 </th>
                                 <th style="width: 220px;">B. No</th>
+                                <th style="width: 220px;">Item Name</th>
+                                <th style="width: 260px;">Remarks</th>
                                 <th style="width: 220px;">Tree Wt</th>
                                 <th style="width: 240px;">Tree Bhuko</th>
                                 <th style="width: 240px;">Remaining Tree Wt</th>
@@ -64,6 +66,8 @@
                                 $officeItem = $officeItems->get($rowKey);
                                 $isCustom = (bool) $releaseItem->is_custom;
                                 $buchNo = $isCustom ? $releaseItem->custom_buch_no : ($releaseItem->voucherItem?->buch_no ?? $rowKey);
+                                $itemName = $isCustom ? '-' : ($releaseItem->voucherItem?->item_name ?: '-');
+                                $remarks = $isCustom ? '-' : ($releaseItem->voucherItem?->remarks ?: '-');
                                 $treeWt = (float) ($releaseItem->release_tree_wt ?? 0);
                                 $officeCutWtValue = old('items.' . $rowKey . '.office_cut_wt', $officeItem?->office_cut_wt);
                                 $issueGroupKey = old('items.' . $rowKey . '.issue_group_key', $officeItem?->issue_group_key);
@@ -102,6 +106,8 @@
                                         value="{{ $issueGroupKey }}">
                                 </td>
                                 <td>{{ $buchNo }}</td>
+                                <td>{{ $itemName }}</td>
+                                <td>{{ $remarks }}</td>
                                 <td>{{ number_format($treeWt, 3, '.', '') }}</td>
                                 <td>
                                     <input type="number"
@@ -119,13 +125,13 @@
 
                             @if($rowNo === 0)
                             <tr>
-                                <td colspan="6" class="text-center">No casting receive rows found</td>
+                                <td colspan="8" class="text-center">No casting receive rows found</td>
                             </tr>
                             @endif
                         </tbody>
                         <tfoot>
                             <tr>
-                                <td colspan="3">Total</td>
+                                <td colspan="5">Total</td>
                                 <td><strong id="treeOfficeTreeWtTotal">{{ number_format($treeWtTotal, 3, '.', '') }}</strong></td>
                                 <td><strong id="treeOfficeCutWtTotal">{{ number_format($officeCutWtTotal, 3, '.', '') }}</strong></td>
                                 <td><strong id="treeOfficeRemainingWtTotal">{{ number_format($remainingTreeWtTotal, 3, '.', '') }}</strong></td>

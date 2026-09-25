@@ -108,12 +108,14 @@
     <table class="items">
         <thead>
             <tr>
-                <th style="width: 8%;">Sr. No</th>
-                <th style="width: 16%;">B. No</th>
-                <th class="num" style="width: 19%;">Issue Silver Wt</th>
-                <th class="num" style="width: 19%;">Release Tree Wt</th>
-                <th class="num" style="width: 20%;">Release Tree Bhuko</th>
-                <th class="num" style="width: 18%;">Loss</th>
+                <th style="width: 6%;">Sr. No</th>
+                <th style="width: 12%;">B. No</th>
+                <th style="width: 16%;">Item Name</th>
+                <th style="width: 16%;">Voucher Remark</th>
+                <th class="num" style="width: 13%;">Issue Silver Wt</th>
+                <th class="num" style="width: 13%;">Release Tree Wt</th>
+                <th class="num" style="width: 14%;">Release Tree Bhuko</th>
+                <th class="num" style="width: 10%;">Loss</th>
             </tr>
         </thead>
         <tbody>
@@ -137,6 +139,8 @@
             <tr>
                 <td>{{ $loop->iteration }}</td>
                 <td>{{ $item->buch_no }}</td>
+                <td>{{ $item->item_name ?: '-' }}</td>
+                <td>{{ $item->remarks ?: '-' }}</td>
                 <td class="num">{{ number_format($issueSilverWt, 3, '.', '') }}</td>
                 <td class="num">{{ $releaseTreeWt !== null ? number_format((float) $releaseTreeWt, 3, '.', '') : '-' }}</td>
                 <td class="num">{{ $releaseTreeBhuko !== null ? number_format((float) $releaseTreeBhuko, 3, '.', '') : '-' }}</td>
@@ -144,7 +148,7 @@
             </tr>
             @empty
             <tr>
-                <td colspan="6" class="center">No casting receive rows found</td>
+                <td colspan="8" class="center">No casting receive rows found</td>
             </tr>
             @endforelse
             @foreach($customReleaseItems ?? [] as $customItem)
@@ -160,6 +164,8 @@
             <tr>
                 <td>{{ $releaseRowCount }}</td>
                 <td>{{ $customItem->custom_buch_no ?: 'Custom' }}</td>
+                <td>-</td>
+                <td>-</td>
                 <td class="num">0.000</td>
                 <td class="num">{{ $releaseTreeWt !== null ? number_format((float) $releaseTreeWt, 3, '.', '') : '-' }}</td>
                 <td class="num">{{ $releaseTreeBhuko !== null ? number_format((float) $releaseTreeBhuko, 3, '.', '') : '-' }}</td>
@@ -168,7 +174,7 @@
             @endforeach
             @if($releaseRowCount > 0)
             <tr class="total-row">
-                <td colspan="2">Total</td>
+                <td colspan="4">Total</td>
                 <td class="num">{{ number_format($issueSilverWtTotal, 3, '.', '') }}</td>
                 <td class="num">{{ number_format($releaseTreeWtTotal, 3, '.', '') }}</td>
                 <td class="num">{{ number_format($releaseTreeBhukoTotal, 3, '.', '') }}</td>

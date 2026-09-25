@@ -101,12 +101,14 @@
     <table class="items">
         <thead>
             <tr>
-                <th style="width: 8%;">Sr. No</th>
-                <th style="width: 22%;">Buch No</th>
-                <th class="num" style="width: 17%;">Gross Wt</th>
-                <th class="num" style="width: 17%;">Buch Wt</th>
-                <th class="num" style="width: 17%;">Net Wt</th>
-                <th class="num" style="width: 19%;">Silver Wt</th>
+                <th style="width: 6%;">Sr. No</th>
+                <th style="width: 13%;">Buch No</th>
+                <th style="width: 17%;">Item Name</th>
+                <th class="num" style="width: 12%;">Gross Wt</th>
+                <th class="num" style="width: 12%;">Buch Wt</th>
+                <th class="num" style="width: 12%;">Net Wt</th>
+                <th class="num" style="width: 12%;">Silver Wt</th>
+                <th style="width: 16%;">Remarks</th>
             </tr>
         </thead>
         <tbody>
@@ -114,22 +116,25 @@
             <tr>
                 <td>{{ $loop->iteration }}</td>
                 <td>{{ $item->buch_no }}</td>
+                <td>{{ $item->item_name ?: '-' }}</td>
                 <td class="num">{{ number_format((float) $item->gross_wt, 3, '.', '') }}</td>
                 <td class="num">{{ number_format((float) $item->buch_wt, 3, '.', '') }}</td>
                 <td class="num">{{ number_format((float) $item->net_wt, 3, '.', '') }}</td>
                 <td class="num">{{ number_format((float) $item->silver_wt, 3, '.', '') }}</td>
+                <td>{{ $item->remarks ?: '-' }}</td>
             </tr>
             @empty
             <tr>
-                <td colspan="6" style="text-align: center;">No rows found</td>
+                <td colspan="8" style="text-align: center;">No rows found</td>
             </tr>
             @endforelse
             <tr class="total-row">
-                <td colspan="2">Total</td>
+                <td colspan="3">Total</td>
                 <td class="num">{{ number_format((float) $data->gross_wt_total, 3, '.', '') }}</td>
                 <td class="num">{{ number_format((float) $data->buch_wt_total, 3, '.', '') }}</td>
                 <td class="num">{{ number_format((float) $data->net_wt_total, 3, '.', '') }}</td>
                 <td class="num">{{ number_format((float) $data->silver_wt_total, 3, '.', '') }}</td>
+                <td></td>
             </tr>
         </tbody>
     </table>

@@ -35,6 +35,7 @@ class SaleReturnController extends Controller
         if ($request->ajax()) {
 
             $returns = SaleReturn::with([
+                'creator',
                 'approval.customer',
                 'approval.creator',
                 'approval.items.itemSet.item',
@@ -132,6 +133,7 @@ class SaleReturnController extends Controller
         [$fromDate, $toDate] = $this->resolveReturnDateRange($request);
 
         $query = SaleReturn::with([
+            'creator',
             'approval.customer',
             'approval.creator',
             'approval.items.itemSet.item',
@@ -262,7 +264,8 @@ class SaleReturnController extends Controller
                 ?? optional(optional(optional(optional($return->items->first())->approvalItem)->approval)->customer)->name
                 ?? '-',
             'item_names' => $itemNames->filter()->unique()->implode(', ') ?: '-',
-            'created_by' => optional(optional($return->approval)->creator)->name
+            'created_by' => optional($return->creator)->name
+                ?? optional(optional($return->approval)->creator)->name
                 ?? optional(optional(optional(optional($return->items->first())->approvalItem)->approval)->creator)->name
                 ?? '-',
         ] + $totals;
@@ -795,6 +798,7 @@ class SaleReturnController extends Controller
 
             $return = SaleReturn::create([
                 'company_id' => $company->id,
+                'created_by' => auth()->id(),
                 'sale_id' => $saleIds->count() === 1 ? $saleIds->first() : null,
                 'source_type' => $approvalIds->isNotEmpty() ? (($saleIds->isNotEmpty()) ? 'mixed' : 'approval') : 'sale',
                 'source_id' => $approvalIds->count() === 1 ? $approvalIds->first() : null,

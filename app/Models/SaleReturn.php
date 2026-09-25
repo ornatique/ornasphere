@@ -8,13 +8,18 @@ class SaleReturn extends Model
 {
     protected $fillable = [
         'company_id',
+        'created_by',
         'sale_id',
         'return_voucher_no',
         'return_date',
         'return_total',
+        'refund_paid_amount',
+        'refund_mode',
+        'refund_reference',
+        'refund_note',
         'remarks',
-        'source_type' ,
-        'source_id' 
+        'source_type',
+        'source_id',
     ];
 
     public function items()
@@ -29,5 +34,10 @@ class SaleReturn extends Model
     public function approval()
     {
         return $this->belongsTo(ApprovalHeader::class, 'source_id');
+    }
+
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 }

@@ -368,8 +368,10 @@ class VacuumVoucherApiController extends Controller
                 Rule::exists('vacuum_buchs', 'id')->where(fn($query) => $query->where('company_id', $companyId)),
                 Rule::notIn($usedBuchIds),
             ],
+            'items.*.item_name' => ['nullable', 'string', 'max:255'],
             'items.*.gross_wt' => ['required', 'numeric'],
             'items.*.buch_wt' => ['required', 'numeric'],
+            'items.*.remarks' => ['nullable', 'string'],
         ], [
             'items.*.vacuum_buch_id.distinct' => 'Each Buch No can be selected only one time in the voucher.',
             'items.*.vacuum_buch_id.not_in' => 'Selected Buch No is already used in another pending voucher.',
@@ -445,10 +447,12 @@ class VacuumVoucherApiController extends Controller
                 'vacuum_voucher_id' => (int) $item->vacuum_voucher_id,
                 'vacuum_buch_id' => $item->vacuum_buch_id ? (int) $item->vacuum_buch_id : null,
                 'buch_no' => $item->buch_no,
+                'item_name' => $item->item_name,
                 'gross_wt' => $this->decimalValue($item->gross_wt, 3),
                 'buch_wt' => $this->decimalValue($item->buch_wt, 3),
                 'net_wt' => $this->decimalValue($item->net_wt, 3),
                 'silver_wt' => $this->decimalValue($item->silver_wt, 3),
+                'remarks' => $item->remarks,
                 'buch' => $item->relationLoaded('buch') && $item->buch ? [
                     'id' => (int) $item->buch->id,
                     'buch_no' => $item->buch->buch_no,
@@ -536,10 +540,12 @@ class VacuumVoucherApiController extends Controller
             $rows[] = [
                 'vacuum_buch_id' => (int) $item['vacuum_buch_id'],
                 'buch_no' => $buch?->buch_no,
+                'item_name' => $this->nullableString($item['item_name'] ?? null),
                 'gross_wt' => $gross,
                 'buch_wt' => $buchWt,
                 'net_wt' => $net,
                 'silver_wt' => $silver,
+                'remarks' => $this->nullableString($item['remarks'] ?? null),
             ];
 
             $grossTotal += $gross;
@@ -572,6 +578,13 @@ class VacuumVoucherApiController extends Controller
         }
 
         return $prefix . $next;
+    }
+
+    private function nullableString($value): ?string
+    {
+        $value = trim((string) ($value ?? ''));
+
+        return $value !== '' ? $value : null;
     }
 
     private function syncVoucherItems(VacuumVoucher $voucher, array $rows): void

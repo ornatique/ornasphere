@@ -31,6 +31,8 @@
             $buchNo = (bool) $releaseItem->is_custom
                 ? $releaseItem->custom_buch_no
                 : ($releaseItem->voucherItem?->buch_no ?? $rowKey);
+            $itemName = (bool) $releaseItem->is_custom ? null : $releaseItem->voucherItem?->item_name;
+            $remarks = (bool) $releaseItem->is_custom ? null : $releaseItem->voucherItem?->remarks;
             $treeWt = (float) ($releaseItem->release_tree_wt ?? 0);
             $treeBhuko = (float) ($officeItem?->office_cut_wt ?? 0);
             $remainingTreeWt = max($treeWt - $treeBhuko, 0);
@@ -40,6 +42,8 @@
             if (!isset($pdfRows[$pdfRowKey])) {
                 $pdfRows[$pdfRowKey] = [
                     'buch_nos' => [],
+                    'item_names' => [],
+                    'remarks' => [],
                     'tree_wt' => 0,
                     'tree_bhuko' => 0,
                     'remaining_tree_wt' => 0,
@@ -47,6 +51,12 @@
             }
 
             $pdfRows[$pdfRowKey]['buch_nos'][] = $buchNo;
+            if ($itemName) {
+                $pdfRows[$pdfRowKey]['item_names'][] = $itemName;
+            }
+            if ($remarks) {
+                $pdfRows[$pdfRowKey]['remarks'][] = $remarks;
+            }
             $pdfRows[$pdfRowKey]['tree_wt'] += $treeWt;
             $pdfRows[$pdfRowKey]['tree_bhuko'] += $treeBhuko;
             $pdfRows[$pdfRowKey]['remaining_tree_wt'] += $remainingTreeWt;
@@ -75,10 +85,12 @@
         <thead>
             <tr>
                 <th style="width: 10%;">Sr. No</th>
-                <th style="width: 28%;">B. No</th>
-                <th class="num" style="width: 20%;">Tree Wt</th>
-                <th class="num" style="width: 20%;">Tree Bhuko</th>
-                <th class="num" style="width: 22%;">Remaining Tree Wt</th>
+                <th style="width: 16%;">B. No</th>
+                <th style="width: 18%;">Item Name</th>
+                <th style="width: 18%;">Remarks</th>
+                <th class="num" style="width: 14%;">Tree Wt</th>
+                <th class="num" style="width: 14%;">Tree Bhuko</th>
+                <th class="num" style="width: 10%;">Remaining Tree Wt</th>
             </tr>
         </thead>
         <tbody>
@@ -91,6 +103,8 @@
             <tr>
                 <td>{{ $loop->iteration }}</td>
                 <td>{{ implode(', ', $row['buch_nos']) }}</td>
+                <td>{{ implode(', ', array_unique($row['item_names'] ?? [])) ?: '-' }}</td>
+                <td>{{ implode(', ', array_unique($row['remarks'] ?? [])) ?: '-' }}</td>
                 <td class="num">{{ number_format((float) ($row['tree_wt'] ?? 0), 3, '.', '') }}</td>
                 <td class="num">{{ number_format((float) ($row['tree_bhuko'] ?? 0), 3, '.', '') }}</td>
                 <td class="num">{{ number_format((float) ($row['remaining_tree_wt'] ?? 0), 3, '.', '') }}</td>
@@ -98,12 +112,12 @@
             @endforeach
             @if(count($pdfRows) === 0)
             <tr>
-                <td colspan="5" class="center">No tree cutting office rows found</td>
+                <td colspan="7" class="center">No tree cutting office rows found</td>
             </tr>
             @endif
             @if(count($pdfRows) > 0)
             <tr class="total-row">
-                <td colspan="2">Total</td>
+                <td colspan="4">Total</td>
                 <td class="num">{{ number_format($treeWtTotal, 3, '.', '') }}</td>
                 <td class="num">{{ number_format($treeBhukoTotal, 3, '.', '') }}</td>
                 <td class="num">{{ number_format($remainingTreeWtTotal, 3, '.', '') }}</td>

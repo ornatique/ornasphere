@@ -27,6 +27,7 @@ class SaleReturnApiController extends Controller
         $user = auth()->user();
 
         $returns = SaleReturn::with([
+            'creator',
             'sale.customer',
             'approval.customer',
             'items.saleItem.sale.customer',
@@ -60,6 +61,8 @@ class SaleReturnApiController extends Controller
                     'refund_note' => $return->refund_note,
                     'source_type' => $return->source_type,
                     'source_id' => $return->source_id,
+                    'created_by' => $return->created_by,
+                    'created_by_name' => optional($return->creator)->name,
                 ];
             });
 
@@ -443,25 +446,39 @@ class SaleReturnApiController extends Controller
         ]);
     }
 
-    public function returnCartList()
+    public function returnCartList(Request $request)
     {
         $user = auth()->user();
+        $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        $voucherSessionId = trim((string) $request->input('voucher_session_id'));
 
-        $items = ReturnCart::with([
+        $cartQuery = ReturnCart::with([
                 'saleItem.itemset.item',
                 'approvalItem.itemSet.item',
                 'approvalItem.legacyItemSet.item',
                 'approvalItem.item',
             ])
             ->where('user_id', $user->id)
-            ->where('company_id', $user->company_id)
-            ->latest()
+            ->where('company_id', $user->company_id);
+
+        if ($deviceId !== '') {
+            $cartQuery->where('device_id', $deviceId);
+        }
+
+        if ($voucherSessionId !== '') {
+            $cartQuery->where('voucher_session_id', $voucherSessionId);
+        }
+
+        $items = $cartQuery->latest()
             ->get()
             ->map(function ($cart) {
                 $saleItem = $cart->saleItem;
                 if ($saleItem && $saleItem->itemset) {
                     return [
                         'cart_id' => $cart->id,
+                        'device_id' => $cart->device_id,
+                        'voucher_session_id' => $cart->voucher_session_id,
+                        'device_entry_id' => $cart->device_entry_id,
                         'source' => 'sale',
                         'sale_item_id' => $saleItem->id,
                         'approval_item_id' => null,
@@ -509,6 +526,9 @@ class SaleReturnApiController extends Controller
 
                 return [
                     'cart_id' => $cart->id,
+                    'device_id' => $cart->device_id,
+                    'voucher_session_id' => $cart->voucher_session_id,
+                    'device_entry_id' => $cart->device_entry_id,
                     'source' => 'approval',
                     'sale_item_id' => null,
                     'approval_item_id' => $approvalItem->id,
@@ -612,6 +632,7 @@ class SaleReturnApiController extends Controller
 
             $return = SaleReturn::create([
                 'company_id' => $user->company_id,
+                'created_by' => $user->id,
                 'sale_id' => $saleId,
                 'return_voucher_no' => 'SR' . time(),
                 'return_date' => now(),
@@ -679,11 +700,34 @@ class SaleReturnApiController extends Controller
     public function store(Request $request)
     {
         $companyId = $request->user()->company_id;
+        $userId = $request->user()->id;
         $customerId = (int) ($request->input('customer_id') ?? 0);
+        $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        $voucherSessionId = trim((string) $request->input('voucher_session_id'));
+
+        $request->validate([
+            'customer_id' => 'required|integer',
+            'device_id' => 'required|string|max:191',
+            'voucher_session_id' => 'required|string|max:191',
+        ]);
+
         $rawSubmittedIds = $request->input('approval_item_ids');
 
         if (!is_array($rawSubmittedIds) || empty($rawSubmittedIds)) {
             $rawSubmittedIds = $request->input('return_items', []);
+        }
+
+        if ((!is_array($rawSubmittedIds) || empty($rawSubmittedIds))
+            && !$request->has('items')
+            && Schema::hasColumn('return_carts', 'approval_item_id')
+        ) {
+            $rawSubmittedIds = ReturnCart::where('user_id', $userId)
+                ->where('company_id', $companyId)
+                ->where('device_id', $deviceId)
+                ->where('voucher_session_id', $voucherSessionId)
+                ->whereNotNull('approval_item_id')
+                ->pluck('approval_item_id')
+                ->all();
         }
 
         $submittedApprovalIds = collect(is_array($rawSubmittedIds) ? $rawSubmittedIds : [$rawSubmittedIds])
@@ -699,6 +743,8 @@ class SaleReturnApiController extends Controller
             'user_id' => optional($request->user())->id,
             'company_id' => $companyId,
             'customer_id' => $customerId ?: null,
+            'device_id' => $deviceId,
+            'voucher_session_id' => $voucherSessionId,
             'return_items' => $request->input('return_items', []),
             'approval_item_ids' => $request->input('approval_item_ids', []),
             'submitted_ids' => $submittedApprovalIds->all(),
@@ -905,6 +951,7 @@ class SaleReturnApiController extends Controller
         [$fromDate, $toDate] = $this->resolveReturnDateRange($request);
 
         $query = SaleReturn::with([
+            'creator',
             'approval.customer',
             'approval.creator',
             'approval.items.itemSet.item',
@@ -1016,7 +1063,9 @@ class SaleReturnApiController extends Controller
                 : '-',
             'customer_name' => optional(optional($return->approval)->customer)->name ?? '-',
             'item_names' => $itemNames->filter()->unique()->implode(', ') ?: '-',
-            'created_by' => optional(optional($return->approval)->creator)->name ?? '-',
+            'created_by' => optional($return->creator)->name
+                ?? optional(optional($return->approval)->creator)->name
+                ?? '-',
         ] + $totals;
     }
 
@@ -1027,11 +1076,22 @@ class SaleReturnApiController extends Controller
         $companyId = $request->user()->company_id;
         $customerId = (int) $request->input('customer_id', 0);
         $qrCode = trim((string) $request->input('qr_code', ''));
+        $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        $voucherSessionId = trim((string) $request->input('voucher_session_id'));
+        $deviceEntryId = trim((string) $request->input('device_entry_id'));
 
         if ($customerId <= 0) {
             return response()->json([
                 'success' => true,
                 'data' => []
+            ]);
+        }
+
+        if ($qrCode !== '') {
+            $request->validate([
+                'device_id' => 'required|string|max:191',
+                'voucher_session_id' => 'required|string|max:191',
+                'device_entry_id' => 'required|string|max:191',
             ]);
         }
 
@@ -1050,6 +1110,27 @@ class SaleReturnApiController extends Controller
             ->when($qrCode !== '', function ($q) use ($qrCode) {
                 $q->whereRaw('TRIM(qr_code) = ?', [$qrCode]);
             });
+
+        if ($qrCode === '' && Schema::hasColumn('return_carts', 'approval_item_id')) {
+            $activeLockCutoff = now()->subMinutes(30);
+            $query->whereNotExists(function ($cartQuery) use ($companyId, $deviceId, $voucherSessionId, $activeLockCutoff) {
+                $cartQuery->select(DB::raw(1))
+                    ->from('return_carts')
+                    ->whereColumn('return_carts.approval_item_id', 'approval_items.id')
+                    ->where('return_carts.company_id', $companyId)
+                    ->whereNotNull('return_carts.approval_item_id')
+                    ->where('return_carts.created_at', '>=', $activeLockCutoff);
+
+                if ($deviceId !== '' && $voucherSessionId !== '') {
+                    $cartQuery->where(function ($ownerQuery) use ($deviceId, $voucherSessionId) {
+                        $ownerQuery->where('return_carts.device_id', '!=', $deviceId)
+                            ->orWhere('return_carts.voucher_session_id', '!=', $voucherSessionId)
+                            ->orWhereNull('return_carts.device_id')
+                            ->orWhereNull('return_carts.voucher_session_id');
+                    });
+                }
+            });
+        }
 
         $rows = $query->get()
             ->map(function ($row) {
@@ -1196,16 +1277,58 @@ class SaleReturnApiController extends Controller
             }
 
             $approvalItemId = (int) $rows->first()['approval_item_id'];
-            $existingCart = ReturnCart::where('user_id', $request->user()->id)
-                ->where('company_id', $companyId)
+            $existingCart = ReturnCart::where('company_id', $companyId)
                 ->where('approval_item_id', $approvalItemId)
                 ->first();
 
             if ($existingCart) {
                 $cartId = $existingCart->id;
+
+                $sameSession = (int) $existingCart->user_id === (int) $request->user()->id
+                    && (string) $existingCart->device_id === $deviceId
+                    && (string) $existingCart->voucher_session_id === $voucherSessionId;
+
+                if (!$sameSession) {
+                    $lockedItem = $rows->first();
+                    $lockedLabel = $lockedItem['qr_code']
+                        ?? $lockedItem['huid']
+                        ?? $lockedItem['item_name']
+                        ?? ('Approval item ' . $approvalItemId);
+                    $lockedItem['cart_id'] = $existingCart->id;
+                    $lockedItem['locked_by_user_id'] = $existingCart->user_id;
+                    $lockedItem['locked_device_id'] = $existingCart->device_id;
+                    $lockedItem['locked_voucher_session_id'] = $existingCart->voucher_session_id;
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => "{$lockedLabel} is already selected by another user.",
+                        'code' => 'RETURN_CART_ITEM_LOCKED',
+                        'cart_id' => $existingCart->id,
+                        'approval_item_id' => $approvalItemId,
+                        'user_id' => $existingCart->user_id,
+                        'device_id' => $existingCart->device_id,
+                        'voucher_session_id' => $existingCart->voucher_session_id,
+                        'locked_item' => $lockedItem,
+                        'data' => [$lockedItem],
+                    ], 409);
+                }
+            }
+
+            $sessionCart = ReturnCart::where('user_id', $request->user()->id)
+                ->where('company_id', $companyId)
+                ->where('approval_item_id', $approvalItemId)
+                ->where('device_id', $deviceId)
+                ->where('voucher_session_id', $voucherSessionId)
+                ->first();
+
+            if ($sessionCart) {
+                $cartId = $sessionCart->id;
             } else {
                 $cart = ReturnCart::create([
                     'user_id' => $request->user()->id,
+                    'device_id' => $deviceId,
+                    'voucher_session_id' => $voucherSessionId,
+                    'device_entry_id' => $deviceEntryId,
                     'company_id' => $companyId,
                     'sale_item_id' => null,
                     'approval_item_id' => $approvalItemId,
@@ -1219,16 +1342,173 @@ class SaleReturnApiController extends Controller
             'success' => true,
             'cart_added' => $cartAdded,
             'cart_id' => $cartId,
+            'device_id' => $deviceId ?: null,
+            'voucher_session_id' => $voucherSessionId ?: null,
+            'device_entry_id' => $deviceEntryId ?: null,
             'data' => $rows
         ]);
+    }
+
+    public function reserveApprovalReturnItem(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+        $userId = $request->user()->id;
+        $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        $voucherSessionId = trim((string) $request->input('voucher_session_id'));
+        $hasBatchItems = is_array($request->input('items'));
+
+        if ($hasBatchItems) {
+            $request->validate([
+                'customer_id' => 'required|integer',
+                'device_id' => 'required|string|max:191',
+                'voucher_session_id' => 'required|string|max:191',
+                'items' => 'required|array|min:1',
+                'items.*.approval_item_id' => 'required|integer',
+                'items.*.device_entry_id' => 'nullable|string|max:191',
+            ]);
+        } else {
+            $request->validate([
+                'customer_id' => 'required|integer',
+                'approval_item_id' => 'required|integer',
+                'device_id' => 'required|string|max:191',
+                'voucher_session_id' => 'required|string|max:191',
+                'device_entry_id' => 'nullable|string|max:191',
+            ]);
+        }
+
+        if (!Schema::hasColumn('return_carts', 'approval_item_id')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Return cart approval item column missing. Please run migration.',
+            ], 500);
+        }
+
+        $items = $hasBatchItems
+            ? collect($request->input('items'))
+                ->map(function ($item) {
+                    return [
+                        'approval_item_id' => (int) ($item['approval_item_id'] ?? 0),
+                        'device_entry_id' => trim((string) ($item['device_entry_id'] ?? '')),
+                    ];
+                })
+                ->filter(fn ($item) => $item['approval_item_id'] > 0)
+                ->unique('approval_item_id')
+                ->values()
+            : collect([[
+                'approval_item_id' => (int) $request->approval_item_id,
+                'device_entry_id' => trim((string) $request->input('device_entry_id')),
+            ]]);
+
+        if ($items->isEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please select at least one approval item.',
+                'code' => 'VALIDATION_ERROR',
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            $reservedItems = [];
+            $activeLockCutoff = now()->subMinutes(30);
+
+            foreach ($items as $itemPayload) {
+                $approvalItem = TransactionItemGuard::lockApprovalItemForReturn($companyId, (int) $itemPayload['approval_item_id'])
+                    ->load(['approval', 'itemSet.item', 'legacyItemSet.item', 'item']);
+
+                if ((int) optional($approvalItem->approval)->customer_id !== (int) $request->customer_id) {
+                    throw new \Exception('Approval item customer mismatch.');
+                }
+
+                $existingCart = ReturnCart::where('company_id', $companyId)
+                    ->where('approval_item_id', $approvalItem->id)
+                    ->where('created_at', '>=', $activeLockCutoff)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($existingCart) {
+                    $sameSession = (int) $existingCart->user_id === (int) $userId
+                        && (string) $existingCart->device_id === $deviceId
+                        && (string) $existingCart->voucher_session_id === $voucherSessionId;
+
+                    if (!$sameSession) {
+                        $lockedItem = $this->approvalReturnLockPayload($approvalItem, $existingCart);
+
+                        DB::rollBack();
+                        return response()->json([
+                            'success' => false,
+                            'message' => "{$lockedItem['label']} is already selected by another user.",
+                            'code' => 'RETURN_CART_ITEM_LOCKED',
+                            'cart_id' => $existingCart->id,
+                            'approval_item_id' => $approvalItem->id,
+                            'user_id' => $existingCart->user_id,
+                            'device_id' => $existingCart->device_id,
+                            'voucher_session_id' => $existingCart->voucher_session_id,
+                            'locked_item' => $lockedItem,
+                            'data' => [$lockedItem],
+                        ], 409);
+                    }
+
+                    $reservedItems[] = [
+                        'cart_id' => $existingCart->id,
+                        'approval_item_id' => $approvalItem->id,
+                        'already_reserved' => true,
+                    ];
+                    continue;
+                }
+
+                $cart = ReturnCart::create([
+                    'user_id' => $userId,
+                    'device_id' => $deviceId,
+                    'voucher_session_id' => $voucherSessionId,
+                    'device_entry_id' => $itemPayload['device_entry_id'] ?: null,
+                    'company_id' => $companyId,
+                    'sale_item_id' => null,
+                    'approval_item_id' => $approvalItem->id,
+                ]);
+
+                $reservedItems[] = [
+                    'cart_id' => $cart->id,
+                    'approval_item_id' => $approvalItem->id,
+                    'already_reserved' => false,
+                ];
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => $items->count() > 1 ? 'Items reserved for return.' : 'Item reserved for return.',
+                'cart_id' => $reservedItems[0]['cart_id'] ?? null,
+                'approval_item_id' => $reservedItems[0]['approval_item_id'] ?? null,
+                'device_id' => $deviceId,
+                'voucher_session_id' => $voucherSessionId,
+                'items' => $reservedItems,
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $isProcessedConflict = str_contains($e->getMessage(), 'already sold/returned')
+                || str_contains($e->getMessage(), 'not available for return');
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'code' => $isProcessedConflict ? 'APPROVAL_ITEM_ALREADY_PROCESSED' : 'APPROVAL_RETURN_RESERVE_FAILED',
+            ], $isProcessedConflict ? 409 : 422);
+        }
     }
 
     // Process mixed return: sale items + approval items in one voucher
     public function processSelected(Request $request)
     {
         $companyId = $request->user()->company_id;
+        $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        $voucherSessionId = trim((string) $request->input('voucher_session_id'));
+
         $request->validate([
             'customer_id' => 'required|integer',
+            'device_id' => 'required|string|max:191',
+            'voucher_session_id' => 'required|string|max:191',
             'refund_paid_amount' => 'nullable|numeric|min:0',
             'refund_mode' => 'nullable|string|max:30',
             'refund_reference' => 'nullable|string|max:120',
@@ -1254,6 +1534,24 @@ class SaleReturnApiController extends Controller
             ->map(fn($id) => (int) $id)
             ->unique()
             ->values();
+
+        if ($approvalItemIds->isNotEmpty()) {
+            $sessionApprovalIds = ReturnCart::where('user_id', $request->user()->id)
+                ->where('company_id', $companyId)
+                ->where('device_id', $deviceId)
+                ->where('voucher_session_id', $voucherSessionId)
+                ->whereIn('approval_item_id', $approvalItemIds->all())
+                ->pluck('approval_item_id')
+                ->map(fn ($id) => (int) $id)
+                ->unique()
+                ->values();
+
+            if ($sessionApprovalIds->isNotEmpty()) {
+                $approvalItemIds = $approvalItemIds
+                    ->intersect($sessionApprovalIds)
+                    ->values();
+            }
+        }
 
         $rowPayloads = collect($request->input('row_payloads', []))
             ->map(function ($payload) {
@@ -1328,6 +1626,7 @@ class SaleReturnApiController extends Controller
 
             $return = SaleReturn::create([
                 'company_id' => $companyId,
+                'created_by' => $request->user()->id,
                 'sale_id' => $saleIds->count() === 1 ? $saleIds->first() : null,
                 'source_type' => $approvalIds->isNotEmpty() ? ($saleIds->isNotEmpty() ? 'mixed' : 'approval') : 'sale',
                 'source_id' => $approvalIds->count() === 1 ? $approvalIds->first() : null,
@@ -1454,7 +1753,9 @@ class SaleReturnApiController extends Controller
                 (int) $request->user()->id,
                 (int) $companyId,
                 $saleItems->pluck('id')->all(),
-                $approvalItems->pluck('id')->all()
+                $approvalItems->pluck('id')->all(),
+                $deviceId,
+                $voucherSessionId
             );
 
             DB::commit();
@@ -1466,11 +1767,16 @@ class SaleReturnApiController extends Controller
                     'return_id' => $return->id,
                     'return_voucher_no' => $return->return_voucher_no,
                     'return_total' => (float) $return->return_total,
+                    'device_id' => $deviceId,
+                    'voucher_session_id' => $voucherSessionId,
                     'removed_from_cart' => $removedFromCart,
                 ]
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
+            $isProcessedConflict = str_contains($e->getMessage(), 'already sold/returned')
+                || str_contains($e->getMessage(), 'not available for return');
+
             Log::error('Approval return processing failed.', [
                 'user_id' => optional($request->user())->id,
                 'company_id' => $companyId,
@@ -1480,12 +1786,20 @@ class SaleReturnApiController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => $e->getMessage()
-            ], 422);
+                'message' => $e->getMessage(),
+                'code' => $isProcessedConflict ? 'APPROVAL_ITEM_ALREADY_PROCESSED' : 'APPROVAL_RETURN_SAVE_FAILED',
+            ], $isProcessedConflict ? 409 : 422);
         }
     }
 
-    private function clearProcessedReturnCart(int $userId, int $companyId, array $saleItemIds = [], array $approvalItemIds = []): int
+    private function clearProcessedReturnCart(
+        int $userId,
+        int $companyId,
+        array $saleItemIds = [],
+        array $approvalItemIds = [],
+        ?string $deviceId = null,
+        ?string $voucherSessionId = null
+    ): int
     {
         $saleItemIds = array_values(array_unique(array_filter(array_map('intval', $saleItemIds))));
         $approvalItemIds = array_values(array_unique(array_filter(array_map('intval', $approvalItemIds))));
@@ -1501,7 +1815,7 @@ class SaleReturnApiController extends Controller
             return 0;
         }
 
-        return ReturnCart::where('user_id', $userId)
+        $query = ReturnCart::where('user_id', $userId)
             ->where('company_id', $companyId)
             ->where(function ($query) use ($saleItemIds, $approvalItemIds, $hasSaleItemId, $hasApprovalItemId) {
                 if ($hasSaleItemId && !empty($saleItemIds)) {
@@ -1511,8 +1825,17 @@ class SaleReturnApiController extends Controller
                 if ($hasApprovalItemId && !empty($approvalItemIds)) {
                     $query->orWhereIn('approval_item_id', $approvalItemIds);
                 }
-            })
-            ->delete();
+            });
+
+        if ($deviceId !== null && $deviceId !== '') {
+            $query->where('device_id', $deviceId);
+        }
+
+        if ($voucherSessionId !== null && $voucherSessionId !== '') {
+            $query->where('voucher_session_id', $voucherSessionId);
+        }
+
+        return $query->delete();
     }
 
     private function refreshApprovalStatus(int $approvalId): void
@@ -1688,6 +2011,41 @@ class SaleReturnApiController extends Controller
         }
 
         return $inputOther;
+    }
+
+    private function approvalReturnLockPayload(ApprovalItem $approvalItem, ReturnCart $cart): array
+    {
+        $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
+        $item = optional($itemSet)->item ?? $approvalItem->item;
+        $qrCode = $approvalItem->qr_code ?? optional($itemSet)->qr_code;
+        $huid = $approvalItem->huid ?? optional($itemSet)->HUID;
+        $itemName = optional($item)->item_name;
+        $label = $qrCode ?: ($huid ?: ($itemName ?: ('Approval item ' . $approvalItem->id)));
+
+        return [
+            'cart_id' => $cart->id,
+            'approval_item_id' => $approvalItem->id,
+            'approval_id' => $approvalItem->approval_id,
+            'item_id' => $approvalItem->item_id ?? optional($itemSet)->item_id,
+            'itemset_id' => optional($itemSet)->id,
+            'label' => $label,
+            'qr_code' => $qrCode,
+            'huid' => $huid,
+            'item_name' => $itemName,
+            'gross_weight' => number_format((float) ($approvalItem->gross_weight ?? 0), 3, '.', ''),
+            'other_weight' => number_format((float) ($approvalItem->other_weight ?? 0), 3, '.', ''),
+            'net_weight' => number_format((float) ($approvalItem->net_weight ?? 0), 3, '.', ''),
+            'fine_weight' => number_format((float) ($approvalItem->total_fine_weight ?? $approvalItem->fine_weight ?? 0), 3, '.', ''),
+            'metal_amount' => number_format((float) ($approvalItem->metal_amount ?? 0), 2, '.', ''),
+            'labour_amount' => number_format((float) ($approvalItem->labour_amount ?? 0), 2, '.', ''),
+            'other_amount' => number_format((float) ($approvalItem->other_amount ?? 0), 2, '.', ''),
+            'total_amount' => number_format((float) ($approvalItem->total_amount ?? 0), 2, '.', ''),
+            'locked_by_user_id' => $cart->user_id,
+            'locked_device_id' => $cart->device_id,
+            'locked_voucher_session_id' => $cart->voucher_session_id,
+            'locked_device_entry_id' => $cart->device_entry_id,
+            'locked_at' => optional($cart->created_at)->toDateTimeString(),
+        ];
     }
 
     private function resolveTotalAmount($inputTotalAmount, float $metalAmount, float $labourAmount, float $otherAmount): float

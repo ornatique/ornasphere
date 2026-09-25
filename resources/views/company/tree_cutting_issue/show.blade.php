@@ -58,6 +58,8 @@
                                     <input type="checkbox" id="check-all-tree-issue" aria-label="Check all tree rows">
                                 </th>
                                 <th style="width: 220px;">B. No</th>
+                                <th style="width: 220px;">Item Name</th>
+                                <th style="width: 260px;">Remarks</th>
                                 <th style="width: 200px;">Office Cut Wt</th>
                                 <th style="width: 240px;">Receive Tree Wt</th>
                                 <th style="width: 260px;">Assign Worker</th>
@@ -114,6 +116,8 @@
                                         value="{{ $issueGroupKey }}">
                                 </td>
                                 <td>{{ $item->buch_no }}</td>
+                                <td>{{ $item->item_name ?: '-' }}</td>
+                                <td>{{ $item->remarks ?: '-' }}</td>
                                 <td>{{ number_format($officeCutWt, 3, '.', '') }}</td>
                                 <td>
                                     <input type="number"
@@ -180,6 +184,8 @@
                                         value="{{ old('custom_existing.' . $customItem->id . '.custom_buch_no', $customItem->custom_buch_no) }}">
                                     <span class="tree-custom-readonly">{{ old('custom_existing.' . $customItem->id . '.custom_buch_no', $customItem->custom_buch_no) }}</span>
                                 </td>
+                                <td>-</td>
+                                <td>-</td>
                                 <td>{{ number_format((float) ($customItem->office_cut_wt ?? 0), 3, '.', '') }}</td>
                                 <td>
                                     <input type="number"
@@ -206,13 +212,13 @@
 
                             @if($issueRowNo === 0)
                             <tr>
-                                <td colspan="6" class="text-center">No casting receive rows found</td>
+                                <td colspan="8" class="text-center">No casting receive rows found</td>
                             </tr>
                             @endif
                         </tbody>
                         <tfoot>
                             <tr>
-                                <td colspan="4">Total</td>
+                                <td colspan="6">Total</td>
                                 <td><strong id="treeIssueReceiveTreeWtTotal">{{ number_format($receiveTreeWtTotal, 3, '.', '') }}</strong></td>
                                 <td></td>
                             </tr>
@@ -569,6 +575,8 @@
             <td>
                 <input type="text" name="custom_items[${index}][custom_buch_no]" class="form-control" placeholder="Custom B No">
             </td>
+            <td>-</td>
+            <td>-</td>
             <td></td>
             <td>
                 <input type="number" name="custom_items[${index}][receive_tree_wt]" class="form-control tree-cutting-input" step="0.001" min="0" inputmode="decimal">

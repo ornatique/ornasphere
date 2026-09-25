@@ -139,50 +139,50 @@ class VoucherHistoryApiController extends Controller
             fputcsv($handle, []);
 
             fputcsv($handle, ['1. Casting Heating']);
-            fputcsv($handle, ['Sr No', 'Buch No', 'In Bhati', 'Checked At']);
+            fputcsv($handle, ['Sr No', 'Buch No', 'Item Name', 'Voucher Remark', 'In Bhati', 'Checked At']);
             foreach ($history['casting_heating']['rows'] as $index => $row) {
-                fputcsv($handle, [$index + 1, $row['buch_no'], $row['in_bhati'], $row['checked_at']]);
+                fputcsv($handle, [$index + 1, $row['buch_no'], $row['item_name'] ?? '-', $row['voucher_remarks'] ?? '-', $row['in_bhati'], $row['checked_at']]);
             }
             fputcsv($handle, []);
 
             fputcsv($handle, ['2. Casting Metal Issue']);
-            fputcsv($handle, ['Sr No', 'Buch No', 'Silver Wt', 'Issue Silver Wt', 'Issued At']);
+            fputcsv($handle, ['Sr No', 'Buch No', 'Item Name', 'Voucher Remark', 'Silver Wt', 'Issue Silver Wt', 'Issued At']);
             foreach ($history['casting_metal_issue']['rows'] as $index => $row) {
-                fputcsv($handle, [$index + 1, $row['buch_no'], $row['silver_wt'], $row['issue_silver_wt'], $row['issued_at']]);
+                fputcsv($handle, [$index + 1, $row['buch_no'], $row['item_name'] ?? '-', $row['voucher_remarks'] ?? '-', $row['silver_wt'], $row['issue_silver_wt'], $row['issued_at']]);
             }
-            fputcsv($handle, ['Total', '', $history['casting_metal_issue']['totals']['silver_wt'], $history['casting_metal_issue']['totals']['issue_silver_wt'], '']);
+            fputcsv($handle, ['Total', '', '', '', $history['casting_metal_issue']['totals']['silver_wt'], $history['casting_metal_issue']['totals']['issue_silver_wt'], '']);
             fputcsv($handle, []);
 
             fputcsv($handle, ['3. Casting Receive']);
-            fputcsv($handle, ['Sr No', 'Buch No', 'Release Tree Wt', 'Tree Bhuko', 'Loss', 'Received At']);
+            fputcsv($handle, ['Sr No', 'Buch No', 'Item Name', 'Voucher Remark', 'Release Tree Wt', 'Tree Bhuko', 'Loss', 'Received At']);
             foreach ($history['casting_receive']['rows'] as $index => $row) {
-                fputcsv($handle, [$index + 1, $row['buch_no'], $row['release_tree_wt'], $row['release_tree_bhuko'], $row['loss'], $row['received_at']]);
+                fputcsv($handle, [$index + 1, $row['buch_no'], $row['item_name'] ?? '-', $row['voucher_remarks'] ?? '-', $row['release_tree_wt'], $row['release_tree_bhuko'], $row['loss'], $row['received_at']]);
             }
-            fputcsv($handle, ['Total', '', $history['casting_receive']['totals']['release_tree_wt'], $history['casting_receive']['totals']['release_tree_bhuko'], $history['casting_receive']['totals']['loss'], '']);
+            fputcsv($handle, ['Total', '', '', '', $history['casting_receive']['totals']['release_tree_wt'], $history['casting_receive']['totals']['release_tree_bhuko'], $history['casting_receive']['totals']['loss'], '']);
             fputcsv($handle, []);
 
             fputcsv($handle, ['4. Tree Cutting Issue Office']);
-            fputcsv($handle, ['Sr No', 'Buch No', 'Tree Wt', 'Tree Bhuko', 'Remaining Tree Wt', 'Office At']);
+            fputcsv($handle, ['Sr No', 'Buch No', 'Item Name', 'Voucher Remark', 'Tree Wt', 'Tree Bhuko', 'Remaining Tree Wt', 'Office At']);
             foreach ($history['tree_cutting_office']['rows'] as $index => $row) {
-                fputcsv($handle, [$index + 1, $row['buch_no'], $row['tree_wt'], $row['tree_bhuko'], $row['remaining_tree_wt'], $row['office_at']]);
+                fputcsv($handle, [$index + 1, $row['buch_no'], $row['item_name'] ?? '-', $row['voucher_remarks'] ?? '-', $row['tree_wt'], $row['tree_bhuko'], $row['remaining_tree_wt'], $row['office_at']]);
             }
-            fputcsv($handle, ['Total', '', $history['tree_cutting_office']['totals']['tree_wt'], $history['tree_cutting_office']['totals']['tree_bhuko'], $history['tree_cutting_office']['totals']['remaining_tree_wt'], '']);
+            fputcsv($handle, ['Total', '', '', '', $history['tree_cutting_office']['totals']['tree_wt'], $history['tree_cutting_office']['totals']['tree_bhuko'], $history['tree_cutting_office']['totals']['remaining_tree_wt'], '']);
             fputcsv($handle, []);
 
             fputcsv($handle, ['5. Tree Cutting Issue']);
-            fputcsv($handle, ['Sr No', 'Buch No', 'Worker', 'Receive Tree Wt', 'Issued At']);
+            fputcsv($handle, ['Sr No', 'Buch No', 'Item Name', 'Voucher Remark', 'Worker', 'Receive Tree Wt', 'Issued At']);
             foreach ($history['tree_cutting_issue']['rows'] as $index => $row) {
-                fputcsv($handle, [$index + 1, $row['buch_no'], $row['worker'], $row['receive_tree_wt'], $row['issued_at']]);
+                fputcsv($handle, [$index + 1, $row['buch_no'], $row['item_name'] ?? '-', $row['voucher_remarks'] ?? '-', $row['worker'], $row['receive_tree_wt'], $row['issued_at']]);
             }
-            fputcsv($handle, ['Total', '', '', $history['tree_cutting_issue']['totals']['receive_tree_wt'], '']);
+            fputcsv($handle, ['Total', '', '', '', '', $history['tree_cutting_issue']['totals']['receive_tree_wt'], '']);
             fputcsv($handle, []);
 
             fputcsv($handle, ['6. Tree Cutting Receive']);
-            fputcsv($handle, ['Sr No', 'Buch No', 'Worker', 'Receive Pc Wt', 'Tree Bhuko', 'Loss', 'Received At']);
+            fputcsv($handle, ['Sr No', 'Buch No', 'Item Name', 'Voucher Remark', 'Worker', 'Receive Pc Wt', 'Tree Bhuko', 'Loss', 'Received At']);
             foreach ($history['tree_cutting_receive']['rows'] as $index => $row) {
-                fputcsv($handle, [$index + 1, $row['buch_no'], $row['worker'], $row['receive_pc_wt'], $row['receive_tree_bhuko'], $row['loss'], $row['received_at']]);
+                fputcsv($handle, [$index + 1, $row['buch_no'], $row['item_name'] ?? '-', $row['voucher_remarks'] ?? '-', $row['worker'], $row['receive_pc_wt'], $row['receive_tree_bhuko'], $row['loss'], $row['received_at']]);
             }
-            fputcsv($handle, ['Total', '', '', $history['tree_cutting_receive']['totals']['receive_pc_wt'], $history['tree_cutting_receive']['totals']['receive_tree_bhuko'], $history['tree_cutting_receive']['totals']['loss'], '']);
+            fputcsv($handle, ['Total', '', '', '', '', $history['tree_cutting_receive']['totals']['receive_pc_wt'], $history['tree_cutting_receive']['totals']['receive_tree_bhuko'], $history['tree_cutting_receive']['totals']['loss'], '']);
             fputcsv($handle, []);
 
             fputcsv($handle, ['7. Casting Sorting']);
@@ -227,28 +227,28 @@ class VoucherHistoryApiController extends Controller
         $heatingItems = CastingHeatingItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
             ->when($validItemIds !== [], fn($query) => $query->whereIn('vacuum_voucher_item_id', $validItemIds))
-            ->with('voucherItem:id,buch_no,silver_wt')
+            ->with('voucherItem:id,buch_no,item_name,remarks,silver_wt')
             ->orderBy('id')
             ->get();
 
         $metalIssueItems = CastingMetalIssueItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
             ->when($validItemIds !== [], fn($query) => $query->whereIn('vacuum_voucher_item_id', $validItemIds))
-            ->with('voucherItem:id,buch_no')
+            ->with('voucherItem:id,buch_no,item_name,remarks')
             ->orderBy('id')
             ->get();
 
         $releaseItems = CastingReleaseItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
             ->when($validItemIds !== [], fn($query) => $query->whereIn('vacuum_voucher_item_id', $validItemIds))
-            ->with('voucherItem:id,buch_no')
+            ->with('voucherItem:id,buch_no,item_name,remarks')
             ->orderBy('id')
             ->get();
 
         $officeItems = TreeCuttingOfficeItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
             ->when($validItemIds !== [], fn($query) => $query->whereIn('vacuum_voucher_item_id', $validItemIds))
-            ->with('voucherItem:id,buch_no')
+            ->with('voucherItem:id,buch_no,item_name,remarks')
             ->orderBy('id')
             ->get();
 
@@ -261,7 +261,7 @@ class VoucherHistoryApiController extends Controller
                     $query->orWhereIn('vacuum_voucher_item_id', $validItemIds);
                 }
             })
-            ->with(['voucherItem:id,buch_no', 'jobWorker:id,name'])
+            ->with(['voucherItem:id,buch_no,item_name,remarks', 'jobWorker:id,name'])
             ->orderBy('is_custom')
             ->orderBy('id')
             ->get();
@@ -275,7 +275,7 @@ class VoucherHistoryApiController extends Controller
                     $query->orWhereIn('vacuum_voucher_item_id', $validItemIds);
                 }
             })
-            ->with(['voucherItem:id,buch_no', 'jobWorker:id,name'])
+            ->with(['voucherItem:id,buch_no,item_name,remarks', 'jobWorker:id,name'])
             ->orderBy('is_custom')
             ->orderBy('id')
             ->get();
@@ -301,6 +301,8 @@ class VoucherHistoryApiController extends Controller
                     'id' => (int) $item->id,
                     'vacuum_voucher_item_id' => (int) $item->vacuum_voucher_item_id,
                     'buch_no' => $item->voucherItem?->buch_no ?? '-',
+                    'item_name' => $item->voucherItem?->item_name,
+                    'voucher_remarks' => $item->voucherItem?->remarks,
                     'in_bhati' => (bool) $item->in_bhati,
                     'in_bhati_view' => $item->in_bhati ? 'Yes' : 'No',
                     'checked_at' => $this->dateTimeValue($item->checked_at ?: $item->created_at),
@@ -316,6 +318,8 @@ class VoucherHistoryApiController extends Controller
                     'id' => (int) $item->id,
                     'vacuum_voucher_item_id' => (int) $item->vacuum_voucher_item_id,
                     'buch_no' => $item->voucherItem?->buch_no ?? '-',
+                    'item_name' => $item->voucherItem?->item_name,
+                    'voucher_remarks' => $item->voucherItem?->remarks,
                     'is_if' => (bool) $item->is_if,
                     'silver_wt' => $this->decimal($item->voucherItem?->silver_wt),
                     'pure_fine' => $this->decimal($item->pure_fine),
@@ -337,6 +341,8 @@ class VoucherHistoryApiController extends Controller
                     'id' => (int) $item->id,
                     'vacuum_voucher_item_id' => (int) $item->vacuum_voucher_item_id,
                     'buch_no' => $item->voucherItem?->buch_no ?? '-',
+                    'item_name' => $item->voucherItem?->item_name,
+                    'voucher_remarks' => $item->voucherItem?->remarks,
                     'release_tree_wt' => $this->decimal($item->release_tree_wt),
                     'release_tree_bhuko' => $this->decimal($item->release_tree_bhuko),
                     'loss' => $this->decimal($item->loss),
@@ -353,6 +359,8 @@ class VoucherHistoryApiController extends Controller
                     'id' => (int) $item->id,
                     'vacuum_voucher_item_id' => (int) $item->vacuum_voucher_item_id,
                     'buch_no' => $item->voucherItem?->buch_no ?? '-',
+                    'item_name' => $item->voucherItem?->item_name,
+                    'voucher_remarks' => $item->voucherItem?->remarks,
                     'tree_wt' => $this->decimal($item->tree_wt),
                     'tree_bhuko' => $this->decimal($item->office_cut_wt),
                     'remaining_tree_wt' => $this->decimal($item->remaining_tree_wt),
@@ -367,6 +375,8 @@ class VoucherHistoryApiController extends Controller
                     'id' => (int) $item->id,
                     'vacuum_voucher_item_id' => $item->vacuum_voucher_item_id ? (int) $item->vacuum_voucher_item_id : null,
                     'buch_no' => $this->buchNo($item),
+                    'item_name' => $this->itemName($item),
+                    'voucher_remarks' => $this->voucherRemarks($item),
                     'is_custom' => (bool) $item->is_custom,
                     'job_worker_id' => $item->job_worker_id ? (int) $item->job_worker_id : null,
                     'worker_name' => $item->jobWorker?->name ?? '-',
@@ -385,6 +395,8 @@ class VoucherHistoryApiController extends Controller
                     'vacuum_voucher_item_id' => $item->vacuum_voucher_item_id ? (int) $item->vacuum_voucher_item_id : null,
                     'tree_cutting_issue_item_id' => $item->tree_cutting_issue_item_id ? (int) $item->tree_cutting_issue_item_id : null,
                     'buch_no' => $this->buchNo($item),
+                    'item_name' => $this->itemName($item),
+                    'voucher_remarks' => $this->voucherRemarks($item),
                     'is_custom' => (bool) $item->is_custom,
                     'job_worker_id' => $item->job_worker_id ? (int) $item->job_worker_id : null,
                     'worker_name' => $item->jobWorker?->name ?? '-',
@@ -425,6 +437,8 @@ class VoucherHistoryApiController extends Controller
                 'total_count' => $history['casting_heating']['total_count'],
                 'rows' => $history['casting_heating']['rows']->map(fn($row) => [
                     'buch_no' => $row['buch_no'],
+                    'item_name' => $row['item_name'] ?? null,
+                    'voucher_remarks' => $row['voucher_remarks'] ?? null,
                     'in_bhati' => $row['in_bhati_view'],
                     'checked_at' => $row['checked_at_view'] ?? '-',
                 ]),
@@ -436,6 +450,8 @@ class VoucherHistoryApiController extends Controller
                 ],
                 'rows' => $history['casting_metal_issue']['rows']->map(fn($row) => [
                     'buch_no' => $row['buch_no'],
+                    'item_name' => $row['item_name'] ?? null,
+                    'voucher_remarks' => $row['voucher_remarks'] ?? null,
                     'silver_wt' => $row['silver_wt'],
                     'issue_silver_wt' => $row['issue_silver_wt'],
                     'issued_at' => $row['issued_at_view'] ?? '-',
@@ -449,6 +465,8 @@ class VoucherHistoryApiController extends Controller
                 ],
                 'rows' => $history['casting_receive']['rows']->map(fn($row) => [
                     'buch_no' => $row['buch_no'],
+                    'item_name' => $row['item_name'] ?? null,
+                    'voucher_remarks' => $row['voucher_remarks'] ?? null,
                     'release_tree_wt' => $row['release_tree_wt'],
                     'release_tree_bhuko' => $row['release_tree_bhuko'],
                     'loss' => $row['loss'],
@@ -463,6 +481,8 @@ class VoucherHistoryApiController extends Controller
                 ],
                 'rows' => $history['tree_cutting_office']['rows']->map(fn($row) => [
                     'buch_no' => $row['buch_no'],
+                    'item_name' => $row['item_name'] ?? null,
+                    'voucher_remarks' => $row['voucher_remarks'] ?? null,
                     'tree_wt' => $row['tree_wt'],
                     'tree_bhuko' => $row['tree_bhuko'],
                     'remaining_tree_wt' => $row['remaining_tree_wt'],
@@ -475,6 +495,8 @@ class VoucherHistoryApiController extends Controller
                 ],
                 'rows' => $history['tree_cutting_issue']['rows']->map(fn($row) => [
                     'buch_no' => $row['buch_no'],
+                    'item_name' => $row['item_name'] ?? null,
+                    'voucher_remarks' => $row['voucher_remarks'] ?? null,
                     'worker' => $row['worker_name'],
                     'receive_tree_wt' => $row['receive_tree_wt'],
                     'issued_at' => $row['issued_at_view'] ?? '-',
@@ -488,6 +510,8 @@ class VoucherHistoryApiController extends Controller
                 ],
                 'rows' => $history['tree_cutting_receive']['rows']->map(fn($row) => [
                     'buch_no' => $row['buch_no'],
+                    'item_name' => $row['item_name'] ?? null,
+                    'voucher_remarks' => $row['voucher_remarks'] ?? null,
                     'worker' => $row['worker_name'],
                     'receive_pc_wt' => $row['receive_pc_wt'],
                     'receive_tree_bhuko' => $row['receive_tree_bhuko'],
@@ -525,6 +549,12 @@ class VoucherHistoryApiController extends Controller
             'net_wt_total' => $this->decimal($voucher->net_wt_total),
             'silver_wt_total' => $this->decimal($voucher->silver_wt_total),
             'total_pcs' => $voucher->items->count(),
+            'items' => $voucher->items->map(fn($item) => [
+                'id' => (int) $item->id,
+                'buch_no' => $item->buch_no,
+                'item_name' => $item->item_name,
+                'remarks' => $item->remarks,
+            ])->values(),
             'remarks' => $voucher->remarks,
             'created_by' => $voucher->created_by ? (int) $voucher->created_by : null,
             'created_by_name' => $voucher->createdByUser?->name,
@@ -553,6 +583,16 @@ class VoucherHistoryApiController extends Controller
         }
 
         return $item->voucherItem?->buch_no ?? '-';
+    }
+
+    private function itemName($item): ?string
+    {
+        return $item->is_custom ? null : $item->voucherItem?->item_name;
+    }
+
+    private function voucherRemarks($item): ?string
+    {
+        return $item->is_custom ? null : $item->voucherItem?->remarks;
     }
 
     private function decimal($value, int $precision = 3): string

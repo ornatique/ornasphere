@@ -50,6 +50,33 @@
                 .sales-list-grid-wrap:hover::-webkit-scrollbar-track {
                     background: rgba(255, 255, 255, 0.08);
                 }
+                .sales-summary-grid {
+                    display: grid;
+                    grid-template-columns: repeat(3, minmax(160px, 1fr));
+                    gap: 14px;
+                    margin-bottom: 18px;
+                }
+                .sales-summary-box {
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    background: rgba(255, 255, 255, 0.03);
+                    padding: 12px 14px;
+                }
+                .sales-summary-box span {
+                    display: block;
+                    color: #b8b8c7;
+                    font-size: 13px;
+                    margin-bottom: 6px;
+                }
+                .sales-summary-box strong {
+                    color: #fff;
+                    font-size: 24px;
+                    line-height: 1;
+                }
+                @media (max-width: 767px) {
+                    .sales-summary-grid {
+                        grid-template-columns: 1fr;
+                    }
+                }
             </style>
 
             {{-- 🔍 DATE FILTER --}}
@@ -78,6 +105,21 @@
                     <button id="filter" class="btn btn-success me-2">Filter</button>
                     <button id="reset" class="btn btn-secondary">Reset</button>
                     <button type="button" id="download_pdf" class="btn btn-danger ms-2">PDF</button>
+                </div>
+            </div>
+
+            <div class="sales-summary-grid">
+                <div class="sales-summary-box">
+                    <span>Total Qty</span>
+                    <strong id="salesSummaryQty">0</strong>
+                </div>
+                <div class="sales-summary-box">
+                    <span>Total Gross Wt</span>
+                    <strong id="salesSummaryGross">0.000</strong>
+                </div>
+                <div class="sales-summary-box">
+                    <span>Total Net Wt</span>
+                    <strong id="salesSummaryNet">0.000</strong>
                 </div>
             </div>
 
@@ -139,6 +181,19 @@ $(document).ready(function() {
         });
     }
 
+    function updateSalesSummary(summary) {
+        const totals = summary || {};
+        $('#salesSummaryQty').text(Number(totals.total_qty || 0).toLocaleString('en-IN'));
+        $('#salesSummaryGross').text(Number(totals.total_gross_wt || 0).toLocaleString('en-IN', {
+            minimumFractionDigits: 3,
+            maximumFractionDigits: 3
+        }));
+        $('#salesSummaryNet').text(Number(totals.total_net_wt || 0).toLocaleString('en-IN', {
+            minimumFractionDigits: 3,
+            maximumFractionDigits: 3
+        }));
+    }
+
     var table = $('#salesTable').DataTable({
 
         processing: true,
@@ -192,6 +247,10 @@ $(document).ready(function() {
 
         ]
 
+    });
+
+    table.on('xhr.dt', function(e, settings, json) {
+        updateSalesSummary(json && json.summary);
     });
 
     // FILTER BUTTON

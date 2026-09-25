@@ -933,6 +933,10 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
 
         Route::get('sales/get-itemset', [SaleController::class, 'getItemset'])
             ->name('sales.getItemset');
+        Route::post('sales/cart/reserve', [SaleController::class, 'reserveCartItem'])
+            ->name('sales.cart.reserve');
+        Route::delete('sales/cart/remove/{id}', [SaleController::class, 'removeCartItem'])
+            ->name('sales.cart.remove');
         Route::get('sales/customer-advance', [SaleController::class, 'customerAdvance'])
             ->name('sales.customerAdvance');
 

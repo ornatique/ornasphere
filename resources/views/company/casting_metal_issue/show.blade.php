@@ -60,6 +60,8 @@
                             <tr>
                                 <th style="width: 80px;">Sr. No</th>
                                 <th style="width: 180px;">B. No</th>
+                                <th style="width: 220px;">Item Name</th>
+                                <th style="width: 240px;">Voucher Remark</th>
                                 <th class="text-center" style="width: 130px;">Status</th>
                                 <th style="width: 160px;">Silver Weight</th>
                                 <th class="text-center" style="width: 90px;">I/F</th>
@@ -89,6 +91,8 @@
                             <tr data-if-row data-silver-weight="{{ number_format((float) $item->silver_wt, 3, '.', '') }}">
                                 <td>{{ $loop->iteration }}</td>
                                 <td>{{ $item->buch_no }}</td>
+                                <td>{{ $item->item_name ?: '-' }}</td>
+                                <td>{{ $item->remarks ?: '-' }}</td>
                                 <td class="text-center">
                                     <span class="status-box {{ $inBhati ? 'status-in' : 'status-out' }}">
                                         {{ $inBhati ? 'In Bhati' : 'Not In Bhati' }}
@@ -160,14 +164,14 @@
                             </tr>
                             @empty
                             <tr>
-                                <td colspan="11" class="text-center">No Buch rows found</td>
+                                <td colspan="13" class="text-center">No Buch rows found</td>
                             </tr>
                             @endforelse
                         </tbody>
                         @if($voucher->items->count() > 0)
                         <tfoot>
                             <tr class="casting-metal-total-row">
-                                <td colspan="3">Total</td>
+                                <td colspan="5">Total</td>
                                 <td>
                                     <strong>{{ number_format($silverWeightTotal, 3, '.', '') }}</strong>
                                 </td>

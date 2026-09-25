@@ -440,6 +440,7 @@ Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group
     Route::post('/returns/scan-product', [SaleReturnApiController::class, 'scanProduct']);
     Route::post('/returns/scan-qr', [SaleReturnApiController::class, 'scanQr']);
     Route::get('/returns/approval-items', [SaleReturnApiController::class, 'approvalReturnItems']);
+    Route::post('/returns/approval-cart/add', [SaleReturnApiController::class, 'reserveApprovalReturnItem']);
     Route::post('/returns/process-selected', [SaleReturnApiController::class, 'processSelected']);
     Route::get('/returns/cart-list', [SaleReturnApiController::class, 'returnCartList']);
     Route::delete('/returns/cart-remove/{id}', [SaleReturnApiController::class, 'removeCartItem']);
@@ -450,6 +451,7 @@ Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group
     Route::get('/approvals/items', [ApprovalApiController::class, 'items']);
     Route::get('/approvals', [ApprovalApiController::class, 'index']);
     Route::post('/approvals/scan-qr', [ApprovalApiController::class, 'scanQr']);
+    Route::post('/approvals/cart/add', [ApprovalApiController::class, 'reserveApprovalCartItem']);
     Route::get('/approvals/cart-list', [ApprovalApiController::class, 'cartList']);
     Route::delete('/approvals/cart-remove/{id}', [ApprovalApiController::class, 'removeCartItem']);
     Route::get('/approvals/itemsets/{itemId}', [ApprovalApiController::class, 'getItemSets']);

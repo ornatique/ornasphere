@@ -45,6 +45,8 @@
                             <tr>
                                 <th style="width: 80px;">Sr. No</th>
                                 <th style="width: 180px;">B. No</th>
+                                <th style="width: 220px;">Item Name</th>
+                                <th style="width: 240px;">Voucher Remark</th>
                                 <th style="width: 170px;">Issue Silver Wt</th>
                                 <th style="width: 180px;">Release Tree Wt</th>
                                 <th style="width: 190px;">Release Tree Bhuko</th>
@@ -77,6 +79,8 @@
                             <tr>
                                 <td>{{ $loop->iteration }}</td>
                                 <td>{{ $item->buch_no }}</td>
+                                <td>{{ $item->item_name ?: '-' }}</td>
+                                <td>{{ $item->remarks ?: '-' }}</td>
                                 <td>
                                     <span data-issue-wt>{{ number_format($issueSilverWt, 3, '.', '') }}</span>
                                 </td>
@@ -110,7 +114,7 @@
                             </tr>
                             @empty
                             <tr>
-                                <td colspan="6" class="text-center">No casting metal issue rows found</td>
+                                <td colspan="8" class="text-center">No casting metal issue rows found</td>
                             </tr>
                             @endforelse
                             @foreach($customReleaseItems ?? [] as $customItem)
@@ -175,7 +179,7 @@
                             </tr>
                             @endforeach
                             <tr class="casting-release-total-row">
-                                <td colspan="2">Total</td>
+                                <td colspan="4">Total</td>
                                 <td><strong>{{ number_format($issueSilverWtTotal, 3, '.', '') }}</strong></td>
                                 <td><strong id="releaseTreeWtTotal">{{ number_format($releaseTreeWtTotal, 3, '.', '') }}</strong></td>
                                 <td><strong id="releaseTreeBhukoTotal">{{ number_format($releaseTreeBhukoTotal, 3, '.', '') }}</strong></td>

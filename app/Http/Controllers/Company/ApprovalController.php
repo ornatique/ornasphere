@@ -46,7 +46,7 @@ class ApprovalController extends Controller
                 $fromDate = $toDate;
             }
 
-            $viewType = $request->input('view_type') === 'voucher' ? 'voucher' : 'item';
+            $viewType = $request->input('view_type') === 'item' ? 'item' : 'voucher';
 
             if ($viewType === 'voucher') {
                 $pendingItemFilter = function ($q) {
@@ -342,7 +342,7 @@ class ApprovalController extends Controller
             $fromDate = $toDate;
         }
 
-        $viewType = $request->input('view_type') === 'voucher' ? 'voucher' : 'item';
+        $viewType = $request->input('view_type') === 'item' ? 'item' : 'voucher';
 
         if ($viewType === 'voucher') {
             $pendingItemFilter = function ($q) {
@@ -1282,6 +1282,7 @@ class ApprovalController extends Controller
 
             $return = SaleReturn::create([
                 'company_id' => $company->id,
+                'created_by' => auth()->id(),
                 'sale_id' => null,
                 'source_type' => 'approval',
                 'source_id' => $request->approval_id,
@@ -1294,13 +1295,12 @@ class ApprovalController extends Controller
             $totalAmount = 0;
 
             foreach ($request->items as $id) {
-                $approvalItem = ApprovalItem::with('itemSet')
-                    ->where('approval_id', (int) $request->approval_id)
-                    ->where('status', 'pending')
-                    ->whereHas('approval', function ($q) use ($company) {
-                        $q->where('company_id', $company->id);
-                    })
-                    ->findOrFail((int) $id);
+                $approvalItem = TransactionItemGuard::lockApprovalItemForReturn($company->id, (int) $id)
+                    ->load('itemSet');
+
+                if ((int) $approvalItem->approval_id !== (int) $request->approval_id) {
+                    throw new \Exception('Approval item does not belong to selected approval voucher.');
+                }
 
                 $itemSet = $approvalItem->itemSet;
                 if (!$itemSet) {
@@ -1343,10 +1343,14 @@ class ApprovalController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollback();
+            $isProcessedConflict = str_contains($e->getMessage(), 'already sold/returned')
+                || str_contains($e->getMessage(), 'not available for return');
 
             return response()->json([
                 'error' => $e->getMessage(),
-            ]);
+                'success' => false,
+                'code' => $isProcessedConflict ? 'APPROVAL_ITEM_ALREADY_PROCESSED' : 'APPROVAL_RETURN_SAVE_FAILED',
+            ], $isProcessedConflict ? 409 : 422);
         }
     }
 }

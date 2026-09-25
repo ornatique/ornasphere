@@ -44,6 +44,8 @@
                             <tr>
                                 <th style="width: 80px;">Sr. No</th>
                                 <th style="width: 160px;">B. No</th>
+                                <th style="width: 220px;">Item Name</th>
+                                <th style="width: 260px;">Remarks</th>
                                 <th style="width: 190px;">Worker</th>
                                 <th style="width: 160px;">Office Cut Wt</th>
                                 <th style="width: 170px;">Issue Tree Wt</th>
@@ -63,6 +65,8 @@
                             @forelse($issueItems as $issueItem)
                             @php
                                 $receiveItem = $receiveItems->get($issueItem->id);
+                                $itemName = $issueItem->primary_item?->is_custom ? '-' : ($issueItem->item_name ?: '-');
+                                $remarks = $issueItem->primary_item?->is_custom ? '-' : ($issueItem->remarks ?: '-');
                                 $officeCutWt = (float) ($issueItem->office_cut_wt ?? 0);
                                 $issueTreeWt = (float) ($issueItem->receive_tree_wt ?? 0);
                                 $receivePcWtValue = old('items.' . $issueItem->id . '.receive_pc_wt', $receiveItem?->receive_pc_wt);
@@ -77,6 +81,8 @@
                             <tr data-receive-row>
                                 <td>{{ $loop->iteration }}</td>
                                 <td>{{ $issueItem->buch_no }}</td>
+                                <td>{{ $itemName }}</td>
+                                <td>{{ $remarks }}</td>
                                 <td>{{ $issueItem->jobWorker?->name ?? '-' }}</td>
                                 <td><span>{{ number_format($officeCutWt, 3, '.', '') }}</span></td>
                                 <td><span data-issue-tree-wt>{{ number_format($issueTreeWt, 3, '.', '') }}</span></td>
@@ -110,7 +116,7 @@
                             </tr>
                             @empty
                             <tr>
-                                <td colspan="8" class="text-center">No tree cutting issue rows found</td>
+                                <td colspan="10" class="text-center">No tree cutting issue rows found</td>
                             </tr>
                             @endforelse
                             @foreach($customReceiveItems ?? [] as $customItem)
@@ -141,6 +147,8 @@
                                         value="{{ old('custom_items.' . $loop->index . '.custom_buch_no', $customItem->custom_buch_no) }}"
                                         placeholder="B. No">
                                 </td>
+                                <td>-</td>
+                                <td>-</td>
                                 <td>-</td>
                                 <td><span>0.000</span></td>
                                 <td><span data-issue-tree-wt>0.000</span></td>
@@ -179,7 +187,7 @@
                         </tbody>
                         <tfoot>
                             <tr>
-                                <td colspan="3">Total</td>
+                                <td colspan="5">Total</td>
                                 <td><strong>{{ number_format($officeCutWtTotal, 3, '.', '') }}</strong></td>
                                 <td><strong>{{ number_format($issueTreeWtTotal, 3, '.', '') }}</strong></td>
                                 <td><strong id="treeReceivePcWtTotal">{{ number_format($receivePcWtTotal, 3, '.', '') }}</strong></td>
@@ -271,6 +279,8 @@
                         maxlength="100"
                         placeholder="B. No">
                 </td>
+                <td>-</td>
+                <td>-</td>
                 <td>-</td>
                 <td><span>0.000</span></td>
                 <td><span data-issue-tree-wt>0.000</span></td>

@@ -383,7 +383,7 @@ class TreeCuttingOfficeController extends Controller
                 });
             })
             ->where('release_tree_wt', '>', 0)
-            ->with('voucherItem:id,buch_no')
+            ->with('voucherItem:id,buch_no,item_name,remarks')
             ->get()
             ->keyBy(fn($item) => $this->treeRowKey($item));
     }

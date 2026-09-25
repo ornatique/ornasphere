@@ -5,18 +5,22 @@
     $blankRow = [
         'vacuum_buch_id' => '',
         'buch_no' => '',
+        'item_name' => '',
         'gross_wt' => 0,
         'buch_wt' => 0,
         'net_wt' => 0,
         'silver_wt' => 0,
+        'remarks' => '',
     ];
     $oldItems = old('items', isset($data) ? $data->items->map(fn($i) => [
         'vacuum_buch_id' => $i->vacuum_buch_id,
         'buch_no' => $i->buch_no,
+        'item_name' => $i->item_name,
         'gross_wt' => $i->gross_wt,
         'buch_wt' => $i->buch_wt,
         'net_wt' => $i->net_wt,
         'silver_wt' => $i->silver_wt,
+        'remarks' => $i->remarks,
     ])->toArray() : []);
     $minimumRows = isset($data)
         ? max(1, count($oldItems) + 1)
@@ -97,6 +101,8 @@
                                 <th>Buch Wt</th>
                                 <th>Net Wt</th>
                                 <th>Silver Wt</th>
+                                <th style="min-width: 220px">Item Name</th>
+                                <th style="min-width: 240px">Remarks</th>
                                 <th style="width: 90px">Action</th>
                             </tr>
                         </thead>
@@ -118,6 +124,17 @@
                                 <td><input type="number" step="0.001" name="items[{{ $idx }}][buch_wt]" class="form-control buch-wt" value="{{ $row['buch_wt'] ?? 0 }}"></td>
                                 <td><input type="number" step="0.001" class="form-control net-wt" value="{{ $row['net_wt'] ?? 0 }}" readonly></td>
                                 <td><input type="number" step="0.001" class="form-control silver-wt" value="{{ $row['silver_wt'] ?? 0 }}" readonly></td>
+                                <td>
+                                    <select name="items[{{ $idx }}][item_name]" class="form-select item-name-select">
+                                        <option value="">Select Item</option>
+                                        @foreach($items as $itemOption)
+                                        <option value="{{ $itemOption->item_name }}" {{ (string) ($row['item_name'] ?? '') === (string) $itemOption->item_name ? 'selected' : '' }}>
+                                            {{ $itemOption->item_name }}
+                                        </option>
+                                        @endforeach
+                                    </select>
+                                </td>
+                                <td><input type="text" name="items[{{ $idx }}][remarks]" class="form-control item-remarks" value="{{ $row['remarks'] ?? '' }}" placeholder="Remarks"></td>
                                 <td><button type="button" class="btn btn-sm btn-danger removeRowBtn">Remove</button></td>
                             </tr>
                             @endforeach
@@ -129,7 +146,7 @@
                                 <th id="buchTotal">0.000</th>
                                 <th id="netTotal">0.000</th>
                                 <th id="silverTotal">0.000</th>
-                                <th></th>
+                                <th colspan="3"></th>
                             </tr>
                         </tfoot>
                     </table>
@@ -178,6 +195,7 @@
 <script>
 let rowIndex = $('#voucherItemsTable tbody tr').length;
 const buchOptions = @json($buchs->map(fn($b) => ['id' => $b->id, 'text' => $b->buch_no, 'weight' => (float) ($b->weight ?? 0)])->values());
+const itemOptions = @json($items->map(fn($item) => ['text' => $item->item_name])->values());
 
 if ($.fn.select2) {
     $('#processSelect').select2({
@@ -210,6 +228,13 @@ function initSelect2($context) {
         theme: 'bootstrap4',
         width: '100%',
         placeholder: 'Search Buch No',
+        allowClear: true
+    });
+
+    $context.find('.item-name-select').select2({
+        theme: 'bootstrap4',
+        width: '100%',
+        placeholder: 'Select Item',
         allowClear: true
     });
 
@@ -307,6 +332,15 @@ function buchOptionsHtml() {
     return html;
 }
 
+function itemOptionsHtml() {
+    let html = '<option value="">Select Item</option>';
+    itemOptions.forEach(function (item) {
+        const text = $('<div>').text(item.text).html();
+        html += `<option value="${text}">${text}</option>`;
+    });
+    return html;
+}
+
 function appendRow() {
     const row = `
         <tr>
@@ -316,6 +350,8 @@ function appendRow() {
             <td><input type="number" step="0.001" name="items[${rowIndex}][buch_wt]" class="form-control buch-wt" value="0"></td>
             <td><input type="number" step="0.001" class="form-control net-wt" value="0.000" readonly></td>
             <td><input type="number" step="0.001" class="form-control silver-wt" value="0.000" readonly></td>
+            <td><select name="items[${rowIndex}][item_name]" class="form-select item-name-select">${itemOptionsHtml()}</select></td>
+            <td><input type="text" name="items[${rowIndex}][remarks]" class="form-control item-remarks" placeholder="Remarks"></td>
             <td><button type="button" class="btn btn-sm btn-danger removeRowBtn">Remove</button></td>
         </tr>`;
 
@@ -328,6 +364,8 @@ function appendRow() {
 
 function rowHasValue($row) {
     return !!$row.find('.buch-select').val()
+        || !!$row.find('.item-name-select').val()
+        || $.trim($row.find('.item-remarks').val() || '') !== ''
         || toNum($row.find('.gross-wt').val()) !== 0
         || toNum($row.find('.buch-wt').val()) !== 0;
 }
@@ -360,7 +398,8 @@ $('#processSelect, #workerSelect').on('change', refreshGridState);
 $(document).on('click', '.removeRowBtn', function () {
     if ($('#voucherItemsTable tbody tr').length <= 10) {
         const $row = $(this).closest('tr');
-        $row.find('select').val('').trigger('change.select2');
+        $row.find('select').val('').trigger('change');
+        $row.find('.item-remarks').val('');
         $row.find('.gross-wt, .buch-wt').val('0');
     } else {
         $(this).closest('tr').remove();

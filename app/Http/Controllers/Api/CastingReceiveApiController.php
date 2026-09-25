@@ -466,6 +466,8 @@ class CastingReceiveApiController extends Controller
                         'vacuum_voucher_item_id' => (int) $item->id,
                         'vacuum_buch_id' => $item->vacuum_buch_id ? (int) $item->vacuum_buch_id : null,
                         'buch_no' => $item->buch_no,
+                        'item_name' => $item->item_name,
+                        'voucher_remarks' => $item->remarks,
                         'issue_silver_wt' => $this->decimalValue($issueItem?->issue_silver_wt, 3),
                         'release_tree_wt' => $releaseItem?->release_tree_wt !== null ? $this->decimalValue($releaseItem->release_tree_wt, 3) : null,
                         'release_tree_bhuko' => $releaseItem?->release_tree_bhuko !== null ? $this->decimalValue($releaseItem->release_tree_bhuko, 3) : null,

@@ -105,6 +105,83 @@
             </div>
         </div>
     </div>
+
+    <button type="button" id="stockGalleryGoTop" class="stock-gallery-go-top" title="Go to top" aria-label="Go to top">
+        <i class="mdi mdi-arrow-up"></i>
+    </button>
+</div>
+
+<div class="modal fade" id="galleryImageModal">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark text-white border-0">
+            <div class="modal-header border-bottom">
+                <h5 class="modal-title">Item Image</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+
+            <div class="modal-body">
+                <input type="hidden" id="gallery_image_item_id">
+                <input type="hidden" id="gallery_image_encrypted_id">
+
+                <div class="row">
+                    <div class="col-md-7 mb-3">
+                        <div class="gallery-image-preview-wrap">
+                            <img id="gallery_item_image_preview" class="gallery-item-image-preview" alt="Item image preview">
+                            <div id="gallery_image_crop_box" class="gallery-image-crop-box">
+                                <span class="gallery-image-crop-handle gallery-image-crop-handle-nw" data-handle="nw"></span>
+                                <span class="gallery-image-crop-handle gallery-image-crop-handle-ne" data-handle="ne"></span>
+                                <span class="gallery-image-crop-handle gallery-image-crop-handle-sw" data-handle="sw"></span>
+                                <span class="gallery-image-crop-handle gallery-image-crop-handle-se" data-handle="se"></span>
+                            </div>
+                            <div id="gallery_item_image_empty" class="gallery-item-image-empty">No image uploaded</div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-5 mb-3">
+                        <div class="mb-3">
+                            <label>Item</label>
+                            <input type="text" id="gallery_image_item_name" class="form-control text-white border-0" readonly>
+                        </div>
+
+                        <div class="mb-3">
+                            <label>Label Code</label>
+                            <input type="text" id="gallery_image_label_code" class="form-control text-white border-0" readonly>
+                        </div>
+
+                        <div class="mb-3">
+                            <label>Upload Image</label>
+                            <input type="file" id="gallery_item_image_file" class="form-control text-white border-0" accept="image/jpeg,image/png,image/webp">
+                            <small class="text-muted d-block mt-1">JPG, PNG or WebP up to 20 MB. Stored as compressed WebP.</small>
+                        </div>
+
+                        <div class="gallery-image-edit-tools border rounded p-2 mb-3" id="gallery_image_edit_tools">
+                            <div class="d-flex flex-wrap gap-2">
+                                <button class="btn btn-sm btn-warning" id="galleryCropBtn" type="button"><i class="mdi mdi-crop"></i> Crop</button>
+                                <button class="btn btn-sm btn-info" id="galleryRotateLeftBtn" type="button"><i class="mdi mdi-rotate-left"></i> Rotate Left</button>
+                                <button class="btn btn-sm btn-info" id="galleryRotateRightBtn" type="button"><i class="mdi mdi-rotate-right"></i> Rotate Right</button>
+                                <button class="btn btn-sm btn-secondary" id="galleryResetCropBtn" type="button"><i class="mdi mdi-crop-free"></i> Reset Crop</button>
+                            </div>
+                            <small class="text-muted d-block mt-2">Click Crop, then drag or resize the box on the image. Upload saves the selected area.</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label>Uploaded</label>
+                            <input type="text" id="gallery_image_uploaded_at" class="form-control text-white border-0" readonly>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="gallery_image_upload_error" class="alert alert-danger d-none mb-0"></div>
+                <div id="gallery_image_upload_success" class="alert alert-success d-none mb-0"></div>
+            </div>
+
+            <div class="modal-footer border-top">
+                <button class="btn btn-danger me-auto" id="galleryRemoveImageBtn" type="button">Remove Image</button>
+                <button class="btn btn-light" data-bs-dismiss="modal" type="button">Cancel</button>
+                <button class="btn btn-success" id="galleryUploadImageBtn" type="button">Upload Image</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <style>
@@ -309,6 +386,17 @@
         gap: 10px;
         margin-top: auto;
     }
+    .gallery-card-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 4px;
+    }
+    .gallery-image-btn {
+        padding: 5px 8px;
+        font-size: 12px;
+    }
     .stock-badge {
         border-radius: 4px;
         padding: 5px 8px;
@@ -319,6 +407,107 @@
     .stock-badge.out { background: #ff2f2f; color: #fff; }
     .gallery-check { width: 18px; height: 18px; }
     .gallery-check:disabled { opacity: .5; cursor: not-allowed; }
+    .stock-gallery-go-top {
+        position: fixed;
+        right: 28px;
+        bottom: 34px;
+        z-index: 1050;
+        width: 44px;
+        height: 44px;
+        border: 0;
+        border-radius: 50%;
+        background: #ff2b72;
+        color: #fff;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+        cursor: pointer;
+    }
+    .stock-gallery-go-top:hover,
+    .stock-gallery-go-top:focus {
+        background: #e91e63;
+        color: #fff;
+        outline: none;
+    }
+    .stock-gallery-go-top.is-visible {
+        display: flex;
+    }
+    .stock-gallery-go-top i {
+        font-size: 22px;
+        line-height: 1;
+    }
+    .gallery-image-preview-wrap {
+        position: relative;
+        height: min(56vh, 460px);
+        min-height: 320px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.04);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+    .gallery-item-image-preview {
+        display: none;
+        width: 100%;
+        height: 100%;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        object-position: center;
+    }
+    .gallery-item-image-empty {
+        color: rgba(255, 255, 255, 0.62);
+    }
+    .gallery-image-crop-box {
+        display: none;
+        position: absolute;
+        z-index: 4;
+        border: 2px solid #2f80ff;
+        box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+        cursor: move;
+        touch-action: none;
+    }
+    .gallery-image-crop-box::before,
+    .gallery-image-crop-box::after {
+        content: '';
+        position: absolute;
+        inset: 33.333% 0 auto 0;
+        border-top: 1px dashed rgba(255, 255, 255, 0.75);
+    }
+    .gallery-image-crop-box::after {
+        inset: 66.666% 0 auto 0;
+    }
+    .gallery-image-crop-handle {
+        position: absolute;
+        width: 12px;
+        height: 12px;
+        background: #2f80ff;
+        border: 2px solid #ffffff;
+        border-radius: 50%;
+        touch-action: none;
+    }
+    .gallery-image-crop-handle-nw {
+        left: -7px;
+        top: -7px;
+        cursor: nwse-resize;
+    }
+    .gallery-image-crop-handle-ne {
+        right: -7px;
+        top: -7px;
+        cursor: nesw-resize;
+    }
+    .gallery-image-crop-handle-sw {
+        left: -7px;
+        bottom: -7px;
+        cursor: nesw-resize;
+    }
+    .gallery-image-crop-handle-se {
+        right: -7px;
+        bottom: -7px;
+        cursor: nwse-resize;
+    }
     @media (max-width: 575px) {
         .gallery-actions { justify-content: stretch; }
         .gallery-actions .btn,
@@ -331,9 +520,14 @@ document.addEventListener('DOMContentLoaded', function () {
     const dataUrl = @json(route('company.stock-gallery.data', $company->slug));
     const pdfUrl = @json(route('company.stock-gallery.pdf', $company->slug));
     const downloadListUrl = @json(route('company.stock-gallery.download-list', $company->slug));
+    const imageShowUrlTemplate = @json(route('company.itemsets.image.show', [$company->slug, '__ID__']));
+    const imageUpdateUrlTemplate = @json(route('company.itemsets.image.update', [$company->slug, '__ID__']));
+    const imageRemoveUrlTemplate = @json(route('company.itemsets.image.remove', [$company->slug, '__ID__']));
+    const csrfToken = @json(csrf_token());
     const grid = document.getElementById('galleryGrid');
     const status = document.getElementById('galleryStatus');
     const loadMoreBtn = document.getElementById('loadMore');
+    const goTopBtn = document.getElementById('stockGalleryGoTop');
     const selectedCount = document.getElementById('selectedCount');
     const selectedIds = new Set();
     const visibleItems = new Map();
@@ -439,7 +633,11 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function imagePlaceholderHtml() {
-        return '<div class="gallery-placeholder">Image not uploaded<span>Upload image from Label Items</span></div>';
+        return '<div class="gallery-placeholder">Image not uploaded<span>Upload image here</span></div>';
+    }
+
+    function itemImageUrl(template, encryptedId) {
+        return template.replace('__ID__', encodeURIComponent(encryptedId));
     }
 
     function cardHtml(item) {
@@ -474,6 +672,13 @@ document.addEventListener('DOMContentLoaded', function () {
                             Select
                         </label>
                     </div>
+                    <div class="gallery-card-actions">
+                        <button type="button" class="btn btn-sm btn-info gallery-image-btn"
+                            data-id="${item.id}"
+                            data-encrypted-id="${escapeHtml(item.encrypted_id)}">
+                            ${item.has_image ? 'Update Image' : 'Upload Image'}
+                        </button>
+                    </div>
                 </div>
             </div>
         `;
@@ -487,6 +692,412 @@ document.addEventListener('DOMContentLoaded', function () {
             imageWrap.innerHTML = imagePlaceholderHtml();
         }
     }, true);
+
+    function resetImageMessages() {
+        jQuery('#gallery_image_upload_error').addClass('d-none').text('');
+        jQuery('#gallery_image_upload_success').addClass('d-none').text('');
+    }
+
+    function setImagePreview(url) {
+        if (url) {
+            jQuery('#gallery_item_image_preview').attr('src', url).show();
+            jQuery('#gallery_item_image_empty').hide();
+            jQuery('#galleryRemoveImageBtn').prop('disabled', false).show();
+            return;
+        }
+
+        jQuery('#gallery_item_image_preview').removeAttr('src').hide();
+        jQuery('#gallery_item_image_empty').show();
+        jQuery('#galleryRemoveImageBtn').prop('disabled', true).hide();
+    }
+
+    function createImageEditor(options) {
+        const state = {
+            image: null,
+            rotation: 0,
+            previewUrl: null,
+            fileName: 'item-image.jpg',
+            renderWidth: 0,
+            renderHeight: 0,
+            cropActive: false,
+            drag: null
+        };
+
+        const $tools = jQuery(options.tools);
+        const $wrap = jQuery(options.wrap);
+        const $cropBox = jQuery(options.cropBox);
+        const $crop = jQuery(options.crop);
+        const $resetCrop = jQuery(options.resetCrop);
+        const $rotateLeft = jQuery(options.rotateLeft);
+        const $rotateRight = jQuery(options.rotateRight);
+
+        function setEnabled(enabled) {
+            $tools.find('button, input').prop('disabled', !enabled);
+        }
+
+        function revokePreviewUrl() {
+            if (state.previewUrl) {
+                URL.revokeObjectURL(state.previewUrl);
+                state.previewUrl = null;
+            }
+        }
+
+        function reset() {
+            revokePreviewUrl();
+            state.image = null;
+            state.rotation = 0;
+            state.renderWidth = 0;
+            state.renderHeight = 0;
+            state.cropActive = false;
+            state.drag = null;
+            $cropBox.hide().removeAttr('style');
+            setEnabled(false);
+        }
+
+        function buildRotatedCanvas() {
+            if (!state.image) {
+                return null;
+            }
+
+            const img = state.image;
+            const rotation = ((state.rotation % 360) + 360) % 360;
+            const canvas = document.createElement('canvas');
+            canvas.width = rotation === 90 || rotation === 270 ? img.naturalHeight : img.naturalWidth;
+            canvas.height = rotation === 90 || rotation === 270 ? img.naturalWidth : img.naturalHeight;
+            const ctx = canvas.getContext('2d');
+
+            ctx.save();
+            if (rotation === 90) {
+                ctx.translate(canvas.width, 0);
+                ctx.rotate(Math.PI / 2);
+            } else if (rotation === 180) {
+                ctx.translate(canvas.width, canvas.height);
+                ctx.rotate(Math.PI);
+            } else if (rotation === 270) {
+                ctx.translate(0, canvas.height);
+                ctx.rotate(3 * Math.PI / 2);
+            }
+            ctx.drawImage(img, 0, 0);
+            ctx.restore();
+
+            state.renderWidth = canvas.width;
+            state.renderHeight = canvas.height;
+
+            return canvas;
+        }
+
+        function getImageRect() {
+            if (!state.renderWidth || !state.renderHeight) {
+                return null;
+            }
+
+            const wrapWidth = $wrap.width();
+            const wrapHeight = $wrap.height();
+            const scale = Math.min(wrapWidth / state.renderWidth, wrapHeight / state.renderHeight);
+            const width = state.renderWidth * scale;
+            const height = state.renderHeight * scale;
+
+            return {
+                left: (wrapWidth - width) / 2,
+                top: (wrapHeight - height) / 2,
+                width,
+                height
+            };
+        }
+
+        function setCropBox(rect) {
+            $cropBox.css({
+                left: rect.left + 'px',
+                top: rect.top + 'px',
+                width: rect.width + 'px',
+                height: rect.height + 'px',
+                display: state.cropActive ? 'block' : 'none'
+            });
+        }
+
+        function startCrop() {
+            if (!state.image) {
+                return;
+            }
+
+            const imageRect = getImageRect();
+            if (!imageRect) {
+                return;
+            }
+
+            state.cropActive = true;
+            setCropBox({
+                left: imageRect.left + imageRect.width * 0.1,
+                top: imageRect.top + imageRect.height * 0.1,
+                width: imageRect.width * 0.8,
+                height: imageRect.height * 0.8
+            });
+        }
+
+        function resetCrop() {
+            state.cropActive = false;
+            $cropBox.hide();
+        }
+
+        function renderPreview() {
+            const canvas = buildRotatedCanvas();
+            if (!canvas) {
+                return Promise.resolve(null);
+            }
+
+            return new Promise(function(resolve) {
+                canvas.toBlob(function(blob) {
+                    if (!blob) {
+                        resolve(null);
+                        return;
+                    }
+
+                    const file = new File([blob], state.fileName.replace(/\.[^.]+$/, '') + '-edited.jpg', { type: 'image/jpeg' });
+                    revokePreviewUrl();
+                    state.previewUrl = URL.createObjectURL(file);
+                    setImagePreview(state.previewUrl);
+                    resetCrop();
+                    resolve(file);
+                }, 'image/jpeg', 0.92);
+            });
+        }
+
+        function renderToFile() {
+            const rotatedCanvas = buildRotatedCanvas();
+            if (!rotatedCanvas) {
+                return Promise.resolve(null);
+            }
+
+            let outputCanvas = rotatedCanvas;
+            if (state.cropActive && $cropBox.is(':visible')) {
+                const imageRect = getImageRect();
+                const box = {
+                    left: parseFloat($cropBox.css('left')) || 0,
+                    top: parseFloat($cropBox.css('top')) || 0,
+                    width: $cropBox.outerWidth(),
+                    height: $cropBox.outerHeight()
+                };
+
+                if (imageRect && box.width > 2 && box.height > 2) {
+                    const scaleX = rotatedCanvas.width / imageRect.width;
+                    const scaleY = rotatedCanvas.height / imageRect.height;
+                    const sx = Math.max(0, Math.round((box.left - imageRect.left) * scaleX));
+                    const sy = Math.max(0, Math.round((box.top - imageRect.top) * scaleY));
+                    const sw = Math.min(rotatedCanvas.width - sx, Math.round(box.width * scaleX));
+                    const sh = Math.min(rotatedCanvas.height - sy, Math.round(box.height * scaleY));
+
+                    outputCanvas = document.createElement('canvas');
+                    outputCanvas.width = Math.max(1, sw);
+                    outputCanvas.height = Math.max(1, sh);
+                    outputCanvas.getContext('2d').drawImage(rotatedCanvas, sx, sy, sw, sh, 0, 0, outputCanvas.width, outputCanvas.height);
+                }
+            }
+
+            return new Promise(function(resolve) {
+                outputCanvas.toBlob(function(blob) {
+                    if (!blob) {
+                        resolve(null);
+                        return;
+                    }
+
+                    resolve(new File([blob], state.fileName.replace(/\.[^.]+$/, '') + '-edited.jpg', { type: 'image/jpeg' }));
+                }, 'image/jpeg', 0.92);
+            });
+        }
+
+        function load(file) {
+            reset();
+            state.fileName = file.name || 'item-image.jpg';
+            const imageUrl = URL.createObjectURL(file);
+            const img = new Image();
+            img.onload = function() {
+                URL.revokeObjectURL(imageUrl);
+                state.image = img;
+                setEnabled(true);
+                renderPreview();
+            };
+            img.onerror = function() {
+                URL.revokeObjectURL(imageUrl);
+                reset();
+                jQuery('#gallery_image_upload_error').removeClass('d-none').text('Unable to read selected image.');
+            };
+            img.src = imageUrl;
+        }
+
+        $rotateLeft.on('click', function() {
+            state.rotation -= 90;
+            renderPreview();
+        });
+        $rotateRight.on('click', function() {
+            state.rotation += 90;
+            renderPreview();
+        });
+        $crop.on('click', startCrop);
+        $resetCrop.on('click', resetCrop);
+
+        $cropBox.on('mousedown touchstart', function(event) {
+            if (!state.cropActive) {
+                return;
+            }
+
+            const point = event.type === 'touchstart' ? event.originalEvent.touches[0] : event;
+            const position = $cropBox.position();
+            state.drag = {
+                handle: jQuery(event.target).data('handle') || 'move',
+                startX: point.clientX,
+                startY: point.clientY,
+                left: position.left,
+                top: position.top,
+                width: $cropBox.outerWidth(),
+                height: $cropBox.outerHeight()
+            };
+            event.preventDefault();
+        });
+
+        jQuery(document).on('mousemove.galleryImageEditor touchmove.galleryImageEditor', function(event) {
+            if (!state.drag) {
+                return;
+            }
+
+            const point = event.type === 'touchmove' ? event.originalEvent.touches[0] : event;
+            const dx = point.clientX - state.drag.startX;
+            const dy = point.clientY - state.drag.startY;
+            const imageRect = getImageRect();
+            const minSize = 40;
+            let left = state.drag.left;
+            let top = state.drag.top;
+            let width = state.drag.width;
+            let height = state.drag.height;
+
+            if (!imageRect) {
+                return;
+            }
+
+            if (state.drag.handle === 'move') {
+                left += dx;
+                top += dy;
+            } else {
+                if (state.drag.handle.includes('w')) {
+                    left += dx;
+                    width -= dx;
+                }
+                if (state.drag.handle.includes('e')) {
+                    width += dx;
+                }
+                if (state.drag.handle.includes('n')) {
+                    top += dy;
+                    height -= dy;
+                }
+                if (state.drag.handle.includes('s')) {
+                    height += dy;
+                }
+            }
+
+            width = Math.max(minSize, width);
+            height = Math.max(minSize, height);
+            left = Math.max(imageRect.left, Math.min(left, imageRect.left + imageRect.width - width));
+            top = Math.max(imageRect.top, Math.min(top, imageRect.top + imageRect.height - height));
+            width = Math.min(width, imageRect.left + imageRect.width - left);
+            height = Math.min(height, imageRect.top + imageRect.height - top);
+            setCropBox({ left, top, width, height });
+            event.preventDefault();
+        });
+
+        jQuery(document).on('mouseup.galleryImageEditor touchend.galleryImageEditor touchcancel.galleryImageEditor', function() {
+            state.drag = null;
+        });
+
+        reset();
+
+        return {
+            load,
+            reset,
+            getFile: renderToFile
+        };
+    }
+
+    const galleryImageEditor = createImageEditor({
+        tools: '#gallery_image_edit_tools',
+        wrap: '.gallery-image-preview-wrap',
+        cropBox: '#gallery_image_crop_box',
+        crop: '#galleryCropBtn',
+        resetCrop: '#galleryResetCropBtn',
+        rotateLeft: '#galleryRotateLeftBtn',
+        rotateRight: '#galleryRotateRightBtn'
+    });
+
+    function currentGalleryImageUrls() {
+        const encryptedId = document.getElementById('gallery_image_encrypted_id').value;
+
+        return {
+            show: itemImageUrl(imageShowUrlTemplate, encryptedId),
+            update: itemImageUrl(imageUpdateUrlTemplate, encryptedId),
+            remove: itemImageUrl(imageRemoveUrlTemplate, encryptedId)
+        };
+    }
+
+    function updateGalleryCardImage(itemId, imageUrl) {
+        const id = String(itemId);
+        const item = visibleItems.get(id);
+        if (item) {
+            item.image_url = imageUrl || null;
+            item.has_image = Boolean(imageUrl);
+        }
+
+        const card = grid.querySelector(`.stock-gallery-card[data-id="${CSS.escape(id)}"]`);
+        if (!card) {
+            return;
+        }
+
+        const wrap = card.querySelector('.gallery-image-wrap');
+        const button = card.querySelector('.gallery-image-btn');
+        const checkbox = card.querySelector('.gallery-check');
+
+        if (wrap) {
+            wrap.innerHTML = imageUrl
+                ? `<img class="gallery-item-image" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(item?.label_code || '')}">`
+                : imagePlaceholderHtml();
+        }
+        if (button) {
+            button.textContent = imageUrl ? 'Update Image' : 'Upload Image';
+        }
+        if (checkbox) {
+            checkbox.disabled = !imageUrl;
+            checkbox.title = imageUrl ? '' : 'Image not uploaded';
+            if (!imageUrl) {
+                checkbox.checked = false;
+                selectedIds.delete(id);
+                updateSelectedCount();
+            }
+        }
+    }
+
+    function loadGalleryItemImage(item) {
+        if (!window.jQuery) {
+            return;
+        }
+
+        resetImageMessages();
+        jQuery('#gallery_item_image_file').val('');
+        galleryImageEditor.reset();
+        document.getElementById('gallery_image_item_id').value = item.id;
+        document.getElementById('gallery_image_encrypted_id').value = item.encrypted_id;
+
+        jQuery.get(itemImageUrl(imageShowUrlTemplate, item.encrypted_id), function(data) {
+            jQuery('#gallery_image_item_name').val(data.item_name || item.item_name || '-');
+            jQuery('#gallery_image_label_code').val(data.label_code || item.label_code || '-');
+            jQuery('#gallery_image_uploaded_at').val(data.image_uploaded_at || '-');
+            setImagePreview(data.image_url || '');
+            jQuery('#galleryImageModal').modal('show');
+        }).fail(function() {
+            jQuery('#gallery_image_item_name').val(item.item_name || '-');
+            jQuery('#gallery_image_label_code').val(item.label_code || '-');
+            jQuery('#gallery_image_uploaded_at').val('-');
+            setImagePreview(item.image_url || '');
+            jQuery('#gallery_image_upload_error').removeClass('d-none').text('Unable to load item image details.');
+            jQuery('#galleryImageModal').modal('show');
+        });
+    }
 
     async function loadGallery(reset = false) {
         if (loading) return;
@@ -666,6 +1277,121 @@ document.addEventListener('DOMContentLoaded', function () {
         updateSelectedCount();
     });
 
+    grid.addEventListener('click', function (event) {
+        const button = event.target.closest('.gallery-image-btn');
+        if (!button) return;
+
+        const item = visibleItems.get(String(button.dataset.id));
+        if (!item) {
+            alert('Unable to load this gallery item.');
+            return;
+        }
+
+        loadGalleryItemImage(item);
+    });
+
+    jQuery('#gallery_item_image_file').on('change', function() {
+        resetImageMessages();
+
+        const file = this.files && this.files[0] ? this.files[0] : null;
+        if (!file) {
+            const item = visibleItems.get(String(document.getElementById('gallery_image_item_id').value));
+            if (item) {
+                loadGalleryItemImage(item);
+            }
+            return;
+        }
+
+        if (!file.type.match(/^image\/(jpeg|png|webp)$/)) {
+            jQuery(this).val('');
+            jQuery('#gallery_image_upload_error').removeClass('d-none').text('Please select a JPG, PNG or WebP image.');
+            return;
+        }
+
+        galleryImageEditor.load(file);
+    });
+
+    jQuery('#galleryUploadImageBtn').on('click', async function() {
+        resetImageMessages();
+
+        const fileInput = jQuery('#gallery_item_image_file')[0];
+        if (!fileInput.files || !fileInput.files[0]) {
+            jQuery('#gallery_image_upload_error').removeClass('d-none').text('Please choose an image to upload.');
+            return;
+        }
+
+        const formData = new FormData();
+        const uploadFile = await galleryImageEditor.getFile();
+        formData.append('_token', csrfToken);
+        formData.append('image', uploadFile || fileInput.files[0]);
+
+        const itemId = document.getElementById('gallery_image_item_id').value;
+        const urls = currentGalleryImageUrls();
+        const $button = jQuery(this);
+        $button.prop('disabled', true).text('Uploading...');
+
+        jQuery.ajax({
+            url: urls.update,
+            method: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function(data) {
+                jQuery('#gallery_item_image_file').val('');
+                galleryImageEditor.reset();
+                jQuery('#gallery_image_uploaded_at').val(data.image_uploaded_at || '-');
+                setImagePreview(data.image_url || '');
+                updateGalleryCardImage(itemId, data.image_url || '');
+                jQuery('#gallery_image_upload_success').removeClass('d-none').text(data.message || 'Image uploaded successfully.');
+                loadGallery(true);
+                jQuery('#galleryImageModal').modal('hide');
+            },
+            error: function(xhr) {
+                const message = xhr.responseJSON?.message || xhr.responseJSON?.errors?.image?.[0] || 'Image upload failed.';
+                jQuery('#gallery_image_upload_error').removeClass('d-none').text(message);
+            },
+            complete: function() {
+                $button.prop('disabled', false).text('Upload Image');
+            }
+        });
+    });
+
+    jQuery('#galleryRemoveImageBtn').on('click', function() {
+        if (!confirm('Remove this item image?')) {
+            return;
+        }
+
+        resetImageMessages();
+
+        const itemId = document.getElementById('gallery_image_item_id').value;
+        const urls = currentGalleryImageUrls();
+        const $button = jQuery(this);
+        $button.prop('disabled', true).text('Removing...');
+
+        jQuery.ajax({
+            url: urls.remove,
+            method: 'DELETE',
+            data: {
+                _token: csrfToken
+            },
+            success: function() {
+                jQuery('#gallery_item_image_file').val('');
+                galleryImageEditor.reset();
+                jQuery('#gallery_image_uploaded_at').val('-');
+                setImagePreview('');
+                updateGalleryCardImage(itemId, '');
+                jQuery('#gallery_image_upload_success').removeClass('d-none').text('Image removed successfully.');
+                loadGallery(true);
+            },
+            error: function(xhr) {
+                jQuery('#gallery_image_upload_error').removeClass('d-none').text(xhr.responseJSON?.message || 'Unable to remove image.');
+            },
+            complete: function() {
+                $button.text('Remove Image');
+            }
+        });
+    });
+
     document.getElementById('applyFilter').addEventListener('click', function () { loadGallery(true); });
     document.getElementById('resetFilter').addEventListener('click', function () {
         Array.from(document.getElementById('itemFilter').options).forEach(function (option) {
@@ -714,6 +1440,14 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('shareWhatsapp').addEventListener('click', function () {
         shareWhatsappWithImages();
     });
+    function toggleGoTopButton() {
+        goTopBtn.classList.toggle('is-visible', window.scrollY > 350);
+    }
+    window.addEventListener('scroll', toggleGoTopButton, { passive: true });
+    goTopBtn.addEventListener('click', function () {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+    toggleGoTopButton();
     loadMoreBtn.addEventListener('click', function () {
         if (page < lastPage) {
             page += 1;

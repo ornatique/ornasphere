@@ -291,6 +291,9 @@ class SaleApiController extends Controller
                     $q->whereNull('status')
                         ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
                 })
+                ->when(Schema::hasTable('sale_carts') && Schema::hasColumn('sale_carts', 'approval_item_id'), function ($q) use ($companyId, $request) {
+                    $this->excludeApprovalSaleCartLocks($q, (int) $companyId, (int) $request->user()->id);
+                })
                 ->whereNotExists(function ($sub) use ($companyId, $currentSaleId) {
                     $sub->select(DB::raw(1))
                         ->from('sale_items')
@@ -375,6 +378,9 @@ class SaleApiController extends Controller
             ->where('company_id', $companyId)
             ->where('is_final', 1)
             ->where('is_sold', 0)
+            ->when(Schema::hasTable('sale_carts'), function ($q) use ($companyId, $request) {
+                $this->excludeSaleCartLocks($q, (int) $companyId, (int) $request->user()->id);
+            })
             ->when(!empty($approvalItemsetIds), function ($q) use ($approvalItemsetIds) {
                 $q->whereNotIn('id', $approvalItemsetIds);
             })
@@ -595,11 +601,15 @@ class SaleApiController extends Controller
         $user = auth()->user();
 
         $request->validate([
-            'qr_code' => 'required|string',
+            'qr_code' => 'nullable|required_without_all:itemset_id,approval_item_id|string',
+            'itemset_id' => 'nullable|required_without_all:qr_code,approval_item_id|integer',
+            'approval_item_id' => 'nullable|required_without_all:qr_code,itemset_id|integer',
             'customer_id' => 'nullable|integer',
         ]);
 
         $qrCode = trim((string) $request->qr_code);
+        $requestedItemsetId = (int) $request->input('itemset_id', 0);
+        $requestedApprovalItemId = (int) $request->input('approval_item_id', 0);
         $customerId = (int) $request->input('customer_id', 0);
        
         if ($customerId > 0) {
@@ -622,7 +632,18 @@ class SaleApiController extends Controller
                     $q->whereNull('status')
                         ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
                 })
-                ->whereRaw('TRIM(qr_code) = ?', [$qrCode])
+                ->when($requestedApprovalItemId > 0, function ($q) use ($requestedApprovalItemId) {
+                    $q->where('id', $requestedApprovalItemId);
+                })
+                ->when($requestedApprovalItemId <= 0 && $requestedItemsetId > 0, function ($q) use ($requestedItemsetId) {
+                    $q->where(function ($match) use ($requestedItemsetId) {
+                        $match->where('itemset_id', $requestedItemsetId)
+                            ->orWhere('item_id', $requestedItemsetId);
+                    });
+                })
+                ->when($requestedApprovalItemId <= 0 && $requestedItemsetId <= 0, function ($q) use ($qrCode) {
+                    $q->whereRaw('TRIM(qr_code) = ?', [$qrCode]);
+                })
                 ->whereNotExists(function ($sub) use ($user) {
                     $sub->select(DB::raw(1))
                         ->from('sale_items')
@@ -638,6 +659,12 @@ class SaleApiController extends Controller
                 ->first();
                  
             if ($approvalItem) {
+                $otherLock = $this->activeSaleCartLockForApprovalItem((int) $user->company_id, (int) $approvalItem->id);
+                if ($otherLock && (int) $otherLock->user_id !== (int) $user->id) {
+                    $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
+                    return $this->saleCartLockedResponseForApproval($approvalItem, $itemSet, $otherLock);
+                }
+
                 $exists = SaleCart::where('user_id', $user->id)
                     ->where('company_id', $user->company_id)
                     ->where('approval_item_id', $approvalItem->id)
@@ -651,7 +678,7 @@ class SaleApiController extends Controller
                 }
 
                 $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
-                SaleCart::create([
+                $cart = SaleCart::create([
                     'user_id' => $user->id,
                     'company_id' => $user->company_id,
                     'itemset_id' => optional($itemSet)->id,
@@ -662,46 +689,73 @@ class SaleApiController extends Controller
                     'success' => true,
                     'message' => 'Approval product added to cart',
                     'source' => 'approval',
+                    'cart_id' => (int) $cart->id,
                     'approval_item' => $approvalItem,
                 ]);
             }
+
+            if ($requestedApprovalItemId > 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Approval item not found or already added/sold.',
+                ], 422);
+            }
         }
 
-        $item = ItemSet::where('company_id', $user->company_id)
-            ->where('qr_code', $qrCode)
-            ->where('is_sold', 0)
-            ->first();
+        return DB::transaction(function () use ($user, $qrCode, $requestedItemsetId) {
+            $item = ItemSet::with('item')
+                ->where('company_id', $user->company_id)
+                ->when($requestedItemsetId > 0, function ($q) use ($requestedItemsetId) {
+                    $q->where('id', $requestedItemsetId);
+                })
+                ->when($requestedItemsetId <= 0, function ($q) use ($qrCode) {
+                    $q->where(function ($match) use ($qrCode) {
+                        $match->where('qr_code', $qrCode)
+                            ->orWhere('barcode', $qrCode)
+                            ->orWhere('HUID', $qrCode);
+                    });
+                })
+                ->where('is_sold', 0)
+                ->lockForUpdate()
+                ->first();
 
-        if (!$item) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Item not found or already sold'
+            if (!$item) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Item not found or already sold'
+                ]);
+            }
+
+            $existingLock = $this->activeSaleCartLockForItemSet((int) $user->company_id, (int) $item->id);
+            if ($existingLock && (int) $existingLock->user_id !== (int) $user->id) {
+                return $this->saleCartLockedResponse($item, $existingLock);
+            }
+
+            $exists = SaleCart::where('user_id', $user->id)
+                ->where('company_id', $user->company_id)
+                ->where('itemset_id', $item->id)
+                ->exists();
+
+            if ($exists) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Product already added. Please add different product.'
+                ]);
+            }
+
+            $cart = SaleCart::create([
+                'user_id'    => $user->id,
+                'company_id' => $user->company_id,
+                'itemset_id' => $item->id,
             ]);
-        }
 
-        $exists = SaleCart::where('user_id', $user->id)
-            ->where('company_id', $user->company_id)
-            ->where('itemset_id', $item->id)
-            ->exists();
-
-        if ($exists) {
             return response()->json([
-                'success' => false,
-                'message' => 'Product already added. Please add different product.'
+                'success' => true,
+                'message' => 'Product added to cart',
+                'cart_id' => (int) $cart->id,
+                'item' => $item
             ]);
-        }
-
-        SaleCart::create([
-            'user_id'    => $user->id,
-            'company_id' => $user->company_id,
-            'itemset_id' => $item->id,
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Product added to cart',
-            'item' => $item
-        ]);
+        });
     }
 
     public function cartItems()
@@ -1340,6 +1394,11 @@ class SaleApiController extends Controller
             ], 422);
         }
 
+        $existingLock = $this->activeSaleCartLockForItemSet((int) $companyId, (int) $item->id);
+        if ($existingLock && (int) $existingLock->user_id !== (int) $request->user()->id) {
+            return $this->saleCartLockedResponse($item, $existingLock);
+        }
+
         return response()->json([
             'success' => true,
             'data' => $item
@@ -1385,6 +1444,9 @@ class SaleApiController extends Controller
             ->where(function ($q) {
                 $q->whereNull('status')
                     ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+            })
+            ->when(Schema::hasTable('sale_carts') && Schema::hasColumn('sale_carts', 'approval_item_id'), function ($q) use ($companyId, $request) {
+                $this->excludeApprovalSaleCartLocks($q, (int) $companyId, (int) $request->user()->id);
             })
             ->whereNotExists(function ($sub) use ($companyId, $currentSaleId) {
                 $sub->select(DB::raw(1))
@@ -1481,7 +1543,8 @@ class SaleApiController extends Controller
     {
         $companyId = $request->user()->company_id;
 
-        $query = ItemSet::where('company_id', $companyId)
+        $query = ItemSet::with('item')
+            ->where('company_id', $companyId)
             ->where('is_sold', 0);
 
         if ($request->qr_code) {
@@ -1519,6 +1582,11 @@ class SaleApiController extends Controller
                 'success' => false,
                 'message' => 'Item is in approval. Use Add Label from Approval.',
             ], 422);
+        }
+
+        $existingLock = $this->activeSaleCartLockForItemSet((int) $companyId, (int) $item->id);
+        if ($existingLock && (int) $existingLock->user_id !== (int) $request->user()->id) {
+            return $this->saleCartLockedResponse($item, $existingLock);
         }
 
         return response()->json([
@@ -1651,6 +1719,13 @@ class SaleApiController extends Controller
                     }
 
                     $approvalItemId = (int) $approvalItem->id;
+                    $approvalCartLock = $this->activeSaleCartLockForApprovalItem((int) $companyId, $approvalItemId);
+                    if ($approvalCartLock && (int) $approvalCartLock->user_id !== (int) $user->id) {
+                        DB::rollBack();
+                        $approvalSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
+                        return $this->saleCartLockedResponseForApproval($approvalItem, $approvalSet, $approvalCartLock);
+                    }
+
                     $approvalItem = TransactionItemGuard::lockApprovalItemForSale(
                         $companyId,
                         $approvalItemId,
@@ -1667,6 +1742,13 @@ class SaleApiController extends Controller
 
                     if ($approvalItem) {
                         $approvalItemId = (int) $approvalItem->id;
+                        $approvalCartLock = $this->activeSaleCartLockForApprovalItem((int) $companyId, $approvalItemId);
+                        if ($approvalCartLock && (int) $approvalCartLock->user_id !== (int) $user->id) {
+                            DB::rollBack();
+                            $approvalSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
+                            return $this->saleCartLockedResponseForApproval($approvalItem, $approvalSet, $approvalCartLock);
+                        }
+
                         $approvalItem = TransactionItemGuard::lockApprovalItemForSale(
                             $companyId,
                             $approvalItemId,
@@ -1677,6 +1759,22 @@ class SaleApiController extends Controller
 
                 $itemSet = null;
                 if ($itemsetId > 0) {
+                    $existingLock = $this->activeSaleCartLockForItemSet((int) $companyId, (int) $itemsetId);
+                    if ($existingLock && (int) $existingLock->user_id !== (int) $user->id) {
+                        DB::rollBack();
+                        $lockedItem = ItemSet::with('item')
+                            ->where('company_id', $companyId)
+                            ->find($itemsetId);
+
+                        return $lockedItem
+                            ? $this->saleCartLockedResponse($lockedItem, $existingLock)
+                            : response()->json([
+                                'success' => false,
+                                'message' => 'This item is already selected by another user.',
+                                'code' => 'SALE_CART_ITEM_LOCKED',
+                            ], 409);
+                    }
+
                     $itemSet = TransactionItemGuard::lockItemSetForUse($companyId, $itemsetId, $approvalItemId > 0);
                     if (!$itemSet && $approvalItemId <= 0 && $itemsetId > 0) {
                         $approvalItem = $this->resolveApprovalItemForSale($companyId, null, $itemsetId, null, false);
@@ -2917,6 +3015,138 @@ class SaleApiController extends Controller
 
             ApprovalHeader::where('id', $approvalId)->update(['status' => $status]);
         }
+    }
+
+    private function excludeSaleCartLocks($query, int $companyId, ?int $userId = null): void
+    {
+        $activeLockCutoff = now()->subMinutes(30);
+
+        $query->whereNotExists(function ($sub) use ($companyId, $userId, $activeLockCutoff) {
+            $sub->select(DB::raw(1))
+                ->from('sale_carts')
+                ->whereColumn('sale_carts.itemset_id', 'item_sets.id')
+                ->where('sale_carts.company_id', $companyId)
+                ->whereNotNull('sale_carts.itemset_id')
+                ->where('sale_carts.created_at', '>=', $activeLockCutoff);
+
+            if ($userId) {
+                $sub->where('sale_carts.user_id', '<>', $userId);
+            }
+        });
+    }
+
+    private function excludeApprovalSaleCartLocks($query, int $companyId, ?int $userId = null): void
+    {
+        $activeLockCutoff = now()->subMinutes(30);
+
+        $query->whereNotExists(function ($sub) use ($companyId, $userId, $activeLockCutoff) {
+            $sub->select(DB::raw(1))
+                ->from('sale_carts')
+                ->whereColumn('sale_carts.approval_item_id', 'approval_items.id')
+                ->where('sale_carts.company_id', $companyId)
+                ->whereNotNull('sale_carts.approval_item_id')
+                ->where('sale_carts.created_at', '>=', $activeLockCutoff);
+
+            if ($userId) {
+                $sub->where('sale_carts.user_id', '<>', $userId);
+            }
+        });
+    }
+
+    private function activeSaleCartLockForItemSet(int $companyId, int $itemsetId): ?SaleCart
+    {
+        if (!Schema::hasTable('sale_carts')) {
+            return null;
+        }
+
+        return SaleCart::with('user')
+            ->where('company_id', $companyId)
+            ->where('itemset_id', $itemsetId)
+            ->where('created_at', '>=', now()->subMinutes(30))
+            ->latest('id')
+            ->first();
+    }
+
+    private function activeSaleCartLockForApprovalItem(int $companyId, int $approvalItemId): ?SaleCart
+    {
+        if (!Schema::hasTable('sale_carts') || !Schema::hasColumn('sale_carts', 'approval_item_id')) {
+            return null;
+        }
+
+        return SaleCart::with('user')
+            ->where('company_id', $companyId)
+            ->where('approval_item_id', $approvalItemId)
+            ->where('created_at', '>=', now()->subMinutes(30))
+            ->latest('id')
+            ->first();
+    }
+
+    private function saleCartLockedResponse(ItemSet $item, SaleCart $cart)
+    {
+        return response()->json([
+            'success' => false,
+            'message' => $this->saleCartLockMessage($item),
+            'code' => 'SALE_CART_ITEM_LOCKED',
+            'locked_item' => $this->saleCartLockPayload($item, $cart),
+            'data' => [$this->saleCartLockPayload($item, $cart)],
+        ], 409);
+    }
+
+    private function saleCartLockMessage(ItemSet $item): string
+    {
+        $label = trim((string) ($item->qr_code ?: $item->barcode ?: $item->HUID ?: optional($item->item)->item_name ?: 'This item'));
+
+        return $label . ' is already selected by another user.';
+    }
+
+    private function saleCartLockPayload(ItemSet $item, SaleCart $cart): array
+    {
+        return [
+            'cart_id' => (int) $cart->id,
+            'itemset_id' => (int) $item->id,
+            'item_id' => (int) ($item->item_id ?? 0),
+            'item_name' => (string) (optional($item->item)->item_name ?? ''),
+            'qr_code' => (string) ($item->qr_code ?? ''),
+            'barcode' => (string) ($item->barcode ?? ''),
+            'huid' => (string) ($item->HUID ?? ''),
+            'locked_by_user_id' => (int) ($cart->user_id ?? 0),
+            'locked_by' => (string) (optional($cart->user)->name ?? ''),
+            'locked_at' => optional($cart->created_at)->toDateTimeString(),
+        ];
+    }
+
+    private function saleCartLockedResponseForApproval(ApprovalItem $approvalItem, ?ItemSet $itemSet, SaleCart $cart)
+    {
+        $payload = $this->saleCartApprovalLockPayload($approvalItem, $itemSet, $cart);
+
+        return response()->json([
+            'success' => false,
+            'message' => ($payload['qr_code'] ?: $payload['item_name'] ?: 'This approval item') . ' is already selected by another user.',
+            'code' => 'SALE_CART_ITEM_LOCKED',
+            'locked_item' => $payload,
+            'data' => [$payload],
+        ], 409);
+    }
+
+    private function saleCartApprovalLockPayload(ApprovalItem $approvalItem, ?ItemSet $itemSet, SaleCart $cart): array
+    {
+        $item = optional($itemSet)->item ?: $approvalItem->item;
+
+        return [
+            'cart_id' => (int) $cart->id,
+            'source' => 'approval',
+            'approval_item_id' => (int) $approvalItem->id,
+            'approval_id' => (int) ($approvalItem->approval_id ?? 0),
+            'itemset_id' => (int) (optional($itemSet)->id ?? 0),
+            'item_id' => (int) ($approvalItem->item_id ?? optional($itemSet)->item_id ?? 0),
+            'item_name' => (string) (optional($item)->item_name ?? ''),
+            'qr_code' => (string) ($approvalItem->qr_code ?? optional($itemSet)->qr_code ?? ''),
+            'barcode' => (string) (optional($itemSet)->barcode ?? ''),
+            'huid' => (string) ($approvalItem->huid ?? optional($itemSet)->HUID ?? ''),
+            'locked_by_user_id' => (int) ($cart->user_id ?? 0),
+            'locked_by' => (string) (optional($cart->user)->name ?? ''),
+            'locked_at' => optional($cart->created_at)->toDateTimeString(),
+        ];
     }
 
     private function decodeOtherChargeDetails($value): array

@@ -63,6 +63,8 @@
                             <tr>
                                 <th style="width: 90px;">Sr. No</th>
                                 <th>Buch No</th>
+                                <th>Item Name</th>
+                                <th>Voucher Remark</th>
                                 <th class="text-center" style="width: 110px;">In Bhati</th>
                                 <th style="width: 190px;">Check Time</th>
                             </tr>
@@ -76,6 +78,8 @@
                             <tr>
                                 <td>{{ $loop->iteration }}</td>
                                 <td>{{ $item->buch_no }}</td>
+                                <td>{{ $item->item_name ?: '-' }}</td>
+                                <td>{{ $item->remarks ?: '-' }}</td>
                                 <td class="text-center">
                                     <div class="form-check casting-heating-check">
                                         <input type="checkbox"
@@ -93,7 +97,7 @@
                             </tr>
                             @empty
                             <tr>
-                                <td colspan="4" class="text-center">No Buch rows found</td>
+                                <td colspan="6" class="text-center">No Buch rows found</td>
                             </tr>
                             @endforelse
                         </tbody>

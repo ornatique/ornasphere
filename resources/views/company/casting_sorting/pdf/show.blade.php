@@ -16,6 +16,7 @@
         .center { text-align: center; }
         .num { text-align: right; white-space: nowrap; }
         .total-row td { font-weight: 700; background: #f7f7f7; }
+        .section-title { font-weight: 700; margin: 12px 0 6px; }
     </style>
 </head>
 <body>
@@ -42,6 +43,33 @@
         </tr>
     </table>
 
+    <div class="section-title">Voucher Items</div>
+    <table class="items">
+        <thead>
+            <tr>
+                <th style="width: 10%;">Sr. No</th>
+                <th style="width: 20%;">B. No</th>
+                <th style="width: 30%;">Item Name</th>
+                <th style="width: 40%;">Remarks</th>
+            </tr>
+        </thead>
+        <tbody>
+            @forelse($voucher->items as $voucherItem)
+            <tr>
+                <td>{{ $loop->iteration }}</td>
+                <td>{{ $voucherItem->buch_no }}</td>
+                <td>{{ $voucherItem->item_name ?: '-' }}</td>
+                <td>{{ $voucherItem->remarks ?: '-' }}</td>
+            </tr>
+            @empty
+            <tr>
+                <td colspan="4" class="center">No voucher item rows found</td>
+            </tr>
+            @endforelse
+        </tbody>
+    </table>
+
+    <div class="section-title">Sorting Items</div>
     <table class="items">
         <thead>
             <tr>

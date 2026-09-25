@@ -31,6 +31,33 @@
                     <div><span>Created At</span><strong>{{ optional($voucher->created_at)->format('d-m-Y h:i A') }}</strong></div>
                 </div>
 
+                <div class="table-responsive casting-source-scroll mb-3">
+                    <table class="table table-bordered table-sm casting-source-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 90px;">Sr. No</th>
+                                <th style="width: 180px;">B. No</th>
+                                <th style="width: 280px;">Item Name</th>
+                                <th>Remarks</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse($voucher->items as $voucherItem)
+                            <tr>
+                                <td>{{ $loop->iteration }}</td>
+                                <td>{{ $voucherItem->buch_no }}</td>
+                                <td>{{ $voucherItem->item_name ?: '-' }}</td>
+                                <td>{{ $voucherItem->remarks ?: '-' }}</td>
+                            </tr>
+                            @empty
+                            <tr>
+                                <td colspan="4" class="text-center">No voucher item rows found</td>
+                            </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+
                 <div class="table-responsive casting-sorting-scroll">
                     <table class="table table-bordered table-sm casting-sorting-table">
                         <thead>
@@ -152,6 +179,10 @@
     .casting-sorting-summary > div { border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.035); padding: 10px 12px; }
     .casting-sorting-summary span { display: block; color: #b8b8d4; font-size: 12px; margin-bottom: 3px; }
     .casting-sorting-summary strong { color: #fff; font-size: 14px; }
+    .casting-source-scroll { max-height: 240px; overflow-y: auto; border: 1px solid rgba(255, 255, 255, 0.08); }
+    .casting-source-table { margin-bottom: 0; table-layout: fixed; width: 100%; }
+    .casting-source-table thead th { position: sticky; top: 0; z-index: 2; background: #25263a; }
+    .casting-source-table th, .casting-source-table td { padding: 0.65rem 0.8rem; vertical-align: middle; }
     .casting-sorting-scroll { max-height: calc(100vh - 360px); overflow-y: auto; border: 1px solid rgba(255, 255, 255, 0.08); }
     .casting-sorting-table { margin-bottom: 0; table-layout: fixed; width: 100%; }
     .casting-sorting-table thead th { position: sticky; top: 0; z-index: 2; background: #25263a; }

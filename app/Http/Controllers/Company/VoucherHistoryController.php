@@ -92,28 +92,28 @@ class VoucherHistoryController extends Controller
         $heatingItems = CastingHeatingItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
             ->when($validItemIds !== [], fn($query) => $query->whereIn('vacuum_voucher_item_id', $validItemIds))
-            ->with('voucherItem:id,buch_no,silver_wt')
+            ->with('voucherItem:id,buch_no,item_name,remarks,silver_wt')
             ->orderBy('id')
             ->get();
 
         $metalIssueItems = CastingMetalIssueItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
             ->when($validItemIds !== [], fn($query) => $query->whereIn('vacuum_voucher_item_id', $validItemIds))
-            ->with('voucherItem:id,buch_no')
+            ->with('voucherItem:id,buch_no,item_name,remarks')
             ->orderBy('id')
             ->get();
 
         $releaseItems = CastingReleaseItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
             ->when($validItemIds !== [], fn($query) => $query->whereIn('vacuum_voucher_item_id', $validItemIds))
-            ->with('voucherItem:id,buch_no')
+            ->with('voucherItem:id,buch_no,item_name,remarks')
             ->orderBy('id')
             ->get();
 
         $officeItems = TreeCuttingOfficeItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
             ->when($validItemIds !== [], fn($query) => $query->whereIn('vacuum_voucher_item_id', $validItemIds))
-            ->with('voucherItem:id,buch_no')
+            ->with('voucherItem:id,buch_no,item_name,remarks')
             ->orderBy('id')
             ->get();
 
@@ -126,7 +126,7 @@ class VoucherHistoryController extends Controller
                     $query->orWhereIn('vacuum_voucher_item_id', $validItemIds);
                 }
             })
-            ->with(['voucherItem:id,buch_no', 'jobWorker:id,name'])
+            ->with(['voucherItem:id,buch_no,item_name,remarks', 'jobWorker:id,name'])
             ->orderBy('is_custom')
             ->orderBy('id')
             ->get();
@@ -140,7 +140,7 @@ class VoucherHistoryController extends Controller
                     $query->orWhereIn('vacuum_voucher_item_id', $validItemIds);
                 }
             })
-            ->with(['voucherItem:id,buch_no', 'jobWorker:id,name'])
+            ->with(['voucherItem:id,buch_no,item_name,remarks', 'jobWorker:id,name'])
             ->orderBy('is_custom')
             ->orderBy('id')
             ->get();
@@ -164,6 +164,8 @@ class VoucherHistoryController extends Controller
                 'total_count' => $heatingItems->count(),
                 'rows' => $heatingItems->map(fn($item) => [
                     'buch_no' => $item->voucherItem?->buch_no ?? '-',
+                    'item_name' => $item->voucherItem?->item_name ?? '-',
+                    'voucher_remarks' => $item->voucherItem?->remarks ?? '-',
                     'in_bhati' => $item->in_bhati ? 'Yes' : 'No',
                     'checked_at' => $this->dateTime($item->checked_at ?: $item->created_at),
                 ]),
@@ -175,6 +177,8 @@ class VoucherHistoryController extends Controller
                 ],
                 'rows' => $metalIssueItems->map(fn($item) => [
                     'buch_no' => $item->voucherItem?->buch_no ?? '-',
+                    'item_name' => $item->voucherItem?->item_name ?? '-',
+                    'voucher_remarks' => $item->voucherItem?->remarks ?? '-',
                     'silver_wt' => $this->decimal($item->voucherItem?->silver_wt),
                     'issue_silver_wt' => $this->decimal($item->issue_silver_wt),
                     'issued_at' => $this->dateTime($item->issued_at ?: $item->created_at),
@@ -188,6 +192,8 @@ class VoucherHistoryController extends Controller
                 ],
                 'rows' => $releaseItems->map(fn($item) => [
                     'buch_no' => $item->voucherItem?->buch_no ?? '-',
+                    'item_name' => $item->voucherItem?->item_name ?? '-',
+                    'voucher_remarks' => $item->voucherItem?->remarks ?? '-',
                     'release_tree_wt' => $this->decimal($item->release_tree_wt),
                     'release_tree_bhuko' => $this->decimal($item->release_tree_bhuko),
                     'loss' => $this->decimal($item->loss),
@@ -202,6 +208,8 @@ class VoucherHistoryController extends Controller
                 ],
                 'rows' => $officeItems->map(fn($item) => [
                     'buch_no' => $item->voucherItem?->buch_no ?? '-',
+                    'item_name' => $item->voucherItem?->item_name ?? '-',
+                    'voucher_remarks' => $item->voucherItem?->remarks ?? '-',
                     'tree_wt' => $this->decimal($item->tree_wt),
                     'tree_bhuko' => $this->decimal($item->office_cut_wt),
                     'remaining_tree_wt' => $this->decimal($item->remaining_tree_wt),
@@ -214,6 +222,8 @@ class VoucherHistoryController extends Controller
                 ],
                 'rows' => $treeIssueItems->map(fn($item) => [
                     'buch_no' => $this->buchNo($item),
+                    'item_name' => $this->itemName($item),
+                    'voucher_remarks' => $this->voucherRemarks($item),
                     'worker' => $item->jobWorker?->name ?? '-',
                     'receive_tree_wt' => $this->decimal($item->receive_tree_wt),
                     'issued_at' => $this->dateTime($item->issued_at ?: $item->created_at),
@@ -227,6 +237,8 @@ class VoucherHistoryController extends Controller
                 ],
                 'rows' => $treeReceiveItems->map(fn($item) => [
                     'buch_no' => $this->buchNo($item),
+                    'item_name' => $this->itemName($item),
+                    'voucher_remarks' => $this->voucherRemarks($item),
                     'worker' => $item->jobWorker?->name ?? '-',
                     'receive_pc_wt' => $this->decimal($item->receive_pc_wt),
                     'receive_tree_bhuko' => $this->decimal($item->receive_tree_bhuko),
@@ -252,6 +264,16 @@ class VoucherHistoryController extends Controller
         }
 
         return $item->voucherItem?->buch_no ?? '-';
+    }
+
+    private function itemName($item): string
+    {
+        return $item->is_custom ? '-' : ($item->voucherItem?->item_name ?? '-');
+    }
+
+    private function voucherRemarks($item): string
+    {
+        return $item->is_custom ? '-' : ($item->voucherItem?->remarks ?? '-');
     }
 
     private function decimal($value): string

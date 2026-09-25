@@ -92,10 +92,12 @@
     <table class="items">
         <thead>
             <tr>
-                <th style="width: 12%;">Sr. No</th>
-                <th style="width: 38%;">Buch No</th>
-                <th class="center" style="width: 18%;">In Bhati</th>
-                <th style="width: 32%;">Check Time</th>
+                <th style="width: 8%;">Sr. No</th>
+                <th style="width: 18%;">Buch No</th>
+                <th style="width: 24%;">Item Name</th>
+                <th style="width: 24%;">Voucher Remark</th>
+                <th class="center" style="width: 12%;">In Bhati</th>
+                <th style="width: 14%;">Check Time</th>
             </tr>
         </thead>
         <tbody>
@@ -107,12 +109,14 @@
             <tr>
                 <td>{{ $loop->iteration }}</td>
                 <td>{{ $item->buch_no }}</td>
+                <td>{{ $item->item_name ?: '-' }}</td>
+                <td>{{ $item->remarks ?: '-' }}</td>
                 <td class="center">{{ ($heatingItem?->in_bhati) ? 'Yes' : 'No' }}</td>
                 <td>{{ $checkedAt ? $checkedAt->format('d-m-Y h:i A') : '-' }}</td>
             </tr>
             @empty
             <tr>
-                <td colspan="4" class="center">No Buch rows found</td>
+                <td colspan="6" class="center">No Buch rows found</td>
             </tr>
             @endforelse
         </tbody>

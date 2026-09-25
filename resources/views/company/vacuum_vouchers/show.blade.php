@@ -28,10 +28,12 @@
                         <tr>
                             <th>Sr. No</th>
                             <th>Buch No</th>
+                            <th>Item Name</th>
                             <th>Gross Wt</th>
                             <th>Buch Wt</th>
                             <th>Net Wt</th>
                             <th>Silver Wt</th>
+                            <th>Remarks</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -39,20 +41,23 @@
                         <tr>
                             <td>{{ $loop->iteration }}</td>
                             <td>{{ $item->buch_no }}</td>
+                            <td>{{ $item->item_name ?: '-' }}</td>
                             <td>{{ number_format((float) $item->gross_wt, 3, '.', '') }}</td>
                             <td>{{ number_format((float) $item->buch_wt, 3, '.', '') }}</td>
                             <td>{{ number_format((float) $item->net_wt, 3, '.', '') }}</td>
                             <td>{{ number_format((float) $item->silver_wt, 3, '.', '') }}</td>
+                            <td>{{ $item->remarks ?: '-' }}</td>
                         </tr>
                         @endforeach
                     </tbody>
                     <tfoot>
                         <tr>
-                            <th colspan="2">Total</th>
+                            <th colspan="3">Total</th>
                             <th>{{ number_format((float) $data->gross_wt_total, 3, '.', '') }}</th>
                             <th>{{ number_format((float) $data->buch_wt_total, 3, '.', '') }}</th>
                             <th>{{ number_format((float) $data->net_wt_total, 3, '.', '') }}</th>
                             <th>{{ number_format((float) $data->silver_wt_total, 3, '.', '') }}</th>
+                            <th></th>
                         </tr>
                     </tfoot>
                 </table>

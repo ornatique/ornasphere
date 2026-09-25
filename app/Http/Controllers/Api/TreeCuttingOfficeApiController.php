@@ -378,6 +378,8 @@ class TreeCuttingOfficeApiController extends Controller
                 'casting_release_item_id' => $isCustom ? (int) $releaseItem->id : null,
                 'vacuum_buch_id' => $isCustom ? null : ($releaseItem->voucherItem?->vacuum_buch_id ? (int) $releaseItem->voucherItem->vacuum_buch_id : null),
                 'buch_no' => $isCustom ? $releaseItem->custom_buch_no : $releaseItem->voucherItem?->buch_no,
+                'item_name' => $isCustom ? null : $releaseItem->voucherItem?->item_name,
+                'remarks' => $isCustom ? null : $releaseItem->voucherItem?->remarks,
                 'is_custom' => $isCustom,
                 'custom_type' => $isCustom ? $releaseItem->custom_type : null,
                 'tree_wt' => $this->decimal($treeWt),
@@ -423,7 +425,7 @@ class TreeCuttingOfficeApiController extends Controller
                 });
             })
             ->where('release_tree_wt', '>', 0)
-            ->with('voucherItem:id,vacuum_buch_id,buch_no')
+            ->with('voucherItem:id,vacuum_buch_id,buch_no,item_name,remarks')
             ->get()
             ->keyBy(fn($item) => $this->treeRowKey($item));
     }

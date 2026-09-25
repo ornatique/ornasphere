@@ -1007,6 +1007,9 @@ $(function () {
         return n > 0 ? n : toNum(fallback);
     };
     const saleItemSearchUrl = "{{ route('company.items.search', $company->slug) }}";
+    const saleCartReserveUrl = "{{ route('company.sales.cart.reserve', $company->slug) }}";
+    const saleCartRemoveUrlTemplate = "{{ route('company.sales.cart.remove', [$company->slug, '__ID__']) }}";
+    const csrfToken = "{{ csrf_token() }}";
 
     const esc = (v) => $('<div>').text(v ?? '').html();
     const normalizeMetalType = (v) => {
@@ -1134,6 +1137,7 @@ $(function () {
 
         return {
             itemset_id: toNum(item.itemset_id ?? item.id),
+            cart_id: toNum(item.cart_id ?? item.sale_cart_id ?? 0),
             item_id: toNum(item.item_id ?? ''),
             approval_id: item.approval_id ?? '',
             name: item.name ?? item.item_name ?? '',
@@ -1179,8 +1183,11 @@ $(function () {
             appendSaleRow(row);
             $('#item_search').val('');
             $('#suggestionBox').hide().empty();
-        }).fail(function() {
-            alert('Scanned QR not found');
+        }).fail(function(xhr) {
+            const message = xhr.responseJSON && xhr.responseJSON.message
+                ? xhr.responseJSON.message
+                : 'Scanned QR not found';
+            alert(message);
         });
     }
 
@@ -1651,6 +1658,7 @@ $(function () {
         return {
             row_key: rowKey,
             itemset_id: isItemOnly ? 0 : itemsetId,
+            cart_id: toNum(item.cart_id ?? item.sale_cart_id ?? 0),
             item_id: itemId,
             approval_item_id: approvalItemId,
             approval_id: approvalItemId,
@@ -1762,9 +1770,59 @@ $(function () {
         }
     }
 
-    function appendSaleRow(row) {
+    function isReservableSaleRow(row) {
+        return toNum(row?.itemset_id) > 0
+            && !toNum(row?.cart_id)
+            && !row?.is_item_only
+            && !toNum(row?.approval_item_id || row?.approval_id);
+    }
+
+    function saleCartErrorMessage(xhr) {
+        return xhr && xhr.responseJSON && xhr.responseJSON.message
+            ? xhr.responseJSON.message
+            : 'This item is already selected or not available.';
+    }
+
+    function reserveSaleRow(row) {
+        return $.ajax({
+            url: saleCartReserveUrl,
+            type: 'POST',
+            data: {
+                _token: csrfToken,
+                itemset_id: toNum(row.itemset_id),
+                customer_id: $('#customerSelect').val() || ''
+            }
+        }).then(function(resp) {
+            row.cart_id = toNum(resp.cart_id || resp.data?.cart_id || 0);
+            return row;
+        });
+    }
+
+    function releaseSaleRow(row) {
+        const cartId = toNum(row?.cart_id);
+        if (!cartId) return;
+
+        $.ajax({
+            url: saleCartRemoveUrlTemplate.replace('__ID__', encodeURIComponent(cartId)),
+            type: 'DELETE',
+            data: { _token: csrfToken }
+        });
+    }
+
+    function appendSaleRow(row, options = {}) {
         const rowKey = resolveRowKey(row);
         if (!rowKey || selectedRows[rowKey]) {
+            return;
+        }
+
+        if (!options.skipReserve && isReservableSaleRow(row)) {
+            reserveSaleRow(row)
+                .done(function(reservedRow) {
+                    appendSaleRow(reservedRow, { skipReserve: true });
+                })
+                .fail(function(xhr) {
+                    alert(saleCartErrorMessage(xhr));
+                });
             return;
         }
 
@@ -2269,6 +2327,7 @@ $(function () {
 
     $(document).on('click', '.removeRow', function() {
         const id = $(this).data('id');
+        releaseSaleRow(selectedRows[id]);
         delete selectedRows[id];
         $('#row_' + id).remove();
         recalcTotals();
@@ -2353,7 +2412,7 @@ $(function () {
 
     if (Array.isArray(initialSaleRows) && initialSaleRows.length) {
         initialSaleRows.forEach(function(row) {
-            appendSaleRow(normalizeSaleRowFromItem(row));
+            appendSaleRow(normalizeSaleRowFromItem(row), { skipReserve: true });
         });
     }
 
