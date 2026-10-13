@@ -1,0 +1,650 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\CastingHeatingItem;
+use App\Models\CastingMetalIssueItem;
+use App\Models\CastingReleaseItem;
+use App\Models\Company;
+use App\Models\TreeCuttingIssueItem;
+use App\Models\TreeCuttingReceiveItem;
+use App\Models\VacuumBuch;
+use App\Models\VacuumVoucher;
+use App\Models\VacuumVoucherItem;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+
+class VacuumVoucherApiController extends Controller
+{
+    public function index(Request $request)
+    {
+        $companyId = (int) $request->user()->company_id;
+        $fromDate = $request->input('from_date', now()->toDateString());
+        $toDate = $request->input('to_date', now()->toDateString());
+
+        $rows = VacuumVoucher::query()
+            ->where('company_id', $companyId)
+            ->when($fromDate, fn($query) => $query->whereDate('voucher_date', '>=', $fromDate))
+            ->when($toDate, fn($query) => $query->whereDate('voucher_date', '<=', $toDate))
+            ->when($request->filled('worker_id'), fn($query) => $query->where('job_worker_id', (int) $request->input('worker_id')))
+            ->when($request->filled('process_id'), fn($query) => $query->where('vacuum_process_id', (int) $request->input('process_id')))
+            ->when($request->filled('search'), function ($query) use ($request) {
+                $search = trim((string) $request->input('search'));
+                $query->where(function ($q) use ($search) {
+                    $q->where('voucher_no', 'like', "%{$search}%")
+                        ->orWhereHas('process', fn($process) => $process->where('name', 'like', "%{$search}%"))
+                        ->orWhereHas('jobWorker', fn($worker) => $worker->where('name', 'like', "%{$search}%"));
+                });
+            })
+            ->with(['process:id,name', 'jobWorker:id,name', 'createdByUser:id,name'])
+            ->withCount('metalIssueItems')
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->get()
+            ->map(fn($row) => $this->formatVoucher($row, false))
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => $rows,
+        ]);
+    }
+
+    public function buchOptions(Request $request)
+    {
+        $companyId = (int) $request->user()->company_id;
+        $term = trim((string) $request->input('q', ''));
+        $currentVoucherId = $request->filled('current_voucher_id')
+            ? (int) $request->input('current_voucher_id')
+            : null;
+        $usedBuchIds = $this->usedBuchIds($companyId, $currentVoucherId);
+
+        $rows = VacuumBuch::where('company_id', $companyId)
+            ->when($usedBuchIds !== [], fn($query) => $query->whereNotIn('id', $usedBuchIds))
+            ->when($term !== '', fn($query) => $query->where('buch_no', 'like', "%{$term}%"))
+            ->orderBy('buch_no')
+            ->limit(30)
+            ->get(['id', 'buch_no', 'weight'])
+            ->map(fn($row) => [
+                'id' => (int) $row->id,
+                'text' => $row->buch_no,
+                'buch_no' => $row->buch_no,
+                'weight' => (float) ($row->weight ?? 0),
+            ])
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => $rows,
+        ]);
+    }
+
+    public function show(Request $request, $id)
+    {
+        $data = $this->findVoucher($request, (int) $id);
+
+        if (!$data) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vacuum Voucher not found',
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->formatVoucher($data),
+        ]);
+    }
+
+    public function pdf(Request $request, $id)
+    {
+        $data = $this->findVoucher($request, (int) $id);
+
+        if (!$data) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vacuum Voucher not found',
+            ], 404);
+        }
+
+        $company = Company::findOrFail((int) $request->user()->company_id);
+
+        return Pdf::loadView('company.vacuum_vouchers.pdf.show', compact('company', 'data'))
+            ->setPaper('a4', 'portrait')
+            ->download('vacuum_voucher_' . $data->voucher_no . '.pdf');
+    }
+
+    public function printLabels(Request $request, $id)
+    {
+        $data = $this->findVoucher($request, (int) $id);
+
+        if (!$data) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vacuum Voucher not found',
+            ], 404);
+        }
+
+        $labels = $data->items
+            ->values()
+            ->map(function ($item, int $index) {
+                $size = $item->buch ? $this->decimalValue($item->buch->size_inch ?? 0, 2) : null;
+
+                return [
+                    'serial' => $index + 1,
+                    'buch_no' => $item->buch_no ?: ($item->buch?->buch_no ?? '-'),
+                    'size' => $size,
+                    'label_text' => ($index + 1) . '. ' . ($item->buch_no ?: ($item->buch?->buch_no ?? '-')) . ' - ' . ($size ?? '-'),
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'voucher' => [
+                    'id' => (int) $data->id,
+                    'voucher_no' => $data->voucher_no,
+                    'voucher_date' => optional($data->voucher_date)->format('Y-m-d'),
+                    'voucher_date_view' => optional($data->voucher_date)->format('d-m-Y'),
+                    'company_id' => (int) $data->company_id,
+                    'process' => $data->process ? [
+                        'id' => (int) $data->process->id,
+                        'name' => $data->process->name,
+                    ] : null,
+                    'job_worker' => $data->jobWorker ? [
+                        'id' => (int) $data->jobWorker->id,
+                        'name' => $data->jobWorker->name,
+                    ] : null,
+                ],
+                'layout' => [
+                    'paper' => 'A4',
+                    'columns' => 3,
+                    'rows_per_column' => 20,
+                    'labels_per_page' => 60,
+                ],
+                'labels' => $labels,
+                'pages' => $labels
+                    ->chunk(60)
+                    ->map(function ($pageLabels) {
+                        return $pageLabels
+                            ->chunk(20)
+                            ->map(fn($columnLabels) => $columnLabels->values())
+                            ->values();
+                    })
+                    ->values(),
+            ],
+        ]);
+    }
+
+    public function printLabelsPdf(Request $request, $id)
+    {
+        $data = $this->findVoucher($request, (int) $id);
+
+        if (!$data) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vacuum Voucher not found',
+            ], 404);
+        }
+
+        $company = Company::findOrFail((int) $request->user()->company_id);
+        $labels = $data->items
+            ->values()
+            ->map(function ($item, int $index) {
+                return [
+                    'serial' => $index + 1,
+                    'buch_no' => $item->buch_no ?: ($item->buch?->buch_no ?? '-'),
+                    'size' => $item->buch ? $this->decimalValue($item->buch->size_inch ?? 0, 2) : '-',
+                ];
+            });
+
+        return Pdf::loadView('company.vacuum_vouchers.pdf.print_labels', compact('company', 'data', 'labels'))
+            ->setPaper('a4', 'portrait')
+            ->download('vacuum_labels_' . $data->voucher_no . '.pdf');
+    }
+
+    public function store(Request $request)
+    {
+        $companyId = (int) $request->user()->company_id;
+        $unavailableBuchs = $this->submittedUnavailableBuchNumbers($request, $companyId);
+        if ($unavailableBuchs !== []) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This Buch No is already used in another voucher: ' . implode(', ', $unavailableBuchs),
+                'errors' => [
+                    'items' => ['This Buch No is already used in another voucher: ' . implode(', ', $unavailableBuchs)],
+                ],
+            ], 422);
+        }
+
+        $validated = $this->validatePayload($request, $companyId);
+        $voucher = null;
+
+        DB::transaction(function () use (&$voucher, $validated, $companyId, $request) {
+            $totals = $this->calculatedRowsAndTotals($validated['items'], (float) $validated['formula_value'], $companyId);
+
+            $voucher = VacuumVoucher::create([
+                'company_id' => $companyId,
+                'voucher_no' => $this->generateVoucherNo($companyId, $validated['voucher_date']),
+                'voucher_date' => $validated['voucher_date'],
+                'vacuum_process_id' => $validated['vacuum_process_id'],
+                'job_worker_id' => $validated['job_worker_id'],
+                'formula_value' => (float) $validated['formula_value'],
+                'gross_wt_total' => $totals['gross_wt_total'],
+                'buch_wt_total' => $totals['buch_wt_total'],
+                'net_wt_total' => $totals['net_wt_total'],
+                'silver_wt_total' => $totals['silver_wt_total'],
+                'remarks' => $validated['remarks'] ?? null,
+                'created_by' => (int) $request->user()->id,
+                'updated_by' => (int) $request->user()->id,
+                'modified_count' => 0,
+            ]);
+
+            foreach ($totals['rows'] as $row) {
+                $voucher->items()->create($row);
+            }
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Vacuum Voucher created successfully',
+            'data' => $this->formatVoucher($this->loadVoucher($voucher)),
+        ], 200);
+    }
+
+    public function update(Request $request, $id)
+    {
+        $companyId = (int) $request->user()->company_id;
+        $voucher = VacuumVoucher::where('company_id', $companyId)->where('id', (int) $id)->first();
+
+        if (!$voucher) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vacuum Voucher not found',
+            ], 404);
+        }
+
+        $unavailableBuchs = $this->submittedUnavailableBuchNumbers($request, $companyId, (int) $voucher->id);
+        if ($unavailableBuchs !== []) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This Buch No is already used in another voucher: ' . implode(', ', $unavailableBuchs),
+                'errors' => [
+                    'items' => ['This Buch No is already used in another voucher: ' . implode(', ', $unavailableBuchs)],
+                ],
+            ], 422);
+        }
+
+        $validated = $this->validatePayload($request, $companyId, (int) $voucher->id);
+
+        DB::transaction(function () use ($voucher, $validated, $companyId, $request) {
+            $totals = $this->calculatedRowsAndTotals($validated['items'], (float) $validated['formula_value'], $companyId);
+
+            $voucher->update([
+                'vacuum_process_id' => $validated['vacuum_process_id'],
+                'job_worker_id' => $validated['job_worker_id'],
+                'formula_value' => (float) $validated['formula_value'],
+                'gross_wt_total' => $totals['gross_wt_total'],
+                'buch_wt_total' => $totals['buch_wt_total'],
+                'net_wt_total' => $totals['net_wt_total'],
+                'silver_wt_total' => $totals['silver_wt_total'],
+                'remarks' => $validated['remarks'] ?? null,
+                'updated_by' => (int) $request->user()->id,
+                'modified_count' => ((int) $voucher->modified_count) + 1,
+            ]);
+
+            $this->syncVoucherItems($voucher, $totals['rows']);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Vacuum Voucher updated successfully',
+            'data' => $this->formatVoucher($this->loadVoucher($voucher)),
+        ]);
+    }
+
+    public function destroy(Request $request, $id)
+    {
+        $voucher = VacuumVoucher::where('company_id', (int) $request->user()->company_id)
+            ->where('id', (int) $id)
+            ->first();
+
+        if (!$voucher) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vacuum Voucher not found',
+            ], 404);
+        }
+
+        if ($voucher->metalIssueItems()->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cannot delete voucher because Casting Metal Issue is already added.',
+            ], 422);
+        }
+
+        $voucher->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Vacuum Voucher deleted successfully',
+        ]);
+    }
+
+    private function validatePayload(Request $request, int $companyId, ?int $voucherId = null): array
+    {
+        $items = collect((array) $request->input('items', []))
+            ->filter(fn($row) => filled($row['vacuum_buch_id'] ?? null))
+            ->values()
+            ->all();
+
+        $request->merge(['items' => $items]);
+        $usedBuchIds = $this->usedBuchIds($companyId, $voucherId);
+
+        return $request->validate([
+            'voucher_date' => ['required', 'date'],
+            'vacuum_process_id' => [
+                'required',
+                'integer',
+                Rule::exists('vacuum_processes', 'id')->where(fn($query) => $query->where('company_id', $companyId)),
+            ],
+            'job_worker_id' => [
+                'required',
+                'integer',
+                Rule::exists('job_workers', 'id')->where(fn($query) => $query->where('company_id', $companyId)),
+            ],
+            'formula_value' => ['required', 'numeric'],
+            'remarks' => ['nullable', 'string'],
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.vacuum_buch_id' => [
+                'required',
+                'integer',
+                'distinct',
+                Rule::exists('vacuum_buchs', 'id')->where(fn($query) => $query->where('company_id', $companyId)),
+                Rule::notIn($usedBuchIds),
+            ],
+            'items.*.item_name' => ['nullable', 'string', 'max:255'],
+            'items.*.gross_wt' => ['required', 'numeric'],
+            'items.*.buch_wt' => ['required', 'numeric'],
+            'items.*.remarks' => ['nullable', 'string'],
+        ], [
+            'items.*.vacuum_buch_id.distinct' => 'Each Buch No can be selected only one time in the voucher.',
+            'items.*.vacuum_buch_id.not_in' => 'Selected Buch No is already used in another pending voucher.',
+        ]);
+    }
+
+    private function findVoucher(Request $request, int $id): ?VacuumVoucher
+    {
+        return VacuumVoucher::where('company_id', (int) $request->user()->company_id)
+            ->where('id', $id)
+            ->with(['process:id,name', 'jobWorker:id,name', 'createdByUser:id,name', 'updatedByUser:id,name', 'items.buch:id,buch_no,size_inch,weight'])
+            ->withCount('metalIssueItems')
+            ->first();
+    }
+
+    private function loadVoucher(VacuumVoucher $voucher): VacuumVoucher
+    {
+        return $voucher
+            ->fresh(['process:id,name', 'jobWorker:id,name', 'createdByUser:id,name', 'updatedByUser:id,name', 'items.buch:id,buch_no,size_inch,weight'])
+            ->loadCount('metalIssueItems');
+    }
+
+    private function formatVoucher(VacuumVoucher $voucher, bool $includeItems = true): array
+    {
+        $metalIssueItemsCount = array_key_exists('metal_issue_items_count', $voucher->getAttributes())
+            ? (int) $voucher->metal_issue_items_count
+            : (int) $voucher->metalIssueItems()->count();
+
+        $data = [
+            'id' => (int) $voucher->id,
+            'company_id' => (int) $voucher->company_id,
+            'voucher_no' => $voucher->voucher_no,
+            'voucher_date' => optional($voucher->voucher_date)->format('Y-m-d'),
+            'vacuum_process_id' => (int) $voucher->vacuum_process_id,
+            'job_worker_id' => (int) $voucher->job_worker_id,
+            'formula_value' => $this->decimalValue($voucher->formula_value, 3),
+            'gross_wt_total' => $this->decimalValue($voucher->gross_wt_total, 3),
+            'buch_wt_total' => $this->decimalValue($voucher->buch_wt_total, 3),
+            'net_wt_total' => $this->decimalValue($voucher->net_wt_total, 3),
+            'silver_wt_total' => $this->decimalValue($voucher->silver_wt_total, 3),
+            'remarks' => $voucher->remarks,
+            'created_by' => $voucher->created_by ? (int) $voucher->created_by : null,
+            'updated_by' => $voucher->updated_by ? (int) $voucher->updated_by : null,
+            'modified_count' => (int) $voucher->modified_count,
+            'metal_issue_items_count' => $metalIssueItemsCount,
+            'has_casting_metal_issue' => $metalIssueItemsCount > 0,
+            'can_delete' => $metalIssueItemsCount === 0,
+            'created_at' => optional($voucher->created_at)->format('Y-m-d H:i:s'),
+            'updated_at' => optional($voucher->updated_at)->format('Y-m-d H:i:s'),
+            'created_at_view' => optional($voucher->created_at)->format('d-m-Y h:i A'),
+            'updated_at_view' => optional($voucher->updated_at)->format('d-m-Y h:i A'),
+            'process' => $voucher->process ? [
+                'id' => (int) $voucher->process->id,
+                'name' => $voucher->process->name,
+            ] : null,
+            'job_worker' => $voucher->jobWorker ? [
+                'id' => (int) $voucher->jobWorker->id,
+                'name' => $voucher->jobWorker->name,
+            ] : null,
+            'created_by_user' => $voucher->createdByUser ? [
+                'id' => (int) $voucher->createdByUser->id,
+                'name' => $voucher->createdByUser->name,
+            ] : null,
+            'updated_by_user' => $voucher->updatedByUser ? [
+                'id' => (int) $voucher->updatedByUser->id,
+                'name' => $voucher->updatedByUser->name,
+            ] : null,
+        ];
+
+        if ($includeItems && $voucher->relationLoaded('items')) {
+            $data['items'] = $voucher->items->map(fn($item) => [
+                'id' => (int) $item->id,
+                'vacuum_voucher_id' => (int) $item->vacuum_voucher_id,
+                'vacuum_buch_id' => $item->vacuum_buch_id ? (int) $item->vacuum_buch_id : null,
+                'buch_no' => $item->buch_no,
+                'item_name' => $item->item_name,
+                'gross_wt' => $this->decimalValue($item->gross_wt, 3),
+                'buch_wt' => $this->decimalValue($item->buch_wt, 3),
+                'net_wt' => $this->decimalValue($item->net_wt, 3),
+                'silver_wt' => $this->decimalValue($item->silver_wt, 3),
+                'remarks' => $item->remarks,
+                'buch' => $item->relationLoaded('buch') && $item->buch ? [
+                    'id' => (int) $item->buch->id,
+                    'buch_no' => $item->buch->buch_no,
+                    'size_inch' => $this->decimalValue($item->buch->size_inch, 2),
+                    'weight' => $this->decimalValue($item->buch->weight, 3),
+                ] : null,
+            ])->values();
+        }
+
+        return $data;
+    }
+
+    private function decimalValue($value, int $precision): string
+    {
+        return number_format((float) ($value ?? 0), $precision, '.', '');
+    }
+
+    private function usedBuchIds(int $companyId, ?int $ignoreVoucherId = null): array
+    {
+        return VacuumVoucherItem::whereHas('voucher', function ($query) use ($companyId, $ignoreVoucherId) {
+            $query->where('company_id', $companyId)
+                ->when($ignoreVoucherId, fn($q) => $q->where('id', '!=', $ignoreVoucherId));
+        })
+            ->whereNotExists(function ($query) {
+                $query->selectRaw('1')
+                    ->from('casting_heating_items')
+                    ->whereColumn('casting_heating_items.vacuum_voucher_item_id', 'vacuum_voucher_items.id')
+                    ->where('casting_heating_items.in_bhati', true);
+            })
+            ->pluck('vacuum_buch_id')
+            ->filter()
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function submittedUnavailableBuchNumbers(Request $request, int $companyId, ?int $ignoreVoucherId = null): array
+    {
+        $submittedIds = collect((array) $request->input('items', []))
+            ->pluck('vacuum_buch_id')
+            ->filter()
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        if ($submittedIds->isEmpty()) {
+            return [];
+        }
+
+        $usedIds = $this->usedBuchIds($companyId, $ignoreVoucherId);
+        $unavailableIds = $submittedIds->intersect($usedIds)->values();
+
+        if ($unavailableIds->isEmpty()) {
+            return [];
+        }
+
+        return VacuumBuch::where('company_id', $companyId)
+            ->whereIn('id', $unavailableIds)
+            ->orderBy('buch_no')
+            ->pluck('buch_no')
+            ->all();
+    }
+
+    private function calculatedRowsAndTotals(array $items, float $formula, int $companyId): array
+    {
+        $rows = [];
+        $grossTotal = 0;
+        $buchTotal = 0;
+        $netTotal = 0;
+        $silverTotal = 0;
+
+        $buchs = VacuumBuch::where('company_id', $companyId)
+            ->whereIn('id', collect($items)->pluck('vacuum_buch_id')->filter()->all())
+            ->get()
+            ->keyBy('id');
+
+        foreach ($items as $item) {
+            $gross = round((float) ($item['gross_wt'] ?? 0), 3);
+            $buchWt = round((float) ($item['buch_wt'] ?? 0), 3);
+            $net = round($gross - $buchWt, 3);
+            $silver = round($net * $formula, 3);
+            $buch = $buchs->get((int) $item['vacuum_buch_id']);
+
+            $rows[] = [
+                'vacuum_buch_id' => (int) $item['vacuum_buch_id'],
+                'buch_no' => $buch?->buch_no,
+                'item_name' => $this->nullableString($item['item_name'] ?? null),
+                'gross_wt' => $gross,
+                'buch_wt' => $buchWt,
+                'net_wt' => $net,
+                'silver_wt' => $silver,
+                'remarks' => $this->nullableString($item['remarks'] ?? null),
+            ];
+
+            $grossTotal += $gross;
+            $buchTotal += $buchWt;
+            $netTotal += $net;
+            $silverTotal += $silver;
+        }
+
+        return [
+            'rows' => $rows,
+            'gross_wt_total' => round($grossTotal, 3),
+            'buch_wt_total' => round($buchTotal, 3),
+            'net_wt_total' => round($netTotal, 3),
+            'silver_wt_total' => round($silverTotal, 3),
+        ];
+    }
+
+    private function generateVoucherNo(int $companyId, string $date): string
+    {
+        return \App\Services\VoucherSeries::next($companyId, 'VV');
+    }
+
+    private function nullableString($value): ?string
+    {
+        $value = trim((string) ($value ?? ''));
+
+        return $value !== '' ? $value : null;
+    }
+
+    private function syncVoucherItems(VacuumVoucher $voucher, array $rows): void
+    {
+        $existingItems = $voucher->items()->get()->keyBy(fn($item) => (int) $item->vacuum_buch_id);
+        $keptIds = [];
+
+        foreach ($rows as $row) {
+            $buchId = (int) $row['vacuum_buch_id'];
+            $existing = $existingItems->get($buchId);
+
+            if ($existing) {
+                $existing->update($row);
+                $keptIds[] = (int) $existing->id;
+                continue;
+            }
+
+            $created = $voucher->items()->create($row);
+            $keptIds[] = (int) $created->id;
+        }
+
+        $removeQuery = $voucher->items();
+        if ($keptIds !== []) {
+            $removeQuery->whereNotIn('id', $keptIds);
+        }
+
+        $removeIds = $removeQuery->pluck('id')->map(fn($id) => (int) $id)->all();
+        if ($removeIds === []) {
+            return;
+        }
+
+        $this->deleteProductionRowsForVoucherItems((int) $voucher->company_id, (int) $voucher->id, $removeIds);
+        $voucher->items()->whereIn('id', $removeIds)->delete();
+    }
+
+    private function deleteProductionRowsForVoucherItems(int $companyId, int $voucherId, array $itemIds): void
+    {
+        $issueIds = TreeCuttingIssueItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->whereIn('vacuum_voucher_item_id', $itemIds)
+            ->pluck('id')
+            ->map(fn($id) => (int) $id)
+            ->all();
+
+        TreeCuttingReceiveItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->where(function ($query) use ($itemIds, $issueIds) {
+                $query->whereIn('vacuum_voucher_item_id', $itemIds);
+                if ($issueIds !== []) {
+                    $query->orWhereIn('tree_cutting_issue_item_id', $issueIds);
+                }
+            })
+            ->delete();
+
+        TreeCuttingIssueItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->whereIn('vacuum_voucher_item_id', $itemIds)
+            ->delete();
+
+        CastingReleaseItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->whereIn('vacuum_voucher_item_id', $itemIds)
+            ->delete();
+
+        CastingMetalIssueItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->whereIn('vacuum_voucher_item_id', $itemIds)
+            ->delete();
+
+        CastingHeatingItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucherId)
+            ->whereIn('vacuum_voucher_item_id', $itemIds)
+            ->delete();
+    }
+}

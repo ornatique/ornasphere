@@ -93,6 +93,7 @@ class ItemController extends Controller
                 Rule::unique('items', 'item_name')->where(fn($q) => $q->where('company_id', $company->id)),
             ],
             'item_code' => 'required|string|max:255',
+            'try_on_category' => 'nullable|in:none,earrings,necklace,ring,bracelet',
             'metal' => 'nullable|string|max:100',
             'metal_formula' => 'nullable|string|max:100',
             'outward_carat' => 'nullable|numeric',
@@ -113,6 +114,8 @@ class ItemController extends Controller
             'company_id' => $company->id,
             'item_name' => $validated['item_name'],
             'item_code' => $validated['item_code'],
+            ...(\Illuminate\Support\Facades\Schema::hasColumn('items', 'try_on_category')
+                ? ['try_on_category' => $validated['try_on_category'] ?? ($item->try_on_category ?? 'none')] : []),
             'metal' => $validated['metal'] ?? null,
             'metal_formula' => $validated['metal_formula'] ?? null,
             'outward_carat' => $validated['outward_carat'] ?? null,
@@ -195,6 +198,7 @@ class ItemController extends Controller
                     ->ignore($item->id),
             ],
             'item_code' => 'required|string|max:255',
+            'try_on_category' => 'nullable|in:none,earrings,necklace,ring,bracelet',
             'metal' => 'nullable|string|max:100',
             'metal_formula' => 'nullable|string|max:100',
             'outward_carat' => 'nullable|numeric',
@@ -214,6 +218,8 @@ class ItemController extends Controller
         $item->update([
             'item_name' => $validated['item_name'],
             'item_code' => $validated['item_code'],
+            ...(\Illuminate\Support\Facades\Schema::hasColumn('items', 'try_on_category')
+                ? ['try_on_category' => $validated['try_on_category'] ?? ($item->try_on_category ?? 'none')] : []),
             'metal' => $validated['metal'] ?? null,
             'metal_formula' => $validated['metal_formula'] ?? null,
             'outward_carat' => $validated['outward_carat'] ?? null,

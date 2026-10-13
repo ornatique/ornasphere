@@ -67,17 +67,23 @@ class CustomerController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
 
+        $openingService = app(\App\Services\PersonOpeningBalance::class);
+        $opening = $openingService->validate($request);
         $this->normalizeCustomerRequest($request);
         $validated = $this->validateCustomer($request, $company->id);
         $this->ensureEmailIsUnique($validated['email'] ?? null, (int) $company->id);
 
         try {
-            $customer = Customer::create(array_merge($validated, [
-                'company_id' => $company->id,
-                'is_active' => $request->boolean('is_active', true),
-            ]));
+            $customer = \Illuminate\Support\Facades\DB::transaction(function () use ($validated, $request, $company, $openingService, $opening) {
+                $customer = Customer::create(array_merge($validated, [
+                    'company_id' => $company->id,
+                    'is_active' => $request->boolean('is_active', true),
+                ]));
 
-            WorkerPersonService::syncPersonToWorker($customer);
+                WorkerPersonService::syncPersonToWorker($customer);
+                $openingService->save($customer, $opening, $request->user()?->id);
+                return $customer;
+            });
         } catch (Throwable $e) {
             $this->throwDuplicateEmailValidation($e);
             throw $e;
@@ -111,6 +117,8 @@ class CustomerController extends Controller
             ->where('id', $customerId)
             ->firstOrFail();
 
+        $openingService = app(\App\Services\PersonOpeningBalance::class);
+        $opening = $openingService->validate($request);
         $this->normalizeCustomerRequest($request);
         $validated = $this->validateCustomer($request, $company->id, $customer->id);
         $this->ensureEmailIsUnique(
@@ -121,11 +129,14 @@ class CustomerController extends Controller
         );
 
         try {
-            $customer->update(array_merge($validated, [
-                'is_active' => $request->boolean('is_active', false),
-            ]));
+            \Illuminate\Support\Facades\DB::transaction(function () use ($customer, $validated, $request, $openingService, $opening) {
+                $customer->update(array_merge($validated, [
+                    'is_active' => $request->boolean('is_active', false),
+                ]));
 
-            WorkerPersonService::syncPersonToWorker($customer->refresh());
+                WorkerPersonService::syncPersonToWorker($customer->refresh());
+                $openingService->save($customer, $opening, $request->user()?->id);
+            });
         } catch (Throwable $e) {
             $this->throwDuplicateEmailValidation($e);
             throw $e;

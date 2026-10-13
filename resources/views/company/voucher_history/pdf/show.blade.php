@@ -80,12 +80,12 @@
 
     <div class="section-title">3. Casting Receive</div>
     <table>
-        <thead><tr><th style="width:8%;">Sr No</th><th>Buch No</th><th>Item Name</th><th>Voucher Remark</th><th class="num">Release Tree Wt</th><th class="num">Tree Bhuko</th><th class="num">Loss</th><th>Received At</th></tr></thead>
+        <thead><tr><th style="width:7%;">Sr No</th><th>Buch No</th><th>Item Name</th><th>Voucher Remark</th><th class="num">Release Tree Wt</th><th class="num">Tree Bhuko</th><th class="num">Release Tree Total Wt</th><th class="num">Loss</th><th>Received At</th></tr></thead>
         <tbody>
             @forelse($history['casting_receive']['rows'] as $row)
-            <tr><td>{{ $loop->iteration }}</td><td>{{ $row['buch_no'] }}</td><td>{{ $row['item_name'] ?? '-' }}</td><td>{{ $row['voucher_remarks'] ?? '-' }}</td><td class="num">{{ $row['release_tree_wt'] }}</td><td class="num">{{ $row['release_tree_bhuko'] }}</td><td class="num">{{ $row['loss'] }}</td><td>{{ $row['received_at'] }}</td></tr>
+            <tr><td>{{ $loop->iteration }}</td><td>{{ $row['buch_no'] }}</td><td>{{ $row['item_name'] ?? '-' }}</td><td>{{ $row['voucher_remarks'] ?? '-' }}</td><td class="num">{{ $row['release_tree_wt'] }}</td><td class="num">{{ $row['release_tree_bhuko'] }}</td><td class="num">{{ $row['release_tree_total_wt'] }}</td><td class="num">{{ $row['loss'] }}</td><td>{{ $row['received_at'] }}</td></tr>
             @empty
-            <tr><td colspan="8" class="center">No data found</td></tr>
+            <tr><td colspan="9" class="center">No data found</td></tr>
             @endforelse
         </tbody>
         @if($history['casting_receive']['rows']->isNotEmpty())
@@ -94,6 +94,7 @@
                 <td colspan="4">Total</td>
                 <td class="num">{{ $history['casting_receive']['totals']['release_tree_wt'] }}</td>
                 <td class="num">{{ $history['casting_receive']['totals']['release_tree_bhuko'] }}</td>
+                <td class="num">{{ $history['casting_receive']['totals']['release_tree_total_wt'] }}</td>
                 <td class="num">{{ $history['casting_receive']['totals']['loss'] }}</td>
                 <td></td>
             </tr>

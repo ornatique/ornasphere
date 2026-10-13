@@ -69,7 +69,7 @@
 
     .approval-summary-grid {
         display: grid;
-        grid-template-columns: repeat(3, minmax(160px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
         gap: 14px;
         margin-bottom: 18px;
     }
@@ -132,7 +132,7 @@
                     <select id="customer_id" class="form-select">
                         <option value="">All Customers</option>
                         @foreach($customers as $customer)
-                        <option value="{{ $customer->id }}">
+                        <option value="{{ $customer->id }}" data-pdf-customer-id="{{ \Illuminate\Support\Facades\Crypt::encryptString((string) $customer->id) }}">
                             {{ $customer->name }}
                         </option>
                         @endforeach
@@ -172,6 +172,10 @@
                     <strong id="approvalSummaryGross">0.000</strong>
                 </div>
                 <div class="approval-summary-box">
+                    <span>Total Other Wt</span>
+                    <strong id="approvalSummaryOther">0.000</strong>
+                </div>
+                <div class="approval-summary-box">
                     <span>Total Net Wt</span>
                     <strong id="approvalSummaryNet">0.000</strong>
                 </div>
@@ -189,6 +193,7 @@
                             <th>QR Code</th>
                             <th>Qty</th>
                             <th>Gross Wt</th>
+                            <th>Other Wt</th>
                             <th>Net Wt</th>
                             <th>Fine Wt</th>
                             <th>Metal Amt</th>
@@ -241,6 +246,9 @@
         $('#approvalSummaryNet').text(Number(totals.total_net_wt || 0).toLocaleString('en-IN', {
             minimumFractionDigits: 3,
             maximumFractionDigits: 3
+        }));
+        $('#approvalSummaryOther').text(Number(totals.total_other_wt || 0).toLocaleString('en-IN', {
+            minimumFractionDigits: 3, maximumFractionDigits: 3
         }));
     }
 
@@ -308,6 +316,9 @@
                 data: 'total_gross_weight'
             },
             {
+                data: 'total_other_weight'
+            },
+            {
                 data: 'total_net_weight'
             },
             {
@@ -358,7 +369,7 @@
             targets: '_all',
             className: 'text-nowrap'
         }, {
-            targets: [18],
+            targets: [19],
             className: ''
         }]
     });
@@ -383,8 +394,10 @@
 
     function updateApprovalPdfLink() {
         const base = "{{ route('company.approval.export.pdf', $company->slug) }}";
+        const selectedCustomer = $('#customer_id option:selected');
+        const pdfCustomerId = selectedCustomer.val() ? (selectedCustomer.data('pdf-customer-id') || '') : '';
         const params = new URLSearchParams({
-            customer_id: $('#customer_id').val() || '',
+            customer_id: pdfCustomerId,
             from_date: $('#from_date').val() || '',
             to_date: $('#to_date').val() || '',
             view_type: $('#view_type').val() || 'voucher',

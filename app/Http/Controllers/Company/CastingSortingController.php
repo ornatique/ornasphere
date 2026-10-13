@@ -209,11 +209,6 @@ class CastingSortingController extends Controller
             ->with(['process:id,name', 'jobWorker:id,name', 'items:id,vacuum_voucher_id,buch_no,item_name,remarks'])
             ->findOrFail($id);
 
-        $issueCount = TreeCuttingIssueItem::where('company_id', $company->id)
-            ->where('vacuum_voucher_id', $voucher->id)
-            ->where('receive_tree_wt', '>', 0)
-            ->count();
-
         $receiveCount = TreeCuttingReceiveItem::where('company_id', $company->id)
             ->where('vacuum_voucher_id', $voucher->id)
             ->where(function ($q) {
@@ -222,7 +217,22 @@ class CastingSortingController extends Controller
             })
             ->count();
 
-        abort_if($issueCount === 0 || $issueCount !== $receiveCount, 404);
+        $hasPendingIssueRows = TreeCuttingIssueItem::where('company_id', $company->id)
+            ->where('vacuum_voucher_id', $voucher->id)
+            ->where('receive_tree_wt', '>', 0)
+            ->whereNotExists(function ($query) use ($company) {
+                $query->selectRaw('1')
+                    ->from('tree_cutting_receive_items')
+                    ->whereColumn('tree_cutting_receive_items.tree_cutting_issue_item_id', 'tree_cutting_issue_items.id')
+                    ->where('tree_cutting_receive_items.company_id', $company->id)
+                    ->where(function ($q) {
+                        $q->where('tree_cutting_receive_items.receive_pc_wt', '>', 0)
+                            ->orWhere('tree_cutting_receive_items.receive_tree_bhuko', '>', 0);
+                    });
+            })
+            ->exists();
+
+        abort_if($receiveCount === 0 || $hasPendingIssueRows, 404);
 
         $sortingItems = CastingSortingItem::where('company_id', $company->id)
             ->where('vacuum_voucher_id', $voucher->id)

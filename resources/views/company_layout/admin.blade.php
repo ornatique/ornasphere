@@ -118,133 +118,37 @@
     color: #fff;
   }
 
-  .content-wrapper .dataTables_scrollBody,
-  .content-wrapper .table-responsive,
-  .content-wrapper .sales-list-grid-wrap,
-  .content-wrapper .sale-grid-wrap,
-  .content-wrapper .tree-cutting-list-scroll,
-  .content-wrapper .tree-cutting-receive-list-scroll,
-  .content-wrapper .tree-cutting-scroll,
-  .content-wrapper .tree-cutting-receive-scroll,
-  .content-wrapper .casting-heating-scroll,
-  .content-wrapper .casting-metal-scroll,
-  .content-wrapper .casting-release-scroll,
-  .content-wrapper .casting-sorting-scroll,
-  .content-wrapper .vacuum-voucher-detail-scroll,
-  .content-wrapper .voucher-history-timeline,
-  .content-wrapper .history-table-wrap {
+  html,
+  body,
+  .container-scroller,
+  .page-body-wrapper,
+  .main-panel,
+  .content-wrapper,
+  .content-wrapper *,
+  .sidebar,
+  .select2-results__options {
     scrollbar-width: thin;
-    scrollbar-color: transparent transparent;
+    scrollbar-color: #7f8dff rgba(255, 255, 255, 0.08);
   }
 
-  .content-wrapper .dataTables_scrollBody:hover,
-  .content-wrapper .table-responsive:hover,
-  .content-wrapper .sales-list-grid-wrap:hover,
-  .content-wrapper .sale-grid-wrap:hover,
-  .content-wrapper .tree-cutting-list-scroll:hover,
-  .content-wrapper .tree-cutting-receive-list-scroll:hover,
-  .content-wrapper .tree-cutting-scroll:hover,
-  .content-wrapper .tree-cutting-receive-scroll:hover,
-  .content-wrapper .casting-heating-scroll:hover,
-  .content-wrapper .casting-metal-scroll:hover,
-  .content-wrapper .casting-release-scroll:hover,
-  .content-wrapper .casting-sorting-scroll:hover,
-  .content-wrapper .vacuum-voucher-detail-scroll:hover,
-  .content-wrapper .voucher-history-timeline:hover,
-  .content-wrapper .history-table-wrap:hover {
-    scrollbar-color: rgba(125, 145, 255, 0.7) rgba(255, 255, 255, 0.08);
+  ::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
   }
 
-  .content-wrapper .dataTables_scrollBody::-webkit-scrollbar,
-  .content-wrapper .table-responsive::-webkit-scrollbar,
-  .content-wrapper .sales-list-grid-wrap::-webkit-scrollbar,
-  .content-wrapper .sale-grid-wrap::-webkit-scrollbar,
-  .content-wrapper .tree-cutting-list-scroll::-webkit-scrollbar,
-  .content-wrapper .tree-cutting-receive-list-scroll::-webkit-scrollbar,
-  .content-wrapper .tree-cutting-scroll::-webkit-scrollbar,
-  .content-wrapper .tree-cutting-receive-scroll::-webkit-scrollbar,
-  .content-wrapper .casting-heating-scroll::-webkit-scrollbar,
-  .content-wrapper .casting-metal-scroll::-webkit-scrollbar,
-  .content-wrapper .casting-release-scroll::-webkit-scrollbar,
-  .content-wrapper .casting-sorting-scroll::-webkit-scrollbar,
-  .content-wrapper .vacuum-voucher-detail-scroll::-webkit-scrollbar,
-  .content-wrapper .voucher-history-timeline::-webkit-scrollbar,
-  .content-wrapper .history-table-wrap::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-  }
-
-  .content-wrapper .dataTables_scrollBody::-webkit-scrollbar-track,
-  .content-wrapper .table-responsive::-webkit-scrollbar-track,
-  .content-wrapper .sales-list-grid-wrap::-webkit-scrollbar-track,
-  .content-wrapper .sale-grid-wrap::-webkit-scrollbar-track,
-  .content-wrapper .tree-cutting-list-scroll::-webkit-scrollbar-track,
-  .content-wrapper .tree-cutting-receive-list-scroll::-webkit-scrollbar-track,
-  .content-wrapper .tree-cutting-scroll::-webkit-scrollbar-track,
-  .content-wrapper .tree-cutting-receive-scroll::-webkit-scrollbar-track,
-  .content-wrapper .casting-heating-scroll::-webkit-scrollbar-track,
-  .content-wrapper .casting-metal-scroll::-webkit-scrollbar-track,
-  .content-wrapper .casting-release-scroll::-webkit-scrollbar-track,
-  .content-wrapper .casting-sorting-scroll::-webkit-scrollbar-track,
-  .content-wrapper .vacuum-voucher-detail-scroll::-webkit-scrollbar-track,
-  .content-wrapper .voucher-history-timeline::-webkit-scrollbar-track,
-  .content-wrapper .history-table-wrap::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .content-wrapper .dataTables_scrollBody::-webkit-scrollbar-thumb,
-  .content-wrapper .table-responsive::-webkit-scrollbar-thumb,
-  .content-wrapper .sales-list-grid-wrap::-webkit-scrollbar-thumb,
-  .content-wrapper .sale-grid-wrap::-webkit-scrollbar-thumb,
-  .content-wrapper .tree-cutting-list-scroll::-webkit-scrollbar-thumb,
-  .content-wrapper .tree-cutting-receive-list-scroll::-webkit-scrollbar-thumb,
-  .content-wrapper .tree-cutting-scroll::-webkit-scrollbar-thumb,
-  .content-wrapper .tree-cutting-receive-scroll::-webkit-scrollbar-thumb,
-  .content-wrapper .casting-heating-scroll::-webkit-scrollbar-thumb,
-  .content-wrapper .casting-metal-scroll::-webkit-scrollbar-thumb,
-  .content-wrapper .casting-release-scroll::-webkit-scrollbar-thumb,
-  .content-wrapper .casting-sorting-scroll::-webkit-scrollbar-thumb,
-  .content-wrapper .vacuum-voucher-detail-scroll::-webkit-scrollbar-thumb,
-  .content-wrapper .voucher-history-timeline::-webkit-scrollbar-thumb,
-  .content-wrapper .history-table-wrap::-webkit-scrollbar-thumb {
-    background: transparent;
-    border-radius: 10px;
-  }
-
-  .content-wrapper .dataTables_scrollBody:hover::-webkit-scrollbar-track,
-  .content-wrapper .table-responsive:hover::-webkit-scrollbar-track,
-  .content-wrapper .sales-list-grid-wrap:hover::-webkit-scrollbar-track,
-  .content-wrapper .sale-grid-wrap:hover::-webkit-scrollbar-track,
-  .content-wrapper .tree-cutting-list-scroll:hover::-webkit-scrollbar-track,
-  .content-wrapper .tree-cutting-receive-list-scroll:hover::-webkit-scrollbar-track,
-  .content-wrapper .tree-cutting-scroll:hover::-webkit-scrollbar-track,
-  .content-wrapper .tree-cutting-receive-scroll:hover::-webkit-scrollbar-track,
-  .content-wrapper .casting-heating-scroll:hover::-webkit-scrollbar-track,
-  .content-wrapper .casting-metal-scroll:hover::-webkit-scrollbar-track,
-  .content-wrapper .casting-release-scroll:hover::-webkit-scrollbar-track,
-  .content-wrapper .casting-sorting-scroll:hover::-webkit-scrollbar-track,
-  .content-wrapper .vacuum-voucher-detail-scroll:hover::-webkit-scrollbar-track,
-  .content-wrapper .voucher-history-timeline:hover::-webkit-scrollbar-track,
-  .content-wrapper .history-table-wrap:hover::-webkit-scrollbar-track {
+  ::-webkit-scrollbar-track {
     background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
   }
 
-  .content-wrapper .dataTables_scrollBody:hover::-webkit-scrollbar-thumb,
-  .content-wrapper .table-responsive:hover::-webkit-scrollbar-thumb,
-  .content-wrapper .sales-list-grid-wrap:hover::-webkit-scrollbar-thumb,
-  .content-wrapper .sale-grid-wrap:hover::-webkit-scrollbar-thumb,
-  .content-wrapper .tree-cutting-list-scroll:hover::-webkit-scrollbar-thumb,
-  .content-wrapper .tree-cutting-receive-list-scroll:hover::-webkit-scrollbar-thumb,
-  .content-wrapper .tree-cutting-scroll:hover::-webkit-scrollbar-thumb,
-  .content-wrapper .tree-cutting-receive-scroll:hover::-webkit-scrollbar-thumb,
-  .content-wrapper .casting-heating-scroll:hover::-webkit-scrollbar-thumb,
-  .content-wrapper .casting-metal-scroll:hover::-webkit-scrollbar-thumb,
-  .content-wrapper .casting-release-scroll:hover::-webkit-scrollbar-thumb,
-  .content-wrapper .casting-sorting-scroll:hover::-webkit-scrollbar-thumb,
-  .content-wrapper .vacuum-voucher-detail-scroll:hover::-webkit-scrollbar-thumb,
-  .content-wrapper .voucher-history-timeline:hover::-webkit-scrollbar-thumb,
-  .content-wrapper .history-table-wrap:hover::-webkit-scrollbar-thumb {
-    background: rgba(125, 145, 255, 0.7);
+  ::-webkit-scrollbar-thumb {
+    background: #7f8dff;
+    border: 3px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #9ba6ff;
   }
 
   html.app-modal-open,

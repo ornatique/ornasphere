@@ -45,8 +45,12 @@
                             <label><input type="checkbox" class="report-column-toggle" value="gross_weight" checked> Gross Wt</label>
                             <label><input type="checkbox" class="report-column-toggle" value="other_weight"> Other Wt</label>
                             <label><input type="checkbox" class="report-column-toggle" value="net_weight" checked> Net Wt</label>
+                            <label><input type="checkbox" class="report-column-toggle" value="purity" checked> Purity</label>
+                            <label><input type="checkbox" class="report-column-toggle" value="waste_percent" checked> Waste %</label>
                             <label><input type="checkbox" class="report-column-toggle" value="fine_weight" checked> Fine Wt</label>
+                            <label><input type="checkbox" class="report-column-toggle" value="metal_rate" checked> Metal Rate</label>
                             <label><input type="checkbox" class="report-column-toggle" value="metal_amount" checked> Metal Amt</label>
+                            <label><input type="checkbox" class="report-column-toggle" value="labour_rate" checked> Labour Rate</label>
                             <label><input type="checkbox" class="report-column-toggle" value="labour_amount" checked> Labour Amt</label>
                             <label><input type="checkbox" class="report-column-toggle" value="other_amount" checked> Other Amt</label>
                             <label><input type="checkbox" class="report-column-toggle" value="net_total" checked> Total</label>
@@ -69,8 +73,12 @@
                             <th>Gross Wt</th>
                             <th>Other Wt</th>
                             <th>Net Wt</th>
+                            <th>Purity</th>
+                            <th>Waste %</th>
                             <th>Fine Wt</th>
+                            <th>Metal Rate</th>
                             <th>Metal Amt</th>
+                            <th>Labour Rate</th>
                             <th>Labour Amt</th>
                             <th>Other Amt</th>
                             <th>Total</th>
@@ -88,8 +96,12 @@
                             <th id="t_gross_weight">0.000</th>
                             <th id="t_other_weight">0.000</th>
                             <th id="t_net_weight">0.000</th>
+                            <th id="t_purity">0.000</th>
+                            <th id="t_waste_percent">0.000</th>
                             <th id="t_fine_weight">0.000</th>
+                            <th id="t_metal_rate">0.00</th>
                             <th id="t_metal_amount">0.00</th>
+                            <th id="t_labour_rate">0.00</th>
                             <th id="t_labour_amount">0.00</th>
                             <th id="t_other_amount">0.00</th>
                             <th id="t_net_total">0.00</th>
@@ -335,13 +347,17 @@ $(function () {
         gross_weight: 5,
         other_weight: 6,
         net_weight: 7,
-        fine_weight: 8,
-        metal_amount: 9,
-        labour_amount: 10,
-        other_amount: 11,
-        net_total: 12,
-        remarks: 13,
-        created_by: 14,
+        purity: 8,
+        waste_percent: 9,
+        fine_weight: 10,
+        metal_rate: 11,
+        metal_amount: 12,
+        labour_rate: 13,
+        labour_amount: 14,
+        other_amount: 15,
+        net_total: 16,
+        remarks: 17,
+        created_by: 18,
     };
 
     function selectedReportColumns() {
@@ -382,8 +398,12 @@ $(function () {
             $('#t_gross_weight').text(Number(totals.gross_weight ?? 0).toFixed(3));
             $('#t_other_weight').text(Number(totals.other_weight ?? 0).toFixed(3));
             $('#t_net_weight').text(Number(totals.net_weight ?? 0).toFixed(3));
+            $('#t_purity').text(Number(totals.purity ?? 0).toFixed(3));
+            $('#t_waste_percent').text(Number(totals.waste_percent ?? 0).toFixed(3));
             $('#t_fine_weight').text(Number(totals.fine_weight ?? 0).toFixed(3));
+            $('#t_metal_rate').text(Number(totals.metal_rate ?? 0).toFixed(2));
             $('#t_metal_amount').text(Number(totals.metal_amount ?? 0).toFixed(2));
+            $('#t_labour_rate').text(Number(totals.labour_rate ?? 0).toFixed(2));
             $('#t_labour_amount').text(Number(totals.labour_amount ?? 0).toFixed(2));
             $('#t_other_amount').text(Number(totals.other_amount ?? 0).toFixed(2));
             $('#t_net_total').text(Number(totals.net_total ?? 0).toFixed(2));
@@ -408,8 +428,12 @@ $(function () {
             { data: 'gross_weight', orderable: false, searchable: false },
             { data: 'other_weight', orderable: false, searchable: false },
             { data: 'net_weight', orderable: false, searchable: false },
+            { data: 'purity', orderable: false, searchable: false },
+            { data: 'waste_percent', orderable: false, searchable: false },
             { data: 'fine_weight', orderable: false, searchable: false },
+            { data: 'metal_rate', orderable: false, searchable: false },
             { data: 'metal_amount', orderable: false, searchable: false },
+            { data: 'labour_rate', orderable: false, searchable: false },
             { data: 'labour_amount', orderable: false, searchable: false },
             { data: 'other_amount', orderable: false, searchable: false },
             { data: 'net_total' },

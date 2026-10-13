@@ -106,13 +106,20 @@ class CompanySecurityController extends Controller
     /**
      * OTP ONLY PAGE (SECOND LOGIN+)
      */
-    public function challenge($slug)
+    public function challenge(Request $request, $slug)
     {
         $company = Company::where('slug', $slug)->firstOrFail();
-        $user = Auth::user();
+        $user = Auth::user()?->fresh();
 
-        if (!$user) {
-            return redirect()->route('company.login', $slug);
+        if (!$user || !$user->two_factor_enabled) {
+            Auth::logout();
+            $request->session()->forget(['company_2fa_verified', 'company_2fa_secret']);
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            return redirect()
+                ->route('company.login', $slug)
+                ->with('success', 'Two-factor authentication was reset. Please log in again.');
         }
 
         return view('company.2fa-challenge', [

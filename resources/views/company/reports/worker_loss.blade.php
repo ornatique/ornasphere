@@ -8,6 +8,7 @@
                 <h4 class="card-title mb-0">Worker Loss Report</h4>
                 <div class="report-subtitle">Track source, receive, bhuko, and loss by worker, voucher, and stage.</div>
             </div>
+            <a class="btn btn-primary ledger-header-link" href="{{ url()->current() }}?mode=ledger">Worker Metal Ledger (Dr / Cr)</a>
         </div>
         <div class="card-body">
             <div class="filter-box mb-3">
@@ -197,15 +198,23 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
         padding: 18px 22px;
         border-bottom: 1px solid rgba(148, 163, 184, 0.16);
         background: #272a43;
     }
 
     .worker-loss-header .card-title {
+        float: none;
         color: #ffffff;
         font-size: 22px;
         font-weight: 800;
+    }
+
+    .worker-loss-header .ledger-header-link {
+        margin-left: auto;
+        flex-shrink: 0;
     }
 
     .report-subtitle,

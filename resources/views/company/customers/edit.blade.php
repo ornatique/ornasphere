@@ -196,6 +196,7 @@
                         </div>
                 </div>
 
+                @include('company.customers.partials.opening_balance')
                 <div class="card-footer text-end">
                     <a href="{{ route('company.customers.index', $company->slug) }}" class="btn btn-info">Back</a>
                     <button type="submit" class="btn btn-primary">Update</button>

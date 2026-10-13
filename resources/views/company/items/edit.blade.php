@@ -28,6 +28,7 @@
 
                 {{-- ================= BASIC DETAILS ================= --}}
                 <h5 class="mb-3">Item Details</h5>
+                @include('company.stock_gallery.category')
 
                 <div class="row">
 

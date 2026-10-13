@@ -15,6 +15,12 @@ use Illuminate\Support\Str;
 
 class StockGalleryController extends Controller
 {
+    private ?bool $mediaSchemaReady = null;
+
+    private function mediaReady(): bool
+    {
+        return $this->mediaSchemaReady ??= \Illuminate\Support\Facades\Schema::hasTable('stock_gallery_media');
+    }
     public function index($slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
@@ -22,7 +28,8 @@ class StockGalleryController extends Controller
             ->orderBy('item_name')
             ->get(['id', 'item_name']);
 
-        return view('company.stock_gallery.index', compact('company', 'items'));
+        $mediaAvailable = $this->mediaReady();
+        return view('company.stock_gallery.index', compact('company', 'items', 'mediaAvailable'));
     }
 
     public function data(Request $request, $slug)
@@ -135,7 +142,7 @@ class StockGalleryController extends Controller
     private function galleryQuery(Company $company, Request $request): Builder
     {
         $query = ItemSet::query()
-            ->with('item')
+            ->with($this->mediaReady() ? ['item', 'galleryMedia'] : ['item'])
             ->where('item_sets.company_id', $company->id)
             ->where('item_sets.is_final', 1)
             ->whereNotNull('item_sets.qr_code');
@@ -207,7 +214,16 @@ class StockGalleryController extends Controller
 
     private function payload(ItemSet $itemSet, Company $company): array
     {
+        $media = $this->mediaReady() ? $itemSet->galleryMedia : null;
+        $ready = $media && $media->matchesSource($itemSet) && $media->status === 'ready';
+        $cutoutUrl = $ready && $media->approved
+            ? route('company.stock-gallery.media.asset', [$company->slug, Crypt::encryptString((string) $itemSet->id), 'cutout']) . '?v=' . $media->revision
+            : null;
         return [
+            'media_available' => $this->mediaReady(),
+            'try_on_category' => $itemSet->item->try_on_category ?? 'none',
+            'try_on_enabled' => $ready && $media->approved && $media->enabled && ($itemSet->item->try_on_category ?? 'none') !== 'none',
+            'media_status' => $media && $media->matchesSource($itemSet) ? $media->status : 'unprocessed',
             'id' => (int) $itemSet->id,
             'encrypted_id' => Crypt::encryptString((string) $itemSet->id),
             'item_name' => optional($itemSet->item)->item_name ?? '-',
@@ -220,7 +236,7 @@ class StockGalleryController extends Controller
             'has_other_weight' => (float) $itemSet->other > 0,
             'stock_status' => ((int) $itemSet->is_sold === 1) ? 'Out Stock' : 'In Stock',
             'is_sold' => (int) $itemSet->is_sold,
-            'image_url' => $this->itemImageUrl($itemSet),
+            'image_url' => $cutoutUrl ?: $this->itemImageUrl($itemSet),
             'has_image' => !empty($itemSet->image_path),
             'download_url' => route('company.stock-gallery.download-image', [
                 $company->slug,
@@ -265,22 +281,7 @@ class StockGalleryController extends Controller
 
     private function imageDataUri(ItemSet $itemSet): ?string
     {
-        if (!$itemSet->image_path) {
-            return null;
-        }
-
-        try {
-            $disk = Storage::disk($itemSet->image_disk ?: $this->itemImageDisk());
-            if (!$disk->exists($itemSet->image_path)) {
-                return null;
-            }
-
-            $mime = $itemSet->image_mime ?: 'image/jpeg';
-
-            return 'data:' . $mime . ';base64,' . base64_encode($disk->get($itemSet->image_path));
-        } catch (\Throwable) {
-            return null;
-        }
+        return app(\App\Services\StockGalleryPdfImage::class)->dataUri($itemSet);
     }
 
     private function imageExists(ItemSet $itemSet): bool

@@ -119,6 +119,7 @@
                 d.worker_id = $('#worker_id').val();
                 d.customer_id = $('#customer_id').val();
                 d.status = $('#status').val();
+                d.search_text = d.search && d.search.value ? d.search.value : '';
             }
         },
         order: [],

@@ -42,14 +42,8 @@
                         'config' => 'view',
                         'charge' => 'view',
                     ];
-                    $moduleLabels = [
-                        'vacuum-live-dashboard' => 'Production Monitor',
-                        'vacuum-voucher' => 'Vacuum',
-                        'approval' => 'Sale on Approval',
-                        'jobwork-issue' => 'Jobwork',
-                        'office-access' => 'Office Access',
-                        'stock-gallery' => 'Stock Gallery',
-                    ];
+                    $moduleLabels = $permissionModuleLabels ?? [];
+                    $menuLabels = $permissionMenuLabels ?? [];
                 @endphp
 
                 <div class="permission-toolbar">
@@ -76,9 +70,11 @@
                             </tr>
                         </thead>
                         <tbody>
+                            @php $currentMenu = null; @endphp
                             @foreach($permissions as $module => $perms)
                                 @php
                                     $moduleLabel = $moduleLabels[$module] ?? ucwords(str_replace(['-', '_', '.'], ' ', $module));
+                                    $menuLabel = $menuLabels[$module] ?? 'Other';
                                     $actionPermissions = [];
 
                                     foreach ($perms as $permission) {
@@ -97,11 +93,26 @@
                                     }
                                 @endphp
 
-                                <tr class="permission-row" data-search="{{ strtolower($moduleLabel . ' ' . $module) }}">
+                                @if($currentMenu !== $menuLabel)
+                                    @php $currentMenu = $menuLabel; @endphp
+                                    <tr class="permission-section-row" data-menu="{{ \Illuminate\Support\Str::slug($menuLabel) }}" data-search="{{ strtolower($menuLabel) }}">
+                                        <td colspan="{{ count($actionLabels) + 1 }}">
+                                            <label class="permission-section-label">
+                                                <input type="checkbox"
+                                                       class="section-select"
+                                                       data-menu="{{ \Illuminate\Support\Str::slug($menuLabel) }}">
+                                                <span>{{ $menuLabel }}</span>
+                                            </label>
+                                        </td>
+                                    </tr>
+                                @endif
+
+                                <tr class="permission-row" data-menu="{{ \Illuminate\Support\Str::slug($menuLabel) }}" data-search="{{ strtolower($moduleLabel . ' ' . $module) }}">
                                     <td>
                                         <label class="permission-module-label">
                                             <input type="checkbox"
                                                    class="group-select"
+                                                   data-menu="{{ \Illuminate\Support\Str::slug($menuLabel) }}"
                                                    data-group="{{ $module }}">
                                             <span>{{ $moduleLabel }}</span>
                                         </label>
@@ -116,6 +127,7 @@
                                                 <label class="permission-action-label" for="{{ $permissionId }}">
                                                     <input type="checkbox"
                                                            class="permission-checkbox"
+                                                           data-menu="{{ \Illuminate\Support\Str::slug($menuLabel) }}"
                                                            data-group="{{ $module }}"
                                                            name="permissions[]"
                                                            value="{{ $permission->name }}"
@@ -184,6 +196,8 @@
         margin-bottom: 0;
         min-width: 760px;
         table-layout: fixed;
+        border-collapse: collapse;
+        border-spacing: 0;
     }
 
     .permission-table thead th {
@@ -200,6 +214,16 @@
         vertical-align: middle;
     }
 
+    .permission-section-row td {
+        background: #202239;
+        color: #bfc8ff;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: .02em;
+        text-transform: uppercase;
+        position: static;
+    }
+
     .permission-module-col {
         width: 320px;
     }
@@ -210,6 +234,7 @@
     }
 
     .permission-check,
+    .permission-section-label,
     .permission-module-label,
     .permission-action-label {
         display: inline-flex;
@@ -219,10 +244,15 @@
         cursor: pointer;
     }
 
+    .permission-section-label span,
     .permission-module-label span,
     .permission-check span {
         color: #fff;
         font-weight: 700;
+    }
+
+    .permission-section-label span {
+        color: #bfc8ff;
     }
 
     .permission-module-label span {
@@ -240,7 +270,8 @@
         color: #777b95;
     }
 
-    .permission-row.is-hidden {
+    .permission-row.is-hidden,
+    .permission-section-row.is-hidden {
         display: none;
     }
 </style>
@@ -254,12 +285,26 @@ document.addEventListener('DOMContentLoaded', function () {
     const permissionSearch = document.getElementById('permission-search');
     const permissions = document.querySelectorAll('.permission-checkbox');
     const groupSelects = document.querySelectorAll('.group-select');
+    const sectionSelects = document.querySelectorAll('.section-select');
     const permissionRows = document.querySelectorAll('.permission-row');
+    const sectionRows = document.querySelectorAll('.permission-section-row');
 
     // Global select all
     selectAll.addEventListener('change', function () {
         permissions.forEach(cb => cb.checked = this.checked);
         groupSelects.forEach(gs => gs.checked = this.checked);
+        sectionSelects.forEach(ss => ss.checked = this.checked);
+    });
+
+    sectionSelects.forEach(section => {
+        section.addEventListener('change', function () {
+            const menuName = this.dataset.menu;
+            document.querySelectorAll(
+                `.permission-checkbox[data-menu="${menuName}"], .group-select[data-menu="${menuName}"]`
+            ).forEach(cb => cb.checked = this.checked);
+
+            syncAll();
+        });
     });
 
     // Group select
@@ -286,6 +331,21 @@ document.addEventListener('DOMContentLoaded', function () {
                 const searchableText = row.dataset.search || '';
                 row.classList.toggle('is-hidden', term !== '' && !searchableText.includes(term));
             });
+
+            sectionRows.forEach(section => {
+                let hasVisibleRow = false;
+                let next = section.nextElementSibling;
+
+                while (next && !next.classList.contains('permission-section-row')) {
+                    if (next.classList.contains('permission-row') && !next.classList.contains('is-hidden')) {
+                        hasVisibleRow = true;
+                        break;
+                    }
+                    next = next.nextElementSibling;
+                }
+
+                section.classList.toggle('is-hidden', !hasVisibleRow);
+            });
         });
     }
 
@@ -298,6 +358,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 `.permission-checkbox[data-group="${groupName}"]`
             );
             group.checked = groupPerms.length > 0 && [...groupPerms].every(cb => cb.checked);
+        });
+        sectionSelects.forEach(section => {
+            const menuName = section.dataset.menu;
+            const sectionPerms = document.querySelectorAll(
+                `.permission-checkbox[data-menu="${menuName}"]`
+            );
+            section.checked = sectionPerms.length > 0 && [...sectionPerms].every(cb => cb.checked);
         });
     }
 

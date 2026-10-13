@@ -200,6 +200,9 @@
             },
             success: function(res) {
                 if (res.success) {
+                    $('.deleteBtn[data-id="' + companyId + '"]')
+                        .data('active', res.status ? 1 : 0)
+                        .attr('data-active', res.status ? 1 : 0);
                     toastr.success('Status updated successfully');
                 }
             },
@@ -212,8 +215,19 @@
     $(document).on('click', '.deleteBtn', function() {
         const companyName = String($(this).data('name') || '');
         const url = $(this).data('url');
+        const isActive = Number($(this).data('active')) === 1;
 
-        Swal.fire({
+        const deactivatePrompt = {
+            title: 'Deactivate company first?',
+            html: '<strong>' + companyName + '</strong> is active. First click will only deactivate this company.<br><br>After it is inactive, click Delete again for permanent delete.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Deactivate Company',
+            confirmButtonColor: '#ff1a1a',
+            cancelButtonText: 'Cancel'
+        };
+
+        const deletePrompt = {
             title: 'Delete company permanently?',
             html: 'This will permanently delete <strong>' + companyName + '</strong> and all related data from all tables.<br><br>Type the company name to confirm.',
             input: 'text',
@@ -231,7 +245,9 @@
 
                 return true;
             }
-        }).then((result) => {
+        };
+
+        Swal.fire(isActive ? deactivatePrompt : deletePrompt).then((result) => {
             if (!result.isConfirmed) {
                 return;
             }

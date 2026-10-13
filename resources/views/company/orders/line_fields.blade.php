@@ -1,0 +1,10 @@
+<fieldset class="border rounded p-3 mb-3"><legend style="font-size:1rem">Jewellery item</legend><div class="row">
+@if(!empty($line['id']))<input type="hidden" name="lines[{{ $index }}][id]" value="{{ $line['id'] }}">@endif
+<div class="col-md-4 form-group"><label>Item *</label><select data-item name="lines[{{ $index }}][item_id]" class="form-control" required><option value="">Select item</option>@foreach($items as $item)<option value="{{ $item->id }}" data-metal="{{ $item->metal }}" data-purity="{{ $item->outward_purity }}" @selected(($line['item_id'] ?? '') == $item->id)>{{ $item->item_name }} ({{ $item->item_code }})</option>@endforeach</select></div>
+<div class="col-md-2 form-group"><label>Metal *</label><select data-metal name="lines[{{ $index }}][metal]" class="form-control" required>@foreach(['gold','silver','other'] as $metal)<option value="{{ $metal }}" @selected(($line['metal'] ?? '') === $metal)>{{ ucfirst($metal) }}</option>@endforeach</select></div>
+<div class="col-md-2 form-group"><label>Purity % *</label><input data-purity type="number" step="0.001" min="0.001" max="100" name="lines[{{ $index }}][purity]" value="{{ $line['purity'] ?? '' }}" class="form-control" required></div>
+<div class="col-md-2 form-group"><label>Pieces *</label><input type="number" min="1" max="1000000" name="lines[{{ $index }}][pieces]" value="{{ $line['pieces'] ?? '' }}" class="form-control" required></div>
+<div class="col-md-2 form-group"><label>Total net wt (g) *</label><input type="number" step="0.001" min="0.001" name="lines[{{ $index }}][expected_weight]" value="{{ $line['expected_weight'] ?? '' }}" class="form-control" required></div>
+<div class="col-md-4 form-group"><label>Size / length</label><input name="lines[{{ $index }}][size]" value="{{ $line['size'] ?? '' }}" maxlength="255" class="form-control"></div>
+<div class="col-md-8 form-group"><label>Design instructions</label><textarea name="lines[{{ $index }}][instructions]" class="form-control" maxlength="5000">{{ $line['instructions'] ?? '' }}</textarea></div>
+</div><button type="button" data-remove-line class="btn btn-outline-danger btn-sm">Remove Item</button></fieldset>

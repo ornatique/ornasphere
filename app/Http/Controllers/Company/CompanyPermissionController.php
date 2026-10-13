@@ -190,12 +190,15 @@ class CompanyPermissionController extends Controller
             'app-theme',
             'office-access',
             'person',
-            'job-worker',
             'jobwork-issue',
             'jobwork-receive',
             'item',
             'item-set',
             'stock-gallery',
+            'qr-making',
+            // Temporarily disabled: 'customer-order',
+            // Temporarily disabled: 'cad-design',
+            // Temporarily disabled: 'rpt-production',
             'label-config',
             'label-print',
             'other-charge',
@@ -276,7 +279,7 @@ class CompanyPermissionController extends Controller
 
     private function deprecatedPermissionModules(): array
     {
-        return ['return', 'customer'];
+        return ['return', 'customer', 'job-worker', 'customer-order', 'cad-design', 'rpt-production'];
     }
 
     private function actionsForModule(string $module): array
@@ -313,6 +316,10 @@ class CompanyPermissionController extends Controller
             'jobwork-issue' => 'Jobwork',
             'office-access' => 'Office Access',
             'stock-gallery' => 'Stock Gallery',
+            'qr-making' => 'QR Making',
+            // Temporarily disabled: 'customer-order' => 'Customer Orders',
+            // Temporarily disabled: 'cad-design' => 'CAD Designs',
+            // Temporarily disabled: 'rpt-production' => 'RPT Production',
         ];
 
         $normalized = $this->normalizePermissionName($name);

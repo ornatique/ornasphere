@@ -16,6 +16,18 @@ use PragmaRX\Google2FA\Google2FA;
 
 class AuthController extends Controller
 {
+    private function twoFactorSetupRequired()
+    {
+        return response()->json([
+            'success' => false,
+            'code' => 'TWO_FACTOR_SETUP_REQUIRED',
+            'message' => 'Two-factor authentication was reset or has not been set up. Your old code cannot be used. Log in to the ERP website, scan the new QR code and verify it, then log in to the app again.',
+            'otp_required' => false,
+            'setup_required' => true,
+            'action' => 'setup_2fa_on_web',
+        ], 403);
+    }
+
     public function login(Request $request)
     {
         $request->validate([
@@ -77,6 +89,10 @@ class AuthController extends Controller
             return response()->json(['message' => 'User inactive'], 403);
         }
 
+        if (!$user->two_factor_enabled || empty($user->two_factor_secret)) {
+            return $this->twoFactorSetupRequired();
+        }
+
         return response()->json([
             'otp_required' => true,
             'user_id' => $user->id,
@@ -84,6 +100,8 @@ class AuthController extends Controller
                 'id' => (int) $user->company->id,
                 'name' => $user->company->name,
                 'slug' => $user->company->slug,
+                'company_logo' => $user->company->company_logo,
+                'company_logo_url' => $this->companyLogoUrl($user->company->company_logo),
                 'plan' => $user->company->plan,
                 'plan_started_at' => $planStatus['started_at'],
                 'plan_expires_at' => $planStatus['expires_at'],
@@ -112,6 +130,12 @@ class AuthController extends Controller
             return response()->json(['message' => 'User not found'], 404);
         }
 
+        // A reset clears the secret while an app may still have its OTP screen open.
+        // Never pass a missing secret into the authenticator library.
+        if (!$user->two_factor_enabled || empty($user->two_factor_secret)) {
+            return $this->twoFactorSetupRequired();
+        }
+
         $google2fa = new Google2FA();
 
         $valid = $google2fa->verifyKey(
@@ -120,7 +144,11 @@ class AuthController extends Controller
         );
 
         if (!$valid) {
-            return response()->json(['message' => 'Invalid OTP'], 401);
+            return response()->json([
+                'success' => false,
+                'code' => 'INVALID_OTP',
+                'message' => 'Invalid or expired OTP. Enter the current code from your authenticator.',
+            ], 401);
         }
 
         $device = null;
@@ -207,6 +235,8 @@ class AuthController extends Controller
                 'id' => (int) optional($user->company)->id,
                 'name' => optional($user->company)->name,
                 'slug' => optional($user->company)->slug,
+                'company_logo' => optional($user->company)->company_logo,
+                'company_logo_url' => $this->companyLogoUrl(optional($user->company)->company_logo),
                 'plan' => optional($user->company)->plan,
                 'plan_started_at' => $planStatus['started_at'],
                 'plan_expires_at' => $planStatus['expires_at'],
@@ -422,9 +452,14 @@ class AuthController extends Controller
 
     private function companyLogoUrl(?string $rawPath): ?string
     {
+        $defaultLogo = asset('celestial/assets/images/ornasphere-auth-logo.png') . '?v=' . @filemtime(public_path('celestial/assets/images/ornasphere-auth-logo.png'));
         $rawPath = trim((string) $rawPath);
         if ($rawPath === '') {
-            return null;
+            return $defaultLogo;
+        }
+
+        if (preg_match('/^https?:\/\//i', $rawPath)) {
+            return $rawPath;
         }
 
         $path = ltrim($rawPath, '/');
@@ -433,14 +468,22 @@ class AuthController extends Controller
         }
 
         if (file_exists(public_path($path))) {
-            return asset('public/' . $path);
+            return asset($path);
+        }
+
+        if (str_starts_with($path, 'storage/')) {
+            return asset($path);
         }
 
         if (file_exists(storage_path('app/public/' . $path))) {
             return asset('storage/' . $path);
         }
 
-        return null;
+        if (str_starts_with($path, 'uploads/') || str_starts_with($path, 'celestial/')) {
+            return asset($path);
+        }
+
+        return $defaultLogo;
     }
 
     private function initials(?string $name): string
@@ -520,11 +563,11 @@ class AuthController extends Controller
             'app-theme',
             'office-access',
             'person',
-            'job-worker',
             'jobwork-issue',
             'jobwork-receive',
             'item',
             'item-set',
+            'stock-gallery',
             'label-config',
             'label-print',
             'other-charge',

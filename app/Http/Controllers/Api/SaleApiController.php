@@ -48,7 +48,7 @@ class SaleApiController extends Controller
         $data = $sales->map(function ($sale) use ($company) {
             $received = (float) ($sale->received_amount ?? 0);
             $refundPaid = (float) ($sale->paid_amount ?? 0);
-            $effectiveReceived = $received - $refundPaid;
+            $effectiveReceived = $sale->appliedReceivedAmount();
             $pending = max(0, (float) ($sale->net_total ?? 0) - $effectiveReceived);
 
             return [
@@ -177,7 +177,7 @@ class SaleApiController extends Controller
     {
         $received = (float) ($sale->received_amount ?? 0);
         $refundPaid = (float) ($sale->paid_amount ?? 0);
-        $pending = max(0, (float) ($sale->net_total ?? 0) - ($received - $refundPaid));
+        $pending = max(0, (float) ($sale->net_total ?? 0) - $sale->appliedReceivedAmount());
 
         return [
             'id' => (int) $sale->id,
@@ -605,14 +605,25 @@ class SaleApiController extends Controller
             'itemset_id' => 'nullable|required_without_all:qr_code,approval_item_id|integer',
             'approval_item_id' => 'nullable|required_without_all:qr_code,itemset_id|integer',
             'customer_id' => 'nullable|integer',
+            'approval_customer_id' => 'nullable|integer',
+            'approval_person_id' => 'nullable|integer',
+            'approval_party_id' => 'nullable|integer',
         ]);
 
         $qrCode = trim((string) $request->qr_code);
         $requestedItemsetId = (int) $request->input('itemset_id', 0);
         $requestedApprovalItemId = (int) $request->input('approval_item_id', 0);
         $customerId = (int) $request->input('customer_id', 0);
+        $approvalCustomerId = (int) (
+            $request->input('approval_customer_id')
+            ?? $request->input('approval_person_id')
+            ?? $request->input('approval_party_id')
+            ?? 0
+        );
+        $approvalLookupCustomerId = $approvalCustomerId > 0 ? $approvalCustomerId : $customerId;
+        $hasSaleCartCustomerId = Schema::hasColumn('sale_carts', 'customer_id');
        
-        if ($customerId > 0) {
+        if ($approvalLookupCustomerId > 0) {
             if (!Schema::hasColumn('sale_carts', 'approval_item_id')) {
                 return response()->json([
                     'success' => false,
@@ -621,12 +632,12 @@ class SaleApiController extends Controller
             }
             
             $approvalItem = ApprovalItem::with(['approval.customer', 'itemSet.item', 'legacyItemSet.item', 'item'])
-                ->whereExists(function ($q) use ($user, $customerId) {
+                ->whereExists(function ($q) use ($user, $approvalLookupCustomerId) {
                     $q->select(DB::raw(1))
                         ->from('approval_headers')
                         ->whereColumn('approval_headers.id', 'approval_items.approval_id')
                         ->where('approval_headers.company_id', $user->company_id)
-                        ->where('approval_headers.customer_id', $customerId);
+                        ->where('approval_headers.customer_id', $approvalLookupCustomerId);
                 })
                 ->where(function ($q) {
                     $q->whereNull('status')
@@ -668,28 +679,54 @@ class SaleApiController extends Controller
                 $exists = SaleCart::where('user_id', $user->id)
                     ->where('company_id', $user->company_id)
                     ->where('approval_item_id', $approvalItem->id)
-                    ->exists();
+                    ->first();
 
                 if ($exists) {
+                    $existingCustomerId = $hasSaleCartCustomerId ? (int) ($exists->customer_id ?? 0) : 0;
+                    if ($hasSaleCartCustomerId && $customerId > 0 && $existingCustomerId > 0 && $existingCustomerId !== $customerId) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Product already selected for another sale customer. Please remove it from that cart first.',
+                            'code' => 'SALE_CART_CUSTOMER_MISMATCH',
+                            'cart_id' => (int) $exists->id,
+                            'customer_id' => $existingCustomerId,
+                            'approval_customer_id' => $approvalLookupCustomerId,
+                        ], 409);
+                    }
+
                     return response()->json([
-                        'success' => false,
-                        'message' => 'Product already added. Please add different product.'
+                        'success' => true,
+                        'message' => 'Product already added to cart',
+                        'already_added' => true,
+                        'source' => 'approval',
+                        'cart_id' => (int) $exists->id,
+                        'customer_id' => $hasSaleCartCustomerId ? $exists->customer_id : $customerId,
+                        'approval_customer_id' => $approvalLookupCustomerId,
+                        'approval_item' => $approvalItem,
                     ]);
                 }
 
                 $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
-                $cart = SaleCart::create([
+                $cartPayload = [
                     'user_id' => $user->id,
                     'company_id' => $user->company_id,
                     'itemset_id' => optional($itemSet)->id,
                     'approval_item_id' => $approvalItem->id,
-                ]);
+                ];
+
+                if ($hasSaleCartCustomerId) {
+                    $cartPayload['customer_id'] = $customerId;
+                }
+
+                $cart = SaleCart::create($cartPayload);
 
                 return response()->json([
                     'success' => true,
                     'message' => 'Approval product added to cart',
                     'source' => 'approval',
                     'cart_id' => (int) $cart->id,
+                    'customer_id' => $hasSaleCartCustomerId ? $cart->customer_id : $customerId,
+                    'approval_customer_id' => $approvalLookupCustomerId,
                     'approval_item' => $approvalItem,
                 ]);
             }
@@ -702,7 +739,7 @@ class SaleApiController extends Controller
             }
         }
 
-        return DB::transaction(function () use ($user, $qrCode, $requestedItemsetId) {
+        return DB::transaction(function () use ($user, $qrCode, $requestedItemsetId, $customerId, $hasSaleCartCustomerId) {
             $item = ItemSet::with('item')
                 ->where('company_id', $user->company_id)
                 ->when($requestedItemsetId > 0, function ($q) use ($requestedItemsetId) {
@@ -734,33 +771,58 @@ class SaleApiController extends Controller
             $exists = SaleCart::where('user_id', $user->id)
                 ->where('company_id', $user->company_id)
                 ->where('itemset_id', $item->id)
-                ->exists();
+                ->first();
 
             if ($exists) {
+                $existingCustomerId = $hasSaleCartCustomerId ? (int) ($exists->customer_id ?? 0) : 0;
+                if ($hasSaleCartCustomerId && $customerId > 0 && $existingCustomerId > 0 && $existingCustomerId !== $customerId) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Product already selected for another sale customer. Please remove it from that cart first.',
+                        'code' => 'SALE_CART_CUSTOMER_MISMATCH',
+                        'cart_id' => (int) $exists->id,
+                        'customer_id' => $existingCustomerId,
+                    ], 409);
+                }
+
                 return response()->json([
-                    'success' => false,
-                    'message' => 'Product already added. Please add different product.'
+                    'success' => true,
+                    'message' => 'Product already added to cart',
+                    'already_added' => true,
+                    'source' => 'stock',
+                    'cart_id' => (int) $exists->id,
+                    'customer_id' => $hasSaleCartCustomerId ? $exists->customer_id : ($customerId > 0 ? $customerId : null),
+                    'item' => $item,
                 ]);
             }
 
-            $cart = SaleCart::create([
+            $cartPayload = [
                 'user_id'    => $user->id,
                 'company_id' => $user->company_id,
                 'itemset_id' => $item->id,
-            ]);
+            ];
+
+            if ($hasSaleCartCustomerId && $customerId > 0) {
+                $cartPayload['customer_id'] = $customerId;
+            }
+
+            $cart = SaleCart::create($cartPayload);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Product added to cart',
                 'cart_id' => (int) $cart->id,
+                'customer_id' => $hasSaleCartCustomerId ? $cart->customer_id : ($customerId > 0 ? $customerId : null),
                 'item' => $item
             ]);
         });
     }
 
-    public function cartItems()
+    public function cartItems(Request $request)
     {
         $user = auth()->user();
+        $customerId = (int) $request->input('customer_id', 0);
+        $hasSaleCartCustomerId = Schema::hasColumn('sale_carts', 'customer_id');
 
         $items = SaleCart::with([
                 'itemset.item',
@@ -771,8 +833,11 @@ class SaleApiController extends Controller
             ])
             ->where('user_id', $user->id)
             ->where('company_id', $user->company_id)
+            ->when($hasSaleCartCustomerId && $customerId > 0, function ($query) use ($customerId) {
+                $query->where('customer_id', $customerId);
+            })
             ->get()
-            ->map(function ($cart) {
+            ->map(function ($cart) use ($hasSaleCartCustomerId) {
                 if ($cart->approvalItem) {
                     $approvalItem = $cart->approvalItem;
                     $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
@@ -784,6 +849,7 @@ class SaleApiController extends Controller
                     return [
                         'id' => $cart->id,
                         'source' => 'approval',
+                        'customer_id' => $hasSaleCartCustomerId ? ($cart->customer_id ?? optional($approvalItem->approval)->customer_id) : optional($approvalItem->approval)->customer_id,
                         'approval_item_id' => $approvalItem->id,
                         'approval_id' => $approvalItem->approval_id,
                         'itemset_id' => optional($itemSet)->id,
@@ -807,7 +873,12 @@ class SaleApiController extends Controller
                     ];
                 }
 
-                return $cart;
+                $row = $cart->toArray();
+                $row['source'] = 'stock';
+                $row['cart_id'] = (int) $cart->id;
+                $row['customer_id'] = $hasSaleCartCustomerId ? $cart->customer_id : null;
+
+                return $row;
             })
             ->values();
 
@@ -1156,6 +1227,7 @@ class SaleApiController extends Controller
                 'payment_mode' => 'nullable|string|max:30',
                 'payment_reference' => 'nullable|string|max:120',
                 'payment_note' => 'nullable|string|max:255',
+            'show_previous_bills' => 'sometimes|boolean',
             ]);
 
             $customerExists = Customer::where('company_id', $user->company_id)
@@ -1169,9 +1241,16 @@ class SaleApiController extends Controller
                 ], 422);
             }
 
-            $cartItems = SaleCart::where('user_id', auth()->id())
+            $hasSaleCartCustomerId = Schema::hasColumn('sale_carts', 'customer_id');
+            $customerId = (int) $request->customer_id;
+
+            $cartQuery = SaleCart::where('user_id', auth()->id())
                 ->where('company_id', $user->company_id)
-                ->get();
+                ->when($hasSaleCartCustomerId, function ($query) use ($customerId) {
+                    $query->where('customer_id', $customerId);
+                });
+
+            $cartItems = $cartQuery->get();
 
             if ($cartItems->isEmpty()) {
                 return response()->json(['success' => false, 'message' => 'Cart empty']);
@@ -1180,7 +1259,7 @@ class SaleApiController extends Controller
             $sale = Sale::create([
                 'company_id'  => $user->company_id,
                 'customer_id' => $request->customer_id,
-                'voucher_no'  => 'SL' . time(),
+                'voucher_no'  => \App\Services\VoucherSeries::next((int) $request->user()->company_id, 'SL'),
                 'sale_date'   => now(),
                 'remarks' => $request->input('remarks', $request->input('remark')),
                 'net_total'   => 0,
@@ -1189,6 +1268,7 @@ class SaleApiController extends Controller
                 'payment_reference' => $request->input('payment_reference'),
                 'payment_note' => $request->input('payment_note'),
                 'use_silver_balance' => $request->boolean('use_silver_balance'),
+                'show_previous_bills' => $request->boolean('show_previous_bills'),
                 'employee_id' => $user->id,
                 'modified_count' => 0,
             ]);
@@ -1211,10 +1291,19 @@ class SaleApiController extends Controller
 
             foreach ($cartItems as $cart) {
                 if (!empty($cart->approval_item_id)) {
+                    $approvalOwner = $this->resolveApprovalItemForSale(
+                        $companyId,
+                        (int) $cart->approval_item_id,
+                        null,
+                        null,
+                        false
+                    );
+                    $approvalOwnerCustomerId = (int) optional($approvalOwner?->approval)->customer_id;
+
                     $approvalItem = TransactionItemGuard::lockApprovalItemForSale(
                         $user->company_id,
                         (int) $cart->approval_item_id,
-                        (int) $request->customer_id
+                        $approvalOwnerCustomerId > 0 ? $approvalOwnerCustomerId : null
                     )->load(['itemSet.item', 'legacyItemSet.item', 'item']);
 
                     $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
@@ -1304,6 +1393,9 @@ class SaleApiController extends Controller
 
             SaleCart::where('user_id', auth()->id())
                 ->where('company_id', $user->company_id)
+                ->when($hasSaleCartCustomerId, function ($query) use ($customerId) {
+                    $query->where('customer_id', $customerId);
+                })
                 ->delete();
 
             DB::commit();
@@ -1619,6 +1711,7 @@ class SaleApiController extends Controller
             'payment_mode' => 'nullable|string|max:30',
             'payment_reference' => 'nullable|string|max:120',
             'payment_note' => 'nullable|string|max:255',
+            'show_previous_bills' => 'sometimes|boolean',
         ]);
 
         if ($customerId <= 0) {
@@ -1651,7 +1744,7 @@ class SaleApiController extends Controller
             $sale = Sale::create([
                 'company_id'  => $companyId,
                 'customer_id' => $customerId,
-                'voucher_no'  => 'SL' . time(),
+                'voucher_no'  => \App\Services\VoucherSeries::next((int) $request->user()->company_id, 'SL'),
                 'sale_date'   => now(),
                 'remarks' => $request->input('remarks', $request->input('remark')),
                 'net_total'   => 0,
@@ -1660,6 +1753,7 @@ class SaleApiController extends Controller
                 'payment_reference' => $request->input('payment_reference'),
                 'payment_note' => $request->input('payment_note'),
                 'use_silver_balance' => $request->boolean('use_silver_balance'),
+                'show_previous_bills' => $request->boolean('show_previous_bills'),
                 'employee_id' => $user->id,
                 'modified_count' => 0,
             ]);
@@ -1719,6 +1813,9 @@ class SaleApiController extends Controller
                     }
 
                     $approvalItemId = (int) $approvalItem->id;
+                    $resolvedApprovalCustomerId = $rowApprovalCustomerId > 0
+                        ? $rowApprovalCustomerId
+                        : (int) optional($approvalItem->approval)->customer_id;
                     $approvalCartLock = $this->activeSaleCartLockForApprovalItem((int) $companyId, $approvalItemId);
                     if ($approvalCartLock && (int) $approvalCartLock->user_id !== (int) $user->id) {
                         DB::rollBack();
@@ -1729,7 +1826,7 @@ class SaleApiController extends Controller
                     $approvalItem = TransactionItemGuard::lockApprovalItemForSale(
                         $companyId,
                         $approvalItemId,
-                        $rowApprovalCustomerId > 0 ? $rowApprovalCustomerId : (int) $request->customer_id
+                        $resolvedApprovalCustomerId > 0 ? $resolvedApprovalCustomerId : null
                     )->load(['approval', 'itemSet', 'legacyItemSet']);
                 } elseif ($rowApprovalCustomerId > 0 && $itemsetId > 0) {
                     $approvalItem = $this->resolveApprovalItemForSale(
@@ -1842,10 +1939,13 @@ class SaleApiController extends Controller
                 ]);
 
                 if ($approvalItemId > 0) {
+                    $resolvedApprovalCustomerId = $rowApprovalCustomerId > 0
+                        ? $rowApprovalCustomerId
+                        : (int) optional($approvalItem?->approval)->customer_id;
                     $approvalItem = $approvalItem ?: TransactionItemGuard::lockApprovalItemForSale(
                         $companyId,
                         (int) $approvalItemId,
-                        (int) $request->customer_id
+                        $resolvedApprovalCustomerId > 0 ? $resolvedApprovalCustomerId : null
                     );
                     if ($approvalItem) {
                         $approvalItem->update(['status' => 'sold']);
@@ -1933,6 +2033,9 @@ class SaleApiController extends Controller
             $sale = Sale::with('saleItems', 'payments')
                 ->where('company_id', $companyId)
                 ->findOrFail((int) $id);
+            if (\App\Models\SaleReturnItem::whereIn('sale_item_id', $sale->saleItems->pluck('id'))->exists()) {
+                throw new \Exception('This sale has returned items and cannot be rewritten.');
+            }
                 
             $request->validate([
                 'customer_id' => 'required|integer',
@@ -1943,6 +2046,7 @@ class SaleApiController extends Controller
                 'payment_mode' => 'nullable|string|max:30',
                 'payment_reference' => 'nullable|string|max:120',
                 'payment_note' => 'nullable|string|max:255',
+            'show_previous_bills' => 'sometimes|boolean',
             ]);
 
             $customerExists = Customer::where('company_id', $companyId)
@@ -1960,7 +2064,7 @@ class SaleApiController extends Controller
             $finalReceived = $additionalReceived > 0
                 ? ((float) ($sale->received_amount ?? 0) + $additionalReceived)
                 : $incomingReceived;
-            $baseEffectiveReceived = (float) ($sale->received_amount ?? 0) - (float) ($sale->paid_amount ?? 0);
+            $baseEffectiveReceived = $sale->appliedReceivedAmount();
 
             $sale->update([
                 'customer_id' => (int) $request->customer_id,
@@ -1969,6 +2073,9 @@ class SaleApiController extends Controller
                 'payment_mode' => $request->input('payment_mode', $sale->payment_mode),
                 'payment_reference' => $request->input('payment_reference', $sale->payment_reference),
                 'payment_note' => $request->input('payment_note', $sale->payment_note),
+                'show_previous_bills' => $request->has('show_previous_bills')
+                    ? $request->boolean('show_previous_bills')
+                    : (bool) $sale->show_previous_bills,
                 'use_silver_balance' => $request->has('use_silver_balance')
                     ? $request->boolean('use_silver_balance')
                     : (bool) ($sale->use_silver_balance ?? false),
@@ -2070,6 +2177,7 @@ class SaleApiController extends Controller
 
             $approvalIds = [];
 
+            $retainedApprovalIds = array_map('intval', array_column(array_column($resolvedRows->all(), 'row'), 'approval_item_id'));
             foreach ($sale->saleItems as $saleItem) {
                 if (!empty($saleItem->approval_item_id)) {
                     $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
@@ -2077,7 +2185,11 @@ class SaleApiController extends Controller
                     })->find((int) $saleItem->approval_item_id);
 
                     if ($approvalItem) {
-                        $approvalItem->update(['status' => 'pending']);
+                        if (in_array((int) $approvalItem->id, $retainedApprovalIds, true)) {
+                            $approvalItem->update(['status' => 'pending']);
+                        } else {
+                            app(\App\Services\SaleApprovalStockRestore::class)->restore($approvalItem, $saleItem, (int) $companyId);
+                        }
                         $approvalIds[] = (int) $approvalItem->approval_id;
                     }
                 }
@@ -2126,10 +2238,13 @@ class SaleApiController extends Controller
                     }
 
                     $approvalItemId = (int) $approvalItem->id;
+                    $resolvedApprovalCustomerId = $rowApprovalCustomerId > 0
+                        ? $rowApprovalCustomerId
+                        : (int) optional($approvalItem->approval)->customer_id;
                     $approvalItem = TransactionItemGuard::lockApprovalItemForSale(
                         $companyId,
                         $approvalItemId,
-                        $rowApprovalCustomerId > 0 ? $rowApprovalCustomerId : (int) $request->customer_id
+                        $resolvedApprovalCustomerId > 0 ? $resolvedApprovalCustomerId : null
                     )->load(['approval', 'itemSet', 'legacyItemSet']);
                 } elseif ($rowApprovalCustomerId > 0) {
                     $approvalItem = $this->resolveApprovalItemForSale(
@@ -2220,10 +2335,13 @@ class SaleApiController extends Controller
                 }
 
                 if ($approvalItemId > 0) {
+                    $resolvedApprovalCustomerId = $rowApprovalCustomerId > 0
+                        ? $rowApprovalCustomerId
+                        : (int) optional($approvalItem?->approval)->customer_id;
                     $approvalItem = $approvalItem ?: TransactionItemGuard::lockApprovalItemForSale(
                         $companyId,
                         (int) $approvalItemId,
-                        (int) $request->customer_id
+                        $resolvedApprovalCustomerId > 0 ? $resolvedApprovalCustomerId : null
                     );
                     if ($approvalItem) {
                         $approvalItem->update(['status' => 'sold']);
@@ -2282,7 +2400,7 @@ class SaleApiController extends Controller
                 ->where('sale_id', (int) $sale->id)
                 ->exists();
 
-            if ($hasReturns) {
+            if ($hasReturns || \App\Models\SaleReturnItem::whereIn('sale_item_id', $sale->saleItems->pluck('id'))->exists()) {
                 DB::rollBack();
                 return response()->json([
                     'success' => false,
@@ -2368,14 +2486,14 @@ class SaleApiController extends Controller
                 })->find((int) $saleItem->approval_item_id);
 
                 if ($approvalItem) {
-                    $approvalItem->update(['status' => 'pending']);
+                    app(\App\Services\SaleApprovalStockRestore::class)->restore($approvalItem, $saleItem, (int) $companyId);
                     $approvalIds[] = (int) $approvalItem->approval_id;
                 }
 
                 if (!empty($saleItem->itemset_id)) {
                     ItemSet::where('company_id', $companyId)
                         ->where('id', (int) $saleItem->itemset_id)
-                        ->update(['is_sold' => 1]);
+                        ->update(['is_sold' => 0]);
                 }
             } elseif (!empty($saleItem->itemset_id)) {
                 ItemSet::where('company_id', $companyId)
@@ -2407,7 +2525,7 @@ class SaleApiController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => $removedSource === 'approval'
-                    ? 'Sale item removed and moved back to approval.'
+                    ? 'Sale approval item removed and returned to available shop stock.'
                     : 'Sale item removed and moved back to stock.',
                 'removed_source' => $removedSource,
                 'data' => $this->saleResponsePayload($sale->fresh(['customer', 'saleItems.itemset.item', 'saleItems.product', 'payments'])),
@@ -2608,12 +2726,14 @@ class SaleApiController extends Controller
             ->where('company_id', $companyId)
             ->where('reference_type', 'sale')
             ->where('reference_id', $saleId)
+            ->selectRaw('COALESCE(SUM(cash_out),0) as cash_used')
             ->selectRaw('COALESCE(SUM(CASE WHEN metal_type = "gold" THEN metal_out ELSE 0 END),0) as gold_used')
             ->selectRaw('COALESCE(SUM(CASE WHEN metal_type = "silver" THEN metal_out ELSE 0 END),0) as silver_used')
             ->selectRaw('COALESCE(SUM(CASE WHEN metal_type = "other" THEN metal_out ELSE 0 END),0) as other_used')
             ->first();
 
         return [
+            'cash_used' => (float) ($usage->cash_used ?? 0),
             'gold_used' => (float) ($usage->gold_used ?? 0),
             'silver_used' => (float) ($usage->silver_used ?? 0),
             'other_used' => (float) ($usage->other_used ?? 0),
@@ -2642,6 +2762,7 @@ class SaleApiController extends Controller
         $silverRequired = (float) ($required['silver'] ?? 0);
 
         return [
+            'cash_used' => (float) ($usage['cash_used'] ?? 0),
             'fine_required' => [
                 'gold' => round((float) ($required['gold'] ?? 0), 3),
                 'silver' => round($silverRequired, 3),
@@ -2655,11 +2776,11 @@ class SaleApiController extends Controller
             'silver_opening' => round($silverOpening, 3),
             'silver_used' => round($silverUsed, 3),
             'silver_closing' => round($silverClosing, 3),
-            'silver_debit' => round(max(0, $silverRequired - $silverOpening), 3),
-            'silver_credit' => round(max(0, $silverOpening - $silverRequired), 3),
+            'silver_debit' => round(max(0, -$silverClosing), 3),
+            'silver_credit' => round(max(0, $silverClosing), 3),
             'cash_balance' => round((float) ($summary['cash'] ?? 0), 2),
             'cash_payable_total' => round((float) ($sale->net_total ?? 0), 2),
-            'cash_pending' => round(max(0, (float) ($sale->net_total ?? 0) - ((float) ($sale->received_amount ?? 0) - (float) ($sale->paid_amount ?? 0))), 2),
+            'cash_pending' => round(max(0, (float) ($sale->net_total ?? 0) - ($sale->appliedReceivedAmount())), 2),
         ];
     }
 
@@ -2680,7 +2801,7 @@ class SaleApiController extends Controller
         $sale->setAttribute('labour_amount', (float) $sale->saleItems->sum('labour_amount'));
         $sale->setAttribute('other_amount', (float) $sale->saleItems->sum('other_amount'));
         $sale->setAttribute('refund_paid_amount', (float) ($sale->paid_amount ?? 0));
-        $sale->setAttribute('pending_amount', max(0, (float) ($sale->net_total ?? 0) - ((float) ($sale->received_amount ?? 0) - (float) ($sale->paid_amount ?? 0))));
+        $sale->setAttribute('pending_amount', max(0, (float) ($sale->net_total ?? 0) - ($sale->appliedReceivedAmount())));
         $sale->setAttribute('advance_usage', $this->getSaleAdvanceUsage((int) $sale->company_id, $sale));
         $sale->setAttribute('payment_history', collect($sale->payments ?? [])->map(function ($p) {
             return [
@@ -2797,55 +2918,8 @@ class SaleApiController extends Controller
 
     private function syncSilverAdvanceUsageForSale(int $companyId, Sale $sale, bool $useSilverBalance = false, ?int $userId = null): void
     {
-        CustomerAdvanceLedger::query()
-            ->where('company_id', $companyId)
-            ->where('reference_type', 'sale')
-            ->where('reference_id', (int) $sale->id)
-            ->where('entry_type', 'purchase_adjust_metal')
-            ->delete();
-
-        if (!$useSilverBalance || (int) ($sale->customer_id ?? 0) <= 0) {
-            return;
-        }
-
-        $asOnDate = Carbon::parse($sale->sale_date ?? now())->toDateString();
-        $items = $sale->saleItems()->with(['itemset.item', 'product'])->get();
-        $metalFineUsage = ['gold' => 0.0, 'silver' => 0.0, 'other' => 0.0];
-
-        foreach ($items as $row) {
-            $fine = (float) ($row->fine_weight ?? 0);
-            if ($fine <= 0) {
-                continue;
-            }
-            $item = optional($row->itemset)->item ?: $row->product;
-            $metalType = $this->normalizeMetalType(optional($item)->metal ?? null);
-            $metalFineUsage[$metalType] = (float) ($metalFineUsage[$metalType] ?? 0) + $fine;
-        }
-
-        foreach ($metalFineUsage as $metalType => $metalOut) {
-            if ((float) $metalOut <= 0) {
-                continue;
-            }
-            CustomerAdvanceLedger::create([
-                'company_id' => $companyId,
-                'customer_id' => (int) $sale->customer_id,
-                'entry_date' => $asOnDate,
-                'entry_type' => 'purchase_adjust_metal',
-                'payment_mode' => null,
-                'cash_in' => 0,
-                'cash_out' => 0,
-                'metal_type' => $metalType,
-                'metal_in' => 0,
-                'metal_out' => round((float) $metalOut, 3),
-                'rate' => 0,
-                'reference_type' => 'sale',
-                'reference_id' => (int) $sale->id,
-                'remarks' => 'Auto ' . $metalType . ' adjusted from sale fine weight',
-                'created_by' => $userId,
-            ]);
-        }
+        app(\App\Services\SaleSettlement::class)->sync($sale, $userId);
     }
-
     private function normalizeMetalType(?string $metal): string
     {
         $m = strtolower(trim((string) $metal));
@@ -2886,7 +2960,7 @@ class SaleApiController extends Controller
             ->map(function (Sale $row) {
                 $received = (float) ($row->received_amount ?? 0);
                 $refundPaid = (float) ($row->paid_amount ?? 0);
-                $pending = max(0, (float) ($row->net_total ?? 0) - ($received - $refundPaid));
+                $pending = max(0, (float) ($row->net_total ?? 0) - $row->appliedReceivedAmount());
                 $fineWeight = (float) ($row->sum_fine_weight ?? 0);
                 $metalAmount = (float) ($row->sum_metal_amount ?? 0);
                 $metalDebit = (!(bool) ($row->use_silver_balance ?? false) && $metalAmount <= 0.000001) ? $fineWeight : 0;

@@ -59,6 +59,16 @@
                     </div>
                 </div>
 
+                @php
+                    $rawStockPreview = $items->filter(fn($item) => strtolower((string) $item->jobwork_item_type) === 'raw')
+                        ->mapWithKeys(fn($item) => [(string)$item->id => ['name'=>$item->item_name, 'available'=>(float)$item->raw_available_net, 'allowance'=>(float)$item->raw_edit_allowance]]);
+                @endphp
+                <script type="application/json" id="rawStockPreviewData">{!! json_encode($rawStockPreview, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) !!}</script>
+                <div id="rawStockPreview" class="alert alert-info mt-3" style="display:none" aria-live="polite">
+                    <strong>Raw material stock (net grams)</strong>
+                    <div id="rawStockPreviewRows"></div>
+                    <small>Stock comes from Receive / Purchase. All issued raw weight is deducted. Insufficient stock is saved as a negative balance. Availability is checked again when you save.</small>
+                </div>
                 <div class="table-responsive mt-3 jobwork-items-scroll">
                     <table class="table table-bordered" id="itemsTable">
                         <thead>
@@ -113,7 +123,7 @@
                                                 data-purity="{{ $purity }}"
                                                 data-net-purity="{{ $purity }}"
                                                 {{ (string) ($row['item_id'] ?? '') === (string) $item->id ? 'selected' : '' }}>
-                                                {{ $item->item_name }}
+                                                {{ $item->item_name }}@if(strtolower((string) $item->jobwork_item_type) === 'raw') - Available: {{ number_format($item->raw_available_net, 3) }} g @endif
                                             </option>
                                             @endforeach
                                         </select>
@@ -147,7 +157,7 @@
                                             @php
                                             $purity = (float) ($item->outward_purity ?? 0);
                                             @endphp
-                                            <option value="{{ $item->id }}" data-purity="{{ $purity }}" data-net-purity="{{ $purity }}">{{ $item->item_name }}</option>
+                                            <option value="{{ $item->id }}" data-purity="{{ $purity }}" data-net-purity="{{ $purity }}">{{ $item->item_name }}@if(strtolower((string) $item->jobwork_item_type) === 'raw') - Available: {{ number_format($item->raw_available_net, 3) }} g @endif</option>
                                             @endforeach
                                         </select>
                                     </td>
@@ -537,6 +547,30 @@ function initItemSelect($context) {
     });
 }
 
+function updateRawStockPreview() {
+    const stocks = JSON.parse(document.getElementById('rawStockPreviewData').textContent);
+    const used = {};
+    $('#itemsTable tbody tr').each(function () {
+        const id = String($(this).find('.item-select').val() || '');
+        if (stocks[id]) used[id] = (used[id] || 0) + toNum($(this).find('.net-wt').val());
+    });
+    const $rows = $('#rawStockPreviewRows').empty();
+    Object.entries(used).forEach(([id, weight]) => {
+        const stock = stocks[id];
+        const available = stock.available + stock.allowance;
+        const shortage = weight > available + 0.0005;
+        const after = available - weight;
+        $('<div>').addClass('fw-bold')
+            .text(stock.name + ' | Shop stock: ' + nfix(stock.available, 3) + ' g | This issue: ' + nfix(weight, 3) + ' g | After save: ' + nfix(after, 3) + ' g' + (shortage ? ' | Will save with negative stock' : ''))
+            .appendTo($rows);
+    });
+    $('#rawStockPreview').toggle(Object.keys(used).length > 0);
+}
+$(function () {
+    updateRawStockPreview();
+    new MutationObserver(updateRawStockPreview).observe(document.querySelector('#itemsTable tbody'), {childList: true});
+});
+
 function recalcRow($row) {
     const gross = toNum($row.find('.gross-wt').val());
     const otherWt = toNum($row.find('.other-wt').val());
@@ -547,6 +581,7 @@ function recalcRow($row) {
 
     $row.find('.net-wt').val(nfix(net, 3));
     $row.find('.fine-wt').val(nfix(fine, 3));
+    updateRawStockPreview();
 }
 
 function updateOtherSummary($row) {
@@ -582,7 +617,7 @@ function appendRow() {
                 <select name="items[${rowIndex}][item_id]" class="form-select item-select" required>
                     <option value="">Select Item</option>
                     @foreach($items as $item)
-                    <option value="{{ $item->id }}" data-purity="{{ (float) ($item->outward_purity ?? 0) }}" data-net-purity="{{ (float) ($item->outward_purity ?? 0) }}">{{ $item->item_name }}</option>
+                    <option value="{{ $item->id }}" data-purity="{{ (float) ($item->outward_purity ?? 0) }}" data-net-purity="{{ (float) ($item->outward_purity ?? 0) }}">{{ $item->item_name }}@if(strtolower((string) $item->jobwork_item_type) === 'raw') - Available: {{ number_format($item->raw_available_net, 3) }} g @endif</option>
                     @endforeach
                 </select>
             </td>
@@ -665,10 +700,8 @@ function recomputeChargeLine($tr) {
 
 function recalcModalCharges() {
     let total = 0;
-    $('#otherChargeTable tbody tr').each(function () {
-        const $tr = $(this);
-        if (!$tr.find('.charge-check').is(':checked')) return;
-        total += toNum($tr.data('total'));
+    mergeModalChargeLines().forEach(line => {
+        total += toNum(line.total);
     });
     $('#modalChargeTotal').text(nfix(total, 2));
 }
@@ -695,7 +728,9 @@ function collectModalChargeLines() {
     return lines;
 }
 
-function renderOtherChargeRows(lines, rowContext) {
+function renderOtherChargeRows(lines, rowContext, initializeDefaults = false) {
+    // Use gross weight: net weight already excludes these charges and would
+    // make percentage weights shrink every time the modal is reopened.
     modalOtherChargeLines = Array.isArray(lines) ? lines : [];
     const $tbody = $('#otherChargeTable tbody');
     $tbody.empty();
@@ -717,7 +752,12 @@ function renderOtherChargeRows(lines, rowContext) {
         const checked = existing ? 'checked' : '';
         const activeClass = checked ? 'table-active' : '';
 
-        const amount = existing ? toNum(existing.amount, opt.default_amount) : toNum(opt.default_amount);
+        let amount = existing ? toNum(existing.amount, opt.default_amount) : toNum(opt.default_amount);
+        // Older issue rows can contain a selected charge with a zero amount.
+        // Fill its master default on opening, but do not reset edits on search.
+        if (initializeDefaults && amount === 0) {
+            amount = toNum(opt.default_amount);
+        }
         const qty = existing ? toNum(existing.qty, opt.quantity_pcs || 1) : toNum(opt.quantity_pcs || 1);
         const wtFormula = existing ? String(existing.wt_formula || opt.weight_formula || 'flat') : String(opt.weight_formula || 'flat');
         const amtFormula = existing ? String(existing.amt_formula || opt.other_amt_formula || 'flat') : String(opt.other_amt_formula || 'flat');
@@ -727,7 +767,7 @@ function renderOtherChargeRows(lines, rowContext) {
             <tr class="charge-row ${activeClass}"
                 data-id="${opt.id}"
                 data-name="${esc(opt.name)}"
-                data-item-weight="${nfix(toNum(rowContext.net_weight || rowContext.gross_weight), 6)}"
+                data-item-weight="${nfix(toNum(rowContext.gross_weight), 6)}"
                 data-default-weight="${nfix(toNum(opt.default_weight), 6)}"
                 data-weight-percent="${nfix(toNum(opt.weight_percent), 6)}"
                 data-wt-operation="${esc(wtOperation)}"
@@ -738,7 +778,10 @@ function renderOtherChargeRows(lines, rowContext) {
                 data-weight="0"
                 data-total="0">
                 <td class="charge-sr">${index + 1}</td>
-                <td>${esc(opt.name || '-')}</td>
+                <td>
+                    ${esc(opt.name || '-')}
+                    <div class="small text-muted mt-1">Default Amount: ${nfix(opt.default_amount, 2)}</div>
+                </td>
                 <td><input type="number" step="0.01" class="form-control charge-amount-input text-end" value="${nfix(amount, 2)}"></td>
                 <td><input type="number" step="0.001" class="form-control charge-qty-input text-end" value="${nfix(qty, 3)}"></td>
                 <td>${buildFormulaSelect('wt', wtFormula)}</td>
@@ -829,11 +872,11 @@ $(document).on('click', '.otherChargeBtn', function () {
     $.get("{{ route('company.other-charge.options', $company->slug) }}", function (res) {
         otherChargeOptions = Array.isArray(res) ? res : [];
         $('#otherChargeSearch').val('');
-        renderOtherChargeRows(lines, rowContext);
+        renderOtherChargeRows(lines, rowContext, true);
         otherChargeModal.show();
     }).fail(function () {
         $('#otherChargeSearch').val('');
-        renderOtherChargeRows(lines, rowContext);
+        renderOtherChargeRows(lines, rowContext, true);
         otherChargeModal.show();
     });
 });

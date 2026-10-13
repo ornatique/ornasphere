@@ -9,12 +9,13 @@ use App\Models\LabelConfig;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use App\Services\ItemSetImageService;
 
 class ItemSetController extends Controller
 {
     private function itemImageDisk(): string
     {
-        return (string) config('filesystems.item_image_disk', 'public');
+        return app(ItemSetImageService::class)->itemImageDisk();
     }
 
     private function itemImageUrl(?ItemSet $itemSet): ?string
@@ -23,7 +24,7 @@ class ItemSetController extends Controller
             return null;
         }
 
-        return Storage::disk($itemSet->image_disk ?: $this->itemImageDisk())->url($itemSet->image_path);
+        return app(ItemSetImageService::class)->imageUrl($itemSet);
     }
 
     private function itemSetImagePayload(ItemSet $itemSet): array
@@ -522,7 +523,11 @@ public function bulkSave(Request $request)
                 ]);
             }
 
-            $nextNo = $config->last_no;
+            $highestExistingSerialNo = (int) ItemSet::where('company_id', $companyId)
+                ->where('item_id', $item->id)
+                ->where('is_final', 1)
+                ->max('serial_no');
+            $nextNo = max((int) ($config->last_no ?? 0), $highestExistingSerialNo);
 
             foreach ($draftSets as $set) {
 
@@ -764,49 +769,19 @@ public function bulkSave(Request $request)
             ->findOrFail($id);
 
         $validated = $request->validate([
-            'image' => 'required|image|mimes:jpg,jpeg,png,webp|max:20480',
+            'image' => 'required|image|mimes:jpg,jpeg,png,webp|max:' . ItemSetImageService::MAX_UPLOAD_KB,
         ]);
 
         $file = $validated['image'];
-        $disk = $this->itemImageDisk();
-        $prepared = $this->prepareMediumImage($file->getRealPath(), $file->getMimeType() ?: 'image/jpeg');
-        $path = sprintf(
-            'item-images/company-%d/%s.%s',
-            $itemSet->company_id,
-            (string) Str::uuid(),
-            $prepared['extension']
-        );
-
-        $stream = fopen($prepared['path'], 'r');
-        Storage::disk($disk)->put($path, $stream, [
-            'ContentType' => $prepared['mime'],
-        ]);
-
-        if (is_resource($stream)) {
-            fclose($stream);
-        }
-
-        if (!empty($prepared['cleanup'])) {
-            @unlink($prepared['path']);
-        }
-
-        if ($itemSet->image_path) {
-            Storage::disk($itemSet->image_disk ?: $disk)->delete($itemSet->image_path);
-        }
-
-        $itemSet->update([
-            'image_disk' => $disk,
-            'image_path' => $path,
-            'image_mime' => $prepared['mime'],
-            'image_size' => Storage::disk($disk)->size($path),
-            'image_uploaded_at' => now(),
-        ]);
+        app(ItemSetImageService::class)->queueUpload($itemSet, $file);
+        $queued = (string) config('item_images.processing', 'sync') !== 'sync';
 
         return response()->json([
             'success' => true,
-            'message' => 'Item set image uploaded successfully.',
+            'queued' => $queued,
+            'message' => $queued ? 'Item set image upload started. It will appear after processing.' : 'Item set image uploaded successfully.',
             'data' => $this->itemSetImagePayload($itemSet->fresh('item')),
-        ]);
+        ], $queued ? 202 : 200);
     }
 
     public function uploadLabelImage(Request $request)
@@ -816,7 +791,7 @@ public function bulkSave(Request $request)
 
         $validated = $request->validate([
             'item_id' => 'required',
-            'image' => 'required|image|mimes:jpg,jpeg,png,webp|max:20480',
+            'image' => 'required|image|mimes:jpg,jpeg,png,webp|max:' . ItemSetImageService::MAX_UPLOAD_KB,
             'id' => 'nullable|integer',
             'item_set_id' => 'nullable|integer',
             'temp_id' => 'nullable',
@@ -921,45 +896,15 @@ public function bulkSave(Request $request)
     private function storeUploadedImageOnItemSet(Request $request, ItemSet $itemSet)
     {
         $file = $request->file('image');
-        $disk = $this->itemImageDisk();
-        $prepared = $this->prepareMediumImage($file->getRealPath(), $file->getMimeType() ?: 'image/jpeg');
-        $path = sprintf(
-            'item-images/company-%d/%s.%s',
-            $itemSet->company_id,
-            (string) Str::uuid(),
-            $prepared['extension']
-        );
-
-        $stream = fopen($prepared['path'], 'r');
-        Storage::disk($disk)->put($path, $stream, [
-            'ContentType' => $prepared['mime'],
-        ]);
-
-        if (is_resource($stream)) {
-            fclose($stream);
-        }
-
-        if (!empty($prepared['cleanup'])) {
-            @unlink($prepared['path']);
-        }
-
-        if ($itemSet->image_path) {
-            Storage::disk($itemSet->image_disk ?: $disk)->delete($itemSet->image_path);
-        }
-
-        $itemSet->update([
-            'image_disk' => $disk,
-            'image_path' => $path,
-            'image_mime' => $prepared['mime'],
-            'image_size' => Storage::disk($disk)->size($path),
-            'image_uploaded_at' => now(),
-        ]);
+        app(ItemSetImageService::class)->queueUpload($itemSet, $file);
+        $queued = (string) config('item_images.processing', 'sync') !== 'sync';
 
         return response()->json([
             'success' => true,
-            'message' => 'Item set image uploaded successfully.',
+            'queued' => $queued,
+            'message' => $queued ? 'Item set image upload started. It will appear after processing.' : 'Item set image uploaded successfully.',
             'data' => $this->itemSetImagePayload($itemSet->fresh('item')),
-        ]);
+        ], $queued ? 202 : 200);
     }
 
     // ✅ UPDATE

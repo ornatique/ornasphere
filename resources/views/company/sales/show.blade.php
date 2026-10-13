@@ -22,7 +22,7 @@
                 @php
                     $received = (float) ($sale->received_amount ?? 0);
                     $refundPaid = (float) ($sale->paid_amount ?? 0);
-                    $effectiveReceived = $received - $refundPaid;
+                    $effectiveReceived = $sale->appliedReceivedAmount();
                     $pending = max(0, (float) ($cashPayableTotal ?? $sale->net_total ?? 0) - $effectiveReceived);
                 @endphp
                 <div class="col-md-3"><strong>Received:</strong> {{ number_format($received, 2) }}</div>

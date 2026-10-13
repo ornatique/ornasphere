@@ -180,7 +180,7 @@ class CastingMetalIssueController extends Controller
             ->keyBy('vacuum_voucher_item_id');
 
         return Pdf::loadView('company.casting_metal_issue.pdf.show', compact('company', 'voucher', 'heatingItems', 'issueItems'))
-            ->setPaper('a4', 'landscape')
+            ->setPaper('a4', 'portrait')
             ->download('casting_metal_issue_' . $voucher->voucher_no . '.pdf');
     }
 

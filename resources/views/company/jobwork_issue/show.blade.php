@@ -22,14 +22,15 @@
             </div>
             <div class="row mb-3">
                 <div class="col-md-3"><strong>Gross Wt:</strong> {{ number_format((float) ($row->gross_wt_sum ?? 0), 3, '.', '') }}</div>
+                <div class="col-md-3"><strong>Other Wt:</strong> {{ number_format((float) ($row->other_wt_sum ?? 0), 3, '.', '') }}</div>
                 <div class="col-md-3"><strong>Net Wt:</strong> {{ number_format((float) ($row->net_wt_sum ?? 0), 3, '.', '') }}</div>
                 <div class="col-md-3"><strong>Fine Wt:</strong> {{ number_format((float) ($row->fine_wt_sum ?? 0), 3, '.', '') }}</div>
-                <div class="col-md-3"><strong>Total Amt:</strong> {{ number_format((float) ($row->total_amt_sum ?? 0), 2, '.', '') }}</div>
             </div>
             <div class="row mb-3">
-                <div class="col-md-4"><strong>Created By:</strong> {{ $row->createdByUser?->name ?? '-' }}</div>
-                <div class="col-md-4"><strong>Modified:</strong> {{ optional($row->updated_at)->format('d-m-Y h:i A') }}</div>
-                <div class="col-md-4"><strong>Created:</strong> {{ optional($row->created_at)->format('d-m-Y h:i A') }}</div>
+                <div class="col-md-3"><strong>Total Amt:</strong> {{ number_format((float) ($row->total_amt_sum ?? 0), 2, '.', '') }}</div>
+                <div class="col-md-3"><strong>Created By:</strong> {{ $row->createdByUser?->name ?? '-' }}</div>
+                <div class="col-md-3"><strong>Modified:</strong> {{ optional($row->updated_at)->format('d-m-Y h:i A') }}</div>
+                <div class="col-md-3"><strong>Created:</strong> {{ optional($row->created_at)->format('d-m-Y h:i A') }}</div>
             </div>
 
             <div class="table-responsive jobwork-details-scroll">

@@ -124,7 +124,7 @@
     $totalOtherWt = 0;
     $totalReceiveNet = 0;
     $totalReceiveFine = 0;
-    $totalIssueNet = (float) ($row->net_wt_sum ?? 0);
+    $totalIssueNet = (float) ($row->net_wt_sum ?? $row->issue_net_wt_sum ?? $row->items->sum('net_wt'));
     $issueTime = optional($row->created_at)->format('h:i A');
     $receiveSavedAt = $receive->updated_at ?: $receive->created_at;
     $receiveTime = optional($receiveSavedAt)->format('h:i A');

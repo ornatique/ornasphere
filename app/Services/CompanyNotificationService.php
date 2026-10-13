@@ -148,7 +148,7 @@ class CompanyNotificationService
         ];
     }
 
-    public static function latest(?User $user, int $limit = 20, bool $unreadOnly = true): Collection
+    public static function latest(?User $user, int $limit = 20, bool $unreadOnly = true, ?int $beforeId = null): Collection
     {
         if (!self::canRead($user)) {
             return collect();
@@ -163,7 +163,8 @@ class CompanyNotificationService
         return CompanyActivityNotification::with('actor:id,name')
             ->where('company_id', $user->company_id)
             ->whereIn('id', $ids)
-            ->latest()
+            ->when($beforeId, fn ($query) => $query->where('id', '<', $beforeId))
+            ->orderByDesc('id')
             ->limit(max(1, min($limit, 100)))
             ->get();
     }

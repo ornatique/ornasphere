@@ -44,7 +44,7 @@
                                             @foreach($roles as $role)
                                             <option value="{{ $role->name }}"
                                                 {{ old('role', $user->getRoleNames()->first()) == $role->name ? 'selected' : '' }}>
-                                                {{ ucfirst($role->name) }}
+                                                {{ ucwords(str_replace(['_', '-'], ' ', $role->name)) }}
                                             </option>
                                             @endforeach
                                         </select>
@@ -245,6 +245,7 @@
                             </div>
                         </div>
 
+                        {{-- Temporarily hidden: user timestamps.
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group row">
@@ -264,6 +265,7 @@
                             </div>
                         </div>
 
+                        --}}
                 </div>
 
                 <div class="card-footer text-end">

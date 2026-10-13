@@ -10,9 +10,42 @@
     <link rel="stylesheet" href="{{ asset('celestial/assets/vendors/mdi/css/materialdesignicons.min.css') }}">
     <link rel="stylesheet" href="{{ asset('celestial/assets/vendors/css/vendor.bundle.base.css') }}">
     <link rel="stylesheet" href="{{ asset('celestial/assets/css/vertical-layout-dark/style.css') }}">
+    <style>
+        .set-password-logo-wrap {
+            margin-bottom: 18px !important;
+            text-align: center;
+            line-height: 0;
+        }
+
+        .auth .brand-logo img.set-password-logo,
+        .set-password-logo {
+            width: 340px !important;
+            max-width: 100% !important;
+            height: auto !important;
+            max-height: none !important;
+            object-fit: contain;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        @media (max-width: 575.98px) {
+            .auth .brand-logo img.set-password-logo,
+            .set-password-logo {
+                width: 280px !important;
+            }
+        }
+    </style>
 </head>
 
 <body>
+@php
+    $defaultCompanyLogo = asset('celestial/assets/images/ornasphere-auth-logo.png') . '?v=' . @filemtime(public_path('celestial/assets/images/ornasphere-auth-logo.png'));
+    $companyLogo = optional($company ?? null)->company_logo_url ?: $defaultCompanyLogo;
+    if (optional($company ?? null)->company_logo && !str_contains($companyLogo, '?')) {
+        $companyLogo .= '?v=' . optional($company)->updated_at?->timestamp;
+    }
+@endphp
 <div class="container-scroller">
     <div class="container-fluid page-body-wrapper full-page-wrapper">
         <div class="content-wrapper d-flex align-items-center auth px-0">
@@ -22,8 +55,11 @@
                     <div class="auth-form-transparent text-left py-5 px-4 px-sm-5">
 
                         {{-- Logo --}}
-                        <div class="brand-logo text-center">
-                            <img src="{{ asset('celestial/assets/images/logo.svg') }}?v={{ @filemtime(public_path('celestial/assets/images/logo.svg')) }}" alt="logo">
+                        <div class="brand-logo set-password-logo-wrap">
+                            <img src="{{ $companyLogo }}"
+                                 alt="{{ optional($company ?? null)->name ?? 'Company' }} logo"
+                                 class="set-password-logo"
+                                 onerror="this.onerror=null;this.src='{{ $defaultCompanyLogo }}';">
                         </div>
 
                         <h4 class="text-center">Set Your Password 🔐</h4>

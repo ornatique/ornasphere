@@ -158,8 +158,11 @@
          }
      </style>
      <div class="text-center navbar-brand-wrapper d-flex align-items-center justify-content-center">
-         <a class="navbar-brand brand-logo" href="{{ route('superadmin.dashboard') }}"><img src="{{ asset('celestial/assets/images/ornasphere-logo.svg') }}" alt="logo" /></a>
-         <a class="navbar-brand brand-logo-mini" href="{{ route('superadmin.dashboard') }}"><img src="{{ asset('celestial/assets/images/logo-mini.svg') }}" alt="logo" onerror="this.style.display='none';" /></a>
+         @php
+             $superAdminDefaultLogo = asset('celestial/assets/images/ornasphere-auth-logo.png') . '?v=' . @filemtime(public_path('celestial/assets/images/ornasphere-auth-logo.png'));
+         @endphp
+         <a class="navbar-brand brand-logo" href="{{ route('superadmin.dashboard') }}"><img src="{{ $superAdminDefaultLogo }}" alt="logo" onerror="this.onerror=null;this.src='{{ $superAdminDefaultLogo }}';" /></a>
+         <a class="navbar-brand brand-logo-mini" href="{{ route('superadmin.dashboard') }}"><img src="{{ asset('celestial/assets/images/logo-mini.svg') }}" alt="logo" onerror="this.onerror=null;this.src='{{ $superAdminDefaultLogo }}';" /></a>
          <button class="navbar-toggler navbar-toggler align-self-center d-none d-lg-flex" type="button" data-bs-toggle="minimize">
              <span class="typcn typcn-th-menu"></span>
          </button>

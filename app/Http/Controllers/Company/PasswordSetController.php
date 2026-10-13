@@ -29,7 +29,12 @@ class PasswordSetController extends Controller
                 ->with('success', 'Password already set. Please login.');
         }
 
-        $user = \App\Models\User::with('company')->find($record->user_id);
+        $user = User::with('company')->find($record->user_id);
+
+        if (!$user || !$user->company) {
+            return redirect('/')
+                ->with('company_unavailable', 'This company workspace is not available or has been removed.');
+        }
 
         /**
          * 🔹 Token already used
@@ -52,7 +57,10 @@ class PasswordSetController extends Controller
         /**
          * ✅ Valid token
          */
-        return view('superadmin.auth.company.set-password', compact('token'));
+        return view('superadmin.auth.company.set-password', [
+            'token' => $token,
+            'company' => $user->company,
+        ]);
     }
 
 

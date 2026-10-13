@@ -1,0 +1,2136 @@
+<?php
+
+namespace App\Http\Controllers\Company;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use App\Models\Sale;
+use App\Models\SaleItem;
+use App\Models\ItemSet;
+use App\Models\Customer;
+use App\Models\Company;
+use App\Models\ApprovalHeader;
+use App\Models\ApprovalItem;
+use App\Models\Item;
+use App\Models\SaleCart;
+use App\Models\SalePayment;
+use App\Models\CustomerAdvanceLedger;
+use Yajra\DataTables\Facades\DataTables;
+use Barryvdh\DomPDF\Facade\Pdf;
+use DB;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Schema;
+use App\Services\TransactionItemGuard;
+
+class SaleController extends Controller
+{
+
+    /**
+     * Display listing (Yajra DataTable)
+     */
+
+
+    public function index(Request $request, $slug)
+    {
+        // ✅ Get Company
+        $company = Company::where('slug', $slug)->firstOrFail();
+
+        // ✅ AJAX (DataTable)
+        if ($request->ajax()) {
+
+            $query = Sale::with(['customer', 'creator'])
+                ->withSum('saleItems as sum_qty', 'qty')
+                ->withSum('saleItems as sum_gross_weight', 'gross_weight')
+                ->withSum('saleItems as sum_net_weight', 'net_weight')
+                ->withSum('saleItems as sum_fine_weight', 'fine_weight')
+                ->withSum('saleItems as sum_metal_amount', 'metal_amount')
+                ->withSum('saleItems as sum_labour_amount', 'labour_amount')
+                ->withSum('saleItems as sum_other_amount', 'other_amount')
+                ->where('company_id', $company->id)
+                ->whereHas('customer', fn($customer) => $customer->saleParties());
+
+            if ($request->filled('customer_id')) {
+                $query->where('customer_id', (int) $request->customer_id);
+            }
+
+            // ✅ DATE FILTER (IMPORTANT)
+            if (!empty($request->from_date) && !empty($request->to_date)) {
+
+                $from = Carbon::parse($request->from_date)->startOfDay();
+                $to   = Carbon::parse($request->to_date)->endOfDay();
+
+                $query->whereBetween('sale_date', [$from, $to]);
+            }
+
+            // Optional: single date filter
+            if (!empty($request->from_date) && empty($request->to_date)) {
+                $query->whereDate('sale_date', '>=', $request->from_date);
+            }
+
+            if (empty($request->from_date) && !empty($request->to_date)) {
+                $query->whereDate('sale_date', '<=', $request->to_date);
+            }
+
+            $query->orderByDesc('id');
+
+            $summaryRows = (clone $query)->get();
+            $summary = [
+                'total_qty' => (int) $summaryRows->sum(fn($sale) => (int) ($sale->sum_qty ?? 0)),
+                'total_gross_wt' => (float) $summaryRows->sum(fn($sale) => (float) ($sale->sum_gross_weight ?? 0)),
+                'total_net_wt' => (float) $summaryRows->sum(fn($sale) => (float) ($sale->sum_net_weight ?? 0)),
+            ];
+
+            return DataTables::of($query)
+
+                ->addIndexColumn()
+
+                // ✅ CUSTOMER NAME
+                ->addColumn('customer_name', function ($sale) {
+                    return optional($sale->customer)->name ?? '-';
+                })
+
+                // ✅ DATE FORMAT
+                ->editColumn('sale_date', function ($sale) {
+                    return $sale->sale_date
+                        ? Carbon::parse($sale->sale_date)->format('d-m-Y')
+                        : '-';
+                })
+
+                // ✅ TOTAL FORMAT
+                ->editColumn('net_total', function ($sale) {
+                    return number_format($sale->net_total, 2);
+                })
+                ->addColumn('total_qty', fn($sale) => (int) ($sale->sum_qty ?? 0))
+                ->addColumn('total_gross_weight', fn($sale) => number_format((float) ($sale->sum_gross_weight ?? 0), 3))
+                ->addColumn('total_net_weight', fn($sale) => number_format((float) ($sale->sum_net_weight ?? 0), 3))
+                ->addColumn('total_fine_weight', fn($sale) => number_format((float) ($sale->sum_fine_weight ?? 0), 3))
+                ->addColumn('total_metal_amount', fn($sale) => number_format((float) ($sale->sum_metal_amount ?? 0), 2))
+                ->addColumn('total_labour_amount', fn($sale) => number_format((float) ($sale->sum_labour_amount ?? 0), 2))
+                ->addColumn('total_other_amount', fn($sale) => number_format((float) ($sale->sum_other_amount ?? 0), 2))
+                ->addColumn('received_amount_fmt', fn($sale) => number_format((float) ($sale->received_amount ?? 0), 2))
+                ->addColumn('refund_paid_amount_fmt', fn($sale) => number_format((float) ($sale->paid_amount ?? 0), 2))
+                ->addColumn('pending_amount_fmt', function ($sale) {
+                    $net = (float) ($sale->net_total ?? 0);
+                    $effectiveReceived = (float) ($sale->received_amount ?? 0) - (float) ($sale->paid_amount ?? 0);
+                    return number_format(max(0, $net - $effectiveReceived), 2);
+                })
+                ->addColumn('creator_name', fn($sale) => optional($sale->creator)->name ?? '-')
+                ->addColumn('modified_at', function ($sale) {
+                    return $sale->updated_at ? Carbon::parse($sale->updated_at)->format('d-m-Y h:i A') : '-';
+                })
+                ->addColumn('modified_count', fn($sale) => (int) ($sale->modified_count ?? 0))
+
+                // ✅ ACTION BUTTON (VIEW PDF)
+                ->addColumn('action', function ($sale) use ($company) {
+                    $encryptedId = Crypt::encryptString((string) $sale->id);
+
+                    $pdfUrl = route('company.sales.pdf', [
+                        'slug' => $company->slug,
+                        'encryptedId' => $encryptedId
+                    ]);
+
+                    $editUrl = route('company.sales.edit', [
+                        'slug' => $company->slug,
+                        'encryptedId' => $encryptedId
+                    ]);
+                    $editBtn = '
+                    <a href="' . $editUrl . '" 
+                       class="btn btn-sm btn-warning me-1">
+                        Edit
+                    </a>
+                    ';
+
+                    return $editBtn . '
+                    <a href="' . $pdfUrl . '" 
+                       target="_blank"
+                       class="btn btn-sm btn-info me-1">
+                        View
+                    </a>
+                    <form action="' . route('company.sales.destroy', [$company->slug, $encryptedId]) . '" method="POST" class="d-inline delete-sale-form">
+                        <input type="hidden" name="_token" value="' . csrf_token() . '">
+                        <input type="hidden" name="_method" value="DELETE">
+                        <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                    </form>
+                ';
+                })
+
+                ->rawColumns(['action'])
+                ->with('summary', $summary)
+
+                ->make(true);
+        }
+
+        // ✅ NORMAL VIEW
+        $customers = Customer::where('company_id', $company->id)
+            ->where('is_active', 1)
+            ->saleParties()
+            ->orderBy('name')
+            ->get();
+
+        return view('company.sales.index', compact('company', 'customers'));
+    }
+
+    public function exportListPdf(Request $request, $slug)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        [$fromDate, $toDate] = $this->resolveSaleDateRange($request);
+
+        $rows = $this->saleListQuery($company->id, $request, $fromDate, $toDate)
+            ->get()
+            ->map(fn(Sale $sale) => $this->summarizeSaleListRow($sale))
+            ->values();
+
+        $pdf = Pdf::loadView('company.sales.list_pdf', compact('company', 'rows', 'fromDate', 'toDate'))
+            ->setPaper('a4', 'landscape');
+
+        return $pdf->stream('sales-list-' . now()->format('YmdHis') . '.pdf');
+    }
+
+    private function resolveSaleDateRange(Request $request): array
+    {
+        $fromDate = $request->input('from_date');
+        $toDate = $request->input('to_date');
+        $today = now()->toDateString();
+
+        if (empty($fromDate) && empty($toDate)) {
+            return [$today, $today];
+        }
+
+        return [$fromDate ?: $toDate, $toDate ?: $fromDate];
+    }
+
+    private function saleListQuery(int $companyId, Request $request, string $fromDate, string $toDate)
+    {
+        $query = Sale::with(['customer', 'creator'])
+            ->withSum('saleItems as sum_qty', 'qty')
+            ->withSum('saleItems as sum_gross_weight', 'gross_weight')
+            ->withSum('saleItems as sum_net_weight', 'net_weight')
+            ->withSum('saleItems as sum_fine_weight', 'fine_weight')
+            ->withSum('saleItems as sum_metal_amount', 'metal_amount')
+            ->withSum('saleItems as sum_labour_amount', 'labour_amount')
+            ->withSum('saleItems as sum_other_amount', 'other_amount')
+            ->where('company_id', $companyId)
+            ->whereHas('customer', fn($customer) => $customer->saleParties())
+            ->whereBetween('sale_date', [
+                Carbon::parse($fromDate)->startOfDay(),
+                Carbon::parse($toDate)->endOfDay(),
+            ]);
+
+        if ($request->filled('customer_id')) {
+            $query->where('customer_id', (int) $request->customer_id);
+        }
+
+        return $query->orderByDesc('id');
+    }
+
+    private function summarizeSaleListRow(Sale $sale): array
+    {
+        $received = (float) ($sale->received_amount ?? 0);
+        $refundPaid = (float) ($sale->paid_amount ?? 0);
+        $pending = max(0, (float) ($sale->net_total ?? 0) - ($received - $refundPaid));
+
+        return [
+            'id' => (int) $sale->id,
+            'voucher_no' => (string) ($sale->voucher_no ?? '-'),
+            'sale_date' => $sale->sale_date ? Carbon::parse($sale->sale_date)->format('d-m-Y') : '-',
+            'customer_name' => optional($sale->customer)->name ?? '-',
+            'qty' => (int) ($sale->sum_qty ?? 0),
+            'gross_wt' => (float) ($sale->sum_gross_weight ?? 0),
+            'net_wt' => (float) ($sale->sum_net_weight ?? 0),
+            'fine_wt' => (float) ($sale->sum_fine_weight ?? 0),
+            'metal_amt' => (float) ($sale->sum_metal_amount ?? 0),
+            'labour_amt' => (float) ($sale->sum_labour_amount ?? 0),
+            'other_amt' => (float) ($sale->sum_other_amount ?? 0),
+            'total_amt' => (float) ($sale->net_total ?? 0),
+            'received_amt' => $received,
+            'refund_amt' => $refundPaid,
+            'pending_amt' => $pending,
+            'created_by' => optional($sale->creator)->name ?? '-',
+        ];
+    }
+
+    private function previousPendingSalesForVoucher(Sale $sale)
+    {
+        if (empty($sale->company_id) || empty($sale->customer_id) || empty($sale->sale_date)) {
+            return collect();
+        }
+
+        $saleDate = Carbon::parse($sale->sale_date)->toDateString();
+
+        return Sale::query()
+            ->withSum('saleItems as sum_qty', 'qty')
+            ->withSum('saleItems as sum_fine_weight', 'fine_weight')
+            ->withSum('saleItems as sum_metal_amount', 'metal_amount')
+            ->where('company_id', (int) $sale->company_id)
+            ->where('customer_id', (int) $sale->customer_id)
+            ->where('id', '<>', (int) $sale->id)
+            ->where(function ($query) use ($sale, $saleDate) {
+                $query->whereDate('sale_date', '<', $saleDate)
+                    ->orWhere(function ($sameDate) use ($sale, $saleDate) {
+                        $sameDate->whereDate('sale_date', $saleDate)
+                            ->where('id', '<', (int) $sale->id);
+                    });
+            })
+            ->orderBy('sale_date')
+            ->orderBy('id')
+            ->get(['id', 'voucher_no', 'sale_date', 'net_total', 'received_amount', 'paid_amount', 'use_silver_balance'])
+            ->map(function (Sale $row) {
+                $received = (float) ($row->received_amount ?? 0);
+                $refundPaid = (float) ($row->paid_amount ?? 0);
+                $pending = max(0, (float) ($row->net_total ?? 0) - ($received - $refundPaid));
+                $fineWeight = (float) ($row->sum_fine_weight ?? 0);
+                $metalAmount = (float) ($row->sum_metal_amount ?? 0);
+                $metalDebit = (!(bool) ($row->use_silver_balance ?? false) && $metalAmount <= 0.000001) ? $fineWeight : 0;
+
+                return [
+                    'id' => (int) $row->id,
+                    'voucher_no' => (string) ($row->voucher_no ?? '-'),
+                    'sale_date' => $row->sale_date ? Carbon::parse($row->sale_date)->format('d-m-Y') : '-',
+                    'qty' => (float) ($row->sum_qty ?? 0),
+                    'total_amount' => (float) ($row->net_total ?? 0),
+                    'received_amount' => $received,
+                    'refund_paid' => $refundPaid,
+                    'pending_amount' => $pending,
+                    'fine_weight' => $fineWeight,
+                    'metal_amount' => $metalAmount,
+                    'fine_adjusted' => (bool) ($row->use_silver_balance ?? false),
+                    'metal_debit' => $metalDebit,
+                ];
+            })
+            ->filter(fn($row) => (float) $row['pending_amount'] > 0.000001)
+            ->values();
+    }
+
+    private function saleCashPayableTotal(Sale $sale, ?array $availableMetalOverride = null): float
+    {
+        $items = $sale->relationLoaded('saleItems')
+            ? $sale->saleItems
+            : $sale->saleItems()->with(['itemset.item', 'product'])->get();
+
+        $useMetalBalance = (bool) ($sale->use_silver_balance ?? false);
+        $availableMetal = $useMetalBalance ? $availableMetalOverride : ['gold' => 0, 'silver' => 0, 'other' => 0];
+        if ($availableMetal === null) {
+            $summary = $this->getAdvanceSummary(
+                (int) $sale->company_id,
+                (int) ($sale->customer_id ?? 0),
+                $sale->sale_date
+            );
+            $usage = $this->getSaleAdvanceUsage((int) $sale->company_id, (int) $sale->id);
+            $availableMetal = [
+                'gold' => (float) ($summary['gold'] ?? 0) + (float) ($usage['gold_used'] ?? 0),
+                'silver' => (float) ($summary['silver'] ?? 0) + (float) ($usage['silver_used'] ?? 0),
+                'other' => (float) ($summary['other'] ?? 0) + (float) ($usage['other_used'] ?? 0),
+            ];
+        }
+
+        $remainingMetal = [
+            'gold' => max(0, (float) ($availableMetal['gold'] ?? 0)),
+            'silver' => max(0, (float) ($availableMetal['silver'] ?? 0)),
+            'other' => max(0, (float) ($availableMetal['other'] ?? 0)),
+        ];
+
+        $cashTotal = 0.0;
+
+        foreach ($items as $row) {
+            $cashTotal += (float) ($row->labour_amount ?? 0) + (float) ($row->other_amount ?? 0);
+
+            $fine = max(0, (float) ($row->fine_weight ?? 0));
+            $metalAmount = max(0, (float) ($row->metal_amount ?? 0));
+            if ($fine <= 0 || $metalAmount <= 0) {
+                continue;
+            }
+
+            $item = optional($row->itemset)->item ?: $row->product;
+            $metalType = $this->normalizeMetalType(optional($item)->metal ?? null);
+            $coveredFine = min($fine, (float) ($remainingMetal[$metalType] ?? 0));
+            $remainingMetal[$metalType] = max(0, (float) ($remainingMetal[$metalType] ?? 0) - $coveredFine);
+            $uncoveredFine = max(0, $fine - $coveredFine);
+
+            if ($uncoveredFine > 0) {
+                $cashTotal += $metalAmount * ($uncoveredFine / $fine);
+            }
+        }
+
+        return round($cashTotal, 2);
+    }
+
+
+
+    /**
+     * Show create form
+     */
+    public function create($slug)
+    {
+        // Get company using slug
+        $company = Company::where('slug', $slug)->firstOrFail();
+
+        $customers = Customer::where('company_id', $company->id)
+            ->where('is_active', 1)
+            ->saleParties()
+            ->get();
+
+        $itemsets = ItemSet::with('item')
+            ->where('company_id', $company->id)
+            ->where('is_sold', 0)
+            ->get();
+
+        return view('company.sales.create', [
+            'company' => $company,
+            'customers' => $customers,
+            'itemsets' => $itemsets,
+            'isEdit' => false,
+            'sale' => null,
+            'editableItems' => collect(),
+            'saleAdvanceUsage' => [],
+        ]);
+    }
+
+    public function edit($slug, $encryptedId)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $saleId = (int) Crypt::decryptString($encryptedId);
+
+        $sale = Sale::with('saleItems.itemset.item', 'saleItems.product')
+            ->where('company_id', $company->id)
+            ->findOrFail((int) $saleId);
+
+        $customers = Customer::where('company_id', $company->id)
+            ->where('is_active', 1)
+            ->saleParties()
+            ->get();
+
+        $itemsets = ItemSet::with('item')
+            ->where('company_id', $company->id)
+            ->where('is_sold', 0)
+            ->get();
+
+        $editableItems = $sale->saleItems->map(function ($row) {
+            $itemsetId = (int) ($row->itemset_id ?? 0);
+            $productId = (int) ($row->product_id ?? optional($row->itemset)->item_id ?? 0);
+            $approvalItemId = (int) ($row->approval_item_id ?? 0);
+
+            return [
+                'row_key' => $approvalItemId > 0
+                    ? 'approval_' . $approvalItemId
+                    : ($itemsetId > 0 ? 'set_' . $itemsetId : 'item_' . $productId . '_' . (int) $row->id),
+                'itemset_id' => $itemsetId,
+                'item_id' => $productId,
+                'approval_item_id' => $approvalItemId,
+                'approval_id' => $approvalItemId,
+                'name' => optional(optional($row->itemset)->item)->item_name ?? optional($row->product)->item_name ?? '',
+                'metal_type' => $this->normalizeMetalType(optional(optional($row->itemset)->item)->metal ?? optional($row->product)->metal ?? null),
+                'code' => optional($row->itemset)->qr_code ?? '',
+                'huid' => optional($row->itemset)->HUID ?? '',
+                'qty' => max(1, (int) ($row->qty ?? 1)),
+                'gross_weight' => (float) ($row->gross_weight ?? 0),
+                'other_weight' => (float) ($row->other_weight ?? 0),
+                'net_weight' => (float) ($row->net_weight ?? 0),
+                'purity' => (float) ($row->purity ?? 0),
+                'waste_percent' => (float) ($row->waste_percent ?? 0),
+                'net_purity' => (float) ($row->net_purity ?? 0),
+                'fine_weight' => (float) ($row->fine_weight ?? 0),
+                'metal_rate' => (float) ($row->metal_rate ?? 0),
+                'metal_amount' => (float) ($row->metal_amount ?? 0),
+                'labour_rate' => (float) ($row->labour_rate ?? 0),
+                'labour_amount' => (float) ($row->labour_amount ?? 0),
+                'other_amount' => (float) ($row->other_amount ?? 0),
+                'total_amount' => (float) ($row->total_amount ?? 0),
+                'remarks' => (string) ($row->remarks ?? ''),
+                'other_charges' => $this->decodeOtherChargeDetails($row->other_charge_details ?? null),
+            ];
+        });
+        $saleAdvanceUsage = $this->getSaleAdvanceUsage($company->id, (int) $sale->id);
+
+        return view('company.sales.create', [
+            'company' => $company,
+            'customers' => $customers,
+            'itemsets' => $itemsets,
+            'isEdit' => true,
+            'sale' => $sale,
+            'editableItems' => $editableItems,
+            'saleAdvanceUsage' => $saleAdvanceUsage,
+        ]);
+    }
+
+
+    public function search(Request $request, $slug)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $userId = optional($request->user())->id;
+        $search = trim((string) $request->search);
+        $customerId = (int) $request->input('customer_id', 0);
+        $currentSaleId = (int) $request->input('sale_id', 0);
+        $limit = max(10, min((int) $request->input('limit', 1000), 2000));
+        $includeApproval = $request->boolean('include_approval', true);
+
+        $approvalItems = collect();
+        if ($includeApproval && $customerId > 0) {
+            $approvalItems = ApprovalItem::with(['approval.customer', 'itemSet.item', 'legacyItemSet.item', 'item'])
+                ->whereExists(function ($q) use ($company, $customerId) {
+                    $q->select(DB::raw(1))
+                        ->from('approval_headers')
+                        ->whereColumn('approval_headers.id', 'approval_items.approval_id')
+                        ->where('approval_headers.company_id', $company->id)
+                        ->where('approval_headers.customer_id', $customerId);
+                })
+                ->where(function ($q) {
+                    $q->whereNull('status')
+                        ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+                })
+                ->whereNotExists(function ($sub) use ($company, $currentSaleId) {
+                    $sub->select(DB::raw(1))
+                        ->from('sale_items')
+                        ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+                        ->where('sales.company_id', $company->id)
+                        ->where(function ($q) {
+                            $q->whereColumn('sale_items.approval_item_id', 'approval_items.id')
+                                ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
+                                ->orWhereColumn('sale_items.itemset_id', 'approval_items.item_id');
+                        });
+
+                    if ($currentSaleId > 0) {
+                        $sub->where('sale_items.sale_id', '<>', $currentSaleId);
+                    }
+                })
+                ->where(function ($q) use ($search) {
+                    $q->where('approval_items.qr_code', 'like', '%' . $search . '%')
+                        ->orWhere('approval_items.huid', 'like', '%' . $search . '%')
+                        ->orWhereHas('itemSet', function ($q2) use ($search) {
+                            $q2->where('qr_code', 'like', '%' . $search . '%')
+                                ->orWhere('HUID', 'like', '%' . $search . '%')
+                                ->orWhere('barcode', 'like', '%' . $search . '%')
+                                ->orWhereHas('item', function ($q3) use ($search) {
+                                    $q3->where('item_name', 'like', '%' . $search . '%')
+                                        ->orWhere('item_code', 'like', '%' . $search . '%');
+                                });
+                        })
+                        ->orWhereHas('legacyItemSet', function ($q2) use ($search) {
+                            $q2->where('qr_code', 'like', '%' . $search . '%')
+                                ->orWhere('HUID', 'like', '%' . $search . '%')
+                                ->orWhere('barcode', 'like', '%' . $search . '%')
+                                ->orWhereHas('item', function ($q3) use ($search) {
+                                    $q3->where('item_name', 'like', '%' . $search . '%')
+                                        ->orWhere('item_code', 'like', '%' . $search . '%');
+                                });
+                        })
+                        ->orWhereHas('item', function ($q2) use ($search) {
+                            $q2->where('item_name', 'like', '%' . $search . '%')
+                                ->orWhere('item_code', 'like', '%' . $search . '%');
+                        });
+                })
+                ->orderByDesc('id')
+                ->limit($limit)
+                ->get();
+        }
+
+        $approvalItemsetIds = $approvalItems
+            ->map(function ($approvalItem) {
+                $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
+                return optional($itemSet)->id;
+            })
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if (!$includeApproval && $customerId > 0) {
+            $approvalItemsetIds = ApprovalItem::with(['itemSet:id', 'legacyItemSet:id'])
+                ->whereExists(function ($q) use ($company, $customerId) {
+                    $q->select(DB::raw(1))
+                        ->from('approval_headers')
+                        ->whereColumn('approval_headers.id', 'approval_items.approval_id')
+                        ->where('approval_headers.company_id', $company->id)
+                        ->where('approval_headers.customer_id', $customerId);
+                })
+                ->where(function ($q) {
+                    $q->whereNull('status')
+                        ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+                })
+                ->get()
+                ->map(function ($approvalItem) {
+                    $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
+                    return optional($itemSet)->id;
+                })
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+        }
+
+        $items = ItemSet::with('item')
+            ->where('company_id', $company->id)
+            ->where('is_final', 1)
+            ->where('is_sold', 0)
+            ->when(Schema::hasTable('sale_carts'), function ($q) use ($company, $userId) {
+                $this->excludeSaleCartLocks($q, (int) $company->id, $userId ? (int) $userId : null);
+            })
+            ->when(!empty($approvalItemsetIds), function ($q) use ($approvalItemsetIds) {
+                $q->whereNotIn('id', $approvalItemsetIds);
+            })
+            ->where(function ($q) use ($search) {
+                $q->where('qr_code', 'like', '%' . $search . '%')
+                    ->orWhere('HUID', 'like', '%' . $search . '%')
+                    ->orWhere('barcode', 'like', '%' . $search . '%')
+                    ->orWhereHas('item', function ($q2) use ($search) {
+                        $q2->where('item_name', 'like', '%' . $search . '%');
+                    });
+            })
+            ->orderByDesc('id')
+            ->limit($limit)
+            ->get();
+
+        $approvalRows = $approvalItems->map(function ($approvalItem) {
+            $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
+            $item = optional($itemSet)->item ?? $approvalItem->item;
+            $gross = (float) ($approvalItem->gross_weight ?? optional($itemSet)->gross_weight ?? 0);
+            $otherWeight = (float) ($approvalItem->other_weight ?? optional($itemSet)->other ?? 0);
+            $net = (float) ($approvalItem->net_weight ?? optional($itemSet)->net_weight ?? max(0, $gross - $otherWeight));
+            $approvalPurity = (float) ($approvalItem->purity ?? 0);
+            $itemPurity = (float) (optional($item)->outward_purity ?? 0);
+            $purity = $approvalPurity > 0 ? $approvalPurity : $itemPurity;
+            $wastePercent = (float) ($approvalItem->waste_percent ?? 0);
+            $savedNetPurity = (float) ($approvalItem->net_purity ?? 0);
+            $netPurity = $savedNetPurity > 0 ? $savedNetPurity : max(0, $purity + $wastePercent);
+            $savedFineWeight = (float) ($approvalItem->total_fine_weight ?? $approvalItem->fine_weight ?? 0);
+            $fineWeight = $savedFineWeight > 0 ? $savedFineWeight : (($net * $netPurity) / 100);
+            $metalRate = (float) ($approvalItem->metal_rate ?? 0);
+            $savedMetalAmount = (float) ($approvalItem->metal_amount ?? 0);
+            $metalAmount = $savedMetalAmount > 0 ? $savedMetalAmount : ($fineWeight * $metalRate);
+            $labourRate = (float) ($approvalItem->labour_rate ?? optional($itemSet)->sale_labour_rate ?? optional($item)->labour_rate ?? 0);
+            $savedLabourAmount = (float) ($approvalItem->labour_amount ?? 0);
+            $labourAmount = $savedLabourAmount > 0 ? $savedLabourAmount : ($net * $labourRate);
+            $otherAmount = (float) ($approvalItem->other_amount ?? optional($itemSet)->sale_other ?? 0);
+            $savedTotalAmount = (float) ($approvalItem->total_amount ?? 0);
+            $totalAmount = $savedTotalAmount > 0 ? $savedTotalAmount : ($metalAmount + $labourAmount + $otherAmount);
+
+            return [
+                'id' => (int) (optional($itemSet)->id ?? 0),
+                'row_key' => 'approval_' . (int) $approvalItem->id,
+                'itemset_id' => (int) (optional($itemSet)->id ?? 0),
+                'approval_item_id' => (int) $approvalItem->id,
+                'approval_id' => (int) ($approvalItem->approval_id ?? 0),
+                'item_id' => (int) ($approvalItem->item_id ?? optional($itemSet)->item_id ?? 0),
+                'name' => (string) (optional($item)->item_name ?? ''),
+                'metal_type' => $this->normalizeMetalType(optional($item)->metal ?? null),
+                'code' => (string) ($approvalItem->qr_code ?? optional($itemSet)->qr_code ?? ''),
+                'huid' => (string) ($approvalItem->huid ?? optional($itemSet)->HUID ?? ''),
+                'qty' => 1,
+                'gross_weight' => $gross,
+                'other_weight' => $otherWeight,
+                'net_weight' => $net,
+                'purity' => $purity,
+                'item_purity' => $itemPurity,
+                'outward_purity' => $itemPurity,
+                'waste_percent' => $wastePercent,
+                'net_purity' => $netPurity,
+                'fine_weight' => $fineWeight,
+                'metal_rate' => $metalRate,
+                'metal_amount' => $metalAmount,
+                'labour_rate' => $labourRate,
+                'labour_amount' => $labourAmount,
+                'other_amount' => $otherAmount,
+                'total_amount' => $totalAmount,
+                'remarks' => (string) ($approvalItem->remarks ?? ''),
+                'other_charges' => $this->decodeOtherChargeDetails($approvalItem->other_charge_details ?? null),
+                'is_item_only' => false,
+                'source' => 'approval',
+            ];
+        })->values();
+
+        $approvalItemIds = $approvalRows->pluck('item_id')->filter()->unique()->values()->all();
+        $itemSetItemIds = $items->pluck('item_id')->filter()->merge($approvalItemIds)->unique()->values()->all();
+        $itemOnlyQuery = Item::query()
+            ->where('company_id', $company->id)
+            ->whereNotIn('id', $itemSetItemIds)
+            ->where(function ($q) use ($search) {
+                $q->where('item_name', 'like', '%' . $search . '%')
+                    ->orWhere('item_code', 'like', '%' . $search . '%');
+            });
+
+        if (Schema::hasColumn('items', 'is_active')) {
+            $itemOnlyQuery->where('is_active', 1);
+        }
+
+        $itemOnly = $itemOnlyQuery
+            ->orderBy('item_name')
+            ->limit($limit)
+            ->get(['id', 'item_name', 'item_code', 'metal', 'outward_purity', 'labour_rate']);
+
+        $itemSetRows = $items->map(function ($item) {
+            $gross = (float) ($item->gross_weight ?? 0);
+            $otherWeight = (float) ($item->other ?? 0);
+            $net = (float) ($item->net_weight ?? ($gross - $otherWeight));
+            $purity = (float) (optional($item->item)->outward_purity ?? 0);
+            $wastePercent = 0;
+            $netPurity = $purity + $wastePercent;
+            $fineWeight = $net * $netPurity / 100;
+            $metalRate = 0;
+            $metalAmount = $fineWeight * $metalRate;
+            $labourRate = (float) ($item->sale_labour_rate ?? optional($item->item)->labour_rate ?? 0);
+            $labourAmount = $net * $labourRate;
+            $otherAmount = (float) ($item->sale_other ?? 0);
+            $totalAmount = $metalAmount + $labourAmount + $otherAmount;
+
+            return [
+                'id' => $item->id,
+                'row_key' => 'set_' . (int) $item->id,
+                'item_id' => $item->item_id,
+                'name' => $item->item->item_name ?? '',
+                'metal_type' => $this->normalizeMetalType(optional($item->item)->metal ?? null),
+                'code' => $item->qr_code,
+                'huid' => $item->HUID,
+                'qty' => 1,
+                'gross_weight' => $gross,
+                'other_weight' => $otherWeight,
+                'net_weight' => $net,
+                'purity' => $purity,
+                'waste_percent' => $wastePercent,
+                'net_purity' => $netPurity,
+                'fine_weight' => $fineWeight,
+                'metal_rate' => $metalRate,
+                'metal_amount' => $metalAmount,
+                'labour_rate' => $labourRate,
+                'labour_amount' => $labourAmount,
+                'other_amount' => $otherAmount,
+                'total_amount' => $totalAmount,
+                'remarks' => (string) ($item->remarks ?? ''),
+                'is_item_only' => false,
+                'source' => 'itemset',
+            ];
+        })->values();
+
+        $itemOnlyRows = $itemOnly->map(function ($item) {
+            return [
+                'id' => 0,
+                'row_key' => 'item_' . (int) $item->id,
+                'item_id' => (int) $item->id,
+                'name' => (string) ($item->item_name ?? ''),
+                'metal_type' => $this->normalizeMetalType($item->metal ?? null),
+                'code' => (string) ($item->item_code ?? ''),
+                'huid' => '',
+                'qty' => 1,
+                'gross_weight' => 0,
+                'other_weight' => 0,
+                'net_weight' => 0,
+                'purity' => (float) ($item->outward_purity ?? 0),
+                'waste_percent' => 0,
+                'net_purity' => 0,
+                'fine_weight' => 0,
+                'metal_rate' => 0,
+                'metal_amount' => 0,
+                'labour_rate' => (float) ($item->labour_rate ?? 0),
+                'labour_amount' => 0,
+                'other_amount' => 0,
+                'total_amount' => 0,
+                'remarks' => '',
+                'is_item_only' => true,
+                'source' => 'item',
+            ];
+        })->values();
+
+        return response()->json($approvalRows->concat($itemSetRows)->concat($itemOnlyRows)->values());
+    }
+    /**
+     * Get itemset by QR OR manual select
+     */
+    public function getItemset(Request $request, $company)
+    {
+        $code = trim((string) ($request->input('qr_code') ?? $request->input('code') ?? $request->input('barcode') ?? $request->input('label_code') ?? ''));
+
+        $query = ItemSet::where('company_id', $company->id);
+
+        if ($code !== '') {
+            $query->where(function ($q) use ($code) {
+                $q->where('qr_code', $code)
+                    ->orWhere('barcode', $code)
+                    ->orWhere('HUID', $code);
+            });
+        }
+
+        if ($request->itemset_id) {
+            $query->where('id', $request->itemset_id);
+        }
+
+        $item = $query->first();
+
+        if (!$item) {
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Item not found for this company.'
+            ], 404);
+        }
+
+        $pendingApprovalItem = ApprovalItem::whereHas('approval', function ($q) use ($company) {
+            $q->where('company_id', $company->id);
+        })
+            ->where(function ($q) use ($item) {
+                $q->where('itemset_id', (int) $item->id)
+                    ->orWhere('item_id', (int) $item->id);
+            })
+            ->where(function ($q) {
+                $q->whereNull('status')
+                    ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+            })
+            ->first();
+
+        if ($pendingApprovalItem) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Item is in approval. Use Add Label from Approval.',
+            ], 422);
+        }
+
+        if ((int) $item->is_sold === 1) {
+            $saleItem = SaleItem::with('sale')
+                ->where('itemset_id', (int) $item->id)
+                ->latest('id')
+                ->first();
+
+            if ($saleItem?->sale) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Item already used in sale voucher: ' . ($saleItem->sale->voucher_no ?? $saleItem->sale->id),
+                ], 422);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Item is not available in stock.',
+            ], 422);
+        }
+
+        $existingLock = $this->activeSaleCartLock((int) $company->id, (int) $item->id);
+        if ($existingLock && (int) $existingLock->user_id !== (int) optional($request->user())->id) {
+            return response()->json([
+                'success' => false,
+                'message' => $this->saleCartLockMessage($item),
+                'code' => 'SALE_CART_ITEM_LOCKED',
+                'locked_item' => $this->saleCartLockPayload($item, $existingLock),
+                'data' => [$this->saleCartLockPayload($item, $existingLock)],
+            ], 409);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $item
+        ]);
+    }
+
+    public function reserveCartItem(Request $request, $slug)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $userId = optional($request->user())->id;
+
+        if (!$userId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Login required.',
+            ], 401);
+        }
+
+        $request->validate([
+            'itemset_id' => 'required|integer',
+        ]);
+
+        $itemsetId = (int) $request->input('itemset_id');
+
+        return DB::transaction(function () use ($company, $userId, $itemsetId) {
+            $item = ItemSet::with('item')
+                ->where('company_id', $company->id)
+                ->where('id', $itemsetId)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$item) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Item not found for this company.',
+                ], 404);
+            }
+
+            if ((int) $item->is_final !== 1 || (int) $item->is_sold === 1) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Item is not available in stock.',
+                ], 422);
+            }
+
+            $pendingApprovalItem = ApprovalItem::whereHas('approval', function ($q) use ($company) {
+                $q->where('company_id', $company->id);
+            })
+                ->where(function ($q) use ($item) {
+                    $q->where('itemset_id', (int) $item->id)
+                        ->orWhere('item_id', (int) $item->id);
+                })
+                ->where(function ($q) {
+                    $q->whereNull('status')
+                        ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+                })
+                ->first();
+
+            if ($pendingApprovalItem) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Item is in approval. Use Add Label from Approval.',
+                ], 422);
+            }
+
+            $existingLock = $this->activeSaleCartLock((int) $company->id, (int) $item->id);
+            if ($existingLock && (int) $existingLock->user_id !== (int) $userId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $this->saleCartLockMessage($item),
+                    'code' => 'SALE_CART_ITEM_LOCKED',
+                    'locked_item' => $this->saleCartLockPayload($item, $existingLock),
+                    'data' => [$this->saleCartLockPayload($item, $existingLock)],
+                ], 409);
+            }
+
+            $cart = SaleCart::updateOrCreate(
+                [
+                    'user_id' => (int) $userId,
+                    'company_id' => (int) $company->id,
+                    'itemset_id' => (int) $item->id,
+                ],
+                [
+                    'approval_item_id' => null,
+                    'updated_at' => now(),
+                    'created_at' => now(),
+                ]
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Item reserved.',
+                'cart_id' => (int) $cart->id,
+                'data' => [
+                    'cart_id' => (int) $cart->id,
+                    'itemset_id' => (int) $item->id,
+                ],
+            ]);
+        });
+    }
+
+    public function removeCartItem(Request $request, $slug, $id)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $userId = optional($request->user())->id;
+
+        if ($userId) {
+            SaleCart::where('company_id', $company->id)
+                ->where('user_id', (int) $userId)
+                ->where('id', (int) $id)
+                ->delete();
+        }
+
+        return response()->json([
+            'success' => true,
+        ]);
+    }
+
+
+
+    /**
+     * Store new sale
+     */
+    public function store(Request $request, $slug)
+    {
+        DB::beginTransaction();
+
+        try {
+
+            $company = Company::where('slug', $slug)->firstOrFail();
+            $request->validate([
+                'customer_id' => 'required|integer',
+                'items_payload' => 'nullable|string',
+                'items' => 'nullable|array',
+                'items.*' => 'nullable|integer',
+                'received_amount' => 'nullable|numeric|min:0',
+                'additional_received_amount' => 'nullable|numeric|min:0',
+            ]);
+
+            $customerExists = Customer::where('company_id', $company->id)
+                ->where('id', (int) $request->customer_id)
+                ->saleParties()
+                ->exists();
+
+            if (!$customerExists) {
+                throw new \Exception('Invalid customer for this company.');
+            }
+
+            $saleRows = $this->saleRowsFromRequest($request);
+            if (empty($saleRows)) {
+                throw new \Exception('Add at least one item.');
+            }
+
+            $sale = Sale::create([
+                'company_id'  => $company->id,
+                'customer_id' => $request->customer_id,
+                'voucher_no'  => \App\Services\VoucherSeries::next($company->id, 'SL'),
+                'sale_date'   => now(),
+                'net_total'   => 0,
+                'received_amount' => (float) $request->input('received_amount', 0),
+                'payment_mode' => $request->input('payment_mode'),
+                'payment_reference' => $request->input('payment_reference'),
+                'payment_note' => $request->input('payment_note'),
+                'use_silver_balance' => $request->boolean('use_silver_balance'),
+                'show_previous_bills' => $request->boolean('show_previous_bills'),
+                'remarks'     => $request->input('voucher_remarks'),
+                'employee_id' => optional($request->user())->id,
+                'modified_count' => 0,
+            ]);
+
+            $initialReceived = (float) $request->input('received_amount', 0);
+            if ($initialReceived > 0) {
+                SalePayment::create([
+                    'company_id' => $company->id,
+                    'sale_id' => $sale->id,
+                    'amount' => $initialReceived,
+                    'paid_on' => Carbon::parse($sale->sale_date)->toDateString(),
+                    'payment_mode' => $request->input('payment_mode'),
+                    'payment_reference' => $request->input('payment_reference'),
+                    'payment_note' => $request->input('payment_note'),
+                    'created_by' => optional($request->user())->id,
+                ]);
+            }
+
+            $total = 0;
+            $approvalIds = [];
+            $savedRows = 0;
+            $processedItemSetIds = [];
+
+            foreach ($saleRows as $index => $row) {
+
+                $itemsetId = (int) ($row['itemset_id'] ?? 0);
+                $productId = (int) ($row['item_id'] ?? $row['product_id'] ?? 0);
+
+                if ($itemsetId <= 0 && $productId <= 0) {
+                    throw new \Exception('Invalid sale item row at position ' . ($index + 1) . '.');
+                }
+
+                $approvalItemId = $row['approval_item_id'] ?? null;
+                $item = null;
+                $directItem = null;
+                if ($itemsetId > 0) {
+                    $item = TransactionItemGuard::lockItemSetForUse($company->id, $itemsetId, !empty($approvalItemId));
+                } else {
+                    $directItem = Item::where('company_id', $company->id)->find($productId);
+                    if (!$directItem) {
+                        throw new \Exception("Direct item not found: {$productId}");
+                    }
+                }
+
+                $product = $directItem ?: optional($item)->item;
+                $qty = max(1, (int) ($row['qty'] ?? 1));
+                $grossWeight = (float) ($row['gross_weight'] ?? ($item->gross_weight ?? 0));
+                $otherWeight = (float) ($row['other_weight'] ?? ($item->other ?? 0));
+                $netWeight = (float) ($row['net_weight'] ?? max(0, $grossWeight - $otherWeight));
+                $purity = (float) ($row['purity'] ?? optional($product)->outward_purity ?? 0);
+                $wastePercent = (float) ($row['waste_percent'] ?? $row['waste'] ?? 0);
+                $netPurity = $this->positiveOr($row['net_purity'] ?? null, $purity + $wastePercent);
+                $fineWeight = $this->positiveOr($row['fine_weight'] ?? null, $netWeight * $netPurity / 100);
+                $metalRate = (float) ($row['metal_rate'] ?? 0);
+                $applyMetal = $this->truthy($row['apply_metal'] ?? null, true);
+                $metalAmount = $applyMetal ? $this->positiveOr($row['metal_amount'] ?? null, $fineWeight * $metalRate) : 0;
+                $labourRate = (float) ($row['labour_rate'] ?? $item?->sale_labour_rate ?? optional($product)->labour_rate ?? 0);
+                $applyLabour = $this->truthy($row['apply_labour'] ?? null, true);
+                $labourAmount = $applyLabour ? $this->positiveOr($row['labour_amount'] ?? null, $item?->sale_labour_amount ?? ($netWeight * $labourRate)) : 0;
+                $otherAmount = (float) ($row['other_amount'] ?? $item?->sale_other ?? 0);
+                $lineTotal = $this->positiveOr($row['total_amount'] ?? null, $metalAmount + $labourAmount + $otherAmount);
+
+                // ✅ SAVE SALE ITEM
+                SaleItem::create([
+                    'sale_id'          => $sale->id,
+                    'itemset_id'       => $item ? $item->id : null,
+                    'product_id'       => $productId ?: (int) ($item->item_id ?? 0),
+                    'approval_item_id' => $approvalItemId,
+                    'qty'              => $qty,
+                    'gross_weight'     => $grossWeight,
+                    'other_weight'     => $otherWeight,
+                    'net_weight'       => $netWeight,
+                    'purity'           => $purity,
+                    'waste_percent'    => $wastePercent,
+                    'net_purity'       => $netPurity,
+                    'fine_weight'      => $fineWeight,
+                    'metal_rate'       => $metalRate,
+                    'metal_amount'     => $metalAmount,
+                    'labour_rate'      => $labourRate,
+                    'labour_amount'    => $labourAmount,
+                    'other_amount'     => $otherAmount,
+                    'other_charge_details' => $this->normalizeOtherChargeDetails($row['other_charge_details'] ?? $row['other_charges'] ?? null),
+                    'total_amount'     => $lineTotal,
+                    'remarks'          => $row['remarks'] ?? null,
+                ]);
+                $savedRows++;
+
+                // ✅ mark itemset sold (only for itemset flow)
+                if ($item) {
+                    $item->update(['is_sold' => 1]);
+                    $processedItemSetIds[] = (int) $item->id;
+                }
+
+                // ✅ UPDATE APPROVAL ITEM
+                if (!empty($approvalItemId)) {
+                    $approval = TransactionItemGuard::lockApprovalItemForSale($company->id, (int) $approvalItemId);
+                    $approval->update(['status' => 'sold']);
+                    $approvalIds[] = $approval->approval_id;
+                }
+
+                $total += $lineTotal;
+            }
+
+            if ($savedRows !== count($saleRows)) {
+                throw new \Exception('Sale item count mismatch. Submitted ' . count($saleRows) . ' row(s), saved ' . $savedRows . ' row(s).');
+            }
+
+            $advanceSummaryNow = $this->getAdvanceSummary($company->id, (int) $sale->customer_id);
+            $cashPayableTotal = $this->saleCashPayableTotal($sale->fresh('saleItems.itemset.item', 'saleItems.product'), [
+                'gold' => (float) ($advanceSummaryNow['gold'] ?? 0),
+                'silver' => (float) ($advanceSummaryNow['silver'] ?? 0),
+                'other' => (float) ($advanceSummaryNow['other'] ?? 0),
+            ]);
+
+            // ✅ update total
+            $sale->update(['net_total' => $cashPayableTotal]);
+            $this->syncSilverAdvanceUsageForSale(
+                $company->id,
+                $sale,
+                true,
+                optional($request->user())->id
+            );
+
+            // ✅ UPDATE APPROVAL HEADER STATUS
+            foreach (array_unique($approvalIds) as $approvalId) {
+
+                $totalItems = ApprovalItem::where('approval_id', $approvalId)->count();
+
+                $soldItems = ApprovalItem::where('approval_id', $approvalId)
+                    ->where('status', 'sold')
+                    ->count();
+
+                if ($soldItems == 0) {
+                    $status = 'open';
+                } elseif ($soldItems < $totalItems) {
+                    $status = 'partial';
+                } else {
+                    $status = 'closed';
+                }
+
+                ApprovalHeader::where('company_id', $company->id)
+                    ->where('id', $approvalId)
+                    ->update(['status' => $status]);
+            }
+
+            $this->clearSaleCartLocks($company->id, optional($request->user())->id, $processedItemSetIds);
+
+            DB::commit();
+
+            return redirect()
+                ->route('company.sales.index', $company->slug)
+                ->with('success', 'Sale created successfully');
+        } catch (\Exception $e) {
+
+            DB::rollback();
+
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    public function update(Request $request, $slug, $encryptedId)
+    {
+        DB::beginTransaction();
+
+        try {
+            $company = Company::where('slug', $slug)->firstOrFail();
+            $saleId = (int) Crypt::decryptString($encryptedId);
+
+            $sale = Sale::with('saleItems')
+                ->where('company_id', $company->id)
+                ->findOrFail((int) $saleId);
+
+            if (\App\Models\SaleReturnItem::whereIn('sale_item_id', $sale->saleItems->pluck('id'))->exists()) {
+                throw new \Exception('This sale has returned items and cannot be rewritten.');
+            }
+
+            $request->validate([
+                'customer_id' => 'required|integer',
+                'items_payload' => 'nullable|string',
+                'items' => 'nullable|array',
+                'items.*' => 'nullable|integer',
+                'received_amount' => 'nullable|numeric|min:0',
+                'additional_received_amount' => 'nullable|numeric|min:0',
+            ]);
+
+            $customerExists = Customer::where('company_id', $company->id)
+                ->where('id', (int) $request->customer_id)
+                ->saleParties()
+                ->exists();
+            if (!$customerExists) {
+                throw new \Exception('Invalid customer for this company.');
+            }
+
+            $saleRows = $this->saleRowsFromRequest($request);
+            if (empty($saleRows)) {
+                throw new \Exception('Add at least one item.');
+            }
+
+            $incomingReceived = (float) $request->input('received_amount', $sale->received_amount ?? 0);
+            $additionalReceived = (float) $request->input('additional_received_amount', 0);
+            $finalReceived = $additionalReceived > 0
+                ? ((float) ($sale->received_amount ?? 0) + $additionalReceived)
+                : $incomingReceived;
+
+            $baseEffectiveReceived = (float) ($sale->received_amount ?? 0) - (float) ($sale->paid_amount ?? 0);
+
+            $sale->update([
+                'customer_id' => (int) $request->customer_id,
+                'received_amount' => $finalReceived,
+                'payment_mode' => $request->input('payment_mode'),
+                'payment_reference' => $request->input('payment_reference'),
+                'payment_note' => $request->input('payment_note'),
+                'use_silver_balance' => $request->boolean('use_silver_balance'),
+                'show_previous_bills' => $request->boolean('show_previous_bills'),
+                'remarks' => $request->input('voucher_remarks'),
+            ]);
+
+            if ($additionalReceived > 0) {
+                if ((float) ($sale->payments()->sum('amount')) <= 0 && $baseEffectiveReceived > 0) {
+                    // Seed first payment for old vouchers created before payment-history tracking.
+                    SalePayment::create([
+                        'company_id' => $company->id,
+                        'sale_id' => $sale->id,
+                        'amount' => $baseEffectiveReceived,
+                        'paid_on' => Carbon::parse($sale->sale_date)->toDateString(),
+                        'payment_mode' => $sale->payment_mode,
+                        'payment_reference' => $sale->payment_reference,
+                        'payment_note' => $sale->payment_note,
+                        'created_by' => optional($request->user())->id,
+                    ]);
+                }
+
+                SalePayment::create([
+                    'company_id' => $company->id,
+                    'sale_id' => $sale->id,
+                    'amount' => $additionalReceived,
+                    'paid_on' => now()->toDateString(),
+                    'payment_mode' => $request->input('payment_mode'),
+                    'payment_reference' => $request->input('payment_reference'),
+                    'payment_note' => $request->input('payment_note'),
+                    'created_by' => optional($request->user())->id,
+                ]);
+            } elseif ((float) ($sale->payments()->sum('amount')) <= 0 && $finalReceived > 0) {
+                // Backward compatibility for old sales that only had received_amount.
+                SalePayment::create([
+                    'company_id' => $company->id,
+                    'sale_id' => $sale->id,
+                    'amount' => $finalReceived,
+                    'paid_on' => Carbon::parse($sale->sale_date)->toDateString(),
+                    'payment_mode' => $request->input('payment_mode') ?? $sale->payment_mode,
+                    'payment_reference' => $request->input('payment_reference') ?? $sale->payment_reference,
+                    'payment_note' => $request->input('payment_note') ?? $sale->payment_note,
+                    'created_by' => optional($request->user())->id,
+                ]);
+            }
+
+            $approvalIds = [];
+            $processedItemSetIds = [];
+
+            foreach ($sale->saleItems as $saleItem) {
+                if (!empty($saleItem->approval_item_id)) {
+                    $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($company) {
+                        $q->where('company_id', $company->id);
+                    })->find((int) $saleItem->approval_item_id);
+
+                    if ($approvalItem) {
+                        $approvalItem->update(['status' => 'pending']);
+                        $approvalIds[] = (int) $approvalItem->approval_id;
+                    }
+                }
+
+                if (!empty($saleItem->itemset_id) && empty($saleItem->approval_item_id)) {
+                    ItemSet::where('company_id', $company->id)
+                        ->where('id', (int) $saleItem->itemset_id)
+                        ->update(['is_sold' => 0]);
+                }
+
+                $saleItem->delete();
+            }
+
+            $total = 0;
+            $savedRows = 0;
+
+            foreach ($saleRows as $index => $row) {
+                $itemsetId = (int) ($row['itemset_id'] ?? 0);
+                $productId = (int) ($row['item_id'] ?? $row['product_id'] ?? 0);
+                $approvalItemId = $row['approval_item_id'] ?? null;
+
+                $item = null;
+                $directItem = null;
+
+                if ($itemsetId > 0) {
+                    $item = TransactionItemGuard::lockItemSetForUse($company->id, $itemsetId, !empty($approvalItemId));
+                } elseif ($productId > 0) {
+                    $directItem = Item::where('company_id', $company->id)->find($productId);
+                    if (!$directItem) {
+                        throw new \Exception("Direct item not found: {$productId}");
+                    }
+                } else {
+                    throw new \Exception('Invalid sale item row at position ' . ($index + 1) . '.');
+                }
+
+                $product = $directItem ?: optional($item)->item;
+                $qty = max(1, (int) ($row['qty'] ?? 1));
+                $grossWeight = (float) ($row['gross_weight'] ?? ($item->gross_weight ?? 0));
+                $otherWeight = (float) ($row['other_weight'] ?? ($item->other ?? 0));
+                $netWeight = (float) ($row['net_weight'] ?? max(0, $grossWeight - $otherWeight));
+                $purity = (float) ($row['purity'] ?? optional($product)->outward_purity ?? 0);
+                $wastePercent = (float) ($row['waste_percent'] ?? $row['waste'] ?? 0);
+                $netPurity = $this->positiveOr($row['net_purity'] ?? null, $purity + $wastePercent);
+                $fineWeight = $this->positiveOr($row['fine_weight'] ?? null, $netWeight * $netPurity / 100);
+                $metalRate = (float) ($row['metal_rate'] ?? 0);
+                $applyMetal = $this->truthy($row['apply_metal'] ?? null, true);
+                $metalAmount = $applyMetal ? $this->positiveOr($row['metal_amount'] ?? null, $fineWeight * $metalRate) : 0;
+                $labourRate = (float) ($row['labour_rate'] ?? optional($product)->labour_rate ?? 0);
+                $applyLabour = $this->truthy($row['apply_labour'] ?? null, true);
+                $labourAmount = $applyLabour ? $this->positiveOr($row['labour_amount'] ?? null, $netWeight * $labourRate) : 0;
+                $otherAmount = (float) ($row['other_amount'] ?? 0);
+                $lineTotal = $this->positiveOr($row['total_amount'] ?? null, $metalAmount + $labourAmount + $otherAmount);
+
+                $payload = [
+                    'sale_id'          => $sale->id,
+                    'itemset_id'       => $item ? $item->id : null,
+                    'product_id'       => $productId ?: (int) ($item->item_id ?? optional($product)->id ?? 0),
+                    'qty'              => $qty,
+                    'gross_weight'     => $grossWeight,
+                    'other_weight'     => $otherWeight,
+                    'net_weight'       => $netWeight,
+                    'purity'           => $purity,
+                    'waste_percent'    => $wastePercent,
+                    'net_purity'       => $netPurity,
+                    'fine_weight'      => $fineWeight,
+                    'metal_rate'       => $metalRate,
+                    'metal_amount'     => $metalAmount,
+                    'labour_rate'      => $labourRate,
+                    'labour_amount'    => $labourAmount,
+                    'other_amount'     => $otherAmount,
+                    'other_charge_details' => $this->normalizeOtherChargeDetails($row['other_charge_details'] ?? $row['other_charges'] ?? null),
+                    'total_amount'     => $lineTotal,
+                    'remarks'          => $row['remarks'] ?? null,
+                    'approval_item_id' => $approvalItemId,
+                ];
+
+                SaleItem::create($payload);
+                $savedRows++;
+
+                if ($item) {
+                    $item->update(['is_sold' => 1]);
+                    $processedItemSetIds[] = (int) $item->id;
+                }
+
+                if (!empty($approvalItemId)) {
+                    $approval = TransactionItemGuard::lockApprovalItemForSale($company->id, (int) $approvalItemId);
+
+                    if ($approval) {
+                        $approval->update(['status' => 'sold']);
+                        $approvalIds[] = (int) $approval->approval_id;
+                    }
+                }
+
+                $total += (float) ($payload['total_amount'] ?? 0);
+            }
+
+            if ($savedRows !== count($saleRows)) {
+                throw new \Exception('Sale item count mismatch. Submitted ' . count($saleRows) . ' row(s), saved ' . $savedRows . ' row(s).');
+            }
+
+            $advanceSummaryNow = $this->getAdvanceSummary($company->id, (int) $request->customer_id);
+            $existingUsage = CustomerAdvanceLedger::query()
+                ->where('company_id', $company->id)
+                ->where('reference_type', 'sale')
+                ->where('reference_id', (int) $sale->id)
+                ->selectRaw('COALESCE(SUM(CASE WHEN metal_type = "gold" THEN metal_out ELSE 0 END),0) as gold_used')
+                ->selectRaw('COALESCE(SUM(CASE WHEN metal_type = "silver" THEN metal_out ELSE 0 END),0) as silver_used')
+                ->selectRaw('COALESCE(SUM(CASE WHEN metal_type = "other" THEN metal_out ELSE 0 END),0) as other_used')
+                ->first();
+            $cashPayableTotal = $this->saleCashPayableTotal($sale->fresh('saleItems.itemset.item', 'saleItems.product'), [
+                'gold' => (float) ($advanceSummaryNow['gold'] ?? 0) + (float) ($existingUsage->gold_used ?? 0),
+                'silver' => (float) ($advanceSummaryNow['silver'] ?? 0) + (float) ($existingUsage->silver_used ?? 0),
+                'other' => (float) ($advanceSummaryNow['other'] ?? 0) + (float) ($existingUsage->other_used ?? 0),
+            ]);
+
+            $maxAdditionalAllowed = max(0, $cashPayableTotal - $baseEffectiveReceived);
+            if (($additionalReceived - $maxAdditionalAllowed) > 0.000001) {
+                throw new \Exception('Add Payment cannot be more than pending amount (' . number_format($maxAdditionalAllowed, 2) . ').');
+            }
+
+            $sale->update(['net_total' => $cashPayableTotal]);
+            $this->syncSilverAdvanceUsageForSale(
+                $company->id,
+                $sale,
+                (bool) $sale->use_silver_balance,
+                optional($request->user())->id
+            );
+            $sale->increment('modified_count');
+
+            foreach (array_unique($approvalIds) as $approvalId) {
+                $totalItems = ApprovalItem::where('approval_id', $approvalId)->count();
+                $soldItems = ApprovalItem::where('approval_id', $approvalId)
+                    ->where('status', 'sold')
+                    ->count();
+
+                if ($soldItems == 0) {
+                    $status = 'open';
+                } elseif ($soldItems < $totalItems) {
+                    $status = 'partial';
+                } else {
+                    $status = 'closed';
+                }
+
+                ApprovalHeader::where('company_id', $company->id)
+                    ->where('id', $approvalId)
+                    ->update(['status' => $status]);
+            }
+
+            $this->clearSaleCartLocks($company->id, optional($request->user())->id, $processedItemSetIds);
+
+            DB::commit();
+
+            return redirect()
+                ->route('company.sales.index', $company->slug)
+                ->with('success', 'Sale updated successfully');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    public function destroy(Request $request, $slug, $encryptedId)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $saleId = (int) Crypt::decryptString($encryptedId);
+
+        DB::beginTransaction();
+
+        try {
+            $sale = Sale::with('saleItems')
+                ->where('company_id', $company->id)
+                ->findOrFail($saleId);
+
+            $hasReturns = DB::table('sale_returns')
+                ->where('company_id', $company->id)
+                ->where('sale_id', (int) $sale->id)
+                ->exists();
+
+            if ($hasReturns || \App\Models\SaleReturnItem::whereIn('sale_item_id', $sale->saleItems->pluck('id'))->exists()) {
+                throw new \Exception('This sale has return entries, so it cannot be deleted.');
+            }
+
+            $restoreSummary = $this->restoreSaleItemsToSource((int) $company->id, $sale->saleItems);
+
+            SalePayment::where('company_id', $company->id)
+                ->where('sale_id', (int) $sale->id)
+                ->delete();
+            CustomerAdvanceLedger::where('company_id', $company->id)
+                ->where('reference_type', 'sale')
+                ->where('reference_id', (int) $sale->id)
+                ->delete();
+            SaleItem::where('sale_id', (int) $sale->id)->delete();
+            $sale->delete();
+
+            $this->refreshApprovalHeaderStatus($restoreSummary['approval_ids'], (int) $company->id);
+
+            DB::commit();
+
+            $message = 'Sale deleted successfully. Items moved back to their original position.';
+
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => $message,
+                    'data' => [
+                        'deleted_sale_id' => $saleId,
+                        'approval_items_restored' => $restoreSummary['approval_items'],
+                        'stock_items_restored' => $restoreSummary['stock_items'],
+                    ],
+                ]);
+            }
+
+            return redirect()
+                ->route('company.sales.index', $company->slug)
+                ->with('success', $message);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $e->getMessage(),
+                ], 422);
+            }
+
+            return redirect()
+                ->route('company.sales.index', $company->slug)
+                ->with('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Show single sale
+     */
+    public function show($slug, $encryptedId)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $saleId = (int) Crypt::decryptString($encryptedId);
+        $sale = Sale::with('customer', 'saleItems.itemset.item', 'saleItems.product')
+            ->where('company_id', $company->id)
+            ->findOrFail($saleId);
+
+        $advanceSummary = $this->getAdvanceSummary($company->id, (int) ($sale->customer_id ?? 0), $sale->sale_date);
+        $saleAdvanceUsage = $this->getSaleAdvanceUsage($company->id, (int) $sale->id);
+        $cashPayableTotal = $this->saleCashPayableTotal($sale);
+        $previousPendingSales = $this->previousPendingSalesForVoucher($sale);
+
+        return view('company.sales.show', compact(
+            'company',
+            'sale',
+            'advanceSummary',
+            'saleAdvanceUsage',
+            'cashPayableTotal',
+            'previousPendingSales'
+        ));
+    }
+
+    public function viewPdf($slug, $encryptedId)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $saleId = (int) Crypt::decryptString($encryptedId);
+
+        $sale = Sale::with([
+            'customer',
+            'saleItems.itemset.item',   // IMPORTANT
+            'saleItems.product',
+            'payments'
+        ])
+            ->where('company_id', $company->id)
+            ->findOrFail($saleId);
+
+        $advanceSummary = $this->getAdvanceSummary($company->id, (int) ($sale->customer_id ?? 0), $sale->sale_date);
+        $saleAdvanceUsage = $this->getSaleAdvanceUsage($company->id, (int) $sale->id);
+        $cashPayableTotal = $this->saleCashPayableTotal($sale);
+        $previousPendingSales = $this->previousPendingSalesForVoucher($sale);
+        $pdf = Pdf::loadView('company.sales.invoice_pdf', compact('sale', 'company', 'advanceSummary', 'saleAdvanceUsage', 'cashPayableTotal', 'previousPendingSales'))
+            ->setPaper('a4', 'portrait');
+
+        return $pdf->stream('Invoice-' . $sale->voucher_no . '.pdf');
+    }
+
+    public function approvalList($slug)
+    {
+
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        $approvals = ApprovalHeader::with('customer')
+            ->where('company_id', $company->id)
+            ->where('status', '!=', 'closed')
+            ->get();
+
+        return view('company.sales.approval_list', compact('company', 'approvals'));
+    }
+    // public function approvalItems($slug, $id)
+    // {
+
+    //     $company = Company::whereSlug($slug)->firstOrFail();
+
+    //     $approval = ApprovalHeader::with([
+    //         'items.itemSet:id,HUID,qr_code'
+    //     ])->findOrFail($id);
+
+    //     return view('company.sales.approval_items', compact('company', 'approval'));
+    // }
+    public function storeFromApproval(Request $request, $slug)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+
+        DB::beginTransaction();
+
+        try {
+
+            // CREATE SALE
+            $sale = Sale::create([
+                'company_id' => $company->id,
+                'customer_id' => $request->customer_id,
+                'sale_date' => now(),
+                'voucher_no' => \App\Services\VoucherSeries::next($company->id, 'SL'),
+                'employee_id' => optional($request->user())->id,
+                'modified_count' => 0,
+            ]);
+
+            foreach ($request->items as $id) {
+
+                $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($company, $request) {
+                    $q->where('company_id', $company->id)
+                        ->where('id', (int) $request->approval_id);
+                })
+                    ->where(function ($q) {
+                        $q->whereNull('status')
+                            ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+                    })
+                    ->lockForUpdate()
+                    ->findOrFail((int) $id);
+
+                // ✅ Find correct item set
+                $itemSet = $approvalItem->itemSet ?: ItemSet::where('company_id', $company->id)
+                    ->find($approvalItem->itemset_id);
+
+                if (!$itemSet) {
+                    throw new \Exception("ItemSet not found for approval item {$approvalItem->id}");
+                }
+
+                // ✅ BASIC VALUES
+                $gross = $approvalItem->gross_weight;
+                $net   = $approvalItem->net_weight;
+
+                // ✅ PURITY (from item_sets OR item table)
+                $purity = $itemSet->purity ?? 92; // default if not exist
+
+                // ✅ FINE WEIGHT FORMULA
+                $fineWeight = ($net * $purity) / 100;
+
+                // ✅ METAL RATE (you can take from config or DB)
+                $metalRate = $itemSet->sale_labour_rate ?? 0;
+
+                // ✅ AMOUNT CALCULATION
+                $amount = $fineWeight * $metalRate;
+
+                // ✅ SAVE SALE ITEM
+                SaleItem::create([
+                    'sale_id'      => $sale->id,
+                    'itemset_id'   => $itemSet->id,
+                    'product_id'   => null,
+                    'qty'          => 1,
+
+                    'gross_weight' => $gross,
+                    'net_weight'   => $net,
+                    'purity'       => $purity,
+                    'fine_weight'  => $fineWeight,
+
+                    'metal_rate'   => $metalRate,
+                    'total_amount' => $amount,
+                    'remarks'      => $approvalItem->remarks,
+                    'other_charge_details' => $this->normalizeOtherChargeDetails($approvalItem->other_charge_details ?? null),
+                ]);
+
+                // ✅ UPDATE STATUS
+                $approvalItem->update([
+                    'status' => 'sold'
+                ]);
+            }
+
+            // UPDATE APPROVAL STATUS
+            $total = ApprovalItem::where('approval_id', $request->approval_id)->count();
+            $sold = ApprovalItem::where('approval_id', $request->approval_id)
+                ->where('status', 'sold')->count();
+
+            ApprovalHeader::where('id', $request->approval_id)->update([
+                'status' => ($total == $sold) ? 'closed' : 'partial'
+            ]);
+
+            DB::commit();
+
+            return response()->json(['success' => true]);
+        } catch (\Exception $e) {
+
+            DB::rollback();
+
+            return response()->json(['error' => $e->getMessage()]);
+        }
+    }
+
+    public function approvalItems(Request $request, $slug)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+
+        $customerId = $request->customer_id;
+        $currentSaleId = (int) $request->input('sale_id', 0);
+
+        $items = ApprovalItem::with(['itemSet.item', 'legacyItemSet.item'])
+            ->whereExists(function ($q) use ($company, $customerId) {
+                $q->select(DB::raw(1))
+                    ->from('approval_headers')
+                    ->whereColumn('approval_headers.id', 'approval_items.approval_id')
+                    ->where('approval_headers.company_id', $company->id)
+                    ->where('approval_headers.customer_id', $customerId);
+            })
+            ->where(function ($q) {
+                $q->whereNull('status')
+                    ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+            })
+            ->whereNotExists(function ($sub) use ($company, $currentSaleId) {
+                $sub->select(DB::raw(1))
+                    ->from('sale_items')
+                    ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+                    ->where('sales.company_id', $company->id)
+                    ->where(function ($q) {
+                        $q->whereColumn('sale_items.approval_item_id', 'approval_items.id')
+                            ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
+                            ->orWhereColumn('sale_items.itemset_id', 'approval_items.item_id');
+                    });
+
+                if ($currentSaleId > 0) {
+                    $sub->where('sale_items.sale_id', '<>', $currentSaleId);
+                }
+            })
+
+            ->get()
+            ->filter(function ($row) {
+                $itemSet = $row->itemSet ?? $row->legacyItemSet;
+                return (bool) $itemSet;
+            });
+
+        return response()->json($items->values()->map(function ($row) {
+            $itemSet = $row->itemSet ?? $row->legacyItemSet;
+            $item = optional($itemSet)->item;
+            $gross = (float) ($row->gross_weight ?? 0);
+            $otherWeight = (float) ($row->other_weight ?? 0);
+            $net = (float) ($row->net_weight ?? ($gross - $otherWeight));
+            $approvalPurity = (float) ($row->purity ?? 0);
+            $itemPurity = (float) (optional($item)->outward_purity ?? 0);
+            $purity = $approvalPurity > 0 ? $approvalPurity : $itemPurity;
+            $wastePercent = (float) ($row->waste_percent ?? 0);
+            $savedNetPurity = (float) ($row->net_purity ?? 0);
+            $netPurity = $savedNetPurity > 0 ? $savedNetPurity : ($purity + $wastePercent);
+            $savedFineWeight = (float) ($row->total_fine_weight ?? $row->fine_weight ?? 0);
+            $fineWeight = $savedFineWeight > 0 ? $savedFineWeight : ($net * $netPurity / 100);
+            $metalRate = (float) ($row->metal_rate ?? 0);
+            $savedMetalAmount = (float) ($row->metal_amount ?? 0);
+            $metalAmount = $savedMetalAmount > 0 ? $savedMetalAmount : ($fineWeight * $metalRate);
+            $labourRate = (float) ($row->labour_rate ?? optional($itemSet)->sale_labour_rate ?? optional($item)->labour_rate ?? 0);
+            $savedLabourAmount = (float) ($row->labour_amount ?? 0);
+            $labourAmount = $savedLabourAmount > 0 ? $savedLabourAmount : ($net * $labourRate);
+            $otherAmount = (float) ($row->other_amount ?? optional($itemSet)->sale_other ?? 0);
+            $savedTotalAmount = (float) ($row->total_amount ?? 0);
+            $totalAmount = $savedTotalAmount > 0 ? $savedTotalAmount : ($metalAmount + $labourAmount + $otherAmount);
+
+            return [
+                'approval_item_id' => $row->id,
+                'approval_id' => $row->approval_id,
+                'itemset_id'  => $row->itemset_id ?? $row->item_id,
+                'item_id'     => $row->item_id ?? optional($itemSet)->item_id,
+                'name'        => optional($item)->item_name,
+                'metal_type'  => $this->normalizeMetalType(optional($item)->metal ?? null),
+                'code'        => $row->qr_code ?? optional($itemSet)->qr_code ?? '',
+                'huid'        => $row->huid ?? optional($itemSet)->HUID,
+                'gross_weight'       => $gross,
+                'other_weight'       => $otherWeight,
+                'net_weight'         => $net,
+                'purity'             => $purity,
+                'item_purity'         => $itemPurity,
+                'outward_purity'      => $itemPurity,
+                'waste_percent'      => $wastePercent,
+                'net_purity'         => $netPurity,
+                'fine_weight'        => $fineWeight,
+                'metal_rate'         => $metalRate,
+                'metal_amount'       => $metalAmount,
+                'labour_rate'        => $labourRate,
+                'labour_amount'      => $labourAmount,
+                'other_amount'       => $otherAmount,
+                'total_amount'       => $totalAmount,
+                'remarks'            => (string) ($row->remarks ?? ''),
+            ];
+        })->values());
+    }
+
+    private function getAdvanceSummary(int $companyId, int $customerId, $asOnDate = null): array
+    {
+        if ($customerId <= 0) {
+            return [
+                'cash' => 0.0,
+                'gold' => 0.0,
+                'silver' => 0.0,
+                'other' => 0.0,
+            ];
+        }
+
+        $base = CustomerAdvanceLedger::query()
+            ->where('company_id', $companyId)
+            ->where('customer_id', $customerId);
+
+        if (!empty($asOnDate)) {
+            $base->whereDate('entry_date', '<=', \Carbon\Carbon::parse($asOnDate)->toDateString());
+        }
+
+        $cash = (clone $base)->selectRaw('COALESCE(SUM(cash_in),0) - COALESCE(SUM(cash_out),0) as bal')->value('bal');
+
+        $metal = (clone $base)
+            ->whereNotNull('metal_type')
+            ->selectRaw('metal_type, COALESCE(SUM(metal_in),0) - COALESCE(SUM(metal_out),0) as bal')
+            ->groupBy('metal_type')
+            ->pluck('bal', 'metal_type');
+
+        return [
+            'cash' => (float) $cash,
+            'gold' => (float) ($metal['gold'] ?? 0),
+            'silver' => (float) ($metal['silver'] ?? 0),
+            'other' => (float) ($metal['other'] ?? 0),
+        ];
+    }
+
+    private function restoreSaleItemsToSource(int $companyId, $saleItems): array
+    {
+        $approvalIds = [];
+        $summary = [
+            'approval_ids' => [],
+            'approval_items' => 0,
+            'stock_items' => 0,
+        ];
+
+        foreach ($saleItems as $saleItem) {
+            if (!empty($saleItem->approval_item_id)) {
+                $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
+                    $q->where('company_id', $companyId);
+                })->find((int) $saleItem->approval_item_id);
+
+                if ($approvalItem) {
+                    $approvalItem->update(['status' => 'pending']);
+                    $approvalIds[] = (int) $approvalItem->approval_id;
+                }
+
+                if (!empty($saleItem->itemset_id)) {
+                    ItemSet::where('company_id', $companyId)
+                        ->where('id', (int) $saleItem->itemset_id)
+                        ->update(['is_sold' => 1]);
+                }
+
+                $summary['approval_items']++;
+                continue;
+            }
+
+            if (!empty($saleItem->itemset_id)) {
+                ItemSet::where('company_id', $companyId)
+                    ->where('id', (int) $saleItem->itemset_id)
+                    ->update(['is_sold' => 0]);
+                $summary['stock_items']++;
+            }
+        }
+
+        $summary['approval_ids'] = array_values(array_unique($approvalIds));
+
+        return $summary;
+    }
+
+    private function refreshApprovalHeaderStatus(array $approvalIds, int $companyId): void
+    {
+        foreach (array_unique($approvalIds) as $approvalId) {
+            if (!$approvalId) {
+                continue;
+            }
+
+            $totalItems = ApprovalItem::where('approval_id', $approvalId)->count();
+            $doneItems = ApprovalItem::where('approval_id', $approvalId)
+                ->whereIn('status', ['sold', 'returned'])
+                ->count();
+
+            if ($totalItems <= 0) {
+                continue;
+            }
+
+            $status = 'open';
+            if ($doneItems === $totalItems) {
+                $status = 'closed';
+            } elseif ($doneItems > 0 && $doneItems < $totalItems) {
+                $status = 'partial';
+            }
+
+            ApprovalHeader::where('company_id', $companyId)
+                ->where('id', $approvalId)
+                ->update(['status' => $status]);
+        }
+    }
+
+    private function excludeSaleCartLocks($query, int $companyId, ?int $userId = null): void
+    {
+        $activeLockCutoff = now()->subMinutes(30);
+
+        $query->whereNotExists(function ($sub) use ($companyId, $userId, $activeLockCutoff) {
+            $sub->select(DB::raw(1))
+                ->from('sale_carts')
+                ->whereColumn('sale_carts.itemset_id', 'item_sets.id')
+                ->where('sale_carts.company_id', $companyId)
+                ->whereNotNull('sale_carts.itemset_id')
+                ->where('sale_carts.created_at', '>=', $activeLockCutoff);
+
+            if ($userId) {
+                $sub->where('sale_carts.user_id', '<>', $userId);
+            }
+        });
+    }
+
+    private function activeSaleCartLock(int $companyId, int $itemsetId): ?SaleCart
+    {
+        if (!Schema::hasTable('sale_carts')) {
+            return null;
+        }
+
+        return SaleCart::with('user')
+            ->where('company_id', $companyId)
+            ->where('itemset_id', $itemsetId)
+            ->where('created_at', '>=', now()->subMinutes(30))
+            ->latest('id')
+            ->first();
+    }
+
+    private function saleCartLockMessage(ItemSet $item): string
+    {
+        $label = trim((string) ($item->qr_code ?: $item->barcode ?: $item->HUID ?: optional($item->item)->item_name ?: 'This item'));
+
+        return $label . ' is already selected by another user.';
+    }
+
+    private function saleCartLockPayload(ItemSet $item, SaleCart $cart): array
+    {
+        return [
+            'cart_id' => (int) $cart->id,
+            'itemset_id' => (int) $item->id,
+            'item_id' => (int) ($item->item_id ?? 0),
+            'item_name' => (string) (optional($item->item)->item_name ?? ''),
+            'qr_code' => (string) ($item->qr_code ?? ''),
+            'barcode' => (string) ($item->barcode ?? ''),
+            'huid' => (string) ($item->HUID ?? ''),
+            'locked_by_user_id' => (int) ($cart->user_id ?? 0),
+            'locked_by' => (string) (optional($cart->user)->name ?? ''),
+            'locked_at' => optional($cart->created_at)->toDateTimeString(),
+        ];
+    }
+
+    private function clearSaleCartLocks(int $companyId, ?int $userId, array $itemsetIds): void
+    {
+        $itemsetIds = array_values(array_unique(array_filter(array_map('intval', $itemsetIds))));
+        if (!$userId || empty($itemsetIds) || !Schema::hasTable('sale_carts')) {
+            return;
+        }
+
+        SaleCart::where('company_id', $companyId)
+            ->where('user_id', (int) $userId)
+            ->whereIn('itemset_id', $itemsetIds)
+            ->delete();
+    }
+
+    private function syncSilverAdvanceUsageForSale(int $companyId, Sale $sale, bool $useSilverBalance = false, ?int $userId = null): void
+    {
+        CustomerAdvanceLedger::query()
+            ->where('company_id', $companyId)
+            ->where('reference_type', 'sale')
+            ->where('reference_id', (int) $sale->id)
+            ->where('entry_type', 'purchase_adjust_metal')
+            ->delete();
+
+        if (!$useSilverBalance) {
+            return;
+        }
+
+        if ((int) ($sale->customer_id ?? 0) <= 0) {
+            return;
+        }
+
+        $asOnDate = Carbon::parse($sale->sale_date ?? now())->toDateString();
+        $items = $sale->saleItems()->with(['itemset.item', 'product'])->get();
+        $metalFineUsage = ['gold' => 0.0, 'silver' => 0.0, 'other' => 0.0];
+
+        foreach ($items as $row) {
+            $fine = (float) ($row->fine_weight ?? 0);
+            if ($fine <= 0) {
+                continue;
+            }
+            $item = optional($row->itemset)->item ?: $row->product;
+            $metalType = $this->normalizeMetalType(optional($item)->metal ?? null);
+            $metalFineUsage[$metalType] = (float) ($metalFineUsage[$metalType] ?? 0) + $fine;
+        }
+
+        foreach ($metalFineUsage as $metalType => $metalOut) {
+            if ((float) $metalOut <= 0) {
+                continue;
+            }
+            CustomerAdvanceLedger::create([
+                'company_id' => $companyId,
+                'customer_id' => (int) $sale->customer_id,
+                'entry_date' => $asOnDate,
+                'entry_type' => 'purchase_adjust_metal',
+                'payment_mode' => null,
+                'cash_in' => 0,
+                'cash_out' => 0,
+                'metal_type' => $metalType,
+                'metal_in' => 0,
+                'metal_out' => round((float) $metalOut, 3),
+                'rate' => 0,
+                'reference_type' => 'sale',
+                'reference_id' => (int) $sale->id,
+                'remarks' => 'Auto ' . $metalType . ' adjusted from sale fine weight',
+                'created_by' => $userId,
+            ]);
+        }
+    }
+
+    private function normalizeMetalType(?string $metal): string
+    {
+        $m = strtolower(trim((string) $metal));
+        if ($m === 'gold' || str_contains($m, 'gold')) {
+            return 'gold';
+        }
+        if ($m === 'silver' || str_contains($m, 'silver')) {
+            return 'silver';
+        }
+        return 'other';
+    }
+
+    private function decodeOtherChargeDetails($value): array
+    {
+        if (is_array($value)) {
+            return array_values($value);
+        }
+
+        $value = trim((string) ($value ?? ''));
+        if ($value === '') {
+            return [];
+        }
+
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? array_values($decoded) : [];
+    }
+
+    private function normalizeOtherChargeDetails($value): ?string
+    {
+        if (is_array($value)) {
+            $value = array_values(array_filter($value, fn($row) => is_array($row) || trim((string) $row) !== ''));
+            return empty($value) ? null : json_encode($value);
+        }
+
+        $value = trim((string) ($value ?? ''));
+        return $value === '' ? null : $value;
+    }
+
+    private function saleRowsFromRequest(Request $request): array
+    {
+        $payload = trim((string) $request->input('items_payload', ''));
+        if ($payload !== '') {
+            $decoded = json_decode($payload, true);
+            if (!is_array($decoded)) {
+                throw new \Exception('Invalid sale items payload.');
+            }
+
+            return array_values(array_filter($decoded, fn($row) => is_array($row)));
+        }
+
+        $items = $request->input('items', []);
+        if (!is_array($items)) {
+            return [];
+        }
+
+        $rows = [];
+        foreach ($items as $index => $itemsetId) {
+            $rows[] = [
+                'itemset_id' => $itemsetId,
+                'item_id' => $request->input("item_ids.$index"),
+                'approval_item_id' => $request->input("approval_item_ids.$index"),
+                'qty' => $request->input("qty.$index", 1),
+                'gross_weight' => $request->input("gross_weight.$index"),
+                'other_weight' => $request->input("other_weight.$index"),
+                'net_weight' => $request->input("net_weight.$index"),
+                'purity' => $request->input("purity.$index"),
+                'waste_percent' => $request->input("waste_percent.$index"),
+                'net_purity' => $request->input("net_purity.$index"),
+                'fine_weight' => $request->input("fine_weight.$index"),
+                'metal_rate' => $request->input("metal_rate.$index"),
+                'apply_metal' => $request->input("apply_metal.$index"),
+                'metal_amount' => $request->input("metal_amount.$index"),
+                'labour_rate' => $request->input("labour_rate.$index"),
+                'apply_labour' => $request->input("apply_labour.$index"),
+                'labour_amount' => $request->input("labour_amount.$index"),
+                'other_amount' => $request->input("other_amount.$index"),
+                'other_charge_details' => $request->input("other_charge_details.$index"),
+                'total_amount' => $request->input("total_amount.$index"),
+                'remarks' => $request->input("remarks.$index"),
+            ];
+        }
+
+        return $rows;
+    }
+
+    private function positiveOr($value, float $fallback): float
+    {
+        $number = (float) ($value ?? 0);
+        return $number > 0 ? $number : $fallback;
+    }
+
+    private function truthy($value, bool $default = true): bool
+    {
+        if ($value === null || $value === '') {
+            return $default;
+        }
+
+        $parsed = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        return $parsed ?? ((float) $value !== 0.0);
+    }
+
+    public function customerAdvance(Request $request, $slug)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $customerId = (int) $request->query('customer_id', 0);
+        if ($customerId <= 0) {
+            return response()->json([
+                'success' => true,
+                'cash' => 0,
+                'silver' => 0,
+                'gold' => 0,
+                'other' => 0,
+            ]);
+        }
+
+        $summary = $this->getAdvanceSummary($company->id, $customerId);
+        return response()->json([
+            'success' => true,
+            'cash' => (float) ($summary['cash'] ?? 0),
+            'silver' => (float) ($summary['silver'] ?? 0),
+            'gold' => (float) ($summary['gold'] ?? 0),
+            'other' => (float) ($summary['other'] ?? 0),
+        ]);
+    }
+
+    private function getSaleAdvanceUsage(int $companyId, int $saleId): array
+    {
+        $usage = CustomerAdvanceLedger::query()
+            ->where('company_id', $companyId)
+            ->where('reference_type', 'sale')
+            ->where('reference_id', $saleId)
+            ->selectRaw('COALESCE(SUM(cash_out),0) as cash_used')
+            ->selectRaw('COALESCE(SUM(CASE WHEN metal_type = "gold" THEN metal_out ELSE 0 END),0) as gold_used')
+            ->selectRaw('COALESCE(SUM(CASE WHEN metal_type = "silver" THEN metal_out ELSE 0 END),0) as silver_used')
+            ->selectRaw('COALESCE(SUM(CASE WHEN metal_type = "other" THEN metal_out ELSE 0 END),0) as other_used')
+            ->first();
+
+        $fineRequired = (float) SaleItem::query()
+            ->where('sale_id', $saleId)
+            ->sum('fine_weight');
+        $silverUsed = (float) ($usage->silver_used ?? 0);
+        $saleCustomerId = (int) Sale::query()->where('id', $saleId)->value('customer_id');
+        $closingSummary = $this->getAdvanceSummary($companyId, $saleCustomerId);
+        $closingSilver = (float) ($closingSummary['silver'] ?? 0);
+        $openingSilver = $closingSilver + $silverUsed;
+        $silverDebit = max(0, $fineRequired - $openingSilver);
+        $silverCredit = max(0, $openingSilver - $fineRequired);
+
+        return [
+            'cash_used' => (float) ($usage->cash_used ?? 0),
+            'gold_used' => (float) ($usage->gold_used ?? 0),
+            'silver_used' => $silverUsed,
+            'other_used' => (float) ($usage->other_used ?? 0),
+            'fine_required' => $fineRequired,
+            'silver_debit' => $silverDebit,
+            'silver_credit' => $silverCredit,
+            'silver_opening' => $openingSilver,
+            'silver_closing' => $closingSilver,
+        ];
+    }
+}
+

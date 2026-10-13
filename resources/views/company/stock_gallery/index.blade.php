@@ -122,6 +122,7 @@
             <div class="modal-body">
                 <input type="hidden" id="gallery_image_item_id">
                 <input type="hidden" id="gallery_image_encrypted_id">
+                <input type="hidden" id="gallery_image_current_url">
 
                 <div class="row">
                     <div class="col-md-7 mb-3">
@@ -151,7 +152,7 @@
                         <div class="mb-3">
                             <label>Upload Image</label>
                             <input type="file" id="gallery_item_image_file" class="form-control text-white border-0" accept="image/jpeg,image/png,image/webp">
-                            <small class="text-muted d-block mt-1">JPG, PNG or WebP up to 20 MB. Stored as compressed WebP.</small>
+                            <small class="text-muted d-block mt-1">JPG, PNG or WebP up to 15 MB. Stored as compressed WebP.</small>
                         </div>
 
                         <div class="gallery-image-edit-tools border rounded p-2 mb-3" id="gallery_image_edit_tools">
@@ -333,6 +334,7 @@
         justify-content: center;
         border-bottom: 1px solid #3a3d5a;
         overflow: hidden;
+        cursor: pointer;
     }
     .gallery-image-wrap img {
         width: 100%;
@@ -583,12 +585,12 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    function filters(extra = {}) {
+    function filters(extra = {}, targetPage = page) {
         const params = new URLSearchParams({
             stock_status: document.getElementById('stockStatusFilter').value,
             image_status: document.getElementById('imageStatusFilter').value,
             search: document.getElementById('searchFilter').value.trim(),
-            page: page,
+            page: targetPage,
             per_page: 24,
             ...extra
         });
@@ -607,6 +609,10 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         return params;
+    }
+
+    function currentLoadedPageCount() {
+        return Math.max(1, page || 1);
     }
 
     function updateSelectedCount() {
@@ -673,6 +679,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         </label>
                     </div>
                     <div class="gallery-card-actions">
+                        {{-- Media / Try-On buttons temporarily hidden; processing and saved settings are preserved. --}}
                         <button type="button" class="btn btn-sm btn-info gallery-image-btn"
                             data-id="${item.id}"
                             data-encrypted-id="${escapeHtml(item.encrypted_id)}">
@@ -700,13 +707,19 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function setImagePreview(url) {
         if (url) {
-            jQuery('#gallery_item_image_preview').attr('src', url).show();
+            jQuery('#gallery_item_image_preview')
+                .off('error.galleryPreview')
+                .on('error.galleryPreview', function () {
+                    setImagePreview('');
+                })
+                .attr('src', url)
+                .show();
             jQuery('#gallery_item_image_empty').hide();
             jQuery('#galleryRemoveImageBtn').prop('disabled', false).show();
             return;
         }
 
-        jQuery('#gallery_item_image_preview').removeAttr('src').hide();
+        jQuery('#gallery_item_image_preview').off('error.galleryPreview').removeAttr('src').hide();
         jQuery('#gallery_item_image_empty').show();
         jQuery('#galleryRemoveImageBtn').prop('disabled', true).hide();
     }
@@ -924,6 +937,39 @@ document.addEventListener('DOMContentLoaded', function () {
             img.src = imageUrl;
         }
 
+        async function loadUrl(url, fileName = 'item-image.jpg') {
+            reset();
+
+            if (!url) {
+                setImagePreview('');
+                return false;
+            }
+
+            try {
+                const response = await fetch(url, {
+                    cache: 'no-store',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Image request failed');
+                }
+
+                const blob = await response.blob();
+                const type = blob.type && blob.type.match(/^image\/(jpeg|png|webp)$/)
+                    ? blob.type
+                    : 'image/jpeg';
+                const file = new File([blob], fileName, { type });
+                load(file);
+
+                return true;
+            } catch (error) {
+                reset();
+                setImagePreview('');
+                return false;
+            }
+        }
+
         $rotateLeft.on('click', function() {
             state.rotation -= 90;
             renderPreview();
@@ -1011,7 +1057,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
         return {
             load,
+            loadUrl,
             reset,
+            hasImage: function() {
+                return Boolean(state.image);
+            },
             getFile: renderToFile
         };
     }
@@ -1072,6 +1122,30 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    function setGalleryCardSelected(card, checked) {
+        const checkbox = card ? card.querySelector('.gallery-check') : null;
+        if (!checkbox || checkbox.disabled) {
+            return;
+        }
+
+        checkbox.checked = checked;
+        if (checked) {
+            selectedIds.add(checkbox.value);
+        } else {
+            selectedIds.delete(checkbox.value);
+        }
+        updateSelectedCount();
+    }
+
+    function toggleGalleryCardSelected(card) {
+        const checkbox = card ? card.querySelector('.gallery-check') : null;
+        if (!checkbox || checkbox.disabled) {
+            return;
+        }
+
+        setGalleryCardSelected(card, !checkbox.checked);
+    }
+
     function loadGalleryItemImage(item) {
         if (!window.jQuery) {
             return;
@@ -1083,17 +1157,19 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('gallery_image_item_id').value = item.id;
         document.getElementById('gallery_image_encrypted_id').value = item.encrypted_id;
 
-        jQuery.get(itemImageUrl(imageShowUrlTemplate, item.encrypted_id), function(data) {
+        jQuery.get(itemImageUrl(imageShowUrlTemplate, item.encrypted_id), async function(data) {
             jQuery('#gallery_image_item_name').val(data.item_name || item.item_name || '-');
             jQuery('#gallery_image_label_code').val(data.label_code || item.label_code || '-');
             jQuery('#gallery_image_uploaded_at').val(data.image_uploaded_at || '-');
-            setImagePreview(data.image_url || '');
+            jQuery('#gallery_image_current_url').val(data.image_url || '');
+            await galleryImageEditor.loadUrl(item.download_url || data.image_url || '', `${data.label_code || item.label_code || 'item-image'}.jpg`);
             jQuery('#galleryImageModal').modal('show');
-        }).fail(function() {
+        }).fail(async function() {
             jQuery('#gallery_image_item_name').val(item.item_name || '-');
             jQuery('#gallery_image_label_code').val(item.label_code || '-');
             jQuery('#gallery_image_uploaded_at').val('-');
-            setImagePreview(item.image_url || '');
+            jQuery('#gallery_image_current_url').val(item.image_url || '');
+            await galleryImageEditor.loadUrl(item.download_url || item.image_url || '', `${item.label_code || 'item-image'}.jpg`);
             jQuery('#gallery_image_upload_error').removeClass('d-none').text('Unable to load item image details.');
             jQuery('#galleryImageModal').modal('show');
         });
@@ -1130,6 +1206,57 @@ document.addEventListener('DOMContentLoaded', function () {
         } catch (error) {
             status.textContent = 'Unable to load stock gallery.';
             updateSummary();
+        } finally {
+            loading = false;
+        }
+    }
+
+    async function refreshLoadedGallery() {
+        if (loading) return;
+
+        const loadedPages = currentLoadedPageCount();
+        const scrollY = window.scrollY;
+        loading = true;
+        grid.innerHTML = '';
+        visibleItems.clear();
+        status.textContent = 'Refreshing stock gallery...';
+        loadMoreBtn.classList.add('d-none');
+
+        try {
+            let total = 0;
+            let summary = {};
+            let refreshedLastPage = 1;
+
+            for (let fetchPage = 1; fetchPage <= loadedPages; fetchPage += 1) {
+                const response = await fetch(dataUrl + '?' + filters({}, fetchPage).toString(), {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                });
+                const result = await response.json();
+
+                if (fetchPage === 1) {
+                    total = result.total || 0;
+                    summary = result.summary || {};
+                    refreshedLastPage = result.last_page || 1;
+                }
+
+                (result.data || []).forEach(function (item) {
+                    visibleItems.set(String(item.id), item);
+                    grid.insertAdjacentHTML('beforeend', cardHtml(item));
+                });
+
+                if (fetchPage >= refreshedLastPage) {
+                    break;
+                }
+            }
+
+            page = Math.min(loadedPages, refreshedLastPage);
+            lastPage = refreshedLastPage;
+            status.textContent = total ? `${total} item(s) found` : 'No stock gallery items found';
+            updateSummary(summary);
+            loadMoreBtn.classList.toggle('d-none', page >= lastPage);
+            window.scrollTo({ top: scrollY });
+        } catch (error) {
+            status.textContent = 'Unable to refresh stock gallery.';
         } finally {
             loading = false;
         }
@@ -1277,11 +1404,44 @@ document.addEventListener('DOMContentLoaded', function () {
         updateSelectedCount();
     });
 
+    let galleryImageClickTimer = null;
+
     grid.addEventListener('click', function (event) {
         const button = event.target.closest('.gallery-image-btn');
-        if (!button) return;
+        if (button) {
+            const item = visibleItems.get(String(button.dataset.id));
+            if (!item) {
+                alert('Unable to load this gallery item.');
+                return;
+            }
 
-        const item = visibleItems.get(String(button.dataset.id));
+            loadGalleryItemImage(item);
+            return;
+        }
+
+        const imageWrap = event.target.closest('.gallery-image-wrap');
+        if (!imageWrap) return;
+
+        const card = imageWrap.closest('.stock-gallery-card');
+        if (!card || galleryImageClickTimer) return;
+
+        galleryImageClickTimer = window.setTimeout(function () {
+            galleryImageClickTimer = null;
+            toggleGalleryCardSelected(card);
+        }, 240);
+    });
+
+    grid.addEventListener('dblclick', function (event) {
+        const imageWrap = event.target.closest('.gallery-image-wrap');
+        if (!imageWrap) return;
+
+        if (galleryImageClickTimer) {
+            window.clearTimeout(galleryImageClickTimer);
+            galleryImageClickTimer = null;
+        }
+
+        const card = imageWrap.closest('.stock-gallery-card');
+        const item = card ? visibleItems.get(String(card.dataset.id)) : null;
         if (!item) {
             alert('Unable to load this gallery item.');
             return;
@@ -1308,15 +1468,58 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
+        if (file.size > 15 * 1024 * 1024) {
+            jQuery(this).val('');
+            jQuery('#gallery_image_upload_error').removeClass('d-none').text('Image size must be 15 MB or less.');
+            return;
+        }
+
         galleryImageEditor.load(file);
     });
+
+    function waitForProcessedGalleryImage(previousUrl, attempts = 60) {
+        const deferred = jQuery.Deferred();
+        const encryptedId = document.getElementById('gallery_image_encrypted_id').value;
+        const showUrl = itemImageUrl(imageShowUrlTemplate, encryptedId);
+
+        const poll = function(remaining) {
+            jQuery.get(showUrl, function(data) {
+                const nextUrl = data.image_url || '';
+                if (nextUrl && nextUrl !== previousUrl) {
+                    deferred.resolve(data);
+                    return;
+                }
+
+                if (remaining <= 0) {
+                    deferred.reject();
+                    return;
+                }
+
+                setTimeout(function() {
+                    poll(remaining - 1);
+                }, 1000);
+            }).fail(function() {
+                if (remaining <= 0) {
+                    deferred.reject();
+                    return;
+                }
+
+                setTimeout(function() {
+                    poll(remaining - 1);
+                }, 1000);
+            });
+        };
+
+        poll(attempts);
+        return deferred.promise();
+    }
 
     jQuery('#galleryUploadImageBtn').on('click', async function() {
         resetImageMessages();
 
         const fileInput = jQuery('#gallery_item_image_file')[0];
-        if (!fileInput.files || !fileInput.files[0]) {
-            jQuery('#gallery_image_upload_error').removeClass('d-none').text('Please choose an image to upload.');
+        if ((!fileInput.files || !fileInput.files[0]) && !galleryImageEditor.hasImage()) {
+            jQuery('#gallery_image_upload_error').removeClass('d-none').text('Please choose an image or rotate the current image first.');
             return;
         }
 
@@ -1328,6 +1531,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const itemId = document.getElementById('gallery_image_item_id').value;
         const urls = currentGalleryImageUrls();
         const $button = jQuery(this);
+        const previousUrl = jQuery('#gallery_image_current_url').val() || '';
         $button.prop('disabled', true).text('Uploading...');
 
         jQuery.ajax({
@@ -1339,11 +1543,39 @@ document.addEventListener('DOMContentLoaded', function () {
             success: function(data) {
                 jQuery('#gallery_item_image_file').val('');
                 galleryImageEditor.reset();
-                jQuery('#gallery_image_uploaded_at').val(data.image_uploaded_at || '-');
-                setImagePreview(data.image_url || '');
-                updateGalleryCardImage(itemId, data.image_url || '');
                 jQuery('#gallery_image_upload_success').removeClass('d-none').text(data.message || 'Image uploaded successfully.');
-                loadGallery(true);
+
+                if (data.queued) {
+                    $button.prop('disabled', true).text('Processing...');
+                    waitForProcessedGalleryImage(previousUrl)
+                        .done(function(fresh) {
+                            const freshImageUrl = fresh.image_url
+                                ? fresh.image_url + (fresh.image_url.includes('?') ? '&' : '?') + 'v=' + Date.now()
+                                : '';
+                            jQuery('#gallery_image_uploaded_at').val(fresh.image_uploaded_at || '-');
+                            jQuery('#gallery_image_current_url').val(fresh.image_url || '');
+                            setImagePreview(freshImageUrl);
+                            updateGalleryCardImage(itemId, freshImageUrl);
+                            refreshLoadedGallery();
+                            jQuery('#galleryImageModal').modal('hide');
+                        })
+                        .fail(function() {
+                            jQuery('#gallery_image_upload_error').removeClass('d-none').text('Image is still processing. Please reopen this image after a few moments.');
+                        })
+                        .always(function() {
+                            $button.prop('disabled', false).text('Upload Image');
+                        });
+                    return;
+                }
+
+                const refreshedImageUrl = data.image_url
+                    ? data.image_url + (data.image_url.includes('?') ? '&' : '?') + 'v=' + Date.now()
+                    : '';
+                jQuery('#gallery_image_uploaded_at').val(data.image_uploaded_at || '-');
+                jQuery('#gallery_image_current_url').val(data.image_url || '');
+                galleryImageEditor.loadUrl(refreshedImageUrl, 'item-image.jpg');
+                updateGalleryCardImage(itemId, refreshedImageUrl);
+                refreshLoadedGallery();
                 jQuery('#galleryImageModal').modal('hide');
             },
             error: function(xhr) {
@@ -1351,7 +1583,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 jQuery('#gallery_image_upload_error').removeClass('d-none').text(message);
             },
             complete: function() {
-                $button.prop('disabled', false).text('Upload Image');
+                if ($button.text() !== 'Processing...') {
+                    $button.prop('disabled', false).text('Upload Image');
+                }
             }
         });
     });
@@ -1378,10 +1612,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 jQuery('#gallery_item_image_file').val('');
                 galleryImageEditor.reset();
                 jQuery('#gallery_image_uploaded_at').val('-');
+                jQuery('#gallery_image_current_url').val('');
                 setImagePreview('');
                 updateGalleryCardImage(itemId, '');
                 jQuery('#gallery_image_upload_success').removeClass('d-none').text('Image removed successfully.');
-                loadGallery(true);
+                refreshLoadedGallery();
             },
             error: function(xhr) {
                 jQuery('#gallery_image_upload_error').removeClass('d-none').text(xhr.responseJSON?.message || 'Unable to remove image.');
@@ -1462,6 +1697,10 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     loadGallery(true);
+    window.addEventListener('stock-gallery-media-saved', () => loadGallery(true));
 });
 </script>
+@if($mediaAvailable ?? false)
+@include('company.stock_gallery.media')
+@endif
 @endsection

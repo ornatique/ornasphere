@@ -205,6 +205,10 @@ class CustomerAdvanceApiController extends Controller
             return response()->json(['success' => false, 'message' => 'Company not found.'], 404);
         }
 
+        if ($request->has('items') || $request->input('entry_type') === 'item_receive') {
+            return $this->storeItemReceipt($request, $company);
+        }
+
         $validator = Validator::make($request->all(), [
             'entry_date' => 'required|date',
             'customer_id' => 'required|integer',
@@ -368,7 +372,7 @@ class CustomerAdvanceApiController extends Controller
                 'company_id' => $company->id,
                 'customer_id' => $customer->id,
                 'ledger_id' => $entry->id,
-                'voucher_no' => 'RP-TMP-' . uniqid(),
+                'voucher_no' => \App\Services\VoucherSeries::next($company->id, 'RP'),
                 'voucher_date' => $request->entry_date,
                 'entry_type' => $entryType,
                 'payment_mode' => $request->payment_mode,
@@ -383,9 +387,6 @@ class CustomerAdvanceApiController extends Controller
                 'created_by' => optional($request->user())->id,
             ]);
 
-            $voucher->update([
-                'voucher_no' => 'RP' . now()->format('y') . '-' . $voucher->id,
-            ]);
 
             return [$entry, $voucher->fresh('customer')];
         });
@@ -409,6 +410,76 @@ class CustomerAdvanceApiController extends Controller
             'voucher' => $this->voucherPayload($voucher),
             'balance' => $this->getCustomerBalance($company->id, (int) $entry->customer_id),
         ]);
+    }
+
+    private function storeItemReceipt(Request $request, Company $company)
+    {
+        $rules = [
+            'entry_date'=>'required|date', 'customer_id'=>'required|integer',
+            'entry_type'=>'nullable|in:item_receive,receive_amount',
+            'amount'=>'nullable|numeric|max:0|min:0', 'remarks'=>'nullable|string|max:255',
+            'items'=>'required|array|min:1|max:500',
+            'items.*.product_id'=>['required','integer', \Illuminate\Validation\Rule::exists('items','id')->where('company_id',$company->id)],
+            'items.*.gross_weight'=>'required|numeric|gt:0',
+            'items.*.purity'=>'required|numeric|min:0|max:100',
+            'items.*.remarks'=>'nullable|string|max:255',
+            'items.*.apply_metal'=>'sometimes|boolean', 'items.*.apply_labour'=>'sometimes|boolean',
+        ];
+        foreach (['other_weight','net_weight','waste_percent','net_purity','fine_weight','metal_rate','labour_rate','other_amount','metal_amount','labour_amount','total_amount'] as $field) {
+            $rules['items.*.'.$field] = 'nullable|numeric|min:0';
+        }
+        $validator = Validator::make($request->all(), $rules);
+        if ($validator->fails()) return response()->json(['success'=>false,'message'=>'Validation failed.','errors'=>$validator->errors()],422);
+        $customer = $this->partyCustomersQuery((int)$company->id)->find((int)$request->customer_id);
+        if (!$customer) return response()->json(['success'=>false,'message'=>'Party not found.'],404);
+        $products = \App\Models\Item::where('company_id',$company->id)->whereIn('id',collect($request->items)->pluck('product_id'))->get()->keyBy('id');
+        $items = [];
+        foreach ($request->items as $index=>$input) {
+            $product = $products->get($input['product_id']);
+            $gross = round((float)$input['gross_weight'],3);
+            $other = round((float)($input['other_weight'] ?? 0),3);
+            if ($other > $gross) return response()->json(['success'=>false,'message'=>'Other weight cannot exceed gross weight.','errors'=>["items.$index.other_weight"=>['Other weight cannot exceed gross weight.']]],422);
+            $net = round($gross-$other,3);
+            $purity = round((float)$input['purity'],3);
+            $waste = round((float)($input['waste_percent'] ?? 0),3);
+            $netPurity = round($purity+$waste,3);
+            $fine = round($net*$netPurity/100,3);
+            $metal = strtolower(trim((string)$product->metal));
+            $metal = str_contains($metal,'gold') ? 'gold' : (str_contains($metal,'silver') ? 'silver' : 'other');
+            $metalRate = round((float)($input['metal_rate'] ?? 0),2);
+            $labourRate = round((float)($input['labour_rate'] ?? 0),2);
+            $applyMetal = (bool)($input['apply_metal'] ?? true);
+            $applyLabour = (bool)($input['apply_labour'] ?? true);
+            $metalAmount = $applyMetal ? round($fine*$metalRate,2) : 0;
+            $labourAmount = $applyLabour ? round($net*$labourRate,2) : 0;
+            $otherAmount = round((float)($input['other_amount'] ?? 0),2);
+            $items[] = ['product_id'=>$product->id,'itemset_id'=>null,'item_name'=>$product->item_name,'metal_type'=>$metal,
+                'gross_weight'=>$gross,'other_weight'=>$other,'net_weight'=>$net,'purity'=>$purity,'waste_percent'=>$waste,
+                'net_purity'=>$netPurity,'fine_weight'=>$fine,'metal_rate'=>$metalRate,'labour_rate'=>$labourRate,
+                'apply_metal'=>$applyMetal,'apply_labour'=>$applyLabour,'metal_amount'=>$metalAmount,'labour_amount'=>$labourAmount,
+                'other_amount'=>$otherAmount,'total_amount'=>round($metalAmount+$labourAmount+$otherAmount,2),'remarks'=>$input['remarks'] ?? null];
+        }
+        $voucher = DB::transaction(function () use ($request,$company,$customer,$items) {
+            $voucher = CustomerAdvanceVoucher::create(['company_id'=>$company->id,'customer_id'=>$customer->id,
+                'voucher_no'=>\App\Services\VoucherSeries::next($company->id,'RP'),'voucher_date'=>$request->entry_date,
+                'entry_type'=>'item_receive','amount'=>collect($items)->sum('total_amount'),'cash_in'=>0,'cash_out'=>0,
+                'metal_in'=>0,'metal_out'=>0,'rate'=>0,'remarks'=>$request->remarks,'created_by'=>$request->user()->id]);
+            $voucher->items()->createMany($items);
+            foreach (collect($items)->groupBy('metal_type') as $metal=>$rows) {
+                $fine = round($rows->sum('fine_weight'),3);
+                if ($fine <= 0) continue;
+                $entry = CustomerAdvanceLedger::create(['company_id'=>$company->id,'customer_id'=>$customer->id,
+                    'entry_date'=>$request->entry_date,'entry_type'=>'item_receive','cash_in'=>0,'cash_out'=>0,
+                    'metal_type'=>$metal,'metal_in'=>$fine,'metal_out'=>0,'rate'=>0,
+                    'reference_type'=>'customer_advance_voucher','reference_id'=>$voucher->id,
+                    'remarks'=>'Item receive fine metal from '.$voucher->voucher_no,'created_by'=>$request->user()->id]);
+                if (!$voucher->ledger_id) $voucher->update(['ledger_id'=>$entry->id]);
+            }
+            return $voucher->load(['customer','items']);
+        });
+        return response()->json(['success'=>true,'message'=>'Item details saved successfully.',
+            'data'=>['id'=>$voucher->ledger_id,'customer_id'=>$customer->id,'entry_type'=>'item_receive','entry_date'=>$request->entry_date,'cash_in'=>0,'cash_out'=>0],
+            'voucher'=>$this->voucherPayload($voucher,true),'balance'=>$this->getCustomerBalance($company->id,$customer->id)]);
     }
 
     public function pdfUrl(Request $request)

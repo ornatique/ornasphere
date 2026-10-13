@@ -1,6 +1,9 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Company\QrMakingController;
+
+Route::get('/q/{token}', [QrMakingController::class, 'open'])->whereUuid('token')->name('qr.open');
 use Illuminate\Support\Facades\Auth;
 use App\Http\Controllers\SuperAdmin\AuthController as SuperAdminAuthController;
 use App\Http\Controllers\SuperAdmin\CompanyController;
@@ -63,15 +66,7 @@ use App\Http\Controllers\Api\VisitingCardApiController as VisitingCardApiWebCont
 */
 
 Route::get('/', function () {
-    if (Auth::guard('superadmin')->check()) {
-        return redirect()->route('superadmin.dashboard');
-    }
-
-    if (Auth::check() && !empty(optional(Auth::user()->company)->slug)) {
-        return redirect()->route('company.dashboard', ['slug' => Auth::user()->company->slug]);
-    }
-
-    return view('welcome');
+    return view('public-home');
 });
 
 Route::get('/app', function () {
@@ -174,6 +169,29 @@ Route::get('/dashboard', function () {
     return redirect()->route('superadmin.login');
 });
 
+Route::get('/uploads/company_logos/{filename}', function (string $filename) {
+    $logoPaths = array_values(array_unique(array_filter([
+        public_path('uploads/company_logos/' . $filename),
+        base_path('uploads/company_logos/' . $filename),
+    ])));
+
+    foreach ($logoPaths as $logoPath) {
+        if (file_exists($logoPath)) {
+            return response()->file($logoPath, [
+                'Cache-Control' => 'public, max-age=86400',
+            ]);
+        }
+    }
+
+    $defaultLogo = public_path('celestial/assets/images/ornasphere-auth-logo.png');
+
+    abort_unless(file_exists($defaultLogo), 404);
+
+    return response()->file($defaultLogo, [
+        'Cache-Control' => 'public, max-age=86400',
+    ]);
+})->where('filename', '[^/]+');
+
 Route::get('/company', function () {
     if (Auth::check() && !empty(optional(Auth::user()->company)->slug)) {
         return redirect()->route('company.dashboard', ['slug' => Auth::user()->company->slug]);
@@ -187,6 +205,15 @@ Route::get('/company', function () {
 });
 
 Route::get('/company/{slug}', function (string $slug) {
+    $company = \App\Models\Company::where('slug', $slug)
+        ->where('status', true)
+        ->first();
+
+    if (!$company) {
+        return redirect('/')
+            ->with('company_unavailable', 'This company workspace is not available or has been removed.');
+    }
+
     if (Auth::check()) {
         return redirect()->route('company.dashboard', ['slug' => $slug]);
     }
@@ -325,6 +352,8 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
 
         Route::get('/profile', [CompanyProfileController::class, 'show'])
             ->name('profile.show');
+        Route::put('/profile/voucher-series', [\App\Http\Controllers\Company\VoucherSeriesController::class, 'update'])
+            ->name('profile.voucher-series.update');
 
         Route::get('/app-themes', [AppThemeController::class, 'index'])
             ->name('app-themes.index');
@@ -902,8 +931,27 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
             [ItemSetController::class, 'printDirect']
         )->name('item_sets.printDirect.post');
 
+        Route::get('qr-making', [QrMakingController::class, 'index'])->name('qr-making.index');
+        Route::get('qr-making/create', [QrMakingController::class, 'create'])->name('qr-making.create');
+        Route::post('qr-making', [QrMakingController::class, 'store'])->name('qr-making.store');
+        Route::post('qr-making/preview-create', [QrMakingController::class, 'preview'])->name('qr-making.preview.create');
+        Route::post('qr-making/preview-edit', [QrMakingController::class, 'preview'])->name('qr-making.preview.edit');
+        Route::get('qr-making/{id}/edit', [QrMakingController::class, 'edit'])->whereNumber('id')->name('qr-making.edit');
+        Route::put('qr-making/{id}', [QrMakingController::class, 'update'])->whereNumber('id')->name('qr-making.update');
+        Route::delete('qr-making/{id}', [QrMakingController::class, 'destroy'])->whereNumber('id')->name('qr-making.destroy');
+        Route::get('qr-making/{id}/svg', [QrMakingController::class, 'svg'])->whereNumber('id')->name('qr-making.svg');
+        Route::get('qr-making/{id}/image', [QrMakingController::class, 'image'])->whereNumber('id')->name('qr-making.image');
+        Route::get('qr-making/{id}/pdf', [QrMakingController::class, 'pdf'])->whereNumber('id')->name('qr-making.pdf');
+        // Temporarily disabled: Customer Orders, CAD Design and RPT Production.
+        // require __DIR__.'/order_production.php';
+
         Route::get('/stock-gallery', [StockGalleryController::class, 'index'])
             ->name('stock-gallery.index');
+        Route::get('/stock-gallery/{encryptedId}/media', [\App\Http\Controllers\Company\StockGalleryMediaController::class, 'show'])->middleware(\App\Http\Middleware\StockGalleryDiagnostics::class)->name('stock-gallery.media.show');
+        Route::get('/stock-gallery/{encryptedId}/media/{kind}', [\App\Http\Controllers\Company\StockGalleryMediaController::class, 'asset'])->whereIn('kind', ['original', 'cutout'])->middleware(\App\Http\Middleware\StockGalleryDiagnostics::class)->name('stock-gallery.media.asset');
+        Route::post('/stock-gallery/{encryptedId}/media/upload', [\App\Http\Controllers\Company\StockGalleryMediaController::class, 'upload'])->middleware('throttle:10,1')->middleware(\App\Http\Middleware\StockGalleryDiagnostics::class)->name('stock-gallery.media.upload.update');
+        Route::post('/stock-gallery/{encryptedId}/media/process', [\App\Http\Controllers\Company\StockGalleryMediaController::class, 'process'])->middleware('throttle:5,1')->middleware(\App\Http\Middleware\StockGalleryDiagnostics::class)->name('stock-gallery.media.process.update');
+        Route::put('/stock-gallery/{encryptedId}/media', [\App\Http\Controllers\Company\StockGalleryMediaController::class, 'update'])->middleware(\App\Http\Middleware\StockGalleryDiagnostics::class)->name('stock-gallery.media.update');
         Route::get('/stock-gallery/data', [StockGalleryController::class, 'data'])
             ->name('stock-gallery.data');
         Route::get('/stock-gallery/pdf', [StockGalleryController::class, 'exportPdf'])
@@ -949,6 +997,9 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
             ->name('sales.advance.index');
         Route::get('/sales/advance-ledger/create', [CustomerAdvanceController::class, 'create'])
             ->name('sales.advance.create');
+        Route::get('/sales/advance-ledger/sold-items', [CustomerAdvanceController::class, 'soldItems'])->name('sales.advance.soldItems');
+        Route::post('/sales/advance-ledger/sales-return', [CustomerAdvanceController::class, 'storeSalesReturn'])->name('sales.advance.return.store');
+        Route::get('/sales/advance-ledger/returns/{encryptedId}/pdf', [CustomerAdvanceController::class, 'salesReturnPdf'])->name('sales.advance.returnPdf');
         Route::get('/sales/advance-ledger/data', [CustomerAdvanceController::class, 'data'])
             ->name('sales.advance.data');
         Route::get('/sales/advance-ledger/pdf', [CustomerAdvanceController::class, 'exportPdf'])
@@ -1010,6 +1061,7 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
             '/returns/{encryptedReturnId}/view',
             [SaleReturnController::class, 'show']
         )->name('returns.show');
+        Route::put('/returns/{encryptedReturnId}', [SaleReturnController::class, 'update'])->name('returns.update');
 
         Route::delete(
             '/returns/{encryptedReturnId}/items/{encryptedItemId}',
@@ -1173,6 +1225,9 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
                 ->name('stock-position.export.excel');
             Route::get('/stock-position/export/pdf', [ReportController::class, 'stockPositionPdf'])
                 ->name('stock-position.export.pdf');
+            Route::get('/approval-return-register/{type}/{id}/details', [ReportController::class, 'approvalRegisterDetails'])->whereIn('type', ['approval', 'return', 'sale'])->whereNumber('id')->name('approval-return-register.details');
+            Route::get('/approval-return-register', [ReportController::class, 'approvalReturnRegister'])->name('approval-return-register.index');
+            Route::get('/approval-summary', [ReportController::class, 'approvalSummary'])->name('approval-summary.index');
             Route::get('/approval-outstanding', [ReportController::class, 'approvalOutstanding'])
                 ->name('approval-outstanding.index');
             Route::get('/approval-outstanding/{approval}/details', [ReportController::class, 'approvalOutstandingDetails'])

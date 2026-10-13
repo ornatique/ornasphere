@@ -62,7 +62,7 @@
         .voucher-grid th,
         .voucher-grid td {
             border: 1px solid #000;
-            padding: 3px 4px;
+            padding: 3px;
             vertical-align: top;
             word-wrap: break-word;
         }
@@ -110,8 +110,14 @@
     $customerGst = trim((string) (optional($approval->customer)->gst_no ?? ''));
     $customerPan = trim((string) (optional($approval->customer)->pan_no ?? ''));
 
+    $pdfStatus = $pdfStatus ?? 'partial';
     $billableItems = $approval->items
-        ->where('status', '!=', 'returned')
+        ->filter(function ($row) use ($pdfStatus) {
+            $status = $row->status ?: 'pending';
+            return $pdfStatus === 'all' || ($pdfStatus === 'partial'
+                ? in_array($status, ['pending', 'sold'], true)
+                : $status === $pdfStatus);
+        })
         ->sortBy(function ($row) {
             $itemSet = $row->itemSet ?? $row->legacyItemSet;
             $label = strtoupper(trim((string) ($row->qr_code ?? optional($itemSet)->qr_code ?? '')));
@@ -154,6 +160,9 @@
             <td style="width:56%;">
                 <div><strong>Name</strong> : {{ $name }}</div>
                 <div style="margin-top:4px;"><strong>City</strong> : {{ $city }}</div>
+                @if(trim((string) ($approval->remarks ?? '')) !== '')
+                    <div style="margin-top:4px;word-wrap:break-word;"><strong>Voucher Remarks</strong> : {!! nl2br(e($approval->remarks)) !!}</div>
+                @endif
                 @if($customerGst !== '')
                     <div style="margin-top:4px;"><strong>GST No</strong> : {{ $customerGst }}</div>
                 @endif
@@ -173,17 +182,18 @@
     <table class="voucher-grid">
         <thead>
             <tr>
-                <th class="sr-col" style="width:6%;">Sr</th>
-                <th style="width:30%; text-align:left;">Item</th>
-                <th style="width:6%;">Carat</th>
-                <th style="width:5%;">Qty</th>
-                <th style="width:9%;">Gross Wt</th>
-                <th style="width:9%;">Less Wt</th>
-                <th style="width:9%;">Net Wt</th>
-                <th style="width:8%;">Rate</th>
-                <th style="width:10%;">Labour Rate</th>
-                <th style="width:10%;">Other</th>
-                <th style="width:10%;">Total Amt</th>
+                <th class="sr-col" style="width:5%;">Sr</th>
+                <th style="width:25%; text-align:left;">Item</th>
+                <th style="width:6%;">Purity</th>
+                <th style="width:6%;">Waste %</th>
+                <th style="width:4%;">Qty</th>
+                <th style="width:8%;">Gross Wt</th>
+                <th style="width:8%;">Less Wt</th>
+                <th style="width:8%;">Net Wt</th>
+                <th style="width:7%;">Rate</th>
+                <th style="width:9%;">Labour Rate</th>
+                <th style="width:7%;">Other</th>
+                <th style="width:7%;">Total Amt</th>
             </tr>
         </thead>
         <tbody>
@@ -194,7 +204,8 @@
                     $labelCode = $row->qr_code ?? optional($itemSet)->qr_code ?? '';
                     $itemName = optional($item)->item_name ?? '-';
                     $itemDisplay = trim(($labelCode ? ($labelCode . ' - ') : '') . $itemName);
-                    $carat = (float) (optional($item)->outward_carat ?? 0);
+                    $purity = (float) ($row->purity ?? optional($item)->outward_purity ?? optional($item)->outward_carat ?? 0);
+                    $wastePercent = (float) ($row->waste_percent ?? 0);
                     $qty = 1;
                     $gross = (float) ($row->gross_weight ?? 0);
                     $less = (float) ($row->other_weight ?? 0);
@@ -214,7 +225,8 @@
                 <tr>
                     <td class="sr-col">{{ $index + 1 }}</td>
                     <td>{{ $itemDisplay }}</td>
-                    <td class="text-right">{{ number_format($carat, 0) }}</td>
+                    <td class="text-right">{{ number_format($purity, 3) }}</td>
+                    <td class="text-right">{{ number_format($wastePercent, 3) }}</td>
                     <td class="text-center">{{ $qty }}</td>
                     <td class="text-right">{{ number_format($gross, 3) }}</td>
                     <td class="text-right">{{ number_format($less, 3) }}</td>
@@ -227,13 +239,13 @@
             @endforeach
             @if($billableItems->isEmpty())
                 <tr>
-                    <td colspan="11" class="text-center">No billable items</td>
+                    <td colspan="12" class="text-center">No billable items</td>
                 </tr>
             @endif
         </tbody>
         <tfoot>
             <tr>
-                <th colspan="3" class="text-right">Total</th>
+                <th colspan="4" class="text-right">Total</th>
                 <th class="text-center">{{ $sumQty }}</th>
                 <th class="text-right">{{ number_format($sumGross, 3) }}</th>
                 <th class="text-right">{{ number_format($sumLess, 3) }}</th>

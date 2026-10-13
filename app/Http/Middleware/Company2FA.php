@@ -15,8 +15,12 @@ class Company2FA
             return $next($request);
         }
 
-        if ($user->two_factor_enabled && !session('company_2fa_verified')) {
-            return redirect()->route('company.2fa.setup', $request->slug);
+        if (!$user->two_factor_enabled) {
+            return redirect()->route('company.2fa.setup', $user->company->slug);
+        }
+
+        if ($request->session()->get('company_2fa_verified') !== true) {
+            return redirect()->route('company.2fa.challenge', $user->company->slug);
         }
 
         return $next($request);

@@ -8,6 +8,7 @@
             <a href="{{ route('company.sales.advance.index', $company->slug) }}" class="btn btn-primary">Back</a>
         </div>
         <div class="card-body">
+            @if(\Illuminate\Support\Facades\Route::has('company.orders.show') && isset($linkedOrder))<div class="alert alert-info">Linked order: <a href="{{ route('company.orders.show', [$company->slug, $linkedOrder->id]) }}">{{ $linkedOrder->number }}</a>. The voucher customer must match this order.</div>@endif
             <form class="row g-3 mb-3 align-items-end" id="customerLoadForm">
                 <div class="col-md-5">
                     <label>Party (Active Customer)</label>
@@ -55,8 +56,15 @@
                 </div>
             </div>
 
+            <div class="d-flex flex-wrap gap-2 mb-4" role="tablist" aria-label="Transaction type">
+                <button type="button" class="btn btn-outline-primary" id="return-items-tab" role="tab" aria-controls="sold-return-panel" aria-selected="false" tabindex="-1">Return Sold Items</button>
+                <button type="button" class="btn btn-primary" id="receive-purchase-tab" role="tab" aria-controls="receive-purchase-panel" aria-selected="true">Receive / Purchase</button>
+            </div>
+            @include('company.sales.partials.sold_returns')
+            <section id="receive-purchase-panel" role="tabpanel" aria-labelledby="receive-purchase-tab">
             <form method="POST" action="{{ route('company.sales.advance.store', $company->slug) }}" class="row g-3 mb-4" id="advanceForm">
                 @csrf
+                @include('company.sales.partials.advance_order_select')
                 <input type="hidden" name="advance_items_payload" id="advance_items_payload" value="[]">
                 <div class="col-md-2">
                     <label>Date</label>
@@ -76,6 +84,7 @@
                     <select name="entry_type" id="entry_type" class="form-select">
                         <option value="receive_amount">Receive Amount</option>
                         <option value="receive_metal">Receive Fine Metal</option>
+                        <option value="sales_return">Sales Return — Sold Items</option>
                     </select>
                 </div>
                 <div class="col-md-2">
@@ -212,6 +221,7 @@
 
             <form method="POST" action="{{ route('company.sales.advance.items.store', $company->slug) }}" id="advanceItemsForm" class="d-none">
                 @csrf
+                @include('company.sales.partials.advance_order_select')
                 <input type="hidden" name="entry_date" id="advance_items_entry_date">
                 <input type="hidden" name="customer_id" id="advance_items_customer_id">
                 <input type="hidden" name="remarks" id="advance_items_remarks">
@@ -223,6 +233,7 @@
                     Save Items
                 </button>
             </div>
+            </section>
         </div>
     </div>
 </div>
@@ -236,6 +247,7 @@
             </div>
             <form method="POST" action="{{ route('company.sales.advance.store', $company->slug) }}" id="convertForm">
                 @csrf
+                @include('company.sales.partials.advance_order_select')
                 <input type="hidden" name="entry_type" id="convert_entry_type" value="convert_to_metal">
                 <input type="hidden" name="customer_id" id="convert_customer_id">
                 <div class="modal-body">
@@ -290,6 +302,16 @@
 
 @push('styles')
 <style>
+    .advance-item-dropdown,
+    .advance-item-dropdown .select2-results__option,
+    .advance-item-dropdown .select2-results__option *,
+    .advance-item-dropdown .select2-search__field {
+        color: #fff !important;
+    }
+    .advance-item-dropdown,
+    .advance-item-dropdown .select2-search__field {
+        background-color: #2d2b49 !important;
+    }
     #customerLoadForm .btn {
         min-height: 44px;
     }
@@ -449,6 +471,25 @@
         max-height: 400px !important;
     }
 
+    .advance-party-dropdown .select2-results > .select2-results__options {
+        max-height: 220px !important;
+        overflow-y: auto !important;
+        overscroll-behavior: contain;
+    }
+    .advance-party-dropdown .select2-results__option {
+        background: #302f54 !important;
+        color: #f3f3f7 !important;
+        padding: 9px 12px;
+    }
+    .advance-party-dropdown .select2-results__option[aria-selected="true"] {
+        background: #41416a !important;
+        color: #ffffff !important;
+    }
+    .advance-party-dropdown .select2-results__option--highlighted {
+        background: #0d6efd !important;
+        color: #ffffff !important;
+    }
+
     #convertModal .modal-dialog {
         max-width: 1100px;
     }
@@ -544,6 +585,10 @@ $(function () {
 
     function initPartySelects() {
         if (!$.fn.select2) return;
+        $('.searchable-party-select').on('select2:open', function () {
+            const instance = $(this).data('select2');
+            if (instance && instance.$dropdown) instance.$dropdown.addClass('advance-party-dropdown');
+        });
         $('.searchable-party-select').each(function () {
             const $select = $(this);
             if ($select.hasClass('select2-hidden-accessible')) {
@@ -659,6 +704,11 @@ $(function () {
 
     function initAdvanceGridLabelSelect($select) {
         if (!$select.length || !$.fn.select2) return;
+
+        $select.on('select2:open', function () {
+            const instance = $(this).data('select2');
+            if (instance && instance.$dropdown) instance.$dropdown.addClass('advance-item-dropdown');
+        });
 
         $select.select2({
             theme: 'bootstrap4',

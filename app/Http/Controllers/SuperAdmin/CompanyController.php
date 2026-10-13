@@ -36,9 +36,12 @@ class CompanyController extends Controller
                 ->withCount('users')
                 ->withCount(['planRenewals as plan_renewals_count'])
                 ->with(['users' => function ($query) {
-                    $query->select('id', 'company_id', 'password_set_url')
-                        ->whereHas('roles', function ($q) {
-                            $q->where('name', 'company_admin');
+                    $query->select('id', 'company_id', 'password_set_url', 'is_active', 'role')
+                        ->where(function ($q) {
+                            $q->where('role', 'admin')
+                                ->orWhereHas('roles', function ($roleQuery) {
+                                    $roleQuery->where('name', 'company_admin');
+                                });
                         });
                 }])
                 ->orderByDesc('id');
@@ -69,8 +72,11 @@ class CompanyController extends Controller
                     return '<span class="text-danger">Not Available</span>';
                 })
                 ->addColumn('logo', function ($row) {
-                    $defaultLogo = asset('celestial/assets/images/logo.svg') . '?v=' . @filemtime(public_path('celestial/assets/images/logo.svg'));
+                    $defaultLogo = asset('celestial/assets/images/ornasphere-auth-logo.png') . '?v=' . @filemtime(public_path('celestial/assets/images/ornasphere-auth-logo.png'));
                     $src = $row->company_logo_url ?: $defaultLogo;
+                    if ($row->company_logo && !str_contains($src, '?')) {
+                        $src .= '?v=' . optional($row->updated_at)->timestamp;
+                    }
                     return '<img src="' . e($src) . '" alt="logo" style="height:40px;width:40px;object-fit:cover;border-radius:6px;" onerror="this.onerror=null;this.src=\'' . e($defaultLogo) . '\';">';
                 })
                 ->addColumn('plan_status', function ($row) {
@@ -94,7 +100,7 @@ class CompanyController extends Controller
                 })
 
                 ->addColumn('status', function ($row) {
-                    $checked = $row->status ? 'checked' : '';
+                    $checked = $this->companyEffectiveStatus($row) ? 'checked' : '';
 
                     return '
                         <div class="form-check form-switch" style="margin-left:40px;">
@@ -107,6 +113,7 @@ class CompanyController extends Controller
                 })
                 ->addColumn('action', function ($row) {
                     $planStatus = CompanyPlanService::status($row);
+                    $effectiveStatus = $this->companyEffectiveStatus($row);
 
                     return '
                         <a href="' . route('superadmin.companies.edit', $row->id) . '"
@@ -138,6 +145,7 @@ class CompanyController extends Controller
                         <button type="button"
                                 data-id="' . $row->id . '"
                                 data-name="' . e($row->name) . '"
+                                data-active="' . (int) $effectiveStatus . '"
                                 data-url="' . route('superadmin.companies.destroy', $row->id) . '"
                                 class="btn btn-sm btn-danger deleteBtn">
                             Delete
@@ -152,6 +160,28 @@ class CompanyController extends Controller
         }
 
         return view('superadmin.auth.company.index');
+    }
+
+    private function companyEffectiveStatus(Company $company): bool
+    {
+        $adminUser = $company->users->first();
+
+        if (!$adminUser) {
+            return (bool) $company->status;
+        }
+
+        return (bool) $company->status && (bool) $adminUser->is_active;
+    }
+
+    private function companyAdminUsersQuery(Company $company)
+    {
+        return User::where('company_id', $company->id)
+            ->where(function ($query) {
+                $query->where('role', 'admin')
+                    ->orWhereHas('roles', function ($roleQuery) {
+                        $roleQuery->where('name', 'company_admin');
+                    });
+            });
     }
 
     public function planHistory(Company $company)
@@ -202,14 +232,9 @@ class CompanyController extends Controller
 
             $logoPath = null;
             if ($request->hasFile('company_logo')) {
-                $uploadDir = public_path('uploads/company_logos');
-                if (!File::exists($uploadDir)) {
-                    File::makeDirectory($uploadDir, 0755, true);
-                }
                 $file = $request->file('company_logo');
                 $fileName = time() . '_' . Str::random(8) . '.' . $file->getClientOriginalExtension();
-                $file->move($uploadDir, $fileName);
-                $logoPath = 'uploads/company_logos/' . $fileName;
+                $logoPath = $this->storeCompanyLogo($file, $fileName);
             }
 
             $company = Company::create([
@@ -319,7 +344,17 @@ class CompanyController extends Controller
     */
     public function edit(Company $company)
     {
-        return view('superadmin.auth.company.edit', compact('company'));
+        $adminUser = $company->users()
+            ->whereHas('roles', function ($q) {
+                $q->where('name', 'company_admin');
+            })
+            ->first();
+
+        if (!$adminUser) {
+            $adminUser = $company->users()->orderBy('id')->first();
+        }
+
+        return view('superadmin.auth.company.edit', compact('company', 'adminUser'));
     }
 
 
@@ -333,26 +368,25 @@ class CompanyController extends Controller
     {
         $request->validate([
             'name'       => 'required|string|max:255|unique:companies,name,' . $company->id,
+            'admin_name' => 'nullable|string|max:255',
             'email'      => 'required|email|max:255',
             'max_users'  => 'required|integer|min:1',
             'plan'       => 'required|string|in:yearly',
+            'status'     => 'nullable|boolean',
             'company_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
             'admin_password' => 'nullable|string|min:6|confirmed',
         ]);
 
         $logoPath = $company->company_logo;
         if ($request->hasFile('company_logo')) {
-            $uploadDir = public_path('uploads/company_logos');
-            if (!File::exists($uploadDir)) {
-                File::makeDirectory($uploadDir, 0755, true);
-            }
             $file = $request->file('company_logo');
             $fileName = time() . '_' . Str::random(8) . '.' . $file->getClientOriginalExtension();
-            $file->move($uploadDir, $fileName);
-            $logoPath = 'uploads/company_logos/' . $fileName;
+            $logoPath = $this->storeCompanyLogo($file, $fileName);
 
-            if (!empty($company->company_logo) && File::exists(public_path($company->company_logo))) {
-                File::delete(public_path($company->company_logo));
+            foreach ($this->companyLogoAbsolutePaths($company->company_logo) as $oldLogoPath) {
+                if (File::exists($oldLogoPath)) {
+                    File::delete($oldLogoPath);
+                }
             }
         }
 
@@ -362,6 +396,7 @@ class CompanyController extends Controller
             'company_logo' => $logoPath,
             'max_users'  => $request->max_users,
             'plan'       => $request->plan,
+            'status'     => $request->boolean('status'),
 
             'address_1'  => $request->address_1,
             'address_2'  => $request->address_2,
@@ -371,17 +406,23 @@ class CompanyController extends Controller
             'country'    => $request->country,
         ]);
 
+        $adminUser = User::where('company_id', $company->id)
+            ->whereHas('roles', function ($q) {
+                $q->where('name', 'company_admin');
+            })
+            ->first();
+
+        if (!$adminUser) {
+            $adminUser = User::where('company_id', $company->id)->orderBy('id')->first();
+        }
+
+        if ($adminUser && $request->filled('admin_name')) {
+            $adminUser->update([
+                'name' => (string) $request->admin_name,
+            ]);
+        }
+
         if ($request->filled('admin_password')) {
-            $adminUser = User::where('company_id', $company->id)
-                ->whereHas('roles', function ($q) {
-                    $q->where('name', 'company_admin');
-                })
-                ->first();
-
-            if (!$adminUser) {
-                $adminUser = User::where('company_id', $company->id)->orderBy('id')->first();
-            }
-
             if ($adminUser) {
                 $adminUser->update([
                     'password' => Hash::make((string) $request->admin_password),
@@ -422,6 +463,36 @@ class CompanyController extends Controller
     */
     public function destroy(Company $company, CompanyPurgeService $companyPurgeService)
     {
+        $company->load(['users' => function ($query) {
+            $query->select('id', 'company_id', 'password_set_url', 'is_active', 'role')
+                ->where(function ($q) {
+                    $q->where('role', 'admin')
+                        ->orWhereHas('roles', function ($roleQuery) {
+                            $roleQuery->where('name', 'company_admin');
+                        });
+                });
+        }]);
+
+        if ($this->companyEffectiveStatus($company)) {
+            $company->update(['status' => false]);
+            $this->companyAdminUsersQuery($company)->update(['is_active' => false]);
+
+            $company->users()->update([
+                'active_web_session_id' => (string) Str::uuid(),
+            ]);
+
+            AuditLog::logEvent(
+                'deactivate_before_delete',
+                'company',
+                'Deactivated company "' . $company->name . '" (ID: ' . $company->id . ') before permanent delete',
+                ['company_id' => $company->id]
+            );
+
+            return redirect()
+                ->route('superadmin.companies.index')
+                ->with('success', 'Company deactivated first. Click Delete again to permanently delete it.');
+        }
+
         $companyId = $company->id;
         $companyName = $company->name;
         $summary = $companyPurgeService->purge($company);
@@ -440,19 +511,31 @@ class CompanyController extends Controller
 
     public function toggleStatus(Company $company)
     {
-        // Toggle company status
-        $newStatus = !$company->status;
+        $company->load(['users' => function ($query) {
+            $query->select('id', 'company_id', 'password_set_url', 'is_active', 'role')
+                ->where(function ($q) {
+                    $q->where('role', 'admin')
+                        ->orWhereHas('roles', function ($roleQuery) {
+                            $roleQuery->where('name', 'company_admin');
+                        });
+                });
+        }]);
+
+        $newStatus = !$this->companyEffectiveStatus($company);
 
         $company->update([
             'status' => $newStatus
         ]);
 
-        // Update Admin user of that company
-        User::where('company_id', $company->id)
-            ->where('role', 'admin')
-            ->update([
-                'is_active' => $newStatus
+        $this->companyAdminUsersQuery($company)->update([
+            'is_active' => $newStatus
+        ]);
+
+        if (!$newStatus) {
+            $company->users()->update([
+                'active_web_session_id' => (string) Str::uuid(),
             ]);
+        }
 
         AuditLog::logEvent(
             'toggle_status',
@@ -542,11 +625,12 @@ class CompanyController extends Controller
 
     public function reset2fa(Company $company)
     {
-        // Reset 2FA for all users of this company
+        // Reset 2FA and force existing company sessions to log in again.
         $company->users()->update([
             'two_factor_secret' => null,
             'two_factor_enabled' => false,
             'two_factor_recovery_codes' => null,
+            'active_web_session_id' => (string) Str::uuid(),
         ]);
 
         AuditLog::logEvent(
@@ -559,5 +643,60 @@ class CompanyController extends Controller
         return redirect()
             ->back()
             ->with('success', '2FA has been reset for this company.');
+    }
+
+    private function storeCompanyLogo($file, string $fileName): string
+    {
+        $relativePath = 'uploads/company_logos/' . $fileName;
+        $uploadDir = public_path('uploads/company_logos');
+
+        if (!File::exists($uploadDir)) {
+            File::makeDirectory($uploadDir, 0755, true);
+        }
+
+        $file->move($uploadDir, $fileName);
+        $primaryPath = $uploadDir . DIRECTORY_SEPARATOR . $fileName;
+
+        foreach ($this->companyLogoUploadDirs() as $mirrorDir) {
+            if ($mirrorDir === $uploadDir) {
+                continue;
+            }
+
+            if (!File::exists($mirrorDir)) {
+                File::makeDirectory($mirrorDir, 0755, true);
+            }
+
+            File::copy($primaryPath, $mirrorDir . DIRECTORY_SEPARATOR . $fileName);
+        }
+
+        return $relativePath;
+    }
+
+    private function companyLogoUploadDirs(): array
+    {
+        return array_values(array_unique(array_filter([
+            public_path('uploads/company_logos'),
+            base_path('uploads/company_logos'),
+        ])));
+    }
+
+    private function companyLogoAbsolutePaths(?string $path): array
+    {
+        $path = ltrim((string) $path, '/');
+        if ($path === '') {
+            return [];
+        }
+
+        $paths = [
+            public_path($path),
+            base_path($path),
+        ];
+
+        if (str_starts_with($path, 'public/')) {
+            $paths[] = public_path(substr($path, 7));
+            $paths[] = base_path(substr($path, 7));
+        }
+
+        return array_values(array_unique($paths));
     }
 }

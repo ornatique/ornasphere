@@ -102,6 +102,32 @@
                 </div>
             </div>
 
+            @if($voucherConfiguration)
+            <div class="profile-section">
+                <h5>Voucher Configuration</h5>
+                @if(session('voucher_success'))<div class="alert alert-success">{{ session('voucher_success') }}</div>@endif
+                @error('prefix')<div class="alert alert-danger">{{ $message }}</div>@enderror
+                <form method="POST" action="{{ route('company.profile.voucher-series.update', $company->slug) }}">
+                    @csrf @method('PUT')
+                    <div class="row align-items-end mb-3">
+                        <div class="col-md-5">
+                            <label for="voucher-prefix">Company voucher prefix</label>
+                            <input id="voucher-prefix" name="prefix" class="form-control" maxlength="20" pattern="[A-Za-z0-9]+" value="{{ old('prefix', $voucherConfiguration['custom_prefix']) }}" placeholder="{{ $voucherConfiguration['default_prefix'] }}">
+                            <small>Leave empty for company initials: {{ $voucherConfiguration['default_prefix'] }}. Letters and numbers only.</small>
+                        </div>
+                        <div class="col-md-4 mt-2"><button class="btn btn-primary">Save Voucher Configuration</button></div>
+                    </div>
+                </form>
+                <p>Each voucher type has a separate counter shared by the website and API. Changing the prefix continues the counter. Existing vouchers keep their numbers.</p>
+                <div class="table-responsive"><table class="table table-bordered">
+                    <thead><tr><th>Voucher type</th><th>Next voucher preview</th></tr></thead>
+                    <tbody>@foreach($voucherConfiguration['series'] as $series)
+                        <tr><td>{{ $series['label'] }}</td><td class="voucher-preview" data-module="{{ $series['module'] }}" data-number="{{ $series['next_number'] }}">{{ $series['preview'] }}</td></tr>
+                    @endforeach</tbody>
+                </table></div>
+                <small>The final number is assigned when the voucher is saved. Counters do not reset yearly.</small>
+            </div>
+            @endif
             <div class="profile-section">
                 <h5>Other Details</h5>
                 <div class="profile-grid">
@@ -120,6 +146,17 @@
     </div>
 </div>
 @endsection
+
+@push('scripts')
+<script>
+document.getElementById('voucher-prefix')?.addEventListener('input', function () {
+    const prefix = this.value.trim().toUpperCase() || @json($voucherConfiguration['default_prefix'] ?? '');
+    document.querySelectorAll('.voucher-preview').forEach(function (cell) {
+        cell.textContent = prefix + '-' + cell.dataset.module + '-' + cell.dataset.number.padStart(3, '0');
+    });
+});
+</script>
+@endpush
 
 @push('styles')
 <style>

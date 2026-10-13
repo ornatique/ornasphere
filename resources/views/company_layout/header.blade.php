@@ -387,6 +387,11 @@
                          </div>
 
                          @endforelse
+                         @if($notificationItems->count() >= 20)
+                         <button type="button" id="notificationLoadMore" class="btn btn-link w-100"
+                             data-url="{{ route('company.notifications.index', auth()->user()->company->slug) }}"
+                             data-cursor="{{ $notificationItems->last()->id }}">Load more notifications</button>
+                         @endif
 
                      </div>
 
@@ -420,3 +425,58 @@
          </button>
      </div>
  </nav>
+ <script>
+ document.addEventListener('DOMContentLoaded', function () {
+     const button = document.getElementById('notificationLoadMore');
+     if (!button) return;
+     const list = button.closest('.notification-scroll');
+     let loading = false;
+     async function loadMore(event) {
+         if (event) event.stopPropagation();
+         if (loading || button.hidden) return;
+         loading = true;
+         button.disabled = true;
+         button.textContent = 'Loading…';
+         try {
+             const url = new URL(button.dataset.url, window.location.origin);
+             url.searchParams.set('paginate', '1');
+             url.searchParams.set('before_id', button.dataset.cursor);
+             const response = await fetch(url, {headers: {'Accept':'application/json'}});
+             if (!response.ok) throw new Error('Loading failed');
+             const result = await response.json();
+             if (!result.success || !Array.isArray(result.data)) throw new Error('Invalid response');
+             result.data.forEach(item => {
+                 const link = document.createElement('a');
+                 link.className = 'dropdown-item company-notification-item is-unread';
+                 link.href = item.url;
+                 const icon = document.createElement('div');
+                 icon.className = 'company-notification-icon';
+                 icon.textContent = 'i';
+                 link.appendChild(icon);
+                 const copy = document.createElement('div');
+                 copy.className = 'company-notification-copy';
+                 [['title',item.title],['message',item.message],['time',item.time]].forEach(([kind,value]) => {
+                     const span = document.createElement('span');
+                     span.className = 'company-notification-' + kind;
+                     span.textContent = value || '';
+                     copy.appendChild(span);
+                 });
+                 link.appendChild(copy);
+                 list.insertBefore(link, button);
+             });
+             button.dataset.cursor = result.next_cursor || button.dataset.cursor;
+             button.hidden = !result.has_more;
+             button.textContent = 'Load more notifications';
+         } catch (error) {
+             button.textContent = 'Could not load. Click to retry';
+         } finally {
+             loading = false;
+             button.disabled = false;
+         }
+     }
+     button.addEventListener('click', loadMore);
+     list.addEventListener('scroll', function () {
+         if (list.scrollTop + list.clientHeight >= list.scrollHeight - 80) loadMore();
+     });
+ });
+ </script>

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Company;
 
 use App\Http\Controllers\Controller;
 use App\Models\Company;
+use App\Services\JobworkRawStock;
 use App\Models\Item;
 use App\Models\JobworkIssue;
 use App\Models\OtherCharge;
@@ -82,6 +83,7 @@ class JobworkIssueController extends Controller
                 'items.otherCharge:id,other_charge',
             ])
             ->withSum('items as gross_wt_sum', 'gross_wt')
+            ->withSum('items as other_wt_sum', 'other_wt')
             ->withSum('items as net_wt_sum', 'net_wt')
             ->withSum('items as fine_wt_sum', 'fine_wt')
             ->withSum('items as total_amt_sum', 'total_amt')
@@ -97,7 +99,13 @@ class JobworkIssueController extends Controller
         $productionSteps = ProductionStep::where('company_id', $company->id)->where('status', true)->orderBy('name')->get(['id', 'name']);
         $items = Item::where('company_id', $company->id)
             ->orderBy('item_name')
-            ->get(['id', 'item_name', 'outward_purity', 'inward_purity']);
+            ->get(['id', 'item_name', 'outward_purity', 'inward_purity', 'jobwork_item_type']);
+        $rawAvailable = app(JobworkRawStock::class)->available((int) $company->id);
+        foreach ($items as $item) {
+            $item->raw_available_net = $rawAvailable[$item->id] ?? 0;
+            $item->raw_edit_allowance = isset($data) ? (float) DB::table('jobwork_raw_stock_allocations')
+                ->where('jobwork_issue_id', $data->id)->where('item_id', $item->id)->sum('net_weight') : 0;
+        }
         $otherCharges = OtherCharge::where('company_id', $company->id)->orderBy('other_charge')->get([
             'id',
             'other_charge',
@@ -121,6 +129,7 @@ class JobworkIssueController extends Controller
         $validated = $this->validatePayload($request, $company->id);
 
         DB::transaction(function () use ($validated, $company) {
+            app(JobworkRawStock::class)->lock((int) $company->id);
             $issue = JobworkIssue::create([
                 'company_id' => $company->id,
                 'voucher_no' => $this->generateVoucherNo($company->id, $validated['jobwork_date']),
@@ -149,6 +158,7 @@ class JobworkIssueController extends Controller
                     'total_amt' => (float) ($row['total_amt'] ?? 0),
                 ]);
             }
+            app(JobworkRawStock::class)->syncIssue($issue, true);
         });
 
         return redirect()
@@ -166,7 +176,13 @@ class JobworkIssueController extends Controller
         $productionSteps = ProductionStep::where('company_id', $company->id)->where('status', true)->orderBy('name')->get(['id', 'name']);
         $items = Item::where('company_id', $company->id)
             ->orderBy('item_name')
-            ->get(['id', 'item_name', 'outward_purity', 'inward_purity']);
+            ->get(['id', 'item_name', 'outward_purity', 'inward_purity', 'jobwork_item_type']);
+        $rawAvailable = app(JobworkRawStock::class)->available((int) $company->id);
+        foreach ($items as $item) {
+            $item->raw_available_net = $rawAvailable[$item->id] ?? 0;
+            $item->raw_edit_allowance = isset($data) ? (float) DB::table('jobwork_raw_stock_allocations')
+                ->where('jobwork_issue_id', $data->id)->where('item_id', $item->id)->sum('net_weight') : 0;
+        }
         $otherCharges = OtherCharge::where('company_id', $company->id)->orderBy('other_charge')->get([
             'id',
             'other_charge',
@@ -192,6 +208,8 @@ class JobworkIssueController extends Controller
         $validated = $this->validatePayload($request, $company->id, (int) $issue->id);
 
         DB::transaction(function () use ($issue, $validated) {
+            app(JobworkRawStock::class)->lock((int) $issue->company_id);
+            app(JobworkRawStock::class)->guardIssueEdit($issue);
             $issue->update([
                 'jobwork_date' => $validated['jobwork_date'],
                 'job_worker_id' => $validated['job_worker_id'],
@@ -202,6 +220,7 @@ class JobworkIssueController extends Controller
             ]);
 
             $this->syncIssueItems($issue, $validated['items']);
+            app(JobworkRawStock::class)->syncIssue($issue, true);
         });
 
         return redirect()
@@ -215,7 +234,11 @@ class JobworkIssueController extends Controller
         $id = Crypt::decryptString($encryptedId);
 
         $issue = JobworkIssue::where('company_id', $company->id)->findOrFail($id);
-        $issue->delete();
+        DB::transaction(function () use ($issue) {
+            app(JobworkRawStock::class)->lock((int) $issue->company_id);
+            app(JobworkRawStock::class)->guardIssueEdit($issue);
+            $issue->delete();
+        });
 
         if ($request->ajax()) {
             return response()->json([
@@ -425,22 +448,7 @@ class JobworkIssueController extends Controller
 
     private function generateVoucherNo(int $companyId, string $date): string
     {
-        $yearShort = Carbon::parse($date)->format('y');
-        $prefix = 'JI' . $yearShort . '-';
-
-        $last = JobworkIssue::where('company_id', $companyId)
-            ->where('voucher_no', 'like', $prefix . '%')
-            ->orderByDesc('id')
-            ->value('voucher_no');
-
-        $next = 1;
-        if ($last && str_contains($last, '-')) {
-            $parts = explode('-', $last);
-            $lastNo = (int) end($parts);
-            $next = $lastNo + 1;
-        }
-
-        return $prefix . $next;
+        return \App\Services\VoucherSeries::next($companyId, 'JI');
     }
 
     private function syncIssueItems(JobworkIssue $issue, array $items): void

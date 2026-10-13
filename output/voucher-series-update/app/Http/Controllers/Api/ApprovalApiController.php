@@ -1,0 +1,1861 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\ApprovalHeader;
+use App\Models\ApprovalItem;
+use App\Models\Company;
+use App\Models\Item;
+use App\Models\ItemSet;
+use App\Models\ApprovalCart;
+use App\Models\SaleReturn;
+use App\Models\SaleReturnItem;
+use App\Models\Customer;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
+use App\Services\TransactionItemGuard;
+
+class ApprovalApiController extends Controller
+{
+    public function customers(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+
+        $customers = Customer::where('company_id', $companyId)
+            ->saleParties()
+            ->where('is_active', 1)
+            ->orderBy('name')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $customers,
+        ]);
+    }
+
+    public function items(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+
+        $items = Item::where('company_id', $companyId)
+            ->orderBy('item_name')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $items,
+        ]);
+    }
+
+    public function index(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+        $pendingItemFilter = function ($q) {
+            return $q->where(function ($statusQuery) {
+                $statusQuery->whereNull('status')
+                    ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+            });
+        };
+
+        $query = ApprovalHeader::with(['customer', 'creator'])
+            ->withCount([
+                'items as active_items_count' => $pendingItemFilter
+            ])
+            ->withSum([
+                'items as active_gross_weight' => $pendingItemFilter
+            ], 'gross_weight')
+            ->withSum([
+                'items as active_net_weight' => $pendingItemFilter
+            ], 'net_weight')
+            ->withSum([
+                'items as active_fine_weight' => $pendingItemFilter
+            ], 'total_fine_weight')
+            ->withSum([
+                'items as active_metal_amount' => $pendingItemFilter
+            ], 'metal_amount')
+            ->withSum([
+                'items as active_labour_amount' => $pendingItemFilter
+            ], 'labour_amount')
+            ->withSum([
+                'items as active_other_amount' => $pendingItemFilter
+            ], 'other_amount')
+            ->withSum([
+                'items as active_item_amount' => $pendingItemFilter
+            ], 'total_amount')
+            ->where('company_id', $companyId)
+            ->whereHas('items', $pendingItemFilter)
+            ->whereHas('customer', function ($customer) {
+                $customer->saleParties();
+            });
+
+        if ($request->filled('customer_id')) {
+            $query->where('customer_id', $request->customer_id);
+        }
+
+        if ($request->filled('from_date') && $request->filled('to_date')) {
+            $query->whereBetween('approval_date', [$request->from_date, $request->to_date]);
+        }
+
+        $rows = $query->orderByDesc('approval_date')
+            ->orderByDesc('id')
+            ->get()
+            ->map(function ($row) {
+                return [
+                    'id' => $row->id,
+                    'approval_no' => $row->approval_no,
+                    'approval_date' => optional($row->approval_date)->format('Y-m-d') ?? null,
+                    'remarks' => $row->remarks,
+                    'customer_id' => $row->customer_id,
+                    'customer_name' => optional($row->customer)->name ?? '-',
+                    'status' => $row->status,
+                    'qty_pcs' => (int) ($row->active_items_count ?? 0),
+                    'total_items' => (int) ($row->active_items_count ?? 0),
+                    'gross_weight' => (float) ($row->active_gross_weight ?? 0),
+                    'total_net_weight' => (float) ($row->active_net_weight ?? 0),
+                    'fine_weight' => (float) ($row->active_fine_weight ?? 0),
+                    'metal_amount' => (float) ($row->active_metal_amount ?? 0),
+                    'labour_amount' => (float) ($row->active_labour_amount ?? 0),
+                    'other_amount' => (float) ($row->active_other_amount ?? 0),
+                    'total_amount' => (float) ($row->active_item_amount ?? 0),
+                    'created_by' => optional($row->creator)->name,
+                    'modified_at' => optional($row->updated_at)?->format('Y-m-d H:i:s'),
+                    'modified_count' => (int) ($row->modified_count ?? 0),
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => $rows,
+        ]);
+    }
+
+    public function getItemSets(Request $request, $itemId)
+    {
+        $companyId = $request->user()->company_id;
+        $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        $voucherSessionId = trim((string) $request->input('voucher_session_id'));
+
+        $query = ItemSet::with('item')
+            ->where('company_id', $companyId)
+            ->where('item_id', $itemId)
+            ->where('is_final', 1)
+            ->where('is_sold', 0);
+
+        $this->excludeApprovalCartLocks($query, $companyId, $deviceId, $voucherSessionId);
+
+        $rows = $query->orderByDesc('id')->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $rows,
+        ]);
+    }
+
+    public function searchItemSets(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+        $keyword = trim((string) $request->input('keyword', $request->input('search', '')));
+        $limit = max(10, min((int) $request->input('limit', 1000), 2000));
+
+        if ($keyword === '') {
+            return response()->json([
+                'success' => true,
+                'count' => 0,
+                'data' => [],
+            ]);
+        }
+
+        $itemSetQuery = ItemSet::with('item')
+            ->where('company_id', $companyId)
+            ->where('is_final', 1)
+            ->where('is_sold', 0)
+            ->where(function ($q) use ($keyword) {
+                $q->where('HUID', 'LIKE', "%{$keyword}%")
+                    ->orWhere('qr_code', 'LIKE', "%{$keyword}%")
+                    ->orWhere('barcode', 'LIKE', "%{$keyword}%")
+                    ->orWhereHas('item', function ($itemQuery) use ($keyword) {
+                        $itemQuery->where('item_name', 'LIKE', "%{$keyword}%")
+                            ->orWhere('item_code', 'LIKE', "%{$keyword}%");
+                    });
+            });
+
+        $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        $voucherSessionId = trim((string) $request->input('voucher_session_id'));
+        $this->excludeApprovalCartLocks($itemSetQuery, $companyId, $deviceId, $voucherSessionId);
+
+        $itemSets = $itemSetQuery
+            ->orderByDesc('id')
+            ->limit($limit)
+            ->get();
+
+        $itemSetItemIds = $itemSets->pluck('item_id')->filter()->unique()->values()->all();
+
+        $itemOnlyQuery = Item::query()
+            ->where('company_id', $companyId)
+            ->whereNotIn('id', $itemSetItemIds)
+            ->where(function ($q) use ($keyword) {
+                $q->where('item_name', 'LIKE', "%{$keyword}%")
+                    ->orWhere('item_code', 'LIKE', "%{$keyword}%");
+            });
+
+        if (Schema::hasColumn('items', 'is_active')) {
+            $itemOnlyQuery->where('is_active', 1);
+        }
+
+        $itemOnly = $itemOnlyQuery
+            ->orderBy('item_name')
+            ->limit($limit)
+            ->get(['id', 'item_name', 'item_code', 'outward_purity', 'labour_rate']);
+
+        $itemSetRows = $itemSets->map(function ($set) {
+            $gross = (float) ($set->gross_weight ?? 0);
+            $otherWeight = (float) ($set->other ?? 0);
+            $net = (float) ($set->net_weight ?? max(0, $gross - $otherWeight));
+            $purity = (float) (optional($set->item)->outward_purity ?? 0);
+            $wastePercent = 0;
+            $netPurity = $purity + $wastePercent;
+            $fineWeight = $net * $netPurity / 100;
+            $metalRate = 0;
+            $metalAmount = $net * $metalRate;
+            $labourRate = (float) ($set->sale_labour_rate ?? optional($set->item)->labour_rate ?? 0);
+            $labourAmount = $net * $labourRate;
+            $otherAmount = (float) ($set->sale_other ?? 0);
+            $totalAmount = $metalAmount + $labourAmount + $otherAmount;
+
+            return [
+                'id' => (int) $set->id,
+                'row_key' => 'set_' . (int) $set->id,
+                'itemset_id' => (int) $set->id,
+                'item_id' => (int) ($set->item_id ?? 0),
+                'name' => (string) (optional($set->item)->item_name ?? ''),
+                'code' => (string) ($set->qr_code ?? ''),
+                'huid' => (string) ($set->HUID ?? ''),
+                'HUID' => (string) ($set->HUID ?? ''),
+                'qr_code' => (string) ($set->qr_code ?? ''),
+                'barcode' => (string) ($set->barcode ?? ''),
+                'gross_weight' => $gross,
+                'other' => $otherWeight,
+                'other_weight' => $otherWeight,
+                'net_weight' => $net,
+                'purity' => $purity,
+                'waste_percent' => $wastePercent,
+                'net_purity' => $netPurity,
+                'fine_weight' => $fineWeight,
+                'total_fine_weight' => $fineWeight,
+                'metal_rate' => $metalRate,
+                'metal_amount' => $metalAmount,
+                'labour_rate' => $labourRate,
+                'labour_amount' => $labourAmount,
+                'sale_labour_rate' => $labourRate,
+                'sale_other' => $otherAmount,
+                'other_amount' => $otherAmount,
+                'total_amount' => $totalAmount,
+                'remarks' => '',
+                'is_item_only' => false,
+                'source' => 'itemset',
+                'item' => [
+                    'id' => (int) (optional($set->item)->id ?? 0),
+                    'item_name' => (string) (optional($set->item)->item_name ?? ''),
+                    'item_code' => (string) (optional($set->item)->item_code ?? ''),
+                    'outward_purity' => $purity,
+                    'labour_rate' => (float) (optional($set->item)->labour_rate ?? 0),
+                ],
+            ];
+        })->values();
+
+        $itemOnlyRows = $itemOnly->map(function ($item) {
+            return [
+                'id' => 0,
+                'row_key' => 'item_' . (int) $item->id,
+                'itemset_id' => 0,
+                'item_id' => (int) $item->id,
+                'name' => (string) ($item->item_name ?? ''),
+                'code' => (string) ($item->item_code ?? ''),
+                'huid' => '',
+                'HUID' => '',
+                'qr_code' => (string) ($item->item_code ?? ''),
+                'barcode' => '',
+                'gross_weight' => 0,
+                'other' => 0,
+                'other_weight' => 0,
+                'net_weight' => 0,
+                'purity' => (float) ($item->outward_purity ?? 0),
+                'waste_percent' => 0,
+                'net_purity' => 0,
+                'fine_weight' => 0,
+                'total_fine_weight' => 0,
+                'metal_rate' => 0,
+                'metal_amount' => 0,
+                'labour_rate' => (float) ($item->labour_rate ?? 0),
+                'labour_amount' => 0,
+                'sale_labour_rate' => (float) ($item->labour_rate ?? 0),
+                'sale_other' => 0,
+                'other_amount' => 0,
+                'total_amount' => 0,
+                'remarks' => '',
+                'is_item_only' => true,
+                'source' => 'item',
+                'message' => 'Item found, Itemset not created',
+                'item' => [
+                    'id' => (int) $item->id,
+                    'item_name' => (string) ($item->item_name ?? ''),
+                    'item_code' => (string) ($item->item_code ?? ''),
+                    'outward_purity' => (float) ($item->outward_purity ?? 0),
+                    'labour_rate' => (float) ($item->labour_rate ?? 0),
+                ],
+            ];
+        })->values();
+
+        $rows = $itemSetRows->concat($itemOnlyRows)->values();
+
+        if ($rows->isEmpty()) {
+            $itemSetMatch = function ($q) use ($keyword) {
+                $q->where('HUID', 'LIKE', "%{$keyword}%")
+                    ->orWhere('qr_code', 'LIKE', "%{$keyword}%")
+                    ->orWhere('barcode', 'LIKE', "%{$keyword}%")
+                    ->orWhereHas('item', function ($itemQuery) use ($keyword) {
+                        $itemQuery->where('item_name', 'LIKE', "%{$keyword}%")
+                            ->orWhere('item_code', 'LIKE', "%{$keyword}%");
+                    });
+            };
+            $itemMatch = function ($q) use ($keyword) {
+                $q->where('item_name', 'LIKE', "%{$keyword}%")
+                    ->orWhere('item_code', 'LIKE', "%{$keyword}%");
+            };
+
+            $existsInOtherCompany = ItemSet::where('company_id', '!=', $companyId)
+                ->where($itemSetMatch)
+                ->exists()
+                || Item::where('company_id', '!=', $companyId)
+                    ->where($itemMatch)
+                    ->exists();
+
+            $existsInCompany = ItemSet::where('company_id', $companyId)
+                ->where($itemSetMatch)
+                ->exists()
+                || Item::where('company_id', $companyId)
+                    ->where($itemMatch)
+                    ->exists();
+
+            $message = 'No item found for this keyword.';
+            if ($existsInOtherCompany) {
+                $message = 'This item does not belong to your company.';
+            } elseif ($existsInCompany) {
+                $message = 'Item found but it is not available for approval.';
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => $message,
+                'count' => 0,
+                'data' => [],
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'count' => $rows->count(),
+            'data' => $rows,
+        ]);
+    }
+
+    // Exact QR scanner endpoint for app
+    public function scanQr(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+        $userId = $request->user()->id;
+
+        $request->validate([
+            'qr_code' => 'required|string',
+            'customer_id' => 'required|integer',
+            'device_id' => 'required|string|max:191',
+            'voucher_session_id' => 'required|string|max:191',
+            'device_entry_id' => 'required|string|max:191',
+        ]);
+
+        $qrCode = trim((string) $request->qr_code);
+        $customerId = (int) $request->customer_id;
+        $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        $voucherSessionId = trim((string) $request->input('voucher_session_id'));
+        $deviceEntryId = trim((string) $request->input('device_entry_id'));
+
+        try {
+            $customerExists = Customer::where('company_id', $companyId)
+                ->saleParties()
+                ->where('id', $customerId)
+                ->exists();
+            if (!$customerExists) {
+                Log::warning('Approval scanQr failed: invalid customer.', [
+                    'company_id' => $companyId,
+                    'user_id' => $userId,
+                    'customer_id' => $customerId,
+                    'qr_code' => $qrCode,
+                    'device_id' => $deviceId ?: null,
+                    'voucher_session_id' => $voucherSessionId ?: null,
+                    'device_entry_id' => $deviceEntryId ?: null,
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid customer for this company.',
+                ], 422);
+            }
+
+            return DB::transaction(function () use ($companyId, $userId, $customerId, $qrCode, $deviceId, $voucherSessionId, $deviceEntryId) {
+                $row = ItemSet::with('item')
+                    ->where('company_id', $companyId)
+                    ->where('is_final', 1)
+                    ->where('is_sold', 0)
+                    ->where('qr_code', $qrCode)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$row) {
+                    Log::warning('Approval scanQr failed: QR not found or already used.', [
+                        'company_id' => $companyId,
+                        'user_id' => $userId,
+                        'customer_id' => $customerId,
+                        'qr_code' => $qrCode,
+                    ]);
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'QR not found or already used',
+                    ], 404);
+                }
+
+                $existingCart = ApprovalCart::where('company_id', $companyId)
+                    ->where('itemset_id', $row->id)
+                    ->where('created_at', '>=', now()->subMinutes(30))
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($existingCart) {
+                    $lockedItem = $this->approvalCartLockPayload($row, $existingCart);
+
+                    Log::warning('Approval scanQr failed: product already scanned in active approval cart.', [
+                        'company_id' => $companyId,
+                        'user_id' => $userId,
+                        'existing_user_id' => (int) $existingCart->user_id,
+                        'customer_id' => $customerId,
+                        'existing_customer_id' => (int) $existingCart->customer_id,
+                        'qr_code' => $qrCode,
+                        'itemset_id' => (int) $row->id,
+                        'cart_id' => (int) $existingCart->id,
+                        'device_id' => $deviceId ?: null,
+                        'voucher_session_id' => $voucherSessionId ?: null,
+                        'device_entry_id' => $deviceEntryId ?: null,
+                    ]);
+
+                    $message = ((int) $existingCart->user_id === (int) $userId)
+                        ? 'Product already scanned'
+                        : "{$lockedItem['label']} is already selected by another user.";
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => $message,
+                        'code' => 'APPROVAL_CART_ITEM_LOCKED',
+                        'cart_id' => $existingCart->id,
+                        'user_id' => $existingCart->user_id,
+                        'customer_id' => $existingCart->customer_id,
+                        'device_id' => $existingCart->device_id,
+                        'voucher_session_id' => $existingCart->voucher_session_id,
+                        'locked_item' => $lockedItem,
+                        'data' => [$lockedItem],
+                    ], 409);
+                }
+
+                $cart = ApprovalCart::create([
+                    'user_id' => $userId,
+                    'device_id' => $deviceId ?: null,
+                    'voucher_session_id' => $voucherSessionId ?: null,
+                    'device_entry_id' => $deviceEntryId ?: null,
+                    'company_id' => $companyId,
+                    'customer_id' => $customerId,
+                    'itemset_id' => $row->id,
+                ]);
+
+                $cartPayload = $this->approvalCartPayload($cart, $row);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Added to approval cart',
+                    'cart_id' => $cart->id,
+                    'data' => $cartPayload,
+                ]);
+            });
+        } catch (\Throwable $e) {
+            Log::error('Approval scanQr exception.', [
+                'company_id' => $companyId,
+                'user_id' => $userId,
+                'customer_id' => $customerId,
+                'qr_code' => $qrCode,
+                'device_id' => $deviceId ?? null,
+                'voucher_session_id' => $voucherSessionId ?? null,
+                'device_entry_id' => $deviceEntryId ?? null,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to scan QR right now. Please try again.',
+            ], 500);
+        }
+    }
+
+    public function reserveApprovalCartItem(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+        $userId = $request->user()->id;
+        $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        $voucherSessionId = trim((string) $request->input('voucher_session_id'));
+        $hasBatchItems = is_array($request->input('items'));
+
+        if ($hasBatchItems) {
+            $request->validate([
+                'customer_id' => 'required|integer',
+                'device_id' => 'required|string|max:191',
+                'voucher_session_id' => 'required|string|max:191',
+                'items' => 'required|array|min:1',
+                'items.*.itemset_id' => 'required|integer',
+                'items.*.device_entry_id' => 'nullable|string|max:191',
+            ]);
+        } else {
+            $request->validate([
+                'customer_id' => 'required|integer',
+                'itemset_id' => 'required|integer',
+                'device_id' => 'required|string|max:191',
+                'voucher_session_id' => 'required|string|max:191',
+                'device_entry_id' => 'nullable|string|max:191',
+            ]);
+        }
+
+        $customerExists = Customer::where('company_id', $companyId)
+            ->saleParties()
+            ->where('id', (int) $request->customer_id)
+            ->exists();
+
+        if (!$customerExists) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid customer for this company.',
+            ], 422);
+        }
+
+        $items = $hasBatchItems
+            ? collect($request->input('items'))
+                ->map(function ($item) {
+                    return [
+                        'itemset_id' => (int) ($item['itemset_id'] ?? $item['id'] ?? 0),
+                        'device_entry_id' => trim((string) ($item['device_entry_id'] ?? '')),
+                    ];
+                })
+                ->filter(fn ($item) => $item['itemset_id'] > 0)
+                ->unique('itemset_id')
+                ->values()
+            : collect([[
+                'itemset_id' => (int) $request->itemset_id,
+                'device_entry_id' => trim((string) $request->input('device_entry_id')),
+            ]]);
+
+        if ($items->isEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please select at least one item.',
+                'code' => 'VALIDATION_ERROR',
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            $reservedItems = [];
+            $activeLockCutoff = now()->subMinutes(30);
+
+            foreach ($items as $itemPayload) {
+                $itemSet = ItemSet::with('item')
+                    ->where('company_id', $companyId)
+                    ->where('is_final', 1)
+                    ->where('is_sold', 0)
+                    ->where('id', (int) $itemPayload['itemset_id'])
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$itemSet) {
+                    throw new \Exception('Item not found or already used.');
+                }
+
+                $existingCart = ApprovalCart::where('company_id', $companyId)
+                    ->where('itemset_id', $itemSet->id)
+                    ->where('created_at', '>=', $activeLockCutoff)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($existingCart) {
+                    $sameSession = (int) $existingCart->user_id === (int) $userId
+                        && (string) $existingCart->device_id === $deviceId
+                        && (string) $existingCart->voucher_session_id === $voucherSessionId;
+
+                    if (!$sameSession) {
+                        $lockedItem = $this->approvalCartLockPayload($itemSet, $existingCart);
+
+                        DB::rollBack();
+                        return response()->json([
+                            'success' => false,
+                            'message' => "{$lockedItem['label']} is already selected by another user.",
+                            'code' => 'APPROVAL_CART_ITEM_LOCKED',
+                            'cart_id' => $existingCart->id,
+                            'itemset_id' => $itemSet->id,
+                            'user_id' => $existingCart->user_id,
+                            'customer_id' => $existingCart->customer_id,
+                            'device_id' => $existingCart->device_id,
+                            'voucher_session_id' => $existingCart->voucher_session_id,
+                            'locked_item' => $lockedItem,
+                            'data' => [$lockedItem],
+                        ], 409);
+                    }
+
+                    $reservedItems[] = [
+                        'cart_id' => $existingCart->id,
+                        'itemset_id' => $itemSet->id,
+                        'already_reserved' => true,
+                    ];
+                    continue;
+                }
+
+                $cart = ApprovalCart::create([
+                    'user_id' => $userId,
+                    'device_id' => $deviceId,
+                    'voucher_session_id' => $voucherSessionId,
+                    'device_entry_id' => $itemPayload['device_entry_id'] ?: null,
+                    'company_id' => $companyId,
+                    'customer_id' => (int) $request->customer_id,
+                    'itemset_id' => $itemSet->id,
+                ]);
+
+                $reservedItems[] = [
+                    'cart_id' => $cart->id,
+                    'itemset_id' => $itemSet->id,
+                    'already_reserved' => false,
+                ];
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => $items->count() > 1 ? 'Items reserved for approval.' : 'Item reserved for approval.',
+                'cart_id' => $reservedItems[0]['cart_id'] ?? null,
+                'itemset_id' => $reservedItems[0]['itemset_id'] ?? null,
+                'device_id' => $deviceId,
+                'voucher_session_id' => $voucherSessionId,
+                'items' => $reservedItems,
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'code' => str_contains($e->getMessage(), 'already used')
+                    ? 'APPROVAL_ITEM_ALREADY_PROCESSED'
+                    : 'APPROVAL_CART_RESERVE_FAILED',
+            ], 422);
+        }
+    }
+
+    public function cartList(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+        $userId = $request->user()->id;
+        $customerId = (int) ($request->input('customer_id') ?? 0);
+        $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        $voucherSessionId = trim((string) $request->input('voucher_session_id'));
+
+        $query = ApprovalCart::with('itemset.item')
+            ->where('user_id', $userId)
+            ->where('company_id', $companyId);
+
+        if ($customerId > 0) {
+            $query->where('customer_id', $customerId);
+        }
+
+        if ($deviceId !== '') {
+            $query->where('device_id', $deviceId);
+        }
+
+        if ($voucherSessionId !== '') {
+            $query->where('voucher_session_id', $voucherSessionId);
+        }
+
+        $rows = $query->latest()
+            ->get()
+            ->map(function ($cart) {
+                $set = $cart->itemset;
+                if (!$set) {
+                    return null;
+                }
+
+                return $this->approvalCartPayload($cart, $set);
+            })
+            ->filter()
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'count' => $rows->count(),
+            'data' => $rows,
+        ]);
+    }
+
+    public function removeCartItem(Request $request, $id)
+    {
+        $companyId = $request->user()->company_id;
+        $userId = $request->user()->id;
+
+        $cart = ApprovalCart::where('id', (int) $id)
+            ->where('user_id', $userId)
+            ->where('company_id', $companyId)
+            ->first();
+
+        if (!$cart) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cart item not found.',
+            ], 404);
+        }
+
+        $cart->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Item removed from approval cart.',
+        ]);
+    }
+
+    public function store(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+        $userId = $request->user()->id;
+        $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        $voucherSessionId = trim((string) $request->input('voucher_session_id'));
+
+        $request->validate([
+            'customer_id' => 'required|integer',
+            'remarks' => 'nullable|string',
+            'device_id' => 'required|string|max:191',
+            'voucher_session_id' => 'required|string|max:191',
+        ]);
+
+        $customerExists = Customer::where('company_id', $companyId)
+            ->saleParties()
+            ->where('id', (int) $request->customer_id)
+            ->exists();
+
+        if (!$customerExists) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid customer for this company.',
+            ], 422);
+        }
+
+        DB::beginTransaction();
+
+        try {
+            $sessionCartQuery = ApprovalCart::where('user_id', $userId)
+                ->where('company_id', $companyId)
+                ->where('customer_id', (int) $request->customer_id)
+                ->where('device_id', $deviceId)
+                ->where('voucher_session_id', $voucherSessionId);
+
+            $sessionCartItemSetIds = $sessionCartQuery
+                ->pluck('itemset_id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+
+            $itemsPayload = $request->input('items', []);
+            if (!is_array($itemsPayload) || count($itemsPayload) === 0) {
+                $itemsPayload = ApprovalCart::where('user_id', $userId)
+                    ->where('company_id', $companyId)
+                    ->where('customer_id', (int) $request->customer_id)
+                    ->where('device_id', $deviceId)
+                    ->where('voucher_session_id', $voucherSessionId)
+                    ->get()
+                    ->map(fn($c) => ['itemset_id' => (int) $c->itemset_id])
+                    ->all();
+            } else {
+                $payloadRows = collect($itemsPayload)
+                    ->filter(fn ($row) => is_array($row))
+                    ->map(function ($row) {
+                        return [
+                            'itemset_id' => (int) ($row['itemset_id'] ?? $row['id'] ?? 0),
+                            'device_entry_id' => trim((string) ($row['device_entry_id'] ?? '')),
+                            'row' => $row,
+                        ];
+                    })
+                    ->filter(fn ($row) => $row['itemset_id'] > 0)
+                    ->unique('itemset_id')
+                    ->values();
+
+                $payloadItemSetIds = $payloadRows->pluck('itemset_id')->all();
+
+                if (!empty($payloadItemSetIds)) {
+                    $activeLockCutoff = now()->subMinutes(30);
+
+                    $lockedByOther = ApprovalCart::where('company_id', $companyId)
+                        ->whereIn('itemset_id', $payloadItemSetIds)
+                        ->where('created_at', '>=', $activeLockCutoff)
+                        ->where(function ($lockQuery) use ($userId, $deviceId, $request) {
+                            $lockQuery->where('user_id', '!=', $userId)
+                                ->orWhere('device_id', '!=', $deviceId)
+                                ->orWhere('customer_id', '!=', (int) $request->customer_id);
+                        })
+                        ->lockForUpdate()
+                        ->first();
+
+                    if ($lockedByOther) {
+                        $lockedItemSet = ItemSet::with('item')
+                            ->where('company_id', $companyId)
+                            ->where('id', (int) $lockedByOther->itemset_id)
+                            ->first();
+                        $lockedItem = $lockedItemSet
+                            ? $this->approvalCartLockPayload($lockedItemSet, $lockedByOther)
+                            : null;
+
+                        DB::rollBack();
+
+                        return response()->json([
+                            'success' => false,
+                            'message' => $lockedItem
+                                ? "{$lockedItem['label']} is already selected by another user."
+                                : 'One or more selected approval items are locked by another session.',
+                            'code' => 'APPROVAL_CART_ITEM_LOCKED',
+                            'cart_id' => $lockedByOther->id,
+                            'user_id' => $lockedByOther->user_id,
+                            'customer_id' => $lockedByOther->customer_id,
+                            'device_id' => $lockedByOther->device_id,
+                            'voucher_session_id' => $lockedByOther->voucher_session_id,
+                            'locked_item' => $lockedItem,
+                            'data' => $lockedItem ? [$lockedItem] : [],
+                        ], 409);
+                    }
+
+                    $ownedCarts = ApprovalCart::where('user_id', $userId)
+                        ->where('company_id', $companyId)
+                        ->where('customer_id', (int) $request->customer_id)
+                        ->where('device_id', $deviceId)
+                        ->whereIn('itemset_id', $payloadItemSetIds)
+                        ->where('created_at', '>=', $activeLockCutoff)
+                        ->lockForUpdate()
+                        ->get()
+                        ->keyBy(fn ($cart) => (int) $cart->itemset_id);
+
+                    $payloadRows->each(function ($payloadRow) use ($ownedCarts, $voucherSessionId) {
+                        $cart = $ownedCarts->get((int) $payloadRow['itemset_id']);
+                        if (!$cart || (string) $cart->voucher_session_id === $voucherSessionId) {
+                            return;
+                        }
+
+                        $cart->forceFill([
+                            'voucher_session_id' => $voucherSessionId,
+                            'device_entry_id' => $payloadRow['device_entry_id'] ?: $cart->device_entry_id,
+                        ])->save();
+                    });
+
+                    $sessionCartItemSetIds = ApprovalCart::where('user_id', $userId)
+                        ->where('company_id', $companyId)
+                        ->where('customer_id', (int) $request->customer_id)
+                        ->where('device_id', $deviceId)
+                        ->where('voucher_session_id', $voucherSessionId)
+                        ->pluck('itemset_id')
+                        ->map(fn ($id) => (int) $id)
+                        ->all();
+                }
+
+                $allowedIds = array_flip($sessionCartItemSetIds);
+                $itemsPayload = collect($itemsPayload)
+                    ->filter(function ($row) use ($allowedIds) {
+                        $itemSetId = (int) ($row['itemset_id'] ?? $row['id'] ?? 0);
+
+                        return $itemSetId > 0 && isset($allowedIds[$itemSetId]);
+                    })
+                    ->values()
+                    ->all();
+            }
+
+            if (empty($itemsPayload)) {
+                DB::rollBack();
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No approval items selected for this device voucher session.',
+                    'code' => 'APPROVAL_SESSION_EMPTY',
+                ], 422);
+            }
+
+            $approval = ApprovalHeader::create([
+                'company_id' => $companyId,
+                'customer_id' => $request->customer_id,
+                'approval_no' => \App\Services\VoucherSeries::next($companyId, 'APP'),
+                'approval_date' => now(),
+                'status' => 'open',
+                'remarks' => $request->input('remarks', $request->input('remark')),
+                'employee_id' => $userId,
+                'modified_count' => 0,
+            ]);
+
+            $processedItemSetIds = [];
+
+            foreach ($itemsPayload as $row) {
+                $itemSetId = (int) ($row['itemset_id'] ?? $row['id'] ?? 0);
+                if (!$itemSetId) {
+                    continue;
+                }
+
+                $itemSet = TransactionItemGuard::lockItemSetForUse($companyId, $itemSetId)->load('item');
+
+                if ((int) $itemSet->is_final !== 1) {
+                    throw new \Exception("Item is not finalized: {$itemSet->qr_code}");
+                }
+
+                $gross = (float) ($row['gross_weight'] ?? $itemSet->gross_weight ?? 0);
+                $otherWeight = (float) ($row['other_weight'] ?? $itemSet->other ?? 0);
+                $netWeight = (float) ($row['net_weight'] ?? ($gross - $otherWeight));
+                $purity = (float) ($row['purity'] ?? optional($itemSet->item)->outward_purity ?? 0);
+                $wastePercent = (float) ($row['waste_percent'] ?? 0);
+                $netPurity = max(0, $purity + $wastePercent);
+                $totalFineWeight = $netWeight * $netPurity / 100;
+                $metalRate = (float) ($row['metal_rate'] ?? 0);
+                $metalAmount = (float) ($row['metal_amount'] ?? ($netWeight * $metalRate));
+                $labourRate = (float) ($row['labour_rate'] ?? $itemSet->sale_labour_rate ?? optional($itemSet->item)->labour_rate ?? 0);
+                $labourAmount = (float) ($row['labour_amount'] ?? ($netWeight * $labourRate));
+                $otherAmount = $this->resolveOtherAmount($row['other_amount'] ?? null, $itemSet->sale_other ?? 0);
+                $totalAmount = $this->resolveTotalAmount($row['total_amount'] ?? null, $metalAmount, $labourAmount, $otherAmount);
+
+                ApprovalItem::create([
+                    'approval_id' => $approval->id,
+                    'device_id' => $deviceId,
+                    'voucher_session_id' => $voucherSessionId,
+                    'itemset_id' => $itemSet->id,
+                    'item_id' => $itemSet->item_id,
+                    'huid' => $row['huid'] ?? $itemSet->HUID,
+                    'qr_code' => $row['qr_code'] ?? $itemSet->qr_code,
+                    'gross_weight' => $gross,
+                    'other_weight' => $otherWeight,
+                    'net_weight' => $netWeight,
+                    'purity' => $purity,
+                    'waste_percent' => $wastePercent,
+                    'net_purity' => $netPurity,
+                    'total_fine_weight' => $totalFineWeight,
+                    'metal_rate' => $metalRate,
+                    'metal_amount' => $metalAmount,
+                    'labour_rate' => $labourRate,
+                    'labour_amount' => $labourAmount,
+                    'other_amount' => $otherAmount,
+                    'other_charge_details' => $this->normalizeOtherChargeDetails($row['other_charge_details'] ?? $row['other_charges'] ?? null),
+                    'total_amount' => $totalAmount,
+                    'status' => 'pending',
+                ]);
+
+                $itemSet->update(['is_sold' => 1]);
+                $processedItemSetIds[] = (int) $itemSet->id;
+            }
+
+            $processedItemSetIds = array_values(array_unique(array_filter($processedItemSetIds)));
+
+            $cartDeleteQuery = ApprovalCart::where('user_id', $userId)
+                ->where('company_id', $companyId)
+                ->where('customer_id', (int) $request->customer_id)
+                ->where('device_id', $deviceId)
+                ->where('voucher_session_id', $voucherSessionId);
+
+            if (!empty($processedItemSetIds)) {
+                $cartDeleteQuery->whereIn('itemset_id', $processedItemSetIds);
+            }
+
+            $removedFromCart = $cartDeleteQuery->delete();
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Approval created successfully',
+                'data' => [
+                    'approval_id' => $approval->id,
+                    'approval_no' => $approval->approval_no,
+                    'device_id' => $deviceId,
+                    'voucher_session_id' => $voucherSessionId,
+                    'removed_from_cart' => $removedFromCart,
+                ]
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    public function update(Request $request, $id)
+    {
+        $companyId = $request->user()->company_id;
+        $userId = $request->user()->id;
+            
+        $request->validate([
+            'customer_id' => 'required|integer|exists:customers,id',
+            'items' => 'required|array|min:1',
+            'remarks' => 'nullable|string',
+        ]);
+        $customerExists = Customer::where('company_id', $companyId)
+            ->saleParties()
+            ->where('id', (int) $request->customer_id)
+            ->exists();
+        if (!$customerExists) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid customer for this company.',
+            ], 422);
+        }
+
+        DB::beginTransaction();
+
+        try {
+            $approval = ApprovalHeader::with('items')
+                ->where('company_id', $companyId)
+                ->findOrFail((int) $id);
+
+            if (!in_array((string) $approval->status, ['open', 'partial'], true)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only open/partial approvals can be edited.',
+                ], 422);
+            }
+
+            $approval->update([
+                'customer_id' => (int) $request->customer_id,
+                'remarks' => $request->input('remarks', $request->input('remark', $approval->remarks)),
+                'modified_count' => ((int) ($approval->modified_count ?? 0)) + 1,
+            ]);
+
+            $incomingRows = collect($request->input('items', []))
+                ->filter(fn($row) => is_array($row))
+                ->values();
+
+            $resolvedRows = $incomingRows
+                ->map(function ($row) use ($companyId) {
+                    $itemSet = $this->resolveApprovalUpdateItemSet($row, $companyId);
+                    if (!$itemSet) {
+                        return null;
+                    }
+                    return [
+                        'row' => $row,
+                        'itemSet' => $itemSet,
+                    ];
+                })
+                ->filter()
+                ->unique(fn($pair) => (int) $pair['itemSet']->id)
+                ->values();
+
+            if ($resolvedRows->isEmpty()) {
+                throw new \Exception('No valid itemset found in update items. Use itemset_id/id or qr_code/huid.');
+            }
+
+            $incomingItemsetIds = $resolvedRows
+                ->map(fn($pair) => (int) $pair['itemSet']->id)
+                ->unique()
+                ->values();
+
+            $pendingItems = ApprovalItem::where('approval_id', $approval->id)
+                ->where('status', 'pending')
+                ->get();
+            $pendingByItemset = $pendingItems->keyBy('itemset_id');
+
+            $toRemove = $pendingItems->filter(function ($row) use ($incomingItemsetIds) {
+                return !$incomingItemsetIds->contains((int) $row->itemset_id);
+            });
+
+            foreach ($toRemove as $row) {
+                if (!empty($row->itemset_id)) {
+                    ItemSet::where('company_id', $companyId)
+                        ->where('id', (int) $row->itemset_id)
+                        ->update(['is_sold' => 0]);
+                }
+                $row->delete();
+            }
+
+            foreach ($resolvedRows as $pair) {
+                $row = $pair['row'];
+                $itemSet = $pair['itemSet'];
+                $itemSetId = (int) $itemSet->id;
+
+                if (!$pendingByItemset->has($itemSetId) && (int) $itemSet->is_sold === 1) {
+                    throw new \Exception("Item already used: {$itemSet->qr_code}");
+                }
+
+                $payload = $this->buildApprovalItemPayload($row, $itemSet);
+
+                if ($pendingByItemset->has($itemSetId)) {
+                    $pendingByItemset->get($itemSetId)->update($payload);
+                } else {
+                    ApprovalItem::create(array_merge($payload, [
+                        'approval_id' => $approval->id,
+                        'itemset_id' => $itemSet->id,
+                        'item_id' => $itemSet->item_id,
+                        'status' => 'pending',
+                    ]));
+                    $itemSet->update(['is_sold' => 1]);
+                }
+            }
+
+            // Match store() behavior: remove updated/processed items from approval cart
+            $processedItemSetIds = $resolvedRows
+                ->map(fn($pair) => (int) $pair['itemSet']->id)
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+
+            $cartDeleteQuery = ApprovalCart::where('user_id', $userId)
+                ->where('company_id', $companyId)
+                ->where('customer_id', (int) $request->customer_id);
+
+            if (!empty($processedItemSetIds)) {
+                $cartDeleteQuery->whereIn('itemset_id', $processedItemSetIds);
+            }
+
+            $removedFromCart = $cartDeleteQuery->delete();
+
+            $this->updateApprovalStatus([$approval->id]);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Approval updated successfully',
+                'data' => [
+                    'approval_id' => $approval->id,
+                    'approval_no' => $approval->approval_no,
+                    'removed_from_cart' => $removedFromCart,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    public function show(Request $request, $id)
+    {
+        $companyId = $request->user()->company_id;
+
+        $approval = ApprovalHeader::with('customer', 'items.itemSet.item', 'items.legacyItemSet.item')
+            ->where('company_id', $companyId)
+            ->findOrFail($id);
+
+        $items = $approval->items->map(function ($row) {
+            $itemSet = $row->itemSet ?? $row->legacyItemSet;
+            $gross = (float) $row->gross_weight;
+            $otherWeight = (float) $row->other_weight;
+            $netWeight = (float) ($row->net_weight ?? max(0, $gross - $otherWeight));
+            $purity = (float) $row->purity;
+            $wastePercent = (float) $row->waste_percent;
+            $netPurity = max(0, $purity + $wastePercent);
+            $fineWeight = $netWeight * $netPurity / 100;
+
+            return [
+                'id' => $row->id,
+                'itemset_id' => $row->itemset_id ?? optional($itemSet)->id,
+                'item_id' => $row->item_id ?? optional($itemSet)->item_id,
+                'item_name' => optional(optional($itemSet)->item)->item_name ?? '-',
+                'huid' => $row->huid ?? optional($itemSet)->HUID,
+                'qr_code' => $row->qr_code ?? optional($itemSet)->qr_code,
+                'gross_weight' => $gross,
+                'other_weight' => $otherWeight,
+                'net_weight' => $netWeight,
+                'purity' => $purity,
+                'waste_percent' => $wastePercent,
+                'net_purity' => $netPurity,
+                'total_fine_weight' => $fineWeight,
+                'metal_rate' => (float) $row->metal_rate,
+                'metal_amount' => (float) $row->metal_amount,
+                'labour_rate' => (float) $row->labour_rate,
+                'labour_amount' => (float) $row->labour_amount,
+                'other_amount' => (float) $row->other_amount,
+                'total_amount' => (float) $row->total_amount,
+                'status' => $row->status,
+            ];
+        });
+
+        $billableItems = $approval->items->where('status', '!=', 'returned');
+        $totals = [
+            'gross_weight' => (float) $approval->items->sum('gross_weight'),
+            'net_weight' => (float) $approval->items->sum('net_weight'),
+            'amount_all' => (float) $approval->items->sum('total_amount'),
+            'amount_billable' => (float) $billableItems->sum('total_amount'),
+            'pending_count' => (int) $approval->items->where('status', 'pending')->count(),
+            'sold_count' => (int) $approval->items->where('status', 'sold')->count(),
+            'returned_count' => (int) $approval->items->where('status', 'returned')->count(),
+        ];
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $approval->id,
+                'approval_no' => $approval->approval_no,
+                'approval_date' => optional($approval->approval_date)->format('Y-m-d') ?? null,
+                'status' => $approval->status,
+                'remarks' => $approval->remarks,
+                'customer' => $approval->customer,
+                'totals' => $totals,
+                'items' => $items,
+            ]
+        ]);
+    }
+
+    public function markSold(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+        $request->validate([
+            'items' => 'required|array|min:1',
+            'items.*' => 'required|integer'
+        ]);
+
+        DB::beginTransaction();
+        try {
+            $approvalIds = [];
+            foreach ($request->items as $id) {
+                $item = TransactionItemGuard::lockApprovalItemForSale($companyId, (int) $id);
+                $item->update(['status' => 'sold']);
+
+                $approvalIds[] = $item->approval_id;
+            }
+
+            $this->updateApprovalStatus(array_values(array_unique($approvalIds)));
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Items marked as sold'
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $isProcessedConflict = str_contains($e->getMessage(), 'already sold/returned')
+                || str_contains($e->getMessage(), 'not available for sale');
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'code' => $isProcessedConflict ? 'APPROVAL_ITEM_ALREADY_PROCESSED' : 'APPROVAL_ITEM_SAVE_FAILED',
+            ], $isProcessedConflict ? 409 : 422);
+        }
+    }
+
+    public function pendingItemsByCustomer(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+        $request->validate([
+            'customer_id' => 'required|integer',
+        ]);
+
+        $customerExists = Customer::where('company_id', $companyId)
+            ->saleParties()
+            ->where('id', (int) $request->customer_id)
+            ->exists();
+        if (!$customerExists) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid customer for this company.'
+            ], 422);
+        }
+
+        $hasReturnApprovalItemId = Schema::hasColumn('sale_return_items', 'approval_item_id');
+        $hasReturnItemsetId = Schema::hasColumn('sale_return_items', 'itemset_id');
+
+        $items = ApprovalItem::with('itemSet.item', 'legacyItemSet.item')
+            ->whereHas('approval', function ($q) use ($companyId, $request) {
+                $q->where('company_id', $companyId)
+                    ->where('customer_id', $request->customer_id);
+            })
+            ->where(function ($q) {
+                $q->whereNull('status')
+                    ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+            })
+            ->whereNotExists(function ($sub) use ($hasReturnApprovalItemId, $hasReturnItemsetId) {
+                $sub->select(DB::raw(1))
+                    ->from('sale_return_items');
+
+                if ($hasReturnApprovalItemId && $hasReturnItemsetId) {
+                    $sub->where(function ($q) {
+                        $q->whereColumn('sale_return_items.approval_item_id', 'approval_items.id')
+                            ->orWhereColumn('sale_return_items.itemset_id', 'approval_items.itemset_id');
+                    });
+                } elseif ($hasReturnApprovalItemId) {
+                    $sub->whereColumn('sale_return_items.approval_item_id', 'approval_items.id');
+                } elseif ($hasReturnItemsetId) {
+                    $sub->whereColumn('sale_return_items.itemset_id', 'approval_items.itemset_id');
+                } else {
+                    $sub->whereRaw('1 = 0');
+                }
+            })
+            ->orderByDesc('id')
+            ->get();
+
+        $rows = $items->map(function ($row) {
+            $itemSet = $row->itemSet ?? $row->legacyItemSet;
+            $item = optional($itemSet)->item;
+            $gross = (float) $row->gross_weight;
+            $otherWeight = (float) $row->other_weight;
+            $netWeight = (float) ($row->net_weight ?? max(0, $gross - $otherWeight));
+            $purity = (float) $row->purity;
+            $wastePercent = (float) $row->waste_percent;
+            $netPurity = max(0, $purity + $wastePercent);
+            $fineWeight = $netWeight * $netPurity / 100;
+
+            return [
+                'id' => $row->id,
+                'approval_id' => $row->approval_id,
+                'itemset_id' => $row->itemset_id ?? optional($itemSet)->id,
+                'item_id' => $row->item_id ?? optional($itemSet)->item_id,
+                'name' => optional($item)->item_name,
+                'qr_code' => $row->qr_code ?? optional($itemSet)->qr_code,
+                'huid' => $row->huid ?? optional($itemSet)->HUID,
+                'gross_weight' => $gross,
+                'other_weight' => $otherWeight,
+                'net_weight' => $netWeight,
+                'purity' => $purity,
+                'waste_percent' => $wastePercent,
+                'net_purity' => $netPurity,
+                'fine_weight' => $fineWeight,
+                'metal_rate' => (float) $row->metal_rate,
+                'metal_amount' => (float) $row->metal_amount,
+                'labour_rate' => (float) $row->labour_rate,
+                'labour_amount' => (float) $row->labour_amount,
+                'other_amount' => (float) $row->other_amount,
+                'total_amount' => (float) $row->total_amount,
+                'status' => $row->status,
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $rows
+        ]);
+    }
+
+    public function returnItems(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+        $request->validate([
+            'approval_id' => 'required|integer',
+            'items' => 'required|array|min:1',
+            'items.*' => 'required|integer',
+            'remarks' => 'nullable|string',
+        ]);
+
+        DB::beginTransaction();
+        try {
+            ApprovalHeader::where('company_id', $companyId)
+                ->findOrFail($request->approval_id);
+
+            $hasItemsetIdColumn = Schema::hasColumn('sale_return_items', 'itemset_id');
+            $hasProductIdColumn = Schema::hasColumn('sale_return_items', 'product_id');
+
+            $return = SaleReturn::create([
+                'company_id' => $companyId,
+                'sale_id' => null,
+                'source_type' => 'approval',
+                'source_id' => $request->approval_id,
+                'return_voucher_no' => \App\Services\VoucherSeries::next($companyId, 'AR'),
+                'return_date' => now(),
+                'remarks' => $request->input('remarks', $request->input('remark')),
+                'return_total' => 0,
+            ]);
+
+            $totalAmount = 0;
+            $approvalIds = [];
+
+            foreach ($request->items as $id) {
+                $approvalItem = TransactionItemGuard::lockApprovalItemForReturn($companyId, (int) $id)
+                    ->load('itemSet');
+
+                if ((int) $approvalItem->approval_id !== (int) $request->approval_id) {
+                    throw new \Exception('Approval item does not belong to selected approval voucher.');
+                }
+
+                $itemSet = $approvalItem->itemSet;
+                $amount = (float) $approvalItem->total_amount;
+
+                $payload = [
+                    'sale_return_id' => $return->id,
+                    'sale_item_id' => null,
+                    'return_amount' => $amount,
+                ];
+
+                if ($hasItemsetIdColumn && $itemSet) {
+                    $payload['itemset_id'] = $itemSet->id;
+                }
+
+                if ($hasProductIdColumn) {
+                    $payload['product_id'] = $approvalItem->item_id;
+                }
+
+                SaleReturnItem::create($payload);
+
+                $totalAmount += $amount;
+                $approvalItem->update(['status' => 'returned']);
+                if ($itemSet) {
+                    $itemSet->update(['is_sold' => 0]);
+                }
+                $approvalIds[] = $approvalItem->approval_id;
+            }
+
+            $return->update(['return_total' => $totalAmount]);
+            $this->updateApprovalStatus(array_values(array_unique($approvalIds)));
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Approval return voucher created successfully',
+                'data' => [
+                    'return_id' => $return->id,
+                    'return_voucher_no' => $return->return_voucher_no,
+                    'return_total' => (float) $return->return_total,
+                ]
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $isProcessedConflict = str_contains($e->getMessage(), 'already sold/returned')
+                || str_contains($e->getMessage(), 'not available for return');
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'code' => $isProcessedConflict ? 'APPROVAL_ITEM_ALREADY_PROCESSED' : 'APPROVAL_RETURN_SAVE_FAILED',
+            ], $isProcessedConflict ? 409 : 422);
+        }
+    }
+
+    public function pdf(Request $request, $id)
+    {
+        $companyId = $request->user()->company_id;
+
+        $approval = ApprovalHeader::with('customer', 'items.itemSet.item', 'items.legacyItemSet.item')
+            ->where('company_id', $companyId)
+            ->findOrFail($id);
+
+        $company = Company::find($companyId);
+
+        $printedBy = optional($request->user())->name
+            ?? optional($approval->creator)->name
+            ?? 'System';
+        $printedAt = now();
+
+        $pdf = Pdf::loadView('company.approval.approval_pdf', compact('company', 'approval', 'printedBy', 'printedAt'))
+            ->setPaper('a4', 'portrait');
+
+        return $pdf->stream('Approval-' . $approval->approval_no . '.pdf');
+    }
+
+    public function exportListPdfUrl(Request $request)
+    {
+        $customerId = (int) $request->query('customer_id', 0);
+        $fromDate = (string) $request->query('from_date', '');
+        $toDate = (string) $request->query('to_date', '');
+
+        $query = [];
+        if ($customerId > 0) {
+            $query['customer_id'] = Crypt::encryptString((string) $customerId);
+        }
+        if ($fromDate !== '') {
+            $query['from_date'] = $fromDate;
+        }
+        if ($toDate !== '') {
+            $query['to_date'] = $toDate;
+        }
+
+        $url = url('/api/approvals/export/pdf') . (!empty($query) ? ('?' . http_build_query($query)) : '');
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Approval list PDF URL generated successfully.',
+            'data' => [
+                'url' => $url,
+            ],
+        ]);
+    }
+
+    public function exportListPdf(Request $request)
+    {
+        $companyId = (int) $request->user()->company_id;
+        $company = Company::findOrFail($companyId);
+        $customerId = $this->resolveEncryptedCustomerFilterId($request, $companyId);
+        $pendingItemFilter = function ($q) {
+            return $q->where(function ($statusQuery) {
+                $statusQuery->whereNull('status')
+                    ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+            });
+        };
+
+        $query = ApprovalHeader::with([
+            'customer',
+            'creator',
+            'items' => function ($q) use ($pendingItemFilter) {
+                $pendingItemFilter($q)->with(['itemSet.item', 'legacyItemSet.item']);
+            }
+        ])
+            ->withCount([
+                'items as active_items_count' => $pendingItemFilter
+            ])
+            ->withSum([
+                'items as active_gross_weight' => $pendingItemFilter
+            ], 'gross_weight')
+            ->withSum([
+                'items as active_net_weight' => $pendingItemFilter
+            ], 'net_weight')
+            ->withSum([
+                'items as active_fine_weight' => $pendingItemFilter
+            ], 'total_fine_weight')
+            ->withSum([
+                'items as active_metal_amount' => $pendingItemFilter
+            ], 'metal_amount')
+            ->withSum([
+                'items as active_labour_amount' => $pendingItemFilter
+            ], 'labour_amount')
+            ->withSum([
+                'items as active_other_amount' => $pendingItemFilter
+            ], 'other_amount')
+            ->withSum([
+                'items as active_item_amount' => $pendingItemFilter
+            ], 'total_amount')
+            ->where('company_id', $company->id)
+            ->whereHas('items', $pendingItemFilter)
+            ->whereHas('customer', function ($customer) {
+                $customer->saleParties();
+            })
+            ->orderByDesc('approval_date')
+            ->orderByDesc('id');
+
+        if ($customerId !== null) {
+            $query->where('customer_id', $customerId);
+        }
+
+        $fromDate = $request->query('from_date');
+        $toDate = $request->query('to_date');
+        $today = now()->toDateString();
+
+        if (empty($fromDate) && empty($toDate)) {
+            $fromDate = $today;
+            $toDate = $today;
+        } elseif (!empty($fromDate) && empty($toDate)) {
+            $toDate = $fromDate;
+        } elseif (empty($fromDate) && !empty($toDate)) {
+            $fromDate = $toDate;
+        }
+
+        if (!empty($fromDate) && !empty($toDate)) {
+            $query->whereBetween('approval_date', [$fromDate, $toDate]);
+        }
+
+        $rows = $query->get()->map(function ($row) {
+            $names = collect($row->items ?? [])
+                ->map(function ($it) {
+                    $set = $it->itemSet ?? $it->legacyItemSet;
+                    return optional(optional($set)->item)->item_name;
+                })
+                ->filter()
+                ->unique()
+                ->values();
+
+            return [
+                'approval_no' => (string) ($row->approval_no ?? '-'),
+                'approval_date' => $row->approval_date ? \Carbon\Carbon::parse($row->approval_date)->format('d-m-Y') : '-',
+                'customer_name' => optional($row->customer)->name ?? '-',
+                'item_names' => $names->isEmpty() ? '-' : $names->implode(', '),
+                'total_qty' => (int) ($row->active_items_count ?? 0),
+                'gross_wt' => (float) ($row->active_gross_weight ?? 0),
+                'net_wt' => (float) ($row->active_net_weight ?? 0),
+                'fine_wt' => (float) ($row->active_fine_weight ?? 0),
+                'metal_amt' => (float) ($row->active_metal_amount ?? 0),
+                'labour_amt' => (float) ($row->active_labour_amount ?? 0),
+                'other_amt' => (float) ($row->active_other_amount ?? 0),
+                'total_amt' => (float) ($row->active_item_amount ?? 0),
+                'created_by' => optional($row->creator)->name ?? '-',
+            ];
+        })->values();
+
+        $pdf = Pdf::loadView('company.approval.list_pdf', [
+            'company' => $company,
+            'rows' => $rows,
+            'fromDate' => $fromDate,
+            'toDate' => $toDate,
+        ])->setPaper('a4', 'landscape');
+
+        return $pdf->stream('approval-list-' . now()->format('YmdHis') . '.pdf');
+    }
+
+    private function resolveEncryptedCustomerFilterId(Request $request, int $companyId): ?int
+    {
+        if (!$request->filled('customer_id')) {
+            return null;
+        }
+
+        $customerIdValue = (string) $request->query('customer_id');
+
+        try {
+            $customerId = ctype_digit($customerIdValue)
+                ? (int) $customerIdValue
+                : (int) Crypt::decryptString($customerIdValue);
+        } catch (\Illuminate\Contracts\Encryption\DecryptException $exception) {
+            abort(404);
+        }
+
+        abort_unless(
+            Customer::where('company_id', $companyId)
+                ->saleParties()
+                ->whereKey($customerId)
+                ->exists(),
+            404
+        );
+
+        return $customerId;
+    }
+
+    private function updateApprovalStatus(array $approvalIds): void
+    {
+        foreach ($approvalIds as $approvalId) {
+            $total = ApprovalItem::where('approval_id', $approvalId)->count();
+            $done = ApprovalItem::where('approval_id', $approvalId)
+                ->whereIn('status', ['sold', 'returned'])
+                ->count();
+
+            $status = 'open';
+            if ($total > 0 && $done === $total) {
+                $status = 'closed';
+            } elseif ($done > 0 && $done < $total) {
+                $status = 'partial';
+            }
+
+            ApprovalHeader::where('id', $approvalId)->update(['status' => $status]);
+        }
+    }
+
+    private function buildApprovalItemPayload(array $row, ItemSet $itemSet): array
+    {
+        $gross = (float) ($row['gross_weight'] ?? $itemSet->gross_weight ?? 0);
+        $otherWeight = (float) ($row['other_weight'] ?? $itemSet->other ?? 0);
+        $netWeight = (float) ($row['net_weight'] ?? ($gross - $otherWeight));
+        $purity = (float) ($row['purity'] ?? optional($itemSet->item)->outward_purity ?? 0);
+        $wastePercent = (float) ($row['waste_percent'] ?? 0);
+        $netPurity = max(0, $purity + $wastePercent);
+        $totalFineWeight = $netWeight * $netPurity / 100;
+        $metalRate = (float) ($row['metal_rate'] ?? 0);
+        $metalAmount = (float) ($row['metal_amount'] ?? ($netWeight * $metalRate));
+        $labourRate = (float) ($row['labour_rate'] ?? $itemSet->sale_labour_rate ?? optional($itemSet->item)->labour_rate ?? 0);
+        $labourAmount = (float) ($row['labour_amount'] ?? ($netWeight * $labourRate));
+        $otherAmount = $this->resolveOtherAmount($row['other_amount'] ?? null, $itemSet->sale_other ?? 0);
+        $totalAmount = $this->resolveTotalAmount($row['total_amount'] ?? null, $metalAmount, $labourAmount, $otherAmount);
+
+        return [
+            'huid' => $row['huid'] ?? $itemSet->HUID,
+            'qr_code' => $row['qr_code'] ?? $itemSet->qr_code,
+            'gross_weight' => $gross,
+            'other_weight' => $otherWeight,
+            'net_weight' => $netWeight,
+            'purity' => $purity,
+            'waste_percent' => $wastePercent,
+            'net_purity' => $netPurity,
+            'total_fine_weight' => $totalFineWeight,
+            'metal_rate' => $metalRate,
+            'metal_amount' => $metalAmount,
+            'labour_rate' => $labourRate,
+            'labour_amount' => $labourAmount,
+            'other_amount' => $otherAmount,
+            'other_charge_details' => $this->normalizeOtherChargeDetails($row['other_charge_details'] ?? $row['other_charges'] ?? null),
+            'total_amount' => $totalAmount,
+        ];
+    }
+
+    private function approvalCartPayload(ApprovalCart $cart, ItemSet $itemSet): array
+    {
+        $item = $itemSet->item;
+        $calculation = $this->buildApprovalItemPayload([], $itemSet);
+        $purity = (float) ($calculation['purity'] ?? 0);
+
+        return [
+            'cart_id' => $cart->id,
+            'device_id' => $cart->device_id,
+            'voucher_session_id' => $cart->voucher_session_id,
+            'device_entry_id' => $cart->device_entry_id,
+            'customer_id' => $cart->customer_id,
+            'itemset_id' => $itemSet->id,
+            'item_id' => $itemSet->item_id,
+            'serial_no' => $itemSet->serial_no,
+            'huid' => $itemSet->HUID,
+            'qr_code' => $itemSet->qr_code,
+            'item_name' => optional($item)->item_name,
+            'gross_weight' => (float) ($calculation['gross_weight'] ?? 0),
+            'other_weight' => (float) ($calculation['other_weight'] ?? 0),
+            'net_weight' => (float) ($calculation['net_weight'] ?? 0),
+            'purity' => $purity,
+            'item_purity' => $purity,
+            'outward_purity' => $purity,
+            'waste_percent' => (float) ($calculation['waste_percent'] ?? 0),
+            'net_purity' => (float) ($calculation['net_purity'] ?? 0),
+            'fine_weight' => (float) ($calculation['total_fine_weight'] ?? 0),
+            'total_fine_weight' => (float) ($calculation['total_fine_weight'] ?? 0),
+            'metal_rate' => (float) ($calculation['metal_rate'] ?? 0),
+            'metal_amount' => (float) ($calculation['metal_amount'] ?? 0),
+            'labour_rate' => (float) ($calculation['labour_rate'] ?? 0),
+            'labour_amount' => (float) ($calculation['labour_amount'] ?? 0),
+            'sale_labour_rate' => (float) ($calculation['labour_rate'] ?? 0),
+            'sale_other' => (float) ($itemSet->sale_other ?? 0),
+            'other_amount' => (float) ($calculation['other_amount'] ?? 0),
+            'total_amount' => (float) ($calculation['total_amount'] ?? 0),
+            'item' => [
+                'id' => (int) (optional($item)->id ?? 0),
+                'item_name' => (string) (optional($item)->item_name ?? ''),
+                'item_code' => (string) (optional($item)->item_code ?? ''),
+                'outward_purity' => $purity,
+                'labour_rate' => (float) (optional($item)->labour_rate ?? 0),
+            ],
+        ];
+    }
+
+    private function resolveOtherAmount($inputOtherAmount, $itemSetSaleOther): float
+    {
+        $baseOther = (float) ($itemSetSaleOther ?? 0);
+        if ($inputOtherAmount === null || $inputOtherAmount === '') {
+            return $baseOther;
+        }
+
+        $inputOther = (float) $inputOtherAmount;
+        if ($inputOther <= 0 && $baseOther > 0) {
+            return $baseOther;
+        }
+
+        return $inputOther;
+    }
+
+    private function normalizeOtherChargeDetails($value): ?string
+    {
+        if (is_array($value)) {
+            $value = array_values(array_filter($value, fn($row) => is_array($row) || trim((string) $row) !== ''));
+            return empty($value) ? null : json_encode($value);
+        }
+
+        $value = trim((string) ($value ?? ''));
+        return $value === '' ? null : $value;
+    }
+
+    private function excludeApprovalCartLocks($query, int $companyId, string $deviceId = '', string $voucherSessionId = ''): void
+    {
+        if (!Schema::hasTable('approval_carts') || !Schema::hasColumn('approval_carts', 'itemset_id')) {
+            return;
+        }
+
+        $activeLockCutoff = now()->subMinutes(30);
+        $query->whereNotExists(function ($cartQuery) use ($companyId, $deviceId, $voucherSessionId, $activeLockCutoff) {
+            $cartQuery->select(DB::raw(1))
+                ->from('approval_carts')
+                ->whereColumn('approval_carts.itemset_id', 'item_sets.id')
+                ->where('approval_carts.company_id', $companyId)
+                ->whereNotNull('approval_carts.itemset_id')
+                ->where('approval_carts.created_at', '>=', $activeLockCutoff);
+
+            if ($deviceId !== '' && $voucherSessionId !== '') {
+                $cartQuery->where(function ($ownerQuery) use ($deviceId, $voucherSessionId) {
+                    $ownerQuery->where('approval_carts.device_id', '!=', $deviceId)
+                        ->orWhere('approval_carts.voucher_session_id', '!=', $voucherSessionId)
+                        ->orWhereNull('approval_carts.device_id')
+                        ->orWhereNull('approval_carts.voucher_session_id');
+                });
+            }
+        });
+    }
+
+    private function approvalCartLockPayload(ItemSet $itemSet, ApprovalCart $cart): array
+    {
+        $item = $itemSet->item;
+        $calculation = $this->buildApprovalItemPayload([], $itemSet);
+        $purity = (float) ($calculation['purity'] ?? 0);
+        $label = $itemSet->qr_code
+            ?: ($itemSet->barcode ?: ($itemSet->HUID ?: (optional($item)->item_name ?: ('Item ' . $itemSet->id))));
+
+        return [
+            'cart_id' => $cart->id,
+            'itemset_id' => $itemSet->id,
+            'item_id' => $itemSet->item_id,
+            'label' => $label,
+            'qr_code' => $itemSet->qr_code,
+            'barcode' => $itemSet->barcode,
+            'huid' => $itemSet->HUID,
+            'item_name' => optional($item)->item_name,
+            'gross_weight' => number_format((float) ($itemSet->gross_weight ?? 0), 3, '.', ''),
+            'other_weight' => number_format((float) ($itemSet->other ?? 0), 3, '.', ''),
+            'net_weight' => number_format((float) ($itemSet->net_weight ?? 0), 3, '.', ''),
+            'purity' => number_format($purity, 3, '.', ''),
+            'item_purity' => number_format($purity, 3, '.', ''),
+            'outward_purity' => number_format($purity, 3, '.', ''),
+            'waste_percent' => number_format((float) ($calculation['waste_percent'] ?? 0), 3, '.', ''),
+            'net_purity' => number_format((float) ($calculation['net_purity'] ?? 0), 3, '.', ''),
+            'fine_weight' => number_format((float) ($calculation['total_fine_weight'] ?? 0), 3, '.', ''),
+            'total_fine_weight' => number_format((float) ($calculation['total_fine_weight'] ?? 0), 3, '.', ''),
+            'sale_other' => number_format((float) ($itemSet->sale_other ?? 0), 2, '.', ''),
+            'locked_by_user_id' => $cart->user_id,
+            'locked_customer_id' => $cart->customer_id,
+            'locked_device_id' => $cart->device_id,
+            'locked_voucher_session_id' => $cart->voucher_session_id,
+            'locked_device_entry_id' => $cart->device_entry_id,
+            'locked_at' => optional($cart->created_at)->toDateTimeString(),
+        ];
+    }
+
+    private function resolveTotalAmount($inputTotalAmount, float $metalAmount, float $labourAmount, float $otherAmount): float
+    {
+        $calculated = (float) ($metalAmount + $labourAmount + $otherAmount);
+        if ($inputTotalAmount === null || $inputTotalAmount === '') {
+            return $calculated;
+        }
+
+        $inputTotal = (float) $inputTotalAmount;
+        if ($inputTotal <= 0 && $calculated > 0) {
+            return $calculated;
+        }
+
+        return $inputTotal;
+    }
+
+    private function resolveApprovalUpdateItemSet(array $row, int $companyId): ?ItemSet
+    {
+        $query = ItemSet::with('item')
+            ->where('company_id', $companyId);
+
+        $itemSetId = (int) ($row['itemset_id'] ?? $row['id'] ?? 0);
+        if ($itemSetId > 0) {
+            return (clone $query)->where('id', $itemSetId)->first();
+        }
+
+        $qrCode = trim((string) ($row['qr_code'] ?? ''));
+        if ($qrCode !== '') {
+            return (clone $query)->where('qr_code', $qrCode)->first();
+        }
+
+        $huid = trim((string) ($row['huid'] ?? $row['HUID'] ?? ''));
+        if ($huid !== '') {
+            return (clone $query)->where('HUID', $huid)->first();
+        }
+
+        return null;
+    }
+}

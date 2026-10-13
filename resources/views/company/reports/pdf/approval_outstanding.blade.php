@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <style>
-        @page { size: A4 portrait; margin: 6mm 4px 6mm 4px; }
+        @page { size: A4 landscape; margin: 6mm 4mm; }
         body { font-family: DejaVu Sans, Arial, sans-serif; font-size: 8.5px; line-height: 1.25; }
         h3 { margin: 0 0 6px; font-size: 12px; }
         table { width: 100%; border-collapse: collapse; table-layout: fixed; }
@@ -13,6 +13,10 @@
 </head>
 <body>
     <h3>Approval Outstanding Report - {{ $company->name }}</h3>
+    @if(isset($selectedCustomer))
+        <div style="margin-bottom:8px;font-size:11px;"><strong>Customer:</strong> {{ $selectedCustomer->name }}</div>
+        @php unset($visibleColumns['customer']); @endphp
+    @endif
     <table>
         <thead>
             <tr>
@@ -50,6 +54,21 @@
                         @case('net_weight')
                             <td>{{ number_format((float)($r->pending_net_weight ?? 0), 3, '.', '') }}</td>
                             @break
+                        @case('purity')
+                            <td>{{ number_format((float)($r->pending_purity ?? 0), 3, '.', '') }}</td>
+                            @break
+                        @case('fine_weight')
+                            <td>{{ number_format((float)($r->pending_fine_weight ?? 0), 3, '.', '') }}</td>
+                            @break
+                        @case('waste_percent')
+                            <td>{{ number_format((float)($r->pending_waste_percent ?? 0), 3, '.', '') }}</td>
+                            @break
+                        @case('metal_rate')
+                            <td>{{ number_format((float)($r->pending_metal_rate ?? 0), 2, '.', '') }}</td>
+                            @break
+                        @case('labour_rate')
+                            <td>{{ number_format((float)($r->pending_labour_rate ?? 0), 2, '.', '') }}</td>
+                            @break
                         @case('other_amount')
                             <td>{{ number_format((float)($r->pending_other_amount ?? 0), 2, '.', '') }}</td>
                             @break
@@ -81,9 +100,11 @@
                     @elseif($key === 'net_weight')
                         <td style="font-weight:700;">{{ number_format((float)($summary['pending_net_weight'] ?? 0), 3, '.', '') }}</td>
                     @elseif($key === 'other_amount')
-                        <td style="font-weight:700;">{{ number_format((float)($summary['pending_other_amount'] ?? 0), 2, '.', '') }}</td>
+                        <td style="font-weight:700;">Rs {{ number_format((float)($summary['pending_other_amount'] ?? 0), 2, '.', '') }}</td>
+                    @elseif($key === 'fine_weight')
+                        <td style="font-weight:700;">{{ number_format((float)($summary['pending_fine_weight'] ?? 0), 3, '.', '') }}</td>
                     @elseif($key === 'pending_amount')
-                        <td style="font-weight:700;">{{ number_format((float)($summary['pending_amount'] ?? 0), 2, '.', '') }}</td>
+                        <td style="font-weight:700;">Rs {{ number_format((float)($summary['pending_amount'] ?? 0), 2, '.', '') }}</td>
                     @else
                         <td></td>
                     @endif

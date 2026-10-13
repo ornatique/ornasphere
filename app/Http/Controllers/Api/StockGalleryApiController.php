@@ -223,22 +223,7 @@ class StockGalleryApiController extends Controller
 
     private function imageDataUri(ItemSet $itemSet): ?string
     {
-        if (!$itemSet->image_path) {
-            return null;
-        }
-
-        try {
-            $disk = Storage::disk($itemSet->image_disk ?: $this->itemImageDisk());
-            if (!$disk->exists($itemSet->image_path)) {
-                return null;
-            }
-
-            $mime = $itemSet->image_mime ?: 'image/jpeg';
-
-            return 'data:' . $mime . ';base64,' . base64_encode($disk->get($itemSet->image_path));
-        } catch (\Throwable) {
-            return null;
-        }
+        return app(\App\Services\StockGalleryPdfImage::class)->dataUri($itemSet);
     }
 
     private function imageExists(ItemSet $itemSet): bool

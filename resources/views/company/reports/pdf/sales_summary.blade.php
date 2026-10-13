@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <style>
-        @page { size: A4 portrait; margin: 6mm 4px 6mm 4px; }
+        @page { size: A4 landscape; margin: 6mm 4mm; }
         body { font-family: DejaVu Sans, Arial, sans-serif; font-size: 8.5px; line-height: 1.25; }
         h3 { margin: 0 0 6px; font-size: 12px; }
         table { width: 100%; border-collapse: collapse; table-layout: fixed; }
@@ -19,9 +19,14 @@
             'customer' => ['label' => 'Customer Name'],
             'qty_pcs' => ['label' => 'Qty', 'total_key' => 'qty_pcs', 'decimals' => 0],
             'gross_weight' => ['label' => 'Gross Wt', 'total_key' => 'gross_weight', 'decimals' => 3],
+            'other_weight' => ['label' => 'Other Wt', 'total_key' => 'other_weight', 'decimals' => 3],
             'net_weight' => ['label' => 'Net Wt', 'total_key' => 'net_weight', 'decimals' => 3],
+            'purity' => ['label' => 'Purity', 'total_key' => 'purity', 'decimals' => 3],
+            'waste_percent' => ['label' => 'Waste %', 'total_key' => 'waste_percent', 'decimals' => 3],
             'fine_weight' => ['label' => 'Fine Wt', 'total_key' => 'fine_weight', 'decimals' => 3],
+            'metal_rate' => ['label' => 'Metal Rate', 'total_key' => 'metal_rate', 'decimals' => 2],
             'metal_amount' => ['label' => 'Metal Amt', 'total_key' => 'metal_amount', 'decimals' => 2],
+            'labour_rate' => ['label' => 'Labour Rate', 'total_key' => 'labour_rate', 'decimals' => 2],
             'labour_amount' => ['label' => 'Labour Amt', 'total_key' => 'labour_amount', 'decimals' => 2],
             'other_amount' => ['label' => 'Other Amt', 'total_key' => 'other_amount', 'decimals' => 2],
             'net_total' => ['label' => 'Total', 'total_key' => 'net_total', 'decimals' => 2],
@@ -31,6 +36,10 @@
     @endphp
 
     <h3>Sales Summary Report - {{ $company->name }}</h3>
+    @if(isset($selectedCustomer))
+        <div style="margin-bottom:8px;font-size:11px;"><strong>Customer:</strong> {{ $selectedCustomer->name }}</div>
+        @php unset($visibleColumns['customer']); @endphp
+    @endif
     <table>
         <thead>
             <tr>
@@ -65,11 +74,23 @@
                             @case('net_weight')
                                 <td>{{ number_format((float)($r->total_net_weight ?? 0), 3, '.', '') }}</td>
                                 @break
+                            @case('purity')
+                                <td>{{ number_format((float)($r->total_purity ?? 0), 3, '.', '') }}</td>
+                                @break
+                            @case('waste_percent')
+                                <td>{{ number_format((float)($r->total_waste_percent ?? 0), 3, '.', '') }}</td>
+                                @break
                             @case('fine_weight')
                                 <td>{{ number_format((float)($r->total_fine_weight ?? 0), 3, '.', '') }}</td>
                                 @break
+                            @case('metal_rate')
+                                <td>{{ number_format((float)($r->total_metal_rate ?? 0), 2, '.', '') }}</td>
+                                @break
                             @case('metal_amount')
                                 <td>{{ number_format((float)($r->total_metal_amount ?? 0), 2, '.', '') }}</td>
+                                @break
+                            @case('labour_rate')
+                                <td>{{ number_format((float)($r->total_labour_rate ?? 0), 2, '.', '') }}</td>
                                 @break
                             @case('labour_amount')
                                 <td>{{ number_format((float)($r->total_labour_amount ?? 0), 2, '.', '') }}</td>
@@ -96,12 +117,15 @@
                     @if(!$printedTotal)
                         <td style="font-weight:700;">TOTAL</td>
                         @php $printedTotal = true; @endphp
+                    @elseif(in_array($key, ['purity', 'waste_percent', 'metal_rate', 'labour_rate'], true))
+                        <td></td>
                     @elseif(isset($column['total_key']))
                         @php
                             $decimals = (int)($column['decimals'] ?? 0);
                             $value = $totals[$column['total_key']] ?? 0;
                         @endphp
                         <td style="font-weight:700;">
+                            @if(in_array($key, ['metal_amount', 'labour_amount', 'other_amount', 'net_total'], true))Rs @endif
                             {{ $decimals > 0 ? number_format((float)$value, $decimals, '.', '') : (int)$value }}
                         </td>
                     @else

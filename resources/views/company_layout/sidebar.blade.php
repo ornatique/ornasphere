@@ -149,6 +149,20 @@
     </style>
 
     <ul class="nav" id="sidebar-accordion">
+        @if($canModule('qr-making'))
+        <li class="nav-item {{ request()->routeIs('company.qr-making.*') ? 'active' : '' }}">
+            <a class="nav-link" href="{{ route('company.qr-making.index', auth()->user()->company->slug) }}"><i class="mdi mdi-qrcode menu-icon"></i><span class="menu-title">QR Making</span></a>
+        </li>
+        @endif
+        {{-- Temporarily disabled: order production menu.
+        @foreach(['customer-order' => ['orders', 'Customer Orders'], 'cad-design' => ['cad', 'CAD Designs'], 'rpt-production' => ['rpt', 'RPT Production']] as $module => $menu)
+        @if($canModule($module))
+        <li class="nav-item {{ request()->routeIs('company.'.$menu[0].'.*') ? 'active' : '' }}">
+            <a class="nav-link" href="{{ route('company.'.$menu[0].'.index', auth()->user()->company->slug) }}"><i class="mdi mdi-clipboard-text menu-icon"></i><span class="menu-title">{{ $menu[1] }}</span></a>
+        </li>
+        @endif
+        @endforeach
+        --}}
 
         {{-- PROFILE --}}
         <li class="nav-item">
@@ -814,6 +828,12 @@
                     @endif
 
                     @if($canReportApprovalOutstanding)
+                    <li class="nav-item"><a class="nav-link {{ request()->routeIs('company.reports.approval-return-register.*') ? 'active' : '' }}" href="{{ route('company.reports.approval-return-register.index', auth()->user()->company->slug) }}">Approval &amp; Return Register</a></li>
+                    <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('company.reports.approval-summary.*') ? 'active' : '' }}"
+                           href="{{ route('company.reports.approval-summary.index', auth()->user()->company->slug) }}">Approval Summary</a>
+                    </li>
+
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('company.reports.approval-outstanding.*') ? 'active' : '' }}"
                             href="{{ route('company.reports.approval-outstanding.index', auth()->user()->company->slug) }}">

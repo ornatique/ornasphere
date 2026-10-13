@@ -57,6 +57,7 @@ class CustomerApiController extends Controller
             ], 404);
         }
 
+        $customer->setAttribute('opening', app(\App\Services\PersonOpeningBalance::class)->read($customer));
         return response()->json([
             'success' => true,
             'data' => $customer,
@@ -67,17 +68,24 @@ class CustomerApiController extends Controller
     {
         $companyId = $request->user()->company_id;
 
+        $openingService = app(\App\Services\PersonOpeningBalance::class);
+        $opening = $openingService->validate($request);
         $this->normalizePayload($request);
         $validated = $this->validatePayload($request, $companyId);
         $this->ensureEmailIsUnique($validated['email'] ?? null, (int) $companyId);
 
-        $customer = Customer::create(array_merge($validated, [
-            'company_id' => $companyId,
-            'is_active' => $request->boolean('is_active', true) ? 1 : 0,
-        ]));
+        $customer = \Illuminate\Support\Facades\DB::transaction(function () use ($validated, $request, $companyId, $openingService, $opening) {
+            $customer = Customer::create(array_merge($validated, [
+                'company_id' => $companyId,
+                'is_active' => $request->boolean('is_active', true) ? 1 : 0,
+            ]));
 
-        WorkerPersonService::syncPersonToWorker($customer);
+            WorkerPersonService::syncPersonToWorker($customer);
+            $openingService->save($customer, $opening, $request->user()?->id);
+            return $customer;
+        });
 
+        $customer->setAttribute('opening', $openingService->read($customer));
         return response()->json([
             'success' => true,
             'message' => 'Person created successfully.',
@@ -100,6 +108,8 @@ class CustomerApiController extends Controller
             ], 404);
         }
 
+        $openingService = app(\App\Services\PersonOpeningBalance::class);
+        $opening = $openingService->validate($request);
         $this->normalizePayload($request);
         $validated = $this->validatePayload($request, $companyId, $customer->id);
         $this->ensureEmailIsUnique(
@@ -109,16 +119,19 @@ class CustomerApiController extends Controller
             $customer->legacy_user_id ? (int) $customer->legacy_user_id : null
         );
 
-        $customer->update(array_merge($validated, [
-            'is_active' => $request->boolean('is_active', (bool) $customer->is_active) ? 1 : 0,
-        ]));
+        \Illuminate\Support\Facades\DB::transaction(function () use ($customer, $validated, $request, $openingService, $opening) {
+            $customer->update(array_merge($validated, [
+                'is_active' => $request->boolean('is_active', (bool) $customer->is_active) ? 1 : 0,
+            ]));
 
-        WorkerPersonService::syncPersonToWorker($customer->refresh());
+            WorkerPersonService::syncPersonToWorker($customer->refresh());
+            $openingService->save($customer, $opening, $request->user()?->id);
+        });
 
         return response()->json([
             'success' => true,
             'message' => 'Person updated successfully.',
-            'data' => $customer->load('categoryPerson:id,category_name'),
+            'data' => $customer->load('categoryPerson:id,category_name')->setAttribute('opening', $openingService->read($customer)),
         ]);
     }
 

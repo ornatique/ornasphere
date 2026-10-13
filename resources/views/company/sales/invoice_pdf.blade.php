@@ -19,13 +19,16 @@
         .metric-top { width: 100%; border-collapse: collapse; table-layout: fixed; }
         .metric-top td { border: 0; padding: 0; height: auto; vertical-align: top; }
         .metric-label { font-weight: 700; white-space: nowrap; width: 58%; }
-        .metric-value { text-align: right; white-space: nowrap; width: 42%; }
+        .metric-top td.metric-value { text-align: right; white-space: nowrap; width: 42%; font-size: 11px; font-weight: 700; background: #eeeeee; padding: 2px 3px; }
         .metric-status { margin-top: 3px; font-weight: 700; white-space: nowrap; }
-        .voucher-grid { width: 100%; border-collapse: collapse; table-layout: auto; }
-        .voucher-grid th, .voucher-grid td { border: 1px solid #000; padding: 3px 4px; vertical-align: top; word-break: normal; }
-        .voucher-grid th { white-space: nowrap; background: #efefef; font-weight: 700; text-align: center; font-size: 9px; }
-        .voucher-grid td { white-space: nowrap; font-size: 9px; }
+        .voucher-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        .voucher-grid th, .voucher-grid td { border: 1px solid #000; padding: 3px 3px; vertical-align: top; word-break: normal; }
+        .voucher-grid th { white-space: nowrap; background: #efefef; font-weight: 700; text-align: center; font-size: 8.4px; }
+        .voucher-grid td { white-space: nowrap; font-size: 8.4px; }
         .voucher-grid td:nth-child(2) { white-space: normal; }
+        .amount-cell { white-space: nowrap; font-size: 7.6px; padding-left: 1px; padding-right: 1px; }
+        .voucher-grid tfoot th { font-size: 9.2px; font-weight: 700; background: #e2e2e2; padding-top: 5px; padding-bottom: 5px; }
+        .voucher-grid tfoot th.amount-cell { font-size: 9.2px; padding-left: 1px; padding-right: 1px; white-space: nowrap; }
         .item-remark { margin-top: 2px; font-size: 8px; color: #333; }
         .payment-grid { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 4px; }
         .payment-grid th, .payment-grid td { border: 1px solid #000; padding: 4px 6px; }
@@ -143,6 +146,9 @@
             <td style="width:56%;">
                 <div><strong>Name</strong> : {{ $name }}</div>
                 <div style="margin-top:4px;"><strong>City</strong> : {{ $city }}</div>
+                @if(trim((string) $sale->remarks) !== '')
+                    <div style="margin-top:4px; overflow-wrap:break-word;"><strong>Remarks</strong> : {!! nl2br(e($sale->remarks)) !!}</div>
+                @endif
             </td>
             <td style="width:44%;">
                 <div><strong>Estimate No</strong> : {{ $sale->voucher_no }}</div>
@@ -152,11 +158,15 @@
     </table>
     @php
         $cashPayable = (float)($cashPayableTotal ?? ($sale->net_total ?? 0));
-        $effectiveReceived = (float)($sale->received_amount ?? 0) - (float)($sale->paid_amount ?? 0);
-        $pendingRaw = $cashPayable - $effectiveReceived;
+        $cashAdvanceApplied = (float) ($saleAdvanceUsage['cash_used'] ?? 0);
+        if (!empty($sale->id) && \App\Models\CustomerAdvanceLedger::where('company_id',$sale->company_id)->where('reference_type','sale')->where('reference_id',$sale->id)->where('entry_type','sale_adjust_cash')->exists()) {
+            $cashPayable = (float) $sale->net_total + $cashAdvanceApplied;
+        }
+        $effectiveReceived = $sale->appliedReceivedAmount();
+        $pendingRaw = $cashPayable - $effectiveReceived - $cashAdvanceApplied;
         $pendingType = $pendingRaw >= 0 ? 'Debit' : 'Credit';
         $pendingAmount = abs($pendingRaw);
-        $advCashRaw = (float)($advanceSummary['cash'] ?? 0);
+        $advCashRaw = app(\App\Services\PersonOpeningBalance::class)->cashBalance((int) $sale->company_id, (int) $sale->customer_id, !empty($sale->sale_date) ? \Carbon\Carbon::parse($sale->sale_date)->toDateString() : null);
         $advCashType = $advCashRaw >= 0 ? 'Credit' : 'Debit';
         $advCashAbs = abs($advCashRaw);
         $silverUsed = (float)($saleAdvanceUsage['silver_used'] ?? 0);
@@ -181,18 +191,18 @@
         <thead>
             <tr>
                 <th style="width:4%;">Sr</th>
-                <th style="width:22%; text-align:left;">Item</th>
-                <th style="width:8%;">Purity</th>
+                <th style="width:18%; text-align:left;">Item</th>
+                <th style="width:6%;">Purity</th>
                 <th style="width:4%;">Qty</th>
-                <th style="width:8%;">Gross Wt</th>
-                <th style="width:8%;">Less Wt</th>
-                <th style="width:8%;">Net Wt</th>
+                <th style="width:7%;">Gross Wt</th>
+                <th style="width:6%;">Less Wt</th>
+                <th style="width:7%;">Net Wt</th>
                 <th style="width:7%;">Waste %</th>
-                <th style="width:8%;">Fine Wt</th>
-                <th style="width:8%;">Metal Rt</th>
-                <th style="width:8%;">Labour Rt</th>
-                <th style="width:6%;">Other</th>
-                <th style="width:7%;">Total Amt</th>
+                <th style="width:7%;">Fine Wt</th>
+                <th style="width:7%;">Metal Rt</th>
+                <th style="width:7%;">Labour Rt</th>
+                <th style="width:8%;">Other</th>
+                <th style="width:12%;">Total Amt</th>
             </tr>
         </thead>
         <tbody>
@@ -237,7 +247,7 @@
                     <td class="text-right">{{ number_format($rate, 2) }}</td>
                     <td class="text-right">{{ number_format($labourRate, 2) }}</td>
                     <td class="text-right">{{ number_format($other, 2) }}</td>
-                    <td class="text-right">Rs {{ number_format($total, 2) }}</td>
+                    <td class="text-right amount-cell">Rs&nbsp;{{ number_format($total, 2) }}</td>
                 </tr>
             @endforeach
         </tbody>
@@ -250,10 +260,10 @@
                 <th class="text-right">{{ number_format($sumNet, 3) }}</th>
                 <th></th>
                 <th class="text-right">{{ number_format($sumFine, 3) }} <span class="unit-circle">F</span></th>
-                <th class="text-right">{{ number_format($sumMetalRate, 2) }}</th>
                 <th></th>
-                <th class="text-right">Rs {{ number_format($sumOther, 2) }}</th>
-                <th class="text-right">Rs {{ number_format($sumTotal, 2) }}</th>
+                <th></th>
+                <th class="text-right amount-cell">Rs&nbsp;{{ number_format($sumOther, 2) }}</th>
+                <th class="text-right amount-cell">Rs&nbsp;{{ number_format($sumTotal, 2) }}</th>
             </tr>
         </tfoot>
     </table>
@@ -261,7 +271,7 @@
     @php
         $grandTotalType = $cashPayable >= 0 ? 'DR' : 'CR';
         $hasMetalRateCharge = $sumMetalRate > 0.000001 || $sumMetalAmount > 0.000001;
-        $fineDebit = (!$fineBalanceAdjustmentEnabled && !$hasMetalRateCharge && $sumFine > 0.000001) ? $sumFine : 0;
+        $fineDebit = (float) $sale->saleItems->filter(fn($line)=>(float)($line->metal_rate ?? 0) <= 0)->sum('fine_weight');
         $silverOpening = (float)($saleAdvanceUsage['silver_opening'] ?? ($silverBalance + $silverUsed));
         $hasCustomerAccountActivity =
             abs($advCashRaw) > 0.000001 ||
@@ -277,21 +287,11 @@
         if (abs($goldRaw) > 0.000001) {
             $metalSummaryBoxes[] = ['label' => 'Adv Gold(Fine)', 'value' => number_format($goldAbs, 3), 'status' => $goldType];
         }
-        if (abs($silverOpening) > 0.000001 || abs($silverUsed) > 0.000001) {
-            $metalSummaryBoxes[] = [
-                'label' => 'Adv Silver(Fine)',
-                'value' => number_format(abs($silverOpening), 3),
-                'status' => $silverOpening < 0 ? 'Debit' : 'Credit',
-            ];
-        }
-        $metalSummaryBoxes[] = ['label' => 'Silver Debit / Credit', 'value' => number_format($silverDebit, 3) . '/' . number_format($silverCredit, 3), 'status' => ''];
         if (abs($otherRaw) > 0.000001) {
             $metalSummaryBoxes[] = ['label' => 'Adv Other(Fine)', 'value' => number_format($otherAbs, 3), 'status' => $otherType];
         }
-        while (count($metalSummaryBoxes) < 4) {
-            $metalSummaryBoxes[] = null;
-        }
-        $previousPendingSales = collect($previousPendingSales ?? []);
+        $previousPendingSales = ($sale->show_previous_bills ?? false)
+            ? collect($previousPendingSales ?? []) : collect();
         $previousQtyTotal = $previousPendingSales->sum('qty');
         $previousAmountTotal = $previousPendingSales->sum('total_amount');
         $previousFineTotal = $previousPendingSales->sum('fine_weight');
@@ -320,55 +320,54 @@
             </tr>
         </table>
     </div>
-    <table class="summary-grid" style="margin-top:2px;">
+    @php
+        $adjustments = $settlementAdjustments ?? app(\App\Services\SaleSettlement::class)->adjustmentSummary($sale);
+        $actualFineAdjusted = $adjustments['gold'] + $adjustments['silver'] + $adjustments['other'];
+        $showAmountAdjustment = $fineBalanceAdjustmentEnabled && ($receivedAmount > 0.000001 || $adjustments['cash'] > 0.000001 || $actualFineAdjusted <= 0.000001);
+    @endphp
+    @if($fineBalanceAdjustmentEnabled)
+    <table class="summary-grid" style="margin-top:0;">
+        @if($showAmountAdjustment)
         <tr>
-            <td>
-                <div class="metric-card">
-                    <table class="metric-top"><tr><td class="metric-label">Fine Balance Adjusted</td><td class="metric-value">{{ $fineBalanceAdjustmentEnabled ? 'Yes' : 'No' }}</td></tr></table>
-                </div>
-            </td>
-            <td>
-                <div class="metric-card">
-                    <table class="metric-top"><tr><td class="metric-label">Adjusted Fine Wt</td><td class="metric-value">{{ number_format($adjustedFineTotal, 3) }}</td></tr></table>
-                </div>
-            </td>
-            <td>
-                <div class="metric-card">
-                    <table class="metric-top"><tr><td class="metric-label">Gold / Silver</td><td class="metric-value">{{ number_format($adjustedGoldFine, 3) }} / {{ number_format($adjustedSilverFine, 3) }}</td></tr></table>
-                </div>
-            </td>
-            <td>
-                <div class="metric-card">
-                    <table class="metric-top"><tr><td class="metric-label">Other Fine</td><td class="metric-value">{{ number_format($adjustedOtherFine, 3) }}</td></tr></table>
-                </div>
-            </td>
+            <td>Amount Balance Adjustment: Yes</td>
+            <td colspan="2"><strong>Adjusted Amount:</strong> <span style="font-size:11px; font-weight:700; background:#eeeeee; padding:2px 3px;">Rs&nbsp;{{ number_format($receivedAmount, 2) }}</span></td>
         </tr>
+        @endif
+        @if($actualFineAdjusted > 0.000001)
+        <tr>
+            <td>Metal Balance Adjustment: Yes</td>
+            <td><strong>Adjusted Fine Wt</strong></td>
+            <td class="text-right">{{ number_format($actualFineAdjusted, 3) }} g</td>
+        </tr>
+        @endif
     </table>
-    @if($hasCustomerAccountActivity)
-        <table class="summary-grid">
+    @endif
+        <table class="summary-grid" style="margin-top:0;">
             <tr>
                 <td>
                     <div class="metric-card">
-                        <table class="metric-top"><tr><td class="metric-label">Received</td><td class="metric-value">Rs {{ number_format($receivedAmount, 2) }}</td></tr></table>
+                        <table class="metric-top"><tr><td class="metric-label">Silver Debit / Credit</td><td class="metric-value">{{ number_format($finalGrandFineDebit, 3) }}/0.000</td></tr></table>
                     </div>
                 </td>
                 <td>
                     <div class="metric-card">
-                        <table class="metric-top"><tr><td class="metric-label">Refund Paid</td><td class="metric-value">Rs {{ number_format((float)($sale->paid_amount ?? 0), 2) }}</td></tr></table>
+                        <table class="metric-top">
+                            <tr><td class="metric-label">Received</td><td class="metric-value">Rs&nbsp;{{ number_format($receivedAmount, 2) }}</td></tr>
+                            <tr><td class="metric-label">Total Amount</td><td class="metric-value">Rs&nbsp;{{ number_format($cashPayable, 2) }}</td></tr>
+                            <tr><td class="metric-label">{{ $cashPayable - $effectiveReceived < 0 ? 'Credit Balance' : 'Pending Debit' }}</td><td class="metric-value">Rs&nbsp;{{ number_format(abs($cashPayable - $effectiveReceived), 2) }}</td></tr>
+                        </table>
                     </div>
                 </td>
+                @if($advCashAbs > 0.000001)
                 <td>
                     <div class="metric-card">
-                        <table class="metric-top"><tr><td class="metric-label">Pending {{ $pendingType }}</td><td class="metric-value">Rs {{ number_format($pendingAmount, 2) }}</td></tr></table>
-                    </div>
-                </td>
-                <td>
-                    <div class="metric-card">
-                        <table class="metric-top"><tr><td class="metric-label">Adv Cash</td><td class="metric-value">Rs {{ number_format($advCashAbs, 2) }}</td></tr></table>
+                        <table class="metric-top"><tr><td class="metric-label">Opening Balance</td><td class="metric-value">Rs&nbsp;{{ number_format($advCashAbs, 2) }}</td></tr></table>
                         <div class="metric-status">{{ $advCashType }}</div>
                     </div>
                 </td>
+                @endif
             </tr>
+            @if(count($metalSummaryBoxes))
             <tr>
                 @foreach($metalSummaryBoxes as $box)
                     <td>
@@ -383,8 +382,8 @@
                     </td>
                 @endforeach
             </tr>
+            @endif
         </table>
-    @endif
 
     @if($previousPendingSales->isNotEmpty())
         <table class="voucher-grid" style="margin-top:8px;">
@@ -411,10 +410,10 @@
                         <td>{{ $pendingSale['voucher_no'] }}</td>
                         <td class="text-center">{{ $pendingSale['sale_date'] }}</td>
                         <td class="text-center">{{ number_format((float) ($pendingSale['qty'] ?? 0), 0) }}</td>
-                        <td class="text-right">Rs {{ number_format((float) $pendingSale['total_amount'], 2) }}</td>
+                        <td class="text-right amount-cell">Rs&nbsp;{{ number_format((float) $pendingSale['total_amount'], 2) }}</td>
                         <td class="text-right">{{ number_format((float) ($pendingSale['fine_weight'] ?? 0), 3) }}</td>
-                        <td class="text-right">Rs {{ number_format((float) $pendingSale['received_amount'], 2) }}</td>
-                        <td class="text-right">Rs {{ number_format((float) $pendingSale['pending_amount'], 2) }}</td>
+                        <td class="text-right amount-cell">Rs&nbsp;{{ number_format((float) $pendingSale['received_amount'], 2) }}</td>
+                        <td class="text-right amount-cell">Rs&nbsp;{{ number_format((float) $pendingSale['pending_amount'], 2) }}</td>
                         <td class="text-right">
                             @if((float) ($pendingSale['metal_debit'] ?? 0) > 0.000001)
                                 Dr. {{ number_format((float) $pendingSale['metal_debit'], 3) }} <span class="unit-circle">F</span>
@@ -429,10 +428,10 @@
                 <tr>
                     <th colspan="3" class="text-right">Previous Pending Total</th>
                     <th class="text-center">{{ number_format((float) $previousQtyTotal, 0) }}</th>
-                    <th class="text-right">Rs {{ number_format((float) $previousAmountTotal, 2) }}</th>
+                    <th class="text-right amount-cell">Rs&nbsp;{{ number_format((float) $previousAmountTotal, 2) }}</th>
                     <th class="text-right">{{ number_format((float) $previousFineTotal, 3) }}</th>
                     <th></th>
-                    <th class="text-right">Rs {{ number_format((float) $previousPendingTotal, 2) }}</th>
+                    <th class="text-right amount-cell">Rs&nbsp;{{ number_format((float) $previousPendingTotal, 2) }}</th>
                     <th class="text-right">
                         @if((float) $previousMetalDebitTotal > 0.000001)
                             Dr. {{ number_format((float) $previousMetalDebitTotal, 3) }} <span class="unit-circle">F</span>

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\LabelConfig;
 use App\Models\Item;
+use App\Models\ItemSet;
 
 class LabelConfigController extends Controller
 {
@@ -18,6 +19,13 @@ class LabelConfigController extends Controller
                     ->where('company_id', $companyId)
                     ->latest()
                     ->get();
+
+        $usedItemIds = ItemSet::where('company_id', $companyId)
+            ->whereIn('item_id', $configs->pluck('item_id'))
+            ->distinct()->pluck('item_id')->flip();
+        $configs->each(function ($config) use ($usedItemIds) {
+            $config->setAttribute('is_in_use', $usedItemIds->has($config->item_id));
+        });
 
         return response()->json([
             'success' => true,
@@ -45,7 +53,7 @@ class LabelConfigController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $config,
+            'data' => $this->withUsageStatus($config),
             'available_items' => $this->availableItemsQuery($companyId, $config->item_id)->get(['id', 'item_name'])
         ]);
     }
@@ -110,7 +118,7 @@ class LabelConfigController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Label Config saved successfully',
-            'data' => $config
+            'data' => $this->withUsageStatus($config)
         ], 200);
     }
 
@@ -131,16 +139,22 @@ class LabelConfigController extends Controller
         }
 
         $validated = $request->validate([
-            'item_id' => 'required|exists:items,id',
+            'item_id' => $this->hasGeneratedLabelItems((int) $companyId, (int) $config->item_id) ? 'nullable' : 'required|exists:items,id',
             'prefix' => 'nullable|string|max:50',
             'numeric_length' => 'nullable|integer',
+            'last_no' => 'nullable|integer|min:0',
             'min_no' => 'nullable|integer',
             'max_no' => 'nullable|integer',
         ]);
 
+        $isLocked = $this->hasGeneratedLabelItems((int) $companyId, (int) $config->item_id);
         $prefix = $this->normalizePrefix($request->input('prefix'));
+        $itemId = $isLocked ? (int) $config->item_id : (int) $request->item_id;
+        $lastNo = $request->has('last_no')
+            ? (int) $request->last_no
+            : (int) ($config->last_no ?? 0);
 
-        $item = Item::where('id', $request->item_id)
+        $item = Item::where('id', $itemId)
                     ->where('company_id', $companyId)
                     ->first();
 
@@ -151,7 +165,7 @@ class LabelConfigController extends Controller
             ], 400);
         }
 
-        if (LabelConfig::where('company_id', $companyId)
+        if (!$isLocked && LabelConfig::where('company_id', $companyId)
             ->where('item_id', $item->id)
             ->where('id', '!=', $config->id)
             ->exists()) {
@@ -162,7 +176,7 @@ class LabelConfigController extends Controller
             ], 422);
         }
 
-        if ($this->prefixExists((int) $companyId, $prefix, (int) $config->id)) {
+        if (!$isLocked && $this->prefixExists((int) $companyId, $prefix, (int) $config->id)) {
             return response()->json([
                 'success' => false,
                 'message' => 'This prefix is already used. Please enter a different prefix.',
@@ -170,11 +184,21 @@ class LabelConfigController extends Controller
             ], 422);
         }
 
+        $minimumLastNo = $this->minimumAllowedLastNo($config);
+        if ($isLocked && $lastNo < $minimumLastNo) {
+            return response()->json([
+                'success' => false,
+                'message' => "Last No cannot be less than {$minimumLastNo}. Generated label numbers cannot be reused.",
+                'code' => 'LABEL_CONFIG_LAST_NO_DECREASED',
+                'minimum_last_no' => $minimumLastNo,
+            ], 422);
+        }
+
         $config->update([
-            'item_id' => $item->id,
-            'prefix' => $prefix,
+            'item_id' => $isLocked ? $config->item_id : $item->id,
+            'prefix' => $isLocked ? $config->prefix : $prefix,
             'numeric_length' => $request->numeric_length,
-            'last_no' => $request->last_no ?? 0,
+            'last_no' => $lastNo,
             'reuse' => $request->boolean('reuse'),
             'random' => $request->boolean('random'),
             'min_no' => $request->min_no,
@@ -186,7 +210,7 @@ class LabelConfigController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Label Config updated successfully',
-            'data' => $config
+            'data' => $this->withUsageStatus($config)
         ]);
     }
 
@@ -204,6 +228,14 @@ class LabelConfigController extends Controller
                 'success' => false,
                 'message' => 'Label Config not found'
             ], 404);
+        }
+
+        if ($this->hasGeneratedLabelItems((int) $companyId, (int) $config->item_id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Label items already created for this item. This label config cannot be deleted.',
+                'code' => 'LABEL_CONFIG_IN_USE'
+            ], 422);
         }
 
         $config->delete();
@@ -242,5 +274,31 @@ class LabelConfigController extends Controller
             ->whereRaw('LOWER(TRIM(prefix)) = ?', [strtolower($prefix)])
             ->when($ignoreId, fn($query) => $query->where('id', '!=', $ignoreId))
             ->exists();
+    }
+
+    private function withUsageStatus(LabelConfig $config): LabelConfig
+    {
+        $config->setAttribute('is_in_use', $this->hasGeneratedLabelItems(
+            (int) $config->company_id, (int) $config->item_id
+        ));
+
+        return $config;
+    }
+
+    private function hasGeneratedLabelItems(int $companyId, int $itemId): bool
+    {
+        return ItemSet::where('company_id', $companyId)
+            ->where('item_id', $itemId)
+            ->exists();
+    }
+
+    private function minimumAllowedLastNo(LabelConfig $labelConfig): int
+    {
+        $highestExistingSerialNo = (int) ItemSet::where('company_id', $labelConfig->company_id)
+            ->where('item_id', $labelConfig->item_id)
+            ->where('is_final', 1)
+            ->max('serial_no');
+
+        return max((int) ($labelConfig->last_no ?? 0), $highestExistingSerialNo);
     }
 }

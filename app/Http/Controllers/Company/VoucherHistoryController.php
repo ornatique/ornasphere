@@ -188,6 +188,7 @@ class VoucherHistoryController extends Controller
                 'totals' => [
                     'release_tree_wt' => $this->decimal($releaseItems->sum(fn($item) => (float) ($item->release_tree_wt ?? 0))),
                     'release_tree_bhuko' => $this->decimal($releaseItems->sum(fn($item) => (float) ($item->release_tree_bhuko ?? 0))),
+                    'release_tree_total_wt' => $this->decimal($releaseItems->sum(fn($item) => (float) ($item->release_tree_wt ?? 0) + (float) ($item->release_tree_bhuko ?? 0))),
                     'loss' => $this->decimal($releaseItems->sum(fn($item) => (float) ($item->loss ?? 0))),
                 ],
                 'rows' => $releaseItems->map(fn($item) => [
@@ -196,6 +197,7 @@ class VoucherHistoryController extends Controller
                     'voucher_remarks' => $item->voucherItem?->remarks ?? '-',
                     'release_tree_wt' => $this->decimal($item->release_tree_wt),
                     'release_tree_bhuko' => $this->decimal($item->release_tree_bhuko),
+                    'release_tree_total_wt' => $this->decimal((float) ($item->release_tree_wt ?? 0) + (float) ($item->release_tree_bhuko ?? 0)),
                     'loss' => $this->decimal($item->loss),
                     'received_at' => $this->dateTime($item->released_at ?: $item->created_at),
                 ]),

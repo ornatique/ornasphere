@@ -9,7 +9,7 @@
     <div class="card-header d-flex justify-content-between">
         <h4 class="card-title">Approval Details</h4>
         <div class="d-flex gap-2">
-            <a href="{{ route('company.approval.pdf', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $approval->id)]) }}"
+            <a id="approvalPdfLink" href="{{ route('company.approval.pdf', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $approval->id)]) }}"
                class="btn btn-primary"
                target="_blank">
                 View PDF
@@ -286,6 +286,10 @@
 
         function applyStatusFilter() {
             const selectedStatus = filter.value;
+            const pdfLink = document.getElementById('approvalPdfLink');
+            const pdfUrl = new URL(pdfLink.href, window.location.origin);
+            pdfUrl.searchParams.set('status', selectedStatus);
+            pdfLink.href = pdfUrl.toString();
             const sums = { gross: 0, other: 0, net: 0, amount: 0 };
             let count = 0;
 

@@ -15,6 +15,7 @@ use App\Models\Customer;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use App\Services\TransactionItemGuard;
@@ -479,23 +480,7 @@ class ApprovalApiController extends Controller
                     'itemset_id' => $row->id,
                 ]);
 
-                $cartPayload = [
-                    'cart_id' => $cart->id,
-                    'device_id' => $cart->device_id,
-                    'voucher_session_id' => $cart->voucher_session_id,
-                    'device_entry_id' => $cart->device_entry_id,
-                    'customer_id' => $cart->customer_id,
-                    'itemset_id' => $cart->itemset_id,
-                    'item_id' => $row->item_id,
-                    'serial_no' => $row->serial_no,
-                    'huid' => $row->HUID,
-                    'qr_code' => $row->qr_code,
-                    'item_name' => optional($row->item)->item_name,
-                    'gross_weight' => (float) ($row->gross_weight ?? 0),
-                    'other_weight' => (float) ($row->other ?? 0),
-                    'net_weight' => (float) ($row->net_weight ?? 0),
-                    'sale_other' => (float) ($row->sale_other ?? 0),
-                ];
+                $cartPayload = $this->approvalCartPayload($cart, $row);
 
                 return response()->json([
                     'success' => true,
@@ -715,23 +700,7 @@ class ApprovalApiController extends Controller
                     return null;
                 }
 
-                return [
-                    'cart_id' => $cart->id,
-                    'device_id' => $cart->device_id,
-                    'voucher_session_id' => $cart->voucher_session_id,
-                    'device_entry_id' => $cart->device_entry_id,
-                    'customer_id' => $cart->customer_id,
-                    'itemset_id' => $set->id,
-                    'item_id' => $set->item_id,
-                    'serial_no' => $set->serial_no,
-                    'huid' => $set->HUID,
-                    'qr_code' => $set->qr_code,
-                    'item_name' => optional($set->item)->item_name,
-                    'gross_weight' => (float) ($set->gross_weight ?? 0),
-                    'other_weight' => (float) ($set->other ?? 0),
-                    'net_weight' => (float) ($set->net_weight ?? 0),
-                    'sale_other' => (float) ($set->sale_other ?? 0),
-                ];
+                return $this->approvalCartPayload($cart, $set);
             })
             ->filter()
             ->values();
@@ -819,6 +788,94 @@ class ApprovalApiController extends Controller
                     ->map(fn($c) => ['itemset_id' => (int) $c->itemset_id])
                     ->all();
             } else {
+                $payloadRows = collect($itemsPayload)
+                    ->filter(fn ($row) => is_array($row))
+                    ->map(function ($row) {
+                        return [
+                            'itemset_id' => (int) ($row['itemset_id'] ?? $row['id'] ?? 0),
+                            'device_entry_id' => trim((string) ($row['device_entry_id'] ?? '')),
+                            'row' => $row,
+                        ];
+                    })
+                    ->filter(fn ($row) => $row['itemset_id'] > 0)
+                    ->unique('itemset_id')
+                    ->values();
+
+                $payloadItemSetIds = $payloadRows->pluck('itemset_id')->all();
+
+                if (!empty($payloadItemSetIds)) {
+                    $activeLockCutoff = now()->subMinutes(30);
+
+                    $lockedByOther = ApprovalCart::where('company_id', $companyId)
+                        ->whereIn('itemset_id', $payloadItemSetIds)
+                        ->where('created_at', '>=', $activeLockCutoff)
+                        ->where(function ($lockQuery) use ($userId, $deviceId, $request) {
+                            $lockQuery->where('user_id', '!=', $userId)
+                                ->orWhere('device_id', '!=', $deviceId)
+                                ->orWhere('customer_id', '!=', (int) $request->customer_id);
+                        })
+                        ->lockForUpdate()
+                        ->first();
+
+                    if ($lockedByOther) {
+                        $lockedItemSet = ItemSet::with('item')
+                            ->where('company_id', $companyId)
+                            ->where('id', (int) $lockedByOther->itemset_id)
+                            ->first();
+                        $lockedItem = $lockedItemSet
+                            ? $this->approvalCartLockPayload($lockedItemSet, $lockedByOther)
+                            : null;
+
+                        DB::rollBack();
+
+                        return response()->json([
+                            'success' => false,
+                            'message' => $lockedItem
+                                ? "{$lockedItem['label']} is already selected by another user."
+                                : 'One or more selected approval items are locked by another session.',
+                            'code' => 'APPROVAL_CART_ITEM_LOCKED',
+                            'cart_id' => $lockedByOther->id,
+                            'user_id' => $lockedByOther->user_id,
+                            'customer_id' => $lockedByOther->customer_id,
+                            'device_id' => $lockedByOther->device_id,
+                            'voucher_session_id' => $lockedByOther->voucher_session_id,
+                            'locked_item' => $lockedItem,
+                            'data' => $lockedItem ? [$lockedItem] : [],
+                        ], 409);
+                    }
+
+                    $ownedCarts = ApprovalCart::where('user_id', $userId)
+                        ->where('company_id', $companyId)
+                        ->where('customer_id', (int) $request->customer_id)
+                        ->where('device_id', $deviceId)
+                        ->whereIn('itemset_id', $payloadItemSetIds)
+                        ->where('created_at', '>=', $activeLockCutoff)
+                        ->lockForUpdate()
+                        ->get()
+                        ->keyBy(fn ($cart) => (int) $cart->itemset_id);
+
+                    $payloadRows->each(function ($payloadRow) use ($ownedCarts, $voucherSessionId) {
+                        $cart = $ownedCarts->get((int) $payloadRow['itemset_id']);
+                        if (!$cart || (string) $cart->voucher_session_id === $voucherSessionId) {
+                            return;
+                        }
+
+                        $cart->forceFill([
+                            'voucher_session_id' => $voucherSessionId,
+                            'device_entry_id' => $payloadRow['device_entry_id'] ?: $cart->device_entry_id,
+                        ])->save();
+                    });
+
+                    $sessionCartItemSetIds = ApprovalCart::where('user_id', $userId)
+                        ->where('company_id', $companyId)
+                        ->where('customer_id', (int) $request->customer_id)
+                        ->where('device_id', $deviceId)
+                        ->where('voucher_session_id', $voucherSessionId)
+                        ->pluck('itemset_id')
+                        ->map(fn ($id) => (int) $id)
+                        ->all();
+                }
+
                 $allowedIds = array_flip($sessionCartItemSetIds);
                 $itemsPayload = collect($itemsPayload)
                     ->filter(function ($row) use ($allowedIds) {
@@ -831,6 +888,8 @@ class ApprovalApiController extends Controller
             }
 
             if (empty($itemsPayload)) {
+                DB::rollBack();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'No approval items selected for this device voucher session.',
@@ -841,7 +900,7 @@ class ApprovalApiController extends Controller
             $approval = ApprovalHeader::create([
                 'company_id' => $companyId,
                 'customer_id' => $request->customer_id,
-                'approval_no' => 'APP' . now()->format('YmdHis') . substr((string) ((int) (microtime(true) * 1000)), -3) . $userId,
+                'approval_no' => \App\Services\VoucherSeries::next($companyId, 'APP'),
                 'approval_date' => now(),
                 'status' => 'open',
                 'remarks' => $request->input('remarks', $request->input('remark')),
@@ -1316,7 +1375,7 @@ class ApprovalApiController extends Controller
                 'sale_id' => null,
                 'source_type' => 'approval',
                 'source_id' => $request->approval_id,
-                'return_voucher_no' => 'SR' . time(),
+                'return_voucher_no' => \App\Services\VoucherSeries::next($companyId, 'AR'),
                 'return_date' => now(),
                 'remarks' => $request->input('remarks', $request->input('remark')),
                 'return_total' => 0,
@@ -1416,7 +1475,7 @@ class ApprovalApiController extends Controller
 
         $query = [];
         if ($customerId > 0) {
-            $query['customer_id'] = $customerId;
+            $query['customer_id'] = Crypt::encryptString((string) $customerId);
         }
         if ($fromDate !== '') {
             $query['from_date'] = $fromDate;
@@ -1440,6 +1499,7 @@ class ApprovalApiController extends Controller
     {
         $companyId = (int) $request->user()->company_id;
         $company = Company::findOrFail($companyId);
+        $customerId = $this->resolveEncryptedCustomerFilterId($request, $companyId);
         $pendingItemFilter = function ($q) {
             return $q->where(function ($statusQuery) {
                 $statusQuery->whereNull('status')
@@ -1486,8 +1546,8 @@ class ApprovalApiController extends Controller
             ->orderByDesc('approval_date')
             ->orderByDesc('id');
 
-        if ($request->filled('customer_id')) {
-            $query->where('customer_id', (int) $request->query('customer_id'));
+        if ($customerId !== null) {
+            $query->where('customer_id', $customerId);
         }
 
         $fromDate = $request->query('from_date');
@@ -1544,6 +1604,33 @@ class ApprovalApiController extends Controller
         return $pdf->stream('approval-list-' . now()->format('YmdHis') . '.pdf');
     }
 
+    private function resolveEncryptedCustomerFilterId(Request $request, int $companyId): ?int
+    {
+        if (!$request->filled('customer_id')) {
+            return null;
+        }
+
+        $customerIdValue = (string) $request->query('customer_id');
+
+        try {
+            $customerId = ctype_digit($customerIdValue)
+                ? (int) $customerIdValue
+                : (int) Crypt::decryptString($customerIdValue);
+        } catch (\Illuminate\Contracts\Encryption\DecryptException $exception) {
+            abort(404);
+        }
+
+        abort_unless(
+            Customer::where('company_id', $companyId)
+                ->saleParties()
+                ->whereKey($customerId)
+                ->exists(),
+            404
+        );
+
+        return $customerId;
+    }
+
     private function updateApprovalStatus(array $approvalIds): void
     {
         foreach ($approvalIds as $approvalId) {
@@ -1596,6 +1683,52 @@ class ApprovalApiController extends Controller
             'other_amount' => $otherAmount,
             'other_charge_details' => $this->normalizeOtherChargeDetails($row['other_charge_details'] ?? $row['other_charges'] ?? null),
             'total_amount' => $totalAmount,
+        ];
+    }
+
+    private function approvalCartPayload(ApprovalCart $cart, ItemSet $itemSet): array
+    {
+        $item = $itemSet->item;
+        $calculation = $this->buildApprovalItemPayload([], $itemSet);
+        $purity = (float) ($calculation['purity'] ?? 0);
+
+        return [
+            'cart_id' => $cart->id,
+            'device_id' => $cart->device_id,
+            'voucher_session_id' => $cart->voucher_session_id,
+            'device_entry_id' => $cart->device_entry_id,
+            'customer_id' => $cart->customer_id,
+            'itemset_id' => $itemSet->id,
+            'item_id' => $itemSet->item_id,
+            'serial_no' => $itemSet->serial_no,
+            'huid' => $itemSet->HUID,
+            'qr_code' => $itemSet->qr_code,
+            'item_name' => optional($item)->item_name,
+            'gross_weight' => (float) ($calculation['gross_weight'] ?? 0),
+            'other_weight' => (float) ($calculation['other_weight'] ?? 0),
+            'net_weight' => (float) ($calculation['net_weight'] ?? 0),
+            'purity' => $purity,
+            'item_purity' => $purity,
+            'outward_purity' => $purity,
+            'waste_percent' => (float) ($calculation['waste_percent'] ?? 0),
+            'net_purity' => (float) ($calculation['net_purity'] ?? 0),
+            'fine_weight' => (float) ($calculation['total_fine_weight'] ?? 0),
+            'total_fine_weight' => (float) ($calculation['total_fine_weight'] ?? 0),
+            'metal_rate' => (float) ($calculation['metal_rate'] ?? 0),
+            'metal_amount' => (float) ($calculation['metal_amount'] ?? 0),
+            'labour_rate' => (float) ($calculation['labour_rate'] ?? 0),
+            'labour_amount' => (float) ($calculation['labour_amount'] ?? 0),
+            'sale_labour_rate' => (float) ($calculation['labour_rate'] ?? 0),
+            'sale_other' => (float) ($itemSet->sale_other ?? 0),
+            'other_amount' => (float) ($calculation['other_amount'] ?? 0),
+            'total_amount' => (float) ($calculation['total_amount'] ?? 0),
+            'item' => [
+                'id' => (int) (optional($item)->id ?? 0),
+                'item_name' => (string) (optional($item)->item_name ?? ''),
+                'item_code' => (string) (optional($item)->item_code ?? ''),
+                'outward_purity' => $purity,
+                'labour_rate' => (float) (optional($item)->labour_rate ?? 0),
+            ],
         ];
     }
 
@@ -1654,6 +1787,8 @@ class ApprovalApiController extends Controller
     private function approvalCartLockPayload(ItemSet $itemSet, ApprovalCart $cart): array
     {
         $item = $itemSet->item;
+        $calculation = $this->buildApprovalItemPayload([], $itemSet);
+        $purity = (float) ($calculation['purity'] ?? 0);
         $label = $itemSet->qr_code
             ?: ($itemSet->barcode ?: ($itemSet->HUID ?: (optional($item)->item_name ?: ('Item ' . $itemSet->id))));
 
@@ -1669,6 +1804,13 @@ class ApprovalApiController extends Controller
             'gross_weight' => number_format((float) ($itemSet->gross_weight ?? 0), 3, '.', ''),
             'other_weight' => number_format((float) ($itemSet->other ?? 0), 3, '.', ''),
             'net_weight' => number_format((float) ($itemSet->net_weight ?? 0), 3, '.', ''),
+            'purity' => number_format($purity, 3, '.', ''),
+            'item_purity' => number_format($purity, 3, '.', ''),
+            'outward_purity' => number_format($purity, 3, '.', ''),
+            'waste_percent' => number_format((float) ($calculation['waste_percent'] ?? 0), 3, '.', ''),
+            'net_purity' => number_format((float) ($calculation['net_purity'] ?? 0), 3, '.', ''),
+            'fine_weight' => number_format((float) ($calculation['total_fine_weight'] ?? 0), 3, '.', ''),
+            'total_fine_weight' => number_format((float) ($calculation['total_fine_weight'] ?? 0), 3, '.', ''),
             'sale_other' => number_format((float) ($itemSet->sale_other ?? 0), 2, '.', ''),
             'locked_by_user_id' => $cart->user_id,
             'locked_customer_id' => $cart->customer_id,

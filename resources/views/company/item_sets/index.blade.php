@@ -169,7 +169,7 @@
                         <div class="mb-3">
                             <label>Upload Image</label>
                             <input type="file" id="grid_item_image_file" class="form-control text-white border-0" accept="image/jpeg,image/png,image/webp">
-                            <small class="text-muted d-block mt-1">JPG, PNG or WebP up to 20 MB. Uploaded using the item image disk.</small>
+                            <small class="text-muted d-block mt-1">JPG, PNG or WebP up to 15 MB. Uploaded using the item image disk.</small>
                         </div>
 
                         <div class="image-edit-tools border rounded p-2 mb-3" id="grid_image_edit_tools">
@@ -1403,6 +1403,40 @@
         });
     }
 
+    function waitForProcessedGridImage(previousUrl, attempts = 60) {
+        const deferred = $.Deferred();
+        const poll = function(remaining) {
+            $.get($('#grid_image_show_url').val(), function(data) {
+                const nextUrl = data.image_url || '';
+                if (nextUrl && nextUrl !== previousUrl) {
+                    deferred.resolve(data);
+                    return;
+                }
+
+                if (remaining <= 0) {
+                    deferred.reject();
+                    return;
+                }
+
+                setTimeout(function() {
+                    poll(remaining - 1);
+                }, 1000);
+            }).fail(function() {
+                if (remaining <= 0) {
+                    deferred.reject();
+                    return;
+                }
+
+                setTimeout(function() {
+                    poll(remaining - 1);
+                }, 1000);
+            });
+        };
+
+        poll(attempts);
+        return deferred.promise();
+    }
+
     $(document).on('click', '.open-grid-image-modal', function() {
         const $row = $(this).closest('tr');
         const $button = $(this);
@@ -1500,6 +1534,12 @@
             return;
         }
 
+        if (file.size > 15 * 1024 * 1024) {
+            $(this).val('');
+            $('#grid_image_upload_error').removeClass('d-none').text('Image size must be 15 MB or less.');
+            return;
+        }
+
         gridImageEditor.load(file);
     });
 
@@ -1526,11 +1566,35 @@
             processData: false,
             contentType: false,
             success: function(data) {
+                const previousUrl = $('#grid_item_image_preview').attr('src') || '';
                 $('#grid_item_image_file').val('');
                 gridImageEditor.reset();
+                $('#grid_image_upload_success').removeClass('d-none').text(data.message || 'Image uploaded successfully.');
+
+                if (data.queued) {
+                    $('#gridUploadImageBtn').prop('disabled', true).text('Processing...');
+                    waitForProcessedGridImage(previousUrl)
+                        .done(function(fresh) {
+                            $('#grid_image_uploaded_at').val(fresh.image_uploaded_at || '-');
+                            setGridImagePreview(fresh.image_url || '');
+
+                            if (imageTargetRow && imageTargetRow.length) {
+                                imageTargetRow.find('.open-grid-image-modal').text('View Image');
+                            }
+
+                            $('#itemSetImageModal').modal('hide');
+                        })
+                        .fail(function() {
+                            $('#grid_image_upload_error').removeClass('d-none').text('Image is still processing. Please reopen this image after a few moments.');
+                        })
+                        .always(function() {
+                            $('#gridUploadImageBtn').prop('disabled', false).text('Upload Image');
+                        });
+                    return;
+                }
+
                 $('#grid_image_uploaded_at').val(data.image_uploaded_at || '-');
                 setGridImagePreview(data.image_url || '');
-                $('#grid_image_upload_success').removeClass('d-none').text(data.message || 'Image uploaded successfully.');
 
                 if (imageTargetRow && imageTargetRow.length) {
                     imageTargetRow.find('.open-grid-image-modal').text('View Image');
@@ -1543,7 +1607,9 @@
                 $('#grid_image_upload_error').removeClass('d-none').text(message);
             },
             complete: function() {
-                $('#gridUploadImageBtn').prop('disabled', false).text('Upload Image');
+                if ($('#gridUploadImageBtn').text() !== 'Processing...') {
+                    $('#gridUploadImageBtn').prop('disabled', false).text('Upload Image');
+                }
             }
         });
     });

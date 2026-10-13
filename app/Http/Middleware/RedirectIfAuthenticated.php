@@ -13,10 +13,15 @@ class RedirectIfAuthenticated
     {
        
         // 🔐 COMPANY USER
-        if (Auth::check() && Route::is('company.login')) {
-            $slug = $request->route('slug');
+        if ($request->isMethod('GET') && Auth::check() && Route::is('company.login')) {
+            $user = Auth::user();
+            $slug = $user->company?->slug;
 
             if ($slug) {
+                if (!$user->two_factor_enabled || $request->session()->get('company_2fa_verified') !== true) {
+                    // Let the login page cancel unfinished verification so another account can sign in.
+                    return $next($request);
+                }
                 return redirect()->route('company.dashboard', $slug);
             }
         }

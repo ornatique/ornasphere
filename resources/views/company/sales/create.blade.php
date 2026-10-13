@@ -5,6 +5,13 @@
 
     <form id="saleForm" method="POST" action="{{ !empty($isEdit) && !empty($sale) ? route('company.sales.update', ['slug' => $company->slug, 'encryptedId' => \Illuminate\Support\Facades\Crypt::encryptString((string) $sale->id)]) : route('company.sales.store', ['slug' => $company->slug]) }}">
         @csrf
+        <div class="mb-3 p-3 border rounded">
+            <input type="hidden" name="show_previous_bills" value="0">
+            <input type="checkbox" id="show_previous_bills" name="show_previous_bills" value="1"
+                @checked(old('show_previous_bills', $sale->show_previous_bills ?? false))>
+            <label for="show_previous_bills">Include previous pending bills in invoice PDF</label>
+            <small class="d-block">Leave unchecked to print only this bill. This does not change the customer's outstanding balance.</small>
+        </div>
         <input type="hidden" name="items_payload" id="itemsPayload" value="">
 
         <div class="card">
@@ -51,8 +58,8 @@
                 </div>
 
                 <div class="row mb-3 align-items-end">
-                    <div class="col-md-2">
-                        <label id="advance_cash_balance_label">Advance Cash Balance Credit</label>
+                    <div class="col-md-2" id="opening_cash_container" style="display:none;">
+                        <label id="advance_cash_balance_label">Opening Balance Credit</label>
                         <input type="text" class="form-control" id="advance_cash_balance" value="0.00" readonly>
                     </div>
                     <div class="col-md-2">
@@ -68,9 +75,10 @@
                         <input type="text" class="form-control" id="advance_silver_after" value="0.000" readonly>
                     </div>
                     <div class="col-md-3">
-                        <label>Fine Adjustment</label>
+                        <label>Payment Adjustment</label>
                         <div class="fine-adjust-control">
                             <div class="fine-adjust-main">
+                                <input type="hidden" name="use_silver_balance" value="0">
                                 <input type="checkbox"
                                        class="form-check-input"
                                        id="use_silver_balance"
@@ -78,11 +86,11 @@
                                        value="1"
                                        {{ old('use_silver_balance', !empty($sale) ? (bool) ($sale->use_silver_balance ?? false) : false) ? 'checked' : '' }}>
                                 <label class="fine-adjust-label" for="use_silver_balance">
-                                    Adjust Fine Balance
+                                    Payment adjustment
                                 </label>
                             </div>
                             <div class="fine-adjust-help">
-                                Deduct sale fine from customer metal balance.
+                                Adjust received payments and metal weight. Any unpaid amount or metal shortage remains debit.
                             </div>
                         </div>
                     </div>
@@ -125,6 +133,7 @@
                     <div class="col-md-3">
                         <label>Pending Amount</label>
                         <input type="text" class="form-control" id="pending_amount_display" value="0.00" readonly>
+                        <small>Cash advance adjusted: Rs <span id="cash_advance_applied">0.00</span></small>
                     </div>
                 </div>
 
@@ -168,17 +177,17 @@
                                 <th>Other Wt</th>
                                 <th>Net Wt</th>
                                 <th>Qty</th>
-                                <th>Purity <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="purity" title="Apply first row purity to all rows">All</button></th>
-                                <th>Waste % <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="waste_percent" title="Apply first row waste to all rows">All</button></th>
+                                <th>Purity <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="purity" title="Apply first visible row purity to visible rows">All</button></th>
+                                <th>Waste % <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="waste_percent" title="Apply first visible row waste to visible rows">All</button></th>
                                 <th>Net Purity</th>
                                 <th>Fine Wt</th>
-                                <th>Metal Rate <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="metal_rate" title="Apply first row metal rate to all rows">All</button></th>
-                                <th>Apply <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="apply_metal" title="Apply first row metal checkbox to all rows">All</button></th>
+                                <th>Metal Rate <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="metal_rate" title="Apply first visible row metal rate to visible rows">All</button></th>
+                                <th>Apply <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="apply_metal" title="Apply first visible row metal checkbox to visible rows">All</button></th>
                                 <th>Metal Amt</th>
-                                <th>Labour Rate <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="labour_rate" title="Apply first row labour rate to all rows">All</button></th>
-                                <th>Apply <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="apply_labour" title="Apply first row labour checkbox to all rows">All</button></th>
+                                <th>Labour Rate <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="labour_rate" title="Apply first visible row labour rate to visible rows">All</button></th>
+                                <th>Apply <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="apply_labour" title="Apply first visible row labour checkbox to visible rows">All</button></th>
                                 <th>Labour Amt</th>
-                                <th>Other Amt <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="other_amount" title="Apply first row other amount to all rows">All</button></th>
+                                <th>Other Amt <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="other_amount" title="Apply first visible row other amount to visible rows">All</button></th>
                                 <th>Total Amt</th>
                                 <th>Remarks</th>
                                 <th>Action</th>
@@ -964,6 +973,7 @@ $(function () {
     const selectedRows = {};
     let advanceCashBalance = 0;
     let advanceGoldBalance = 0;
+    let advanceBalancesLoaded = false;
     let advanceSilverBalance = 0;
     let advanceOtherBalance = 0;
     let modalRowId = null;
@@ -1048,43 +1058,53 @@ $(function () {
     };
 
     function loadCustomerAdvance(customerId) {
+        advanceBalancesLoaded = false;
         if (!customerId) {
+            advanceBalancesLoaded = true;
             advanceCashBalance = 0;
             advanceGoldBalance = 0;
             advanceSilverBalance = 0;
             advanceOtherBalance = 0;
-            $('#advance_cash_balance_label').text('Advance Cash Balance Credit');
+            $('#advance_cash_balance_label').text('Opening Balance Credit');
             $('#advance_silver_balance_label').text('Metal Fine Balance Credit');
             $('#advance_silver_used_label').text('Metal Used (Fine Wt)');
             $('#advance_silver_after_label').text('Metal Balance After Use Credit');
             $('#advance_cash_balance').val('0.00');
+            $('#opening_cash_container').hide();
             $('#advance_silver_balance').val('0.000');
-            updateSilverPreview();
+            recalcTotals();
             return;
         }
 
         $.get("{{ route('company.sales.customerAdvance', $company->slug) }}", { customer_id: customerId }, function(resp) {
-            advanceCashBalance = toNum(resp.cash || 0);
+            if (String($('#customerSelect').val()) !== String(customerId)) return;
+            advanceBalancesLoaded = true;
+            advanceCashBalance = toNum(resp.cash || 0) + (existingSaleCustomerId && String(customerId) === String(existingSaleCustomerId) ? toNum(existingSaleAdvanceUsage.cash_used || 0) : 0);
             const isOriginalSaleCustomer = existingSaleCustomerId && String(customerId) === String(existingSaleCustomerId);
             advanceGoldBalance = toNum(resp.gold || 0) + (isOriginalSaleCustomer ? toNum(existingSaleAdvanceUsage.gold_used || 0) : 0);
             advanceSilverBalance = toNum(resp.silver || 0) + (isOriginalSaleCustomer ? toNum(existingSaleAdvanceUsage.silver_used || 0) : 0);
             advanceOtherBalance = toNum(resp.other || 0) + (isOriginalSaleCustomer ? toNum(existingSaleAdvanceUsage.other_used || 0) : 0);
-            const cashType = advanceCashBalance >= 0 ? 'Credit' : 'Debit';
-            $('#advance_cash_balance_label').text('Advance Cash Balance ' + cashType);
-            $('#advance_cash_balance').val(nfix(Math.abs(advanceCashBalance), 2));
-            updateSilverPreview();
+            const openingCash = toNum(resp.opening_cash || 0);
+            const cashType = openingCash >= 0 ? 'Credit' : 'Debit';
+            $('#opening_cash_container').toggle(Math.abs(openingCash) > 0.000001);
+            $('#advance_cash_balance_label').text('Opening Balance ' + cashType);
+            $('#advance_cash_balance').val(nfix(Math.abs(openingCash), 2));
+            recalcTotals();
         }).fail(function() {
+            if (String($('#customerSelect').val()) !== String(customerId)) return;
+            advanceBalancesLoaded = true;
             advanceCashBalance = 0;
             advanceGoldBalance = 0;
             advanceSilverBalance = 0;
             advanceOtherBalance = 0;
-            $('#advance_cash_balance_label').text('Advance Cash Balance Credit');
+            $('#advance_cash_balance_label').text('Opening Balance Credit');
             $('#advance_silver_balance_label').text('Metal Fine Balance Credit');
             $('#advance_silver_used_label').text('Metal Used (Fine Wt)');
             $('#advance_silver_after_label').text('Metal Balance After Use Credit');
             $('#advance_cash_balance').val('0.00');
+            $('#opening_cash_container').hide();
             $('#advance_silver_balance').val('0.000');
-            updateSilverPreview();
+            recalcTotals();
         });
     }
 
@@ -1096,14 +1116,15 @@ $(function () {
             ? advanceGoldBalance
             : (activeMetal === 'silver' ? advanceSilverBalance : advanceOtherBalance);
         let used = 0;
-        if (shouldAdjustFineBalance) {
-            Object.values(selectedRows).forEach(row => {
-                if (normalizeMetalType(row.metal_type) === activeMetal) {
-                    used += toNum(row.fine_weight || 0);
-                }
-            });
-        }
-        const after = metalBal - used;
+        let available = Math.max(0, metalBal);
+        Object.values(selectedRows).forEach(row => {
+            if (normalizeMetalType(row.metal_type) !== activeMetal) return;
+            const fine = Math.max(0, toNum(row.fine_weight));
+            const unpriced = toNum(row.metal_rate) <= 0 || toNum(row.metal_amount) <= 0;
+            const debit = unpriced ? fine : (shouldAdjustFineBalance ? Math.min(fine, available) : 0);
+            used += debit;
+            available = Math.max(0, available - debit);
+        });        const after = metalBal - used;
         const afterType = after >= 0 ? 'Credit' : 'Debit';
         const balType = metalBal >= 0 ? 'Credit' : 'Debit';
         $('#advance_silver_balance_label').text(`${activeLabel} Fine Balance ${balType}`);
@@ -1461,13 +1482,20 @@ $(function () {
         recalcTotals();
     }
 
+    function visibleSaleRows() {
+        return $('#saleBody tr[id^="row_"]:visible').filter(function() {
+            const rowKey = String(this.id || '').replace('row_', '');
+            return !!rowKey && !!selectedRows[rowKey];
+        });
+    }
+
     function getFirstRowKey() {
-        const firstId = String($('#saleBody tr:first').attr('id') || '');
+        const firstId = String(visibleSaleRows().first().attr('id') || '');
         return firstId.replace('row_', '');
     }
 
     function applyLabourRateToAll(rateValue) {
-        $('#saleBody tr').each(function() {
+        visibleSaleRows().each(function() {
             const rowKey = String(this.id || '').replace('row_', '');
             if (!rowKey || !selectedRows[rowKey]) return;
             $(`.labour-rate[data-id="${rowKey}"]`).val(nfix(rateValue, 2));
@@ -1497,7 +1525,7 @@ $(function () {
         const $source = $(`${config.selector}[data-id="${firstRowKey}"]`);
         const sourceValue = config.checkbox ? $source.is(':checked') : toNum($source.val() || 0);
 
-        $('#saleBody tr').each(function() {
+        visibleSaleRows().each(function() {
             const rowKey = String(this.id || '').replace('row_', '');
             if (!rowKey || !selectedRows[rowKey]) return;
 
@@ -1526,6 +1554,7 @@ $(function () {
     }
 
     function recalcTotals() {
+        updatePaymentAdjustmentAvailability();
         let totalAmount = 0;
         let totalGross = 0;
         let totalOther = 0;
@@ -1582,8 +1611,9 @@ $(function () {
             cashTotal += toNum(row.labour_amount) + toNum(row.other_amount);
 
             const fine = Math.max(0, toNum(row.fine_weight));
-            const metalAmount = Math.max(0, toNum(row.metal_amount));
-            if (fine <= 0 || metalAmount <= 0) return;
+            const metalAmount = toNum(row.metal_rate) > 0 ? Math.max(0, toNum(row.metal_amount)) : 0;
+            if (metalAmount <= 0) { remainingMetal[normalizeMetalType(row.metal_type)] = Math.max(0, (remainingMetal[normalizeMetalType(row.metal_type)] || 0) - fine); return; }
+            if (fine <= 0) { cashTotal += metalAmount; return; }
 
             const metalType = normalizeMetalType(row.metal_type);
             const coveredFine = Math.min(fine, remainingMetal[metalType] || 0);
@@ -1598,13 +1628,17 @@ $(function () {
     }
 
     function recalcPendingAmount() {
+        updatePaymentAdjustmentAvailability();
         const netTotal = calculateCashPayableTotal();
         const received = toNum($('#received_amount').val() || 0);
         const additional = toNum($('#additional_received_amount').val() || 0);
-        const effectiveReceived = received - existingRefundPaid;
-        const pendingBeforeAdditional = Math.max(0, netTotal - effectiveReceived);
-        const pending = Math.max(0, pendingBeforeAdditional - additional);
+        const effectiveReceived = $('#use_silver_balance').is(':checked') ? received - existingRefundPaid : 0;
+        const cashUsed = $('#use_silver_balance').is(':checked') ? Math.min(Math.max(0, advanceCashBalance), Math.max(0, netTotal - effectiveReceived)) : 0;
+        const pendingBeforeAdditional = Math.max(0, netTotal - effectiveReceived - cashUsed);
+        const pending = Math.max(0, pendingBeforeAdditional - ($('#use_silver_balance').is(':checked') ? additional : 0));
         $('#pending_amount_display').val(nfix(pending, 2));
+        $('#cash_advance_applied').text(nfix(cashUsed, 2));
+        $('#saleTotalAmount').text(nfix(netTotal, 2));
 
         const $additionalInput = $('#additional_received_amount');
         if ($additionalInput.length) {
@@ -2334,9 +2368,22 @@ $(function () {
         ensureGridSearchRow();
     });
 
-    $('#received_amount').on('input', recalcPendingAmount);
-    $('#additional_received_amount').on('input', recalcPendingAmount);
+    function updatePaymentAdjustmentAvailability() {
+        const hasReceived = toNum($('#received_amount').val()) + toNum($('#additional_received_amount').val()) > 0;
+        const hasFineCredit = advanceBalancesLoaded && [advanceGoldBalance, advanceSilverBalance, advanceOtherBalance].some(balance => balance > 0);
+        const canAdjust = hasReceived || hasFineCredit;
+        const $adjustment = $('#use_silver_balance');
+        $adjustment.prop('disabled', !canAdjust);
+        // Preserve the saved choice until the customer's credit has loaded.
+        if (!canAdjust && advanceBalancesLoaded) $adjustment.prop('checked', false);
+    }
+
+    $('#received_amount, #additional_received_amount').on('input change', function () {
+        updatePaymentAdjustmentAvailability();
+        recalcTotals();
+    });
     $('#use_silver_balance').on('change', function () {
+        updatePaymentAdjustmentAvailability();
         updateSilverPreview();
         recalcTotals();
     });
@@ -2399,8 +2446,9 @@ $(function () {
         const netTotal = calculateCashPayableTotal();
         const received = toNum($('#received_amount').val() || 0);
         const additional = toNum($('#additional_received_amount').val() || 0);
-        const effectiveReceived = received - existingRefundPaid;
-        const pendingBeforeAdditional = Math.max(0, netTotal - effectiveReceived);
+        const effectiveReceived = $('#use_silver_balance').is(':checked') ? received - existingRefundPaid : 0;
+        const cashUsed = $('#use_silver_balance').is(':checked') ? Math.min(Math.max(0, advanceCashBalance), Math.max(0, netTotal - effectiveReceived)) : 0;
+        const pendingBeforeAdditional = Math.max(0, netTotal - effectiveReceived - cashUsed);
         if (additional - pendingBeforeAdditional > 0.000001) {
             alert(`Add Payment cannot be more than pending amount (${nfix(pendingBeforeAdditional, 2)}).`);
             $('#additional_received_amount').focus();

@@ -22,20 +22,19 @@
 </head>
 <body>
 @php
-    $customerName = optional(optional($return->sale)->customer)->name
-        ?? optional(optional($return->approval)->customer)->name
-        ?? optional(optional(optional($return->items->firstWhere('sale_item_id', '!=', null))->saleItem)->sale)->customer->name
-        ?? '-';
-
-    $city = optional(optional($return->sale)->customer)->city
-        ?? optional(optional($return->approval)->customer)->city
-        ?? '-';
-
-    $contact = optional(optional($return->sale)->customer)->mobile
-        ?? optional(optional($return->sale)->customer)->phone
-        ?? optional(optional($return->approval)->customer)->mobile
-        ?? optional(optional($return->approval)->customer)->phone
-        ?? '-';
+    $returnCustomers = collect([
+        $return->sale?->customer,
+        in_array($return->source_type, ['approval', 'mixed']) ? $return->approval?->customer : null,
+    ])->merge($return->items->map(fn ($item) => $item->approvalItem?->approval?->customer))
+      ->merge($return->items->map(fn ($item) => $item->saleItem?->sale?->customer))
+      ->filter(fn ($customer) => $customer && (int) $customer->company_id === (int) $return->company_id)
+      ->unique('id');
+    $customerName = $returnCustomers->pluck('name')->filter(fn ($value) => filled($value))->unique()->implode(' / ') ?: '-';
+    $city = $returnCustomers->pluck('city')->filter(fn ($value) => filled($value))->unique()->implode(' / ') ?: '-';
+    $contact = $returnCustomers->map(fn ($customer) => collect([
+        $customer->mobile_no, $customer->contact_person1_phone, $customer->contact_person2_phone,
+        $customer->mobile, $customer->phone,
+    ])->first(fn ($value) => filled($value)))->filter()->unique()->implode(' / ') ?: '-';
 
     $companyName = $company->name ?? '';
     $sumGross = 0; $sumLess = 0; $sumNet = 0; $sumOther = 0; $sumTotal = 0;
@@ -51,13 +50,18 @@
     <div class="company-head">
         <div class="company-name">{{ $companyName }}</div>
     </div>
-    <div class="sheet-title">Approval Return</div>
+    <div class="sheet-title">{{ $return->source_type === 'sale' ? 'Sales Return' : 'Approval Return' }}</div>
 
     <table class="meta">
         <tr>
             <td style="width:56%;">
                 <div><strong>Name</strong> : {{ $customerName }}</div>
                 <div style="margin-top:4px;"><strong>City</strong> : {{ $city }}</div>
+                @if($return->source_type === 'sale')
+                    <div style="margin-top:4px;"><strong>Reason</strong> : {{ $return->remarks }}</div>
+                @elseif(trim((string) ($return->remarks ?? '')) !== '')
+                    <div style="margin-top:4px;word-wrap:break-word;"><strong>Voucher Remarks</strong> : {!! nl2br(e($return->remarks)) !!}</div>
+                @endif
             </td>
             <td style="width:44%;">
                 <div><strong>Estimate No</strong> : {{ $return->return_voucher_no }}</div>
@@ -71,15 +75,16 @@
         <thead>
             <tr>
                 <th style="width:4%;">Sr</th>
-                <th style="width:30%; text-align:left;">Item</th>
-                <th style="width:6%;">Purity</th>
-                <th style="width:5%;">Qty</th>
-                <th style="width:9%;">Gross Wt</th>
-                <th style="width:9%;">Less Wt</th>
-                <th style="width:9%;">Net Wt</th>
-                <th style="width:8%;">Metal Rate</th>
-                <th style="width:10%;">Labour Rate</th>
-                <th style="width:10%;">Other</th>
+                <th style="width:23%; text-align:left;">Item</th>
+                <th style="width:7%;">Purity %</th>
+                <th style="width:7%;">Waste %</th>
+                <th style="width:4%;">Qty</th>
+                <th style="width:7%;">Gross Wt</th>
+                <th style="width:7%;">Less Wt</th>
+                <th style="width:7%;">Net Wt</th>
+                <th style="width:7%;">Metal Rate</th>
+                <th style="width:8%;">Labour Rate</th>
+                <th style="width:9%;">Other</th>
                 <th style="width:10%;">Total Amt</th>
             </tr>
         </thead>
@@ -106,6 +111,7 @@
                         ?? optional($item)->outward_carat
                         ?? 0);
                     $qty = 1;
+                    $waste = (float) ($saleItem->waste_percent ?? optional($approvalItem)->waste_percent ?? 0);
                     $gross = (float) ($saleItem->gross_weight ?? optional($approvalItem)->gross_weight ?? 0);
                     $less = (float) ($saleItem->other_weight ?? optional($approvalItem)->other_weight ?? 0);
                     $net = (float) ($saleItem->net_weight ?? optional($approvalItem)->net_weight ?? ($gross - $less));
@@ -118,8 +124,9 @@
                 @endphp
                 <tr>
                     <td class="text-center">{{ $index + 1 }}</td>
-                    <td>{{ $itemDisplay }}</td>
-                    <td class="text-right">{{ number_format($purity, 0) }}%</td>
+                    <td>{{ $itemDisplay }}@if($return->source_type === 'sale')<br><small>Bill: {{ $saleItem?->sale?->voucher_no }}</small>@endif</td>
+                    <td class="text-right">{{ number_format($purity, 3) }}</td>
+                    <td class="text-right">{{ number_format($waste, 3) }}</td>
                     <td class="text-center">{{ $qty }}</td>
                     <td class="text-right">{{ number_format($gross, 3) }}</td>
                     <td class="text-right">{{ number_format($less, 3) }}</td>
@@ -133,7 +140,7 @@
         </tbody>
         <tfoot>
             <tr>
-                <th colspan="4" class="text-right">Total</th>
+                <th colspan="5" class="text-right">Total</th>
                 <th class="text-right">{{ number_format($sumGross, 3) }}</th>
                 <th class="text-right">{{ number_format($sumLess, 3) }}</th>
                 <th class="text-right">{{ number_format($sumNet, 3) }}</th>

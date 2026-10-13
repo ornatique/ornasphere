@@ -46,6 +46,19 @@ Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
 Route::get('/live-metal-rates', [MetalRateApiController::class, 'index']);
 
 Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group(function () {
+    Route::get('/company/voucher-series', [\App\Http\Controllers\Company\VoucherSeriesController::class,'show']);
+    Route::put('/company/voucher-series', [\App\Http\Controllers\Company\VoucherSeriesController::class,'update']);
+    Route::prefix('qr-making')->group(function () {
+        foreach ([
+            ['GET','', 'index'], ['POST','', 'store'], ['POST','preview','preview'],
+            ['GET','{id}','show'], ['PUT','{id}','update'], ['POST','{id}','update'],
+            ['DELETE','{id}','destroy'], ['GET','{id}/image','image'],
+            ['GET','{id}/svg','svg'], ['GET','{id}/pdf','pdf'],
+        ] as [$verb,$path,$operation]) {
+            Route::match([$verb],$path,[\App\Http\Controllers\Api\QrMakingApiController::class,'handle'])
+                ->defaults('operation',$operation)->whereNumber('id');
+        }
+    });
     Route::post('/company/logout', [AuthController::class, 'logout']);
     Route::get('/company/me', [AuthController::class, 'me']);
     Route::get('/company/profile', [AuthController::class, 'profile']);
@@ -135,6 +148,7 @@ Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group
     Route::get('/jobwork-issues', [JobworkIssueApiController::class, 'index']);
     Route::post('/jobwork-issues', [JobworkIssueApiController::class, 'store']);
     Route::get('/jobwork-issues/other-charges', [JobworkIssueApiController::class, 'otherCharges']);
+    Route::get('/jobwork-issues/raw-stock', [JobworkIssueApiController::class, 'rawStock']);
     Route::get('/jobwork-issues/export/excel', [JobworkIssueApiController::class, 'exportExcel']);
     Route::get('/jobwork-issues/export/pdf', [JobworkIssueApiController::class, 'exportPdf']);
     Route::get('/jobwork-issues/export/excel/{id}', [JobworkIssueApiController::class, 'exportSingleExcel']);
@@ -435,6 +449,7 @@ Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group
     Route::get('/returns/customers', [SaleReturnApiController::class, 'getSalesForReturn']);
     Route::get('/returns/sale/{saleId}', [SaleReturnApiController::class, 'saleDetails']);
     Route::get('/returns/{id}', [SaleReturnApiController::class, 'show'])->whereNumber('id');
+    Route::delete('/returns/{id}', [SaleReturnApiController::class, 'destroy'])->whereNumber('id');
     Route::post('/returns/store', [SaleReturnApiController::class, 'store']);
     Route::get('/returns/pdf/{returnId}', [SaleReturnApiController::class, 'pdf']);
     Route::post('/returns/scan-product', [SaleReturnApiController::class, 'scanProduct']);
@@ -473,6 +488,10 @@ Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group
     Route::get('/reports/stock-position', [ReportApiController::class, 'stockPosition']);
     Route::get('/reports/stock-position/export/excel', [ReportApiController::class, 'stockPositionExcel']);
     Route::get('/reports/stock-position/export/pdf', [ReportApiController::class, 'stockPositionPdf']);
+    Route::get('/reports/worker-loss/suggest', [ReportApiController::class, 'workerLossSuggest']);
+    Route::get('/reports/worker-loss/export/excel', [ReportApiController::class, 'workerLossExcel']);
+    Route::get('/reports/worker-loss/export/pdf', [ReportApiController::class, 'workerLossPdf']);
+    Route::get('/reports/worker-loss', [ReportApiController::class, 'workerLoss']);
     Route::get('/reports/approval-outstanding', [ReportApiController::class, 'approvalOutstanding']);
     Route::get('/reports/approval-outstanding/{approval}/details', [ReportApiController::class, 'approvalOutstandingDetails'])->whereNumber('approval');
     Route::get('/reports/approval-outstanding/{approval}/details/export/excel', [ReportApiController::class, 'approvalOutstandingDetailsExcel'])->whereNumber('approval');

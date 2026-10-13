@@ -112,7 +112,7 @@ class SaleController extends Controller
                 ->addColumn('refund_paid_amount_fmt', fn($sale) => number_format((float) ($sale->paid_amount ?? 0), 2))
                 ->addColumn('pending_amount_fmt', function ($sale) {
                     $net = (float) ($sale->net_total ?? 0);
-                    $effectiveReceived = (float) ($sale->received_amount ?? 0) - (float) ($sale->paid_amount ?? 0);
+                    $effectiveReceived = $sale->appliedReceivedAmount();
                     return number_format(max(0, $net - $effectiveReceived), 2);
                 })
                 ->addColumn('creator_name', fn($sale) => optional($sale->creator)->name ?? '-')
@@ -228,7 +228,7 @@ class SaleController extends Controller
     {
         $received = (float) ($sale->received_amount ?? 0);
         $refundPaid = (float) ($sale->paid_amount ?? 0);
-        $pending = max(0, (float) ($sale->net_total ?? 0) - ($received - $refundPaid));
+        $pending = max(0, (float) ($sale->net_total ?? 0) - $sale->appliedReceivedAmount());
 
         return [
             'id' => (int) $sale->id,
@@ -278,7 +278,7 @@ class SaleController extends Controller
             ->map(function (Sale $row) {
                 $received = (float) ($row->received_amount ?? 0);
                 $refundPaid = (float) ($row->paid_amount ?? 0);
-                $pending = max(0, (float) ($row->net_total ?? 0) - ($received - $refundPaid));
+                $pending = max(0, (float) ($row->net_total ?? 0) - $row->appliedReceivedAmount());
                 $fineWeight = (float) ($row->sum_fine_weight ?? 0);
                 $metalAmount = (float) ($row->sum_metal_amount ?? 0);
                 $metalDebit = (!(bool) ($row->use_silver_balance ?? false) && $metalAmount <= 0.000001) ? $fineWeight : 0;
@@ -968,7 +968,7 @@ class SaleController extends Controller
             $sale = Sale::create([
                 'company_id'  => $company->id,
                 'customer_id' => $request->customer_id,
-                'voucher_no'  => 'SL' . time(),
+                'voucher_no'  => \App\Services\VoucherSeries::next($company->id, 'SL'),
                 'sale_date'   => now(),
                 'net_total'   => 0,
                 'received_amount' => (float) $request->input('received_amount', 0),
@@ -976,6 +976,7 @@ class SaleController extends Controller
                 'payment_reference' => $request->input('payment_reference'),
                 'payment_note' => $request->input('payment_note'),
                 'use_silver_balance' => $request->boolean('use_silver_balance'),
+                'show_previous_bills' => $request->boolean('show_previous_bills'),
                 'remarks'     => $request->input('voucher_remarks'),
                 'employee_id' => optional($request->user())->id,
                 'modified_count' => 0,
@@ -1149,6 +1150,10 @@ class SaleController extends Controller
                 ->where('company_id', $company->id)
                 ->findOrFail((int) $saleId);
 
+            if (\App\Models\SaleReturnItem::whereIn('sale_item_id', $sale->saleItems->pluck('id'))->exists()) {
+                throw new \Exception('This sale has returned items and cannot be rewritten.');
+            }
+
             $request->validate([
                 'customer_id' => 'required|integer',
                 'items_payload' => 'nullable|string',
@@ -1177,7 +1182,7 @@ class SaleController extends Controller
                 ? ((float) ($sale->received_amount ?? 0) + $additionalReceived)
                 : $incomingReceived;
 
-            $baseEffectiveReceived = (float) ($sale->received_amount ?? 0) - (float) ($sale->paid_amount ?? 0);
+            $baseEffectiveReceived = $sale->appliedReceivedAmount();
 
             $sale->update([
                 'customer_id' => (int) $request->customer_id,
@@ -1186,6 +1191,7 @@ class SaleController extends Controller
                 'payment_reference' => $request->input('payment_reference'),
                 'payment_note' => $request->input('payment_note'),
                 'use_silver_balance' => $request->boolean('use_silver_balance'),
+                'show_previous_bills' => $request->boolean('show_previous_bills'),
                 'remarks' => $request->input('voucher_remarks'),
             ]);
 
@@ -1231,6 +1237,7 @@ class SaleController extends Controller
             $approvalIds = [];
             $processedItemSetIds = [];
 
+            $retainedApprovalIds = array_map('intval', array_column($saleRows, 'approval_item_id'));
             foreach ($sale->saleItems as $saleItem) {
                 if (!empty($saleItem->approval_item_id)) {
                     $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($company) {
@@ -1238,7 +1245,11 @@ class SaleController extends Controller
                     })->find((int) $saleItem->approval_item_id);
 
                     if ($approvalItem) {
-                        $approvalItem->update(['status' => 'pending']);
+                        if (in_array((int) $approvalItem->id, $retainedApprovalIds, true)) {
+                            $approvalItem->update(['status' => 'pending']);
+                        } else {
+                            app(\App\Services\SaleApprovalStockRestore::class)->restore($approvalItem, $saleItem, (int) $company->id);
+                        }
                         $approvalIds[] = (int) $approvalItem->approval_id;
                     }
                 }
@@ -1371,7 +1382,7 @@ class SaleController extends Controller
             foreach (array_unique($approvalIds) as $approvalId) {
                 $totalItems = ApprovalItem::where('approval_id', $approvalId)->count();
                 $soldItems = ApprovalItem::where('approval_id', $approvalId)
-                    ->where('status', 'sold')
+                    ->whereIn('status', ['sold', 'returned'])
                     ->count();
 
                 if ($soldItems == 0) {
@@ -1417,7 +1428,7 @@ class SaleController extends Controller
                 ->where('sale_id', (int) $sale->id)
                 ->exists();
 
-            if ($hasReturns) {
+            if ($hasReturns || \App\Models\SaleReturnItem::whereIn('sale_item_id', $sale->saleItems->pluck('id'))->exists()) {
                 throw new \Exception('This sale has return entries, so it cannot be deleted.');
             }
 
@@ -1556,7 +1567,7 @@ class SaleController extends Controller
                 'company_id' => $company->id,
                 'customer_id' => $request->customer_id,
                 'sale_date' => now(),
-                'voucher_no' => 'SL' . time(),
+                'voucher_no' => \App\Services\VoucherSeries::next($company->id, 'SL'),
                 'employee_id' => optional($request->user())->id,
                 'modified_count' => 0,
             ]);
@@ -1913,59 +1924,8 @@ class SaleController extends Controller
 
     private function syncSilverAdvanceUsageForSale(int $companyId, Sale $sale, bool $useSilverBalance = false, ?int $userId = null): void
     {
-        CustomerAdvanceLedger::query()
-            ->where('company_id', $companyId)
-            ->where('reference_type', 'sale')
-            ->where('reference_id', (int) $sale->id)
-            ->where('entry_type', 'purchase_adjust_metal')
-            ->delete();
-
-        if (!$useSilverBalance) {
-            return;
-        }
-
-        if ((int) ($sale->customer_id ?? 0) <= 0) {
-            return;
-        }
-
-        $asOnDate = Carbon::parse($sale->sale_date ?? now())->toDateString();
-        $items = $sale->saleItems()->with(['itemset.item', 'product'])->get();
-        $metalFineUsage = ['gold' => 0.0, 'silver' => 0.0, 'other' => 0.0];
-
-        foreach ($items as $row) {
-            $fine = (float) ($row->fine_weight ?? 0);
-            if ($fine <= 0) {
-                continue;
-            }
-            $item = optional($row->itemset)->item ?: $row->product;
-            $metalType = $this->normalizeMetalType(optional($item)->metal ?? null);
-            $metalFineUsage[$metalType] = (float) ($metalFineUsage[$metalType] ?? 0) + $fine;
-        }
-
-        foreach ($metalFineUsage as $metalType => $metalOut) {
-            if ((float) $metalOut <= 0) {
-                continue;
-            }
-            CustomerAdvanceLedger::create([
-                'company_id' => $companyId,
-                'customer_id' => (int) $sale->customer_id,
-                'entry_date' => $asOnDate,
-                'entry_type' => 'purchase_adjust_metal',
-                'payment_mode' => null,
-                'cash_in' => 0,
-                'cash_out' => 0,
-                'metal_type' => $metalType,
-                'metal_in' => 0,
-                'metal_out' => round((float) $metalOut, 3),
-                'rate' => 0,
-                'reference_type' => 'sale',
-                'reference_id' => (int) $sale->id,
-                'remarks' => 'Auto ' . $metalType . ' adjusted from sale fine weight',
-                'created_by' => $userId,
-            ]);
-        }
+        app(\App\Services\SaleSettlement::class)->sync($sale, $userId);
     }
-
     private function normalizeMetalType(?string $metal): string
     {
         $m = strtolower(trim((string) $metal));
@@ -2084,6 +2044,7 @@ class SaleController extends Controller
         $summary = $this->getAdvanceSummary($company->id, $customerId);
         return response()->json([
             'success' => true,
+            'opening_cash' => app(\App\Services\PersonOpeningBalance::class)->cashBalance((int) $company->id, $customerId),
             'cash' => (float) ($summary['cash'] ?? 0),
             'silver' => (float) ($summary['silver'] ?? 0),
             'gold' => (float) ($summary['gold'] ?? 0),
@@ -2111,8 +2072,8 @@ class SaleController extends Controller
         $closingSummary = $this->getAdvanceSummary($companyId, $saleCustomerId);
         $closingSilver = (float) ($closingSummary['silver'] ?? 0);
         $openingSilver = $closingSilver + $silverUsed;
-        $silverDebit = max(0, $fineRequired - $openingSilver);
-        $silverCredit = max(0, $openingSilver - $fineRequired);
+        $silverDebit = max(0, -$closingSilver);
+        $silverCredit = max(0, $closingSilver);
 
         return [
             'cash_used' => (float) ($usage->cash_used ?? 0),

@@ -12,6 +12,11 @@
 
 
         <div class="card-body">
+            @if(!empty($isLocked))
+                <div class="alert alert-warning">
+                    Label items already created for this item. Item and prefix cannot be changed. Last No can only be increased.
+                </div>
+            @endif
 
             <form method="POST"
                 action="{{ route('company.label_config.update', [$company->slug, Crypt::encryptString($labelConfig->id)]) }}">
@@ -27,7 +32,11 @@
                         <div class="form-group">
                             <label>Item *</label>
 
-                            <select name="item_id" class="form-select label-config-item-select" required>
+                            @if(!empty($isLocked))
+                                <input type="hidden" name="item_id" value="{{ $labelConfig->item_id }}">
+                            @endif
+
+                            <select name="item_id" class="form-select label-config-item-select" required {{ !empty($isLocked) ? 'disabled' : '' }}>
 
                                 <option value="">Select Item</option>
 
@@ -59,7 +68,8 @@
                             <input type="text"
                                 name="prefix"
                                 value="{{ old('prefix', $labelConfig->prefix) }}"
-                                class="form-control">
+                                class="form-control"
+                                {{ !empty($isLocked) ? 'readonly' : '' }}>
 
                             @error('prefix')
                                 <div class="text-danger mt-1">{{ $message }}</div>
@@ -93,7 +103,12 @@
                             <input type="number"
                                 name="last_no"
                                 value="{{ old('last_no', $labelConfig->last_no) }}"
+                                min="{{ $minimumLastNo ?? 0 }}"
                                 class="form-control">
+
+                            @error('last_no')
+                                <div class="text-danger mt-1">{{ $message }}</div>
+                            @enderror
 
                         </div>
                     </div>
@@ -234,6 +249,10 @@
                 minimumResultsForSearch: 0,
                 placeholder: 'Select Item'
             });
+
+            @if(!empty($isLocked))
+                $('.label-config-item-select').prop('disabled', true);
+            @endif
         }
     });
 </script>

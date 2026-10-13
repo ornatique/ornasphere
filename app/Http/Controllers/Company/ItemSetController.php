@@ -18,6 +18,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use App\Services\ItemSetImageService;
 
 
 
@@ -132,6 +133,18 @@ class ItemSetController extends Controller
                     ->filterColumn('item_name', function ($query, $keyword) {
                         $query->where('items.item_name', 'like', "%{$keyword}%");
                     })
+                    ->filterColumn('total_gross_weight', function ($query, $keyword) {
+                        $query->havingRaw('CAST(total_gross_weight AS CHAR) LIKE ? OR FORMAT(total_gross_weight, 3) LIKE ?', [
+                            "%{$keyword}%",
+                            "%{$keyword}%",
+                        ]);
+                    })
+                    ->filterColumn('total_net_weight', function ($query, $keyword) {
+                        $query->havingRaw('CAST(total_net_weight AS CHAR) LIKE ? OR FORMAT(total_net_weight, 3) LIKE ?', [
+                            "%{$keyword}%",
+                            "%{$keyword}%",
+                        ]);
+                    })
                     ->addColumn('action', function ($row) {
                         return '<button type="button" class="btn btn-sm btn-info viewBulkItems"
                             data-item-id="' . (int) $row->item_id . '"
@@ -204,6 +217,34 @@ class ItemSetController extends Controller
 
                 ->filterColumn('qr_code', function ($query, $keyword) {
                     $query->where('qr_code', 'like', "%{$keyword}%");
+                })
+
+                ->filterColumn('gross_weight', function ($query, $keyword) {
+                    $query->where(function ($q) use ($keyword) {
+                        $q->whereRaw('CAST(item_sets.gross_weight AS CHAR) LIKE ?', ["%{$keyword}%"])
+                            ->orWhereRaw('FORMAT(item_sets.gross_weight, 3) LIKE ?', ["%{$keyword}%"]);
+                    });
+                })
+
+                ->filterColumn('other_weight', function ($query, $keyword) {
+                    $query->where(function ($q) use ($keyword) {
+                        $q->whereRaw('CAST(item_sets.other AS CHAR) LIKE ?', ["%{$keyword}%"])
+                            ->orWhereRaw('FORMAT(item_sets.other, 3) LIKE ?', ["%{$keyword}%"]);
+                    });
+                })
+
+                ->filterColumn('other_charges', function ($query, $keyword) {
+                    $query->where(function ($q) use ($keyword) {
+                        $q->whereRaw('CAST(item_sets.sale_other AS CHAR) LIKE ?', ["%{$keyword}%"])
+                            ->orWhereRaw('FORMAT(item_sets.sale_other, 2) LIKE ?', ["%{$keyword}%"]);
+                    });
+                })
+
+                ->filterColumn('net_weight', function ($query, $keyword) {
+                    $query->where(function ($q) use ($keyword) {
+                        $q->whereRaw('CAST(item_sets.net_weight AS CHAR) LIKE ?', ["%{$keyword}%"])
+                            ->orWhereRaw('FORMAT(item_sets.net_weight, 3) LIKE ?', ["%{$keyword}%"]);
+                    });
                 })
 
                 ->addColumn('action', function ($row) use ($company) {
@@ -502,7 +543,11 @@ class ItemSetController extends Controller
                 ]);
             }
 
-            $nextNo = $config->last_no;
+            $highestExistingSerialNo = (int) ItemSet::where('company_id', $company->id)
+                ->where('item_id', $item->id)
+                ->where('is_final', 1)
+                ->max('serial_no');
+            $nextNo = max((int) ($config->last_no ?? 0), $highestExistingSerialNo);
 
             foreach ($draftSets as $set) {
 
@@ -904,7 +949,7 @@ class ItemSetController extends Controller
 
     private function itemImageDisk(): string
     {
-        return (string) config('filesystems.item_image_disk', 'public');
+        return app(ItemSetImageService::class)->itemImageDisk();
     }
 
     private function itemImageUrl(?ItemSet $item): ?string
@@ -913,7 +958,7 @@ class ItemSetController extends Controller
             return null;
         }
 
-        return Storage::disk($item->image_disk ?: $this->itemImageDisk())->url($item->image_path);
+        return app(ItemSetImageService::class)->imageUrl($item);
     }
 
     private function findCompanyItemSet(string $slug, string $encryptedId): array
@@ -1012,49 +1057,21 @@ class ItemSetController extends Controller
         [, $item] = $this->findCompanyItemSet($slug, $encryptedId);
 
         $validated = $request->validate([
-            'image' => 'required|image|mimes:jpg,jpeg,png,webp|max:20480',
+            'image' => 'required|image|mimes:jpg,jpeg,png,webp|max:' . ItemSetImageService::MAX_UPLOAD_KB,
         ]);
 
         $file = $validated['image'];
-        $disk = $this->itemImageDisk();
-        $prepared = $this->prepareMediumImage($file->getRealPath(), $file->getMimeType() ?: 'image/jpeg');
-        $path = sprintf(
-            'item-images/company-%d/%s.%s',
-            $item->company_id,
-            (string) Str::uuid(),
-            $prepared['extension']
-        );
-
-        $stream = fopen($prepared['path'], 'r');
-        Storage::disk($disk)->put($path, $stream, [
-            'ContentType' => $prepared['mime'],
-        ]);
-        if (is_resource($stream)) {
-            fclose($stream);
-        }
-
-        if (!empty($prepared['cleanup'])) {
-            @unlink($prepared['path']);
-        }
-
-        if ($item->image_path) {
-            Storage::disk($item->image_disk ?: $disk)->delete($item->image_path);
-        }
-
-        $item->update([
-            'image_disk' => $disk,
-            'image_path' => $path,
-            'image_mime' => $prepared['mime'],
-            'image_size' => Storage::disk($disk)->size($path),
-            'image_uploaded_at' => now(),
-        ]);
+        app(ItemSetImageService::class)->queueUpload($item, $file);
+        $fresh = $item->fresh();
+        $queued = (string) config('item_images.processing', 'sync') !== 'sync';
 
         return response()->json([
             'success' => true,
-            'message' => 'Item image uploaded successfully.',
-            'image_url' => $this->itemImageUrl($item->fresh()),
-            'image_uploaded_at' => $item->fresh()->image_uploaded_at?->format('d-m-Y h:i A'),
-        ]);
+            'queued' => $queued,
+            'message' => $queued ? 'Image upload started. It will appear after processing.' : 'Item image uploaded successfully.',
+            'image_url' => $this->itemImageUrl($fresh),
+            'image_uploaded_at' => $fresh->image_uploaded_at?->format('d-m-Y h:i A'),
+        ], $queued ? 202 : 200);
     }
 
     public function removeImage($slug, $encryptedId)

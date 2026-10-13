@@ -10,6 +10,7 @@ class Item extends Model
     use HasFactory;
 
     protected $fillable = [
+        'try_on_category',
         'company_id',
         'item_name',
         'item_code',

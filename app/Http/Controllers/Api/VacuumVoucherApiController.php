@@ -565,19 +565,7 @@ class VacuumVoucherApiController extends Controller
 
     private function generateVoucherNo(int $companyId, string $date): string
     {
-        $prefix = 'VV' . Carbon::parse($date)->format('y') . '-';
-        $last = VacuumVoucher::where('company_id', $companyId)
-            ->where('voucher_no', 'like', $prefix . '%')
-            ->orderByDesc('id')
-            ->value('voucher_no');
-
-        $next = 1;
-        if ($last && str_contains($last, '-')) {
-            $parts = explode('-', $last);
-            $next = ((int) end($parts)) + 1;
-        }
-
-        return $prefix . $next;
+        return \App\Services\VoucherSeries::next($companyId, 'VV');
     }
 
     private function nullableString($value): ?string

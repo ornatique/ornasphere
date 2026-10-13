@@ -52,4 +52,9 @@ class ItemSet extends Model
     {
         return $this->belongsTo(Item::class, 'item_id');
     }
+
+    public function galleryMedia()
+    {
+        return $this->hasOne(StockGalleryMedia::class);
+    }
 }

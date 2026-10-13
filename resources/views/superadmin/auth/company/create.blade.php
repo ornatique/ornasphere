@@ -118,7 +118,10 @@
 
                                 <div class="col-md-6">
                                     <div class="logo-preview-box">
-                                        <img id="companyLogoPreview" src="{{ asset('celestial/assets/images/logo.svg') }}?v={{ @filemtime(public_path('celestial/assets/images/logo.svg')) }}" alt="Company Logo Preview">
+                                        @php
+                                            $defaultCompanyLogo = asset('celestial/assets/images/ornasphere-auth-logo.png') . '?v=' . @filemtime(public_path('celestial/assets/images/ornasphere-auth-logo.png'));
+                                        @endphp
+                                        <img id="companyLogoPreview" src="{{ $defaultCompanyLogo }}" alt="Company Logo Preview" onerror="this.onerror=null;this.src='{{ $defaultCompanyLogo }}';">
                                         <div>
                                             <strong>Logo Preview</strong>
                                             <p class="mb-0 text-muted">Selected logo will appear on company list.</p>

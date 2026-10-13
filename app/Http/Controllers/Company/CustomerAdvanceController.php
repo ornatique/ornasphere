@@ -18,6 +18,47 @@ use Yajra\DataTables\Facades\DataTables;
 
 class CustomerAdvanceController extends Controller
 {
+    public function soldItems(Request $request, $slug)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $customer = $this->partyCustomersQuery($company->id)->findOrFail($request->integer('customer_id'));
+        $rows = SaleItem::with(['sale', 'itemset.item', 'product'])
+            ->whereHas('sale', fn ($q) => $q->where('company_id',$company->id)->where('customer_id',$customer->id))
+            ->whereHas('itemset', fn ($q) => $q->where('company_id',$company->id)->where('is_sold',1))
+            ->whereNotIn('id', \App\Models\SaleReturnItem::whereNotNull('sale_item_id')->select('sale_item_id'))
+            ->where(function ($q) { $q->where('qty',1)->orWhereNull('qty'); })
+            ->whereNotExists(function ($q) { $q->selectRaw('1')->from('sale_items as newer')->whereColumn('newer.itemset_id','sale_items.itemset_id')->whereColumn('newer.id','>','sale_items.id'); })
+            ->orderByDesc('id')->get()->map(fn ($i) => ['id'=>$i->id, 'bill'=>$i->sale->voucher_no,
+                'date'=>$i->sale->sale_date, 'label'=>$i->itemset->qr_code, 'barcode'=>$i->itemset->barcode, 'huid'=>$i->itemset->HUID, 'name'=>$i->itemset->item?->item_name ?? $i->product?->item_name,
+                'gross'=>$i->gross_weight, 'other'=>$i->other_weight, 'net'=>$i->net_weight, 'purity'=>$i->purity,
+                'waste'=>$i->waste_percent, 'fine'=>$i->fine_weight, 'amount'=>$i->total_amount]);
+        $history = \App\Models\SaleReturn::where('company_id',$company->id)->where('source_type','sale')
+            ->whereHas('items.saleItem.sale', fn ($q) => $q->where('customer_id',$customer->id))
+            ->latest('id')->get()->map(fn ($r) => ['number'=>$r->return_voucher_no, 'date'=>$r->return_date, 'amount'=>$r->return_total,
+                'url'=>route('company.sales.advance.returnPdf', [$slug, Crypt::encryptString((string)$r->id)])]);
+        return response()->json(['items'=>$rows, 'history'=>$history]);
+    }
+
+    public function storeSalesReturn(Request $request, $slug)
+    {
+        $company = Company::where('slug',$slug)->firstOrFail();
+        $data = $request->validate(['customer_id'=>'required|integer', 'sale_item_ids'=>'required|array|min:1',
+            'sale_item_ids.*'=>'required|integer|distinct', 'return_date'=>'required|date', 'reason'=>'required|string|max:2000']);
+        $customer = $this->partyCustomersQuery($company->id)->findOrFail($data['customer_id']);
+        $return = (new \App\Services\CustomerSalesReturn)->save($company->id,$customer->id,$data['sale_item_ids'],$data['return_date'],$data['reason'],$request->user()?->id);
+        return redirect()->route('company.sales.advance.create', ['slug'=>$slug,'customer_id'=>$customer->id])
+            ->with('success','Sales return '.$return->return_voucher_no.' saved. Selected labels are back in stock.')->with('sales_return_saved',true)->with('selected_customer_id',$customer->id);
+    }
+
+    public function salesReturnPdf($slug, $encryptedId)
+    {
+        $company = Company::where('slug',$slug)->firstOrFail();
+        $return = \App\Models\SaleReturn::where('company_id',$company->id)->where('source_type','sale')
+            ->with(['sale.customer','items.saleItem.sale.customer','items.saleItem.itemset.item','items.itemSet.item'])
+            ->findOrFail(Crypt::decryptString($encryptedId));
+        return Pdf::loadView('company.returns.return_pdf',compact('company','return'))->stream($return->return_voucher_no.'.pdf');
+    }
+
     public function index(Request $request, $slug)
     {
         $company = Company::where('slug', $slug)->firstOrFail();
@@ -91,12 +132,21 @@ class CustomerAdvanceController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'city', 'mobile_no']);
 
-        $selectedCustomerId = (int) session('selected_customer_id', 0);
+        $linkedOrder = null;
+        if ($request->filled('order_id')) {
+            abort_unless((int) $request->user()->company_id === (int) $company->id, 403);
+            $linkedOrder = \App\Models\CustomerOrder::where('company_id', $company->id)->findOrFail($request->integer('order_id'));
+            \App\Support\OrderProduction::check($linkedOrder->status !== 'cancelled', 'Cannot receive against a cancelled order.');
+        }
+        $selectedCustomerId = $linkedOrder?->customer_id ?? (int) session('selected_customer_id', 0);
         $balance = $this->getCustomerBalance($company->id, null);
         $rows = collect();
         $customerHasEntries = false;
 
-        return view('company.sales.advance_ledger', compact('company', 'customers', 'rows', 'selectedCustomerId', 'balance', 'customerHasEntries'));
+        $availableOrders = \Illuminate\Support\Facades\Schema::hasTable('customer_orders')
+            ? \App\Models\CustomerOrder::with('customer')->where('company_id', $company->id)->where('status', '!=', 'cancelled')->latest('id')->get()
+            : collect();
+        return view('company.sales.advance_ledger', compact('company', 'customers', 'rows', 'selectedCustomerId', 'balance', 'customerHasEntries', 'linkedOrder', 'availableOrders'));
     }
 
     public function data(Request $request, $slug)
@@ -276,7 +326,7 @@ class CustomerAdvanceController extends Controller
                 'company_id' => $company->id,
                 'customer_id' => $customer->id,
                 'ledger_id' => $ledger->id,
-                'voucher_no' => 'RP-TMP-' . uniqid(),
+                'voucher_no' => \App\Services\VoucherSeries::next($company->id, 'RP'),
                 'voucher_date' => $request->entry_date,
                 'entry_type' => $entryType,
                 'payment_mode' => $request->payment_mode,
@@ -291,15 +341,13 @@ class CustomerAdvanceController extends Controller
                 'created_by' => optional($request->user())->id,
             ]);
 
-            $voucher->update([
-                'voucher_no' => 'RP' . now()->format('y') . '-' . $voucher->id,
-            ]);
 
             foreach ($items as $itemRow) {
                 $voucher->items()->create($itemRow);
             }
 
             $this->createItemReceiveMetalLedgers($request, $company, $customer, $voucher, $items);
+            $this->linkCustomerOrder($request, $company, $voucher);
         });
 
         return redirect()
@@ -334,7 +382,7 @@ class CustomerAdvanceController extends Controller
                 'company_id' => $company->id,
                 'customer_id' => $customer->id,
                 'ledger_id' => null,
-                'voucher_no' => 'RP-TMP-' . uniqid(),
+                'voucher_no' => \App\Services\VoucherSeries::next($company->id, 'RP'),
                 'voucher_date' => $request->entry_date,
                 'entry_type' => 'item_receive',
                 'payment_mode' => null,
@@ -349,9 +397,6 @@ class CustomerAdvanceController extends Controller
                 'created_by' => optional($request->user())->id,
             ]);
 
-            $voucher->update([
-                'voucher_no' => 'RP' . now()->format('y') . '-' . $voucher->id,
-            ]);
 
             foreach ($items as $itemRow) {
                 $voucher->items()->create($itemRow);
@@ -361,12 +406,21 @@ class CustomerAdvanceController extends Controller
             if ($firstLedgerId && !$voucher->ledger_id) {
                 $voucher->update(['ledger_id' => $firstLedgerId]);
             }
+            $this->linkCustomerOrder($request, $company, $voucher);
         });
 
         return redirect()
             ->route('company.sales.advance.index', ['slug' => $company->slug])
             ->with('selected_customer_id', $customer->id)
             ->with('success', 'Item details saved successfully.');
+    }
+
+    private function linkCustomerOrder(Request $request, Company $company, CustomerAdvanceVoucher $voucher): void
+    {
+        if (!$request->filled('order_id')) return;
+        abort_unless((int) $request->user()->company_id === (int) $company->id, 403);
+        $request->validate(['order_id' => 'required|integer|min:1']);
+        \App\Support\OrderProduction::linkVoucher($request->integer('order_id'), $voucher, $request->user()->id);
     }
 
     public function voucherPdf($slug, $encryptedId)

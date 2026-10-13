@@ -4,25 +4,30 @@
     <meta charset="utf-8">
     <title>Casting Metal Issue {{ $voucher->voucher_no }}</title>
     <style>
+        @page {
+            size: A4 portrait;
+            margin: 12mm 9mm;
+        }
+
         body {
             font-family: DejaVu Sans, sans-serif;
-            font-size: 11px;
+            font-size: 9px;
             color: #111;
-            margin: 18px;
+            margin: 0;
         }
 
         .title {
             text-align: center;
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 700;
             margin-bottom: 4px;
         }
 
         .company {
             text-align: center;
-            font-size: 13px;
+            font-size: 11px;
             font-weight: 700;
-            margin-bottom: 16px;
+            margin-bottom: 12px;
         }
 
         .meta {
@@ -33,7 +38,7 @@
 
         .meta td {
             width: 25%;
-            padding: 4px 6px;
+            padding: 4px 5px;
             border: 1px solid #444;
             vertical-align: top;
         }
@@ -51,14 +56,17 @@
         .items th,
         .items td {
             border: 1px solid #444;
-            padding: 6px;
+            padding: 4px 3px;
             vertical-align: top;
             word-wrap: break-word;
+            overflow-wrap: break-word;
         }
 
         .items th {
             background: #f0f0f0;
+            font-size: 7.2px;
             font-weight: 700;
+            line-height: 1.15;
             text-align: left;
         }
 
@@ -69,6 +77,10 @@
         .num {
             text-align: right;
             white-space: nowrap;
+        }
+
+        .items th.num {
+            white-space: normal;
         }
 
         .status {
@@ -120,21 +132,36 @@
     </table>
 
     <table class="items">
+        <colgroup>
+            <col style="width: 4%;">
+            <col style="width: 7%;">
+            <col style="width: 11%;">
+            <col style="width: 10%;">
+            <col style="width: 8%;">
+            <col style="width: 8%;">
+            <col style="width: 4%;">
+            <col style="width: 7%;">
+            <col style="width: 8%;">
+            <col style="width: 7%;">
+            <col style="width: 8%;">
+            <col style="width: 9%;">
+            <col style="width: 9%;">
+        </colgroup>
         <thead>
             <tr>
-                <th style="width: 4%;">Sr. No</th>
-                <th style="width: 8%;">B. No</th>
-                <th style="width: 11%;">Item Name</th>
-                <th style="width: 10%;">Voucher Remark</th>
-                <th class="center" style="width: 9%;">Status</th>
-                <th class="num" style="width: 9%;">Silver Weight</th>
-                <th class="center" style="width: 5%;">I/F</th>
-                <th class="num" style="width: 8%;">Melting %</th>
-                <th class="num" style="width: 11%;">Pure Fine</th>
-                <th class="num" style="width: 9%;">O/M</th>
-                <th class="num" style="width: 11%;">Metal Weight</th>
-                <th class="num" style="width: 12%;">Issue Silver Wt</th>
-                <th style="width: 7%;">Remark</th>
+                <th>Sr.<br>No</th>
+                <th>B. No</th>
+                <th>Item<br>Name</th>
+                <th>Voucher<br>Remark</th>
+                <th class="center">Status</th>
+                <th class="num">Silver<br>Wt</th>
+                <th class="center">I/F</th>
+                <th class="num">Melting<br>%</th>
+                <th class="num">Pure<br>Fine</th>
+                <th class="num">O/M</th>
+                <th class="num">Metal<br>Wt</th>
+                <th class="num">Issue<br>Silver Wt</th>
+                <th>Remark</th>
             </tr>
         </thead>
         <tbody>

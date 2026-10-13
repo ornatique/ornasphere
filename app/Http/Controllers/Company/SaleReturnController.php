@@ -345,6 +345,8 @@ class SaleReturnController extends Controller
             'sale.customer',
             'approval.customer',
             'approval.items.itemSet.item', // âœ… important
+            'items.approvalItem.approval.customer',
+            'items.saleItem.sale.customer',
             'items.saleItem.itemset.item',
             'items.approvalItem.itemSet.item',
             'items.approvalItem.legacyItemSet.item',
@@ -383,7 +385,97 @@ class SaleReturnController extends Controller
             ->where('company_id', $company->id)
             ->findOrFail($returnId);
 
-        return view('company.returns.show', compact('company', 'return'));
+        $customers = $return->items->map(fn ($row) => $row->approvalItem?->approval?->customer)->push($return->approval?->customer)->filter()->unique('id')->values();
+        $initialRows = $return->items->map(function ($row) use ($return, $company) {
+            $a = $this->resolveReturnedApprovalItem($return, $row, $company->id);
+            abort_unless($a, 422, 'Original approval item missing.');
+            $set = $a->itemSet ?? $a->legacyItemSet;
+            return array_merge($a->toArray(), ['id' => $a->id, 'customer' => $a->approval?->customer?->name,
+                'huid' => $set?->HUID, 'qr_code' => $set?->qr_code ?? $a->qr_code,
+                'item_name' => $set?->item?->item_name ?? $a->item?->item_name,
+                'fine_weight' => $a->total_fine_weight, 'total_amount' => $row->return_amount,
+                'other_amount' => (float)$row->return_amount - ((float)$a->total_amount - (float)$a->other_amount)]);
+        })->values();
+        return view('company.returns.select_sale', compact('company', 'return', 'customers', 'initialRows'));
+    }
+
+    public function update(Request $request, $slug, $encryptedReturnId)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $data = $request->validate([
+            'return_date' => 'required|date',
+            'remarks' => 'nullable|string|max:2000',
+            'remove_items' => 'nullable|array',
+            'remove_items.*' => 'integer|distinct',
+            'removal_reason' => 'required_with:remove_items|nullable|string|max:500',
+            'approval_item_ids' => 'sometimes|required|array|min:1',
+            'approval_item_ids.*' => 'integer|distinct',
+            'row_payloads' => 'nullable|array',
+            'voucher_remarks' => 'nullable|string|max:2000',
+        ]);
+        $id = (int) Crypt::decryptString($encryptedReturnId);
+        DB::transaction(function () use ($company, $id, $data) {
+            $return = SaleReturn::where('company_id', $company->id)->where('source_type', 'approval')->lockForUpdate()->findOrFail($id);
+            $items = $return->items()->lockForUpdate()->get();
+            $remove = collect($data['remove_items'] ?? [])->map(fn ($id) => (int) $id);
+            $selected = isset($data['approval_item_ids']) ? collect($data['approval_item_ids'])->map(fn ($id) => (int)$id) : null;
+            if ($selected !== null) $remove = $items->filter(fn ($row) => !$selected->contains((int)$row->approval_item_id))->pluck('id');
+            if ($remove->isNotEmpty() && !filled($data['removal_reason'] ?? null)) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['removal_reason' => 'Enter a reason for removing items.']);
+            }
+            if ($remove->diff($items->pluck('id'))->isNotEmpty() || $remove->count() >= $items->count()) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['remove_items' => 'Keep at least one item. Use Delete on the list to remove the entire voucher.']);
+            }
+            foreach ($items->whereIn('id', $remove) as $item) {
+                $approvalItem = $this->resolveReturnedApprovalItem($return, $item, $company->id);
+                $approvalItem = $approvalItem ? ApprovalItem::whereKey($approvalItem->id)->whereHas('approval', fn ($q) => $q->where('company_id', $company->id))->lockForUpdate()->first() : null;
+                if (!$approvalItem || $approvalItem->status !== 'returned') {
+                    throw \Illuminate\Validation\ValidationException::withMessages(['remove_items' => 'An item is no longer returned. Reload this page before editing.']);
+                }
+                $set = $approvalItem->itemSet ?? $approvalItem->legacyItemSet ?? $item->itemSet;
+                if ($set) {
+                    $set = $set->newQuery()->whereKey($set->id)->lockForUpdate()->firstOrFail();
+                    if ($set->is_sold) {
+                        throw \Illuminate\Validation\ValidationException::withMessages(['remove_items' => 'This label has already been used again. Its return cannot be reversed.']);
+                    }
+                    $set->update(['is_sold' => 1]);
+                }
+                $approvalItem->update(['status' => 'pending']);
+                $item->delete();
+                $this->refreshApprovalStatus((int) $approvalItem->approval_id);
+            }
+            if ($selected !== null) {
+                $customerIds = $items->map(fn ($row) => $row->approvalItem?->approval?->customer_id)->filter()->unique();
+                foreach ($selected->diff($items->pluck('approval_item_id')) as $approvalId) {
+                    $a = TransactionItemGuard::lockApprovalItemForReturn($company->id, (int)$approvalId);
+                    if (!$customerIds->contains($a->approval->customer_id)) throw \Illuminate\Validation\ValidationException::withMessages(['approval_item_ids' => 'Select items from this return customer.']);
+                    $set = $a->itemSet ?? $a->legacyItemSet;
+                    if (!$set) throw \Illuminate\Validation\ValidationException::withMessages(['approval_item_ids' => 'Item label missing.']);
+                    SaleReturnItem::create(['sale_return_id' => $return->id, 'approval_item_id' => $a->id, 'itemset_id' => $set->id, 'return_amount' => $a->total_amount]);
+                    $a->update(['status' => 'returned']);
+                    $set->update(['is_sold' => 0]);
+                    $this->refreshApprovalStatus((int)$a->approval_id);
+                }
+                $payloads = collect($data['row_payloads'] ?? [])->map(fn ($p) => is_array($p) ? $p : json_decode($p, true))->filter()->keyBy('id');
+                foreach ($return->items()->with('approvalItem')->get() as $row) {
+                    $payload = $payloads->get($row->approval_item_id);
+                    if (!$payload) continue;
+                    $other = $payload['other_amount'] ?? 0;
+                    if (!is_numeric($other) || !is_finite((float)$other) || $other < 0) throw \Illuminate\Validation\ValidationException::withMessages(['row_payloads' => 'Invalid other amount.']);
+                    $a = $row->approvalItem;
+                    $row->update(['return_amount' => round((float)$a->total_amount - (float)$a->other_amount + (float)$other, 2)]);
+                }
+                $approvalIds = $return->items()->with('approvalItem')->get()->pluck('approvalItem.approval_id')->unique();
+                $return->source_id = $approvalIds->count() === 1 ? $approvalIds->first() : null;
+            }
+            $remarks = $data['voucher_remarks'] ?? $data['remarks'] ?? '';
+            if ($remove->isNotEmpty()) {
+                $remarks .= "\n" . now()->toDateTimeString() . ' - Removed return items ' . $remove->implode(', ') . ': ' . $data['removal_reason'];
+            }
+            $return->update(['return_date' => $data['return_date'], 'remarks' => trim($remarks),
+                'return_total' => $return->items()->sum('return_amount')]);
+        });
+        return redirect()->route('company.returns.show', [$company->slug, $encryptedReturnId])->with('success', 'Approval return updated. Removed items are pending on their original approvals.');
     }
 
     public function destroyItem($slug, $encryptedReturnId, $encryptedItemId)
@@ -802,7 +894,7 @@ class SaleReturnController extends Controller
                 'sale_id' => $saleIds->count() === 1 ? $saleIds->first() : null,
                 'source_type' => $approvalIds->isNotEmpty() ? (($saleIds->isNotEmpty()) ? 'mixed' : 'approval') : 'sale',
                 'source_id' => $approvalIds->count() === 1 ? $approvalIds->first() : null,
-                'return_voucher_no' => 'SR' . now()->format('YmdHis') . rand(10, 99),
+                'return_voucher_no' => \App\Services\VoucherSeries::next($company->id, $approvalIds->isNotEmpty() ? 'AR' : 'SR'),
                 'return_date' => now(),
                 'return_total' => 0,
                 'remarks' => $request->input('voucher_remarks'),

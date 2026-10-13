@@ -232,11 +232,6 @@ class CastingSortingApiController extends Controller
             return null;
         }
 
-        $issueCount = TreeCuttingIssueItem::where('company_id', $companyId)
-            ->where('vacuum_voucher_id', $voucher->id)
-            ->where('receive_tree_wt', '>', 0)
-            ->count();
-
         $receiveCount = TreeCuttingReceiveItem::where('company_id', $companyId)
             ->where('vacuum_voucher_id', $voucher->id)
             ->where(function ($q) {
@@ -245,7 +240,22 @@ class CastingSortingApiController extends Controller
             })
             ->count();
 
-        if ($issueCount === 0 || $issueCount !== $receiveCount) {
+        $hasPendingIssueRows = TreeCuttingIssueItem::where('company_id', $companyId)
+            ->where('vacuum_voucher_id', $voucher->id)
+            ->where('receive_tree_wt', '>', 0)
+            ->whereNotExists(function ($query) use ($companyId) {
+                $query->selectRaw('1')
+                    ->from('tree_cutting_receive_items')
+                    ->whereColumn('tree_cutting_receive_items.tree_cutting_issue_item_id', 'tree_cutting_issue_items.id')
+                    ->where('tree_cutting_receive_items.company_id', $companyId)
+                    ->where(function ($q) {
+                        $q->where('tree_cutting_receive_items.receive_pc_wt', '>', 0)
+                            ->orWhere('tree_cutting_receive_items.receive_tree_bhuko', '>', 0);
+                    });
+            })
+            ->exists();
+
+        if ($receiveCount === 0 || $hasPendingIssueRows) {
             return null;
         }
 

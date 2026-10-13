@@ -17,7 +17,9 @@ class CompanyProfileController extends Controller
         abort_if((int) $user->company_id !== (int) $company->id, 403);
 
         $companyPlanStatus = CompanyPlanService::status($company);
+        $voucherConfiguration = $user->hasRole('company_admin')
+            ? \App\Services\VoucherSeries::configuration($company) : null;
 
-        return view('company.profile.show', compact('company', 'user', 'companyPlanStatus'));
+        return view('company.profile.show', compact('company', 'user', 'companyPlanStatus', 'voucherConfiguration'));
     }
 }

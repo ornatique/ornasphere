@@ -278,6 +278,80 @@ class SaleReturnApiController extends Controller
         ]);
     }
 
+    public function destroy(Request $request, $id)
+    {
+        $companyId = (int) $request->user()->company_id;
+
+        DB::beginTransaction();
+
+        try {
+            $return = SaleReturn::with([
+                'approval.items.itemSet',
+                'approval.items.legacyItemSet',
+                'items.approvalItem.itemSet',
+                'items.approvalItem.legacyItemSet',
+                'items.itemSet',
+            ])
+                ->where('company_id', $companyId)
+                ->where('source_type', 'approval')
+                ->lockForUpdate()
+                ->findOrFail((int) $id);
+
+            $approvalIds = collect();
+            $fallbackApprovalItems = collect(optional($return->approval)->items ?? []);
+
+            foreach ($return->items as $returnItem) {
+                $approvalItem = $this->resolveReturnedApprovalItem($returnItem, $fallbackApprovalItems, $companyId);
+
+                if ($approvalItem) {
+                    $approvalItem->update(['status' => 'pending']);
+                    $approvalIds->push((int) $approvalItem->approval_id);
+
+                    $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet ?? $returnItem->itemSet;
+                    if ($itemSet) {
+                        $itemSet->update(['is_sold' => 1]);
+                    }
+                }
+
+                $returnItem->delete();
+            }
+
+            $return->delete();
+
+            $approvalIds->unique()->each(fn($approvalId) => $this->refreshApprovalStatus((int) $approvalId));
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Approval return deleted and items moved back to approval.',
+                'deleted_return_id' => (int) $id,
+                'approval_ids' => $approvalIds->unique()->values()->all(),
+            ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Approval return not found.',
+            ], 404);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            Log::error('Approval return delete failed.', [
+                'user_id' => optional($request->user())->id,
+                'company_id' => $companyId,
+                'return_id' => $id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
     public function scanProduct(Request $request)
     {
         $user = auth()->user();
@@ -325,11 +399,17 @@ class SaleReturnApiController extends Controller
             ]);
         }
 
-        ReturnCart::create([
+        $payload = [
             'user_id' => $user->id,
             'company_id' => $user->company_id,
             'sale_item_id' => $saleItem->id
-        ]);
+        ];
+
+        if (Schema::hasColumn('return_carts', 'customer_id')) {
+            $payload['customer_id'] = $customerId;
+        }
+
+        ReturnCart::create($payload);
 
         return response()->json([
             'success' => true,
@@ -451,6 +531,8 @@ class SaleReturnApiController extends Controller
         $user = auth()->user();
         $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
         $voucherSessionId = trim((string) $request->input('voucher_session_id'));
+        $customerId = (int) $request->input('customer_id', 0);
+        $hasCustomerIdColumn = Schema::hasColumn('return_carts', 'customer_id');
 
         $cartQuery = ReturnCart::with([
                 'saleItem.itemset.item',
@@ -469,13 +551,18 @@ class SaleReturnApiController extends Controller
             $cartQuery->where('voucher_session_id', $voucherSessionId);
         }
 
+        if ($hasCustomerIdColumn && $customerId > 0) {
+            $cartQuery->where('customer_id', $customerId);
+        }
+
         $items = $cartQuery->latest()
             ->get()
-            ->map(function ($cart) {
+            ->map(function ($cart) use ($hasCustomerIdColumn) {
                 $saleItem = $cart->saleItem;
                 if ($saleItem && $saleItem->itemset) {
                     return [
                         'cart_id' => $cart->id,
+                        'customer_id' => $hasCustomerIdColumn ? $cart->customer_id : null,
                         'device_id' => $cart->device_id,
                         'voucher_session_id' => $cart->voucher_session_id,
                         'device_entry_id' => $cart->device_entry_id,
@@ -526,6 +613,9 @@ class SaleReturnApiController extends Controller
 
                 return [
                     'cart_id' => $cart->id,
+                    'customer_id' => $hasCustomerIdColumn
+                        ? ($cart->customer_id ?? optional($approvalItem->approval)->customer_id)
+                        : optional($approvalItem->approval)->customer_id,
                     'device_id' => $cart->device_id,
                     'voucher_session_id' => $cart->voucher_session_id,
                     'device_entry_id' => $cart->device_entry_id,
@@ -634,7 +724,7 @@ class SaleReturnApiController extends Controller
                 'company_id' => $user->company_id,
                 'created_by' => $user->id,
                 'sale_id' => $saleId,
-                'return_voucher_no' => 'SR' . time(),
+                'return_voucher_no' => \App\Services\VoucherSeries::next($user->company_id, 'SR'),
                 'return_date' => now(),
                 'remarks' => $request->input('remarks', $request->input('remark')),
                 'return_total' => 0,
@@ -1323,8 +1413,11 @@ class SaleReturnApiController extends Controller
 
             if ($sessionCart) {
                 $cartId = $sessionCart->id;
+                if (Schema::hasColumn('return_carts', 'customer_id') && (int) ($sessionCart->customer_id ?? 0) !== (int) $customerId) {
+                    $sessionCart->update(['customer_id' => $customerId]);
+                }
             } else {
-                $cart = ReturnCart::create([
+                $cartPayload = [
                     'user_id' => $request->user()->id,
                     'device_id' => $deviceId,
                     'voucher_session_id' => $voucherSessionId,
@@ -1332,7 +1425,13 @@ class SaleReturnApiController extends Controller
                     'company_id' => $companyId,
                     'sale_item_id' => null,
                     'approval_item_id' => $approvalItemId,
-                ]);
+                ];
+
+                if (Schema::hasColumn('return_carts', 'customer_id')) {
+                    $cartPayload['customer_id'] = $customerId;
+                }
+
+                $cart = ReturnCart::create($cartPayload);
                 $cartAdded = true;
                 $cartId = $cart->id;
             }
@@ -1342,6 +1441,7 @@ class SaleReturnApiController extends Controller
             'success' => true,
             'cart_added' => $cartAdded,
             'cart_id' => $cartId,
+            'customer_id' => $customerId ?: null,
             'device_id' => $deviceId ?: null,
             'voucher_session_id' => $voucherSessionId ?: null,
             'device_entry_id' => $deviceEntryId ?: null,
@@ -1383,6 +1483,9 @@ class SaleReturnApiController extends Controller
             ], 500);
         }
 
+        $customerId = (int) $request->customer_id;
+        $hasCustomerIdColumn = Schema::hasColumn('return_carts', 'customer_id');
+
         $items = $hasBatchItems
             ? collect($request->input('items'))
                 ->map(function ($item) {
@@ -1416,7 +1519,7 @@ class SaleReturnApiController extends Controller
                 $approvalItem = TransactionItemGuard::lockApprovalItemForReturn($companyId, (int) $itemPayload['approval_item_id'])
                     ->load(['approval', 'itemSet.item', 'legacyItemSet.item', 'item']);
 
-                if ((int) optional($approvalItem->approval)->customer_id !== (int) $request->customer_id) {
+                if ((int) optional($approvalItem->approval)->customer_id !== $customerId) {
                     throw new \Exception('Approval item customer mismatch.');
                 }
 
@@ -1449,15 +1552,20 @@ class SaleReturnApiController extends Controller
                         ], 409);
                     }
 
+                    if ($hasCustomerIdColumn && (int) ($existingCart->customer_id ?? 0) !== $customerId) {
+                        $existingCart->update(['customer_id' => $customerId]);
+                    }
+
                     $reservedItems[] = [
                         'cart_id' => $existingCart->id,
+                        'customer_id' => $customerId,
                         'approval_item_id' => $approvalItem->id,
                         'already_reserved' => true,
                     ];
                     continue;
                 }
 
-                $cart = ReturnCart::create([
+                $cartPayload = [
                     'user_id' => $userId,
                     'device_id' => $deviceId,
                     'voucher_session_id' => $voucherSessionId,
@@ -1465,10 +1573,17 @@ class SaleReturnApiController extends Controller
                     'company_id' => $companyId,
                     'sale_item_id' => null,
                     'approval_item_id' => $approvalItem->id,
-                ]);
+                ];
+
+                if ($hasCustomerIdColumn) {
+                    $cartPayload['customer_id'] = $customerId;
+                }
+
+                $cart = ReturnCart::create($cartPayload);
 
                 $reservedItems[] = [
                     'cart_id' => $cart->id,
+                    'customer_id' => $customerId,
                     'approval_item_id' => $approvalItem->id,
                     'already_reserved' => false,
                 ];
@@ -1480,6 +1595,7 @@ class SaleReturnApiController extends Controller
                 'success' => true,
                 'message' => $items->count() > 1 ? 'Items reserved for return.' : 'Item reserved for return.',
                 'cart_id' => $reservedItems[0]['cart_id'] ?? null,
+                'customer_id' => $customerId,
                 'approval_item_id' => $reservedItems[0]['approval_item_id'] ?? null,
                 'device_id' => $deviceId,
                 'voucher_session_id' => $voucherSessionId,
@@ -1630,7 +1746,7 @@ class SaleReturnApiController extends Controller
                 'sale_id' => $saleIds->count() === 1 ? $saleIds->first() : null,
                 'source_type' => $approvalIds->isNotEmpty() ? ($saleIds->isNotEmpty() ? 'mixed' : 'approval') : 'sale',
                 'source_id' => $approvalIds->count() === 1 ? $approvalIds->first() : null,
-                'return_voucher_no' => 'SR' . now()->format('YmdHis') . rand(10, 99),
+                'return_voucher_no' => \App\Services\VoucherSeries::next($companyId, $approvalIds->isNotEmpty() ? 'AR' : 'SR'),
                 'return_date' => now(),
                 'remarks' => $request->input('remarks', $request->input('remark')),
                 'return_total' => 0,
@@ -1804,6 +1920,18 @@ class SaleReturnApiController extends Controller
         $saleItemIds = array_values(array_unique(array_filter(array_map('intval', $saleItemIds))));
         $approvalItemIds = array_values(array_unique(array_filter(array_map('intval', $approvalItemIds))));
 
+        if ($voucherSessionId !== null && $voucherSessionId !== '') {
+            $sessionQuery = ReturnCart::where('user_id', $userId)
+                ->where('company_id', $companyId)
+                ->where('voucher_session_id', $voucherSessionId);
+
+            if ($deviceId !== null && $deviceId !== '') {
+                $sessionQuery->where('device_id', $deviceId);
+            }
+
+            return $sessionQuery->delete();
+        }
+
         if (empty($saleItemIds) && empty($approvalItemIds)) {
             return 0;
         }
@@ -1845,8 +1973,47 @@ class SaleReturnApiController extends Controller
             ->whereIn('status', ['sold', 'returned'])
             ->count();
 
-        $status = ($total > 0 && $total === $done) ? 'closed' : 'partial';
+        $status = 'open';
+        if ($total > 0 && $total === $done) {
+            $status = 'closed';
+        } elseif ($done > 0 && $done < $total) {
+            $status = 'partial';
+        }
+
         ApprovalHeader::where('id', $approvalId)->update(['status' => $status]);
+    }
+
+    private function resolveReturnedApprovalItem(SaleReturnItem $returnItem, $fallbackApprovalItems, int $companyId): ?ApprovalItem
+    {
+        if ($returnItem->approvalItem) {
+            return $returnItem->approvalItem;
+        }
+
+        if ($returnItem->itemset_id) {
+            $approvalItem = $fallbackApprovalItems
+                ->first(fn($item) => (int) ($item->itemset_id ?? 0) === (int) $returnItem->itemset_id);
+
+            if ($approvalItem) {
+                return $approvalItem;
+            }
+
+            $approvalItem = ApprovalItem::with(['itemSet', 'legacyItemSet'])
+                ->where(function ($query) use ($returnItem) {
+                    $query->where('itemset_id', (int) $returnItem->itemset_id)
+                        ->orWhere('item_id', (int) $returnItem->itemset_id);
+                })
+                ->where('status', 'returned')
+                ->whereHas('approval', fn($query) => $query->where('company_id', $companyId))
+                ->latest('id')
+                ->first();
+
+            if ($approvalItem) {
+                return $approvalItem;
+            }
+        }
+
+        return $fallbackApprovalItems
+            ->first(fn($item) => (string) $item->status === 'returned');
     }
 
     private function scopeApprovalReturnCompany($query, int $companyId, int $customerId = 0): void

@@ -196,7 +196,7 @@
                         <div class="mb-3">
                             <label>Upload Image</label>
                             <input type="file" id="item_image_file" class="form-control text-white border-0" accept="image/jpeg,image/png,image/webp">
-                            <small class="text-muted d-block mt-1">JPG, PNG or WebP up to 20 MB. Stored as compressed WebP.</small>
+                            <small class="text-muted d-block mt-1">JPG, PNG or WebP up to 15 MB. Stored as compressed WebP.</small>
                         </div>
 
                         <div class="image-edit-tools border rounded p-2 mb-3" id="image_edit_tools">
@@ -488,12 +488,12 @@
             {
                 data: 'gross_weight',
                 name: 'total_gross_weight',
-                searchable: false
+                searchable: true
             },
             {
                 data: 'net_weight',
                 name: 'total_net_weight',
-                searchable: false
+                searchable: true
             },
             {
                 data: 'action',
@@ -549,6 +549,23 @@
         table.draw();
     }
 
+    function ajaxErrorMessage(xhr, fallback) {
+        if (xhr.responseJSON) {
+            if (xhr.responseJSON.message) {
+                return xhr.responseJSON.message;
+            }
+
+            if (xhr.responseJSON.errors) {
+                const firstError = Object.values(xhr.responseJSON.errors)[0];
+                if (Array.isArray(firstError) && firstError.length) {
+                    return firstError[0];
+                }
+            }
+        }
+
+        return fallback || 'Something went wrong. Please try again.';
+    }
+
     $('#filterBtn').click(function() {
         redrawCurrentItemSetTable();
     });
@@ -576,6 +593,10 @@
                 },
                 success: function() {
                     table.draw();
+                },
+                error: function(xhr) {
+                    alert(ajaxErrorMessage(xhr, 'Unable to delete this item.'));
+                    redrawCurrentItemSetTable();
                 }
             });
         }
@@ -624,6 +645,9 @@
             $('#editModal').modal('hide');
             table.draw();
 
+        }).fail(function(xhr) {
+            alert(ajaxErrorMessage(xhr, 'Unable to update this item.'));
+            redrawCurrentItemSetTable();
         });
 
     });
@@ -981,6 +1005,40 @@
         });
     }
 
+    function waitForProcessedItemImage(previousUrl, attempts = 60) {
+        const deferred = $.Deferred();
+        const poll = function(remaining) {
+            $.get($('#image_show_url').val(), function(data) {
+                const nextUrl = data.image_url || '';
+                if (nextUrl && nextUrl !== previousUrl) {
+                    deferred.resolve(data);
+                    return;
+                }
+
+                if (remaining <= 0) {
+                    deferred.reject();
+                    return;
+                }
+
+                setTimeout(function() {
+                    poll(remaining - 1);
+                }, 1000);
+            }).fail(function() {
+                if (remaining <= 0) {
+                    deferred.reject();
+                    return;
+                }
+
+                setTimeout(function() {
+                    poll(remaining - 1);
+                }, 1000);
+            });
+        };
+
+        poll(attempts);
+        return deferred.promise();
+    }
+
     $(document).on('click', '.imageBtn', function() {
         $('#image_show_url').val($(this).data('show-url'));
         $('#image_upload_url').val($(this).data('upload-url'));
@@ -1000,6 +1058,12 @@
         if (!file.type.match(/^image\/(jpeg|png|webp)$/)) {
             $(this).val('');
             $('#image_upload_error').removeClass('d-none').text('Please select a JPG, PNG or WebP image.');
+            return;
+        }
+
+        if (file.size > 15 * 1024 * 1024) {
+            $(this).val('');
+            $('#image_upload_error').removeClass('d-none').text('Image size must be 15 MB or less.');
             return;
         }
 
@@ -1029,11 +1093,31 @@
             processData: false,
             contentType: false,
             success: function(data) {
+                const previousUrl = $('#item_image_preview').attr('src') || '';
                 $('#item_image_file').val('');
                 imageEditor.reset();
+                $('#image_upload_success').removeClass('d-none').text(data.message || 'Image uploaded successfully.');
+
+                if (data.queued) {
+                    $('#uploadImageBtn').prop('disabled', true).text('Processing...');
+                    waitForProcessedItemImage(previousUrl)
+                        .done(function(fresh) {
+                            $('#image_uploaded_at').val(fresh.image_uploaded_at || '-');
+                            setImagePreview(fresh.image_url || '');
+                            table.draw(false);
+                            $('#imageModal').modal('hide');
+                        })
+                        .fail(function() {
+                            $('#image_upload_error').removeClass('d-none').text('Image is still processing. Please reopen this image after a few moments.');
+                        })
+                        .always(function() {
+                            $('#uploadImageBtn').prop('disabled', false).text('Upload Image');
+                        });
+                    return;
+                }
+
                 $('#image_uploaded_at').val(data.image_uploaded_at || '-');
                 setImagePreview(data.image_url || '');
-                $('#image_upload_success').removeClass('d-none').text(data.message || 'Image uploaded successfully.');
                 table.draw(false);
                 $('#imageModal').modal('hide');
             },
@@ -1042,7 +1126,9 @@
                 $('#image_upload_error').removeClass('d-none').text(message);
             },
             complete: function() {
-                $('#uploadImageBtn').prop('disabled', false).text('Upload Image');
+                if ($('#uploadImageBtn').text() !== 'Processing...') {
+                    $('#uploadImageBtn').prop('disabled', false).text('Upload Image');
+                }
             }
         });
     });

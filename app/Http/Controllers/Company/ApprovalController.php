@@ -69,6 +69,7 @@ class ApprovalController extends Controller
                     ->withSum([
                         'items as active_gross_weight' => $pendingItemFilter,
                     ], 'gross_weight')
+                ->withSum(['items as active_other_weight' => $pendingItemFilter], 'other_weight')
                     ->withSum([
                         'items as active_net_weight' => $pendingItemFilter,
                     ], 'net_weight')
@@ -107,6 +108,7 @@ class ApprovalController extends Controller
                 $summary = [
                     'total_qty' => (int) $summaryRows->sum(fn($row) => (int) ($row->active_items_count ?? 0)),
                     'total_gross_wt' => (float) $summaryRows->sum(fn($row) => (float) ($row->active_gross_weight ?? 0)),
+                    'total_other_wt' => (float) $summaryRows->sum(fn($row) => (float) ($row->active_other_weight ?? 0)),
                     'total_net_wt' => (float) $summaryRows->sum(fn($row) => (float) ($row->active_net_weight ?? 0)),
                 ];
 
@@ -169,6 +171,7 @@ class ApprovalController extends Controller
                     ->addColumn('qr_code', fn() => '-')
                     ->addColumn('total_qty', fn($row) => (int) ($row->active_items_count ?? 0))
                     ->addColumn('total_gross_weight', fn($row) => number_format((float) ($row->active_gross_weight ?? 0), 3))
+                    ->addColumn('total_other_weight', fn($row) => number_format((float) ($row->active_other_weight ?? 0), 3))
                     ->addColumn('total_net_weight', fn($row) => number_format((float) ($row->active_net_weight ?? 0), 3))
                     ->addColumn('total_fine_weight', fn($row) => number_format((float) ($row->active_fine_weight ?? 0), 3))
                     ->addColumn('total_metal_amount', fn($row) => number_format((float) ($row->active_metal_amount ?? 0), 2))
@@ -229,6 +232,7 @@ class ApprovalController extends Controller
             $summary = [
                 'total_qty' => (int) $summaryRows->count(),
                 'total_gross_wt' => (float) $summaryRows->sum(fn($row) => (float) ($row->gross_weight ?? 0)),
+                'total_other_wt' => (float) $summaryRows->sum(fn($row) => (float) ($row->other_weight ?? 0)),
                 'total_net_wt' => (float) $summaryRows->sum(fn($row) => (float) ($row->net_weight ?? 0)),
             ];
 
@@ -287,6 +291,7 @@ class ApprovalController extends Controller
                 ->addColumn('qr_code', fn($row) => $row->qr_code ?: '-')
                 ->addColumn('total_qty', fn() => 1)
                 ->addColumn('total_gross_weight', fn($row) => number_format((float) ($row->gross_weight ?? 0), 3))
+                ->addColumn('total_other_weight', fn($row) => number_format((float) ($row->other_weight ?? 0), 3))
                 ->addColumn('total_net_weight', fn($row) => number_format((float) ($row->net_weight ?? 0), 3))
                 ->addColumn('total_fine_weight', fn($row) => number_format((float) ($row->total_fine_weight ?? 0), 3))
                 ->addColumn('total_metal_amount', fn($row) => number_format((float) ($row->metal_amount ?? 0), 2))
@@ -332,6 +337,7 @@ class ApprovalController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
         $fromDate = $request->input('from_date');
         $toDate = $request->input('to_date');
+        $customerId = $this->resolveEncryptedCustomerFilterId($request, $company->id);
         $today = now()->toDateString();
         if (empty($fromDate) && empty($toDate)) {
             $fromDate = $today;
@@ -365,6 +371,7 @@ class ApprovalController extends Controller
                 ->withSum([
                     'items as active_gross_weight' => $pendingItemFilter,
                 ], 'gross_weight')
+                ->withSum(['items as active_other_weight' => $pendingItemFilter], 'other_weight')
                 ->withSum([
                     'items as active_net_weight' => $pendingItemFilter,
                 ], 'net_weight')
@@ -391,8 +398,8 @@ class ApprovalController extends Controller
                 ->orderByDesc('approval_date')
                 ->orderByDesc('id');
 
-            if ($request->filled('customer_id')) {
-                $query->where('customer_id', (int) $request->customer_id);
+            if ($customerId !== null) {
+                $query->where('customer_id', $customerId);
             }
 
             if (!empty($fromDate) && !empty($toDate)) {
@@ -418,6 +425,7 @@ class ApprovalController extends Controller
                     'qr_code' => '-',
                     'total_qty' => (int) ($row->active_items_count ?? 0),
                     'gross_wt' => (float) ($row->active_gross_weight ?? 0),
+                    'other_wt' => (float) ($row->active_other_weight ?? 0),
                     'net_wt' => (float) ($row->active_net_weight ?? 0),
                     'fine_wt' => (float) ($row->active_fine_weight ?? 0),
                     'metal_amt' => (float) ($row->active_metal_amount ?? 0),
@@ -459,8 +467,8 @@ class ApprovalController extends Controller
             ->orderByDesc('approval_headers.approval_date')
             ->orderByDesc('approval_items.id');
 
-        if ($request->filled('customer_id')) {
-            $query->where('approval_headers.customer_id', (int) $request->customer_id);
+        if ($customerId !== null) {
+            $query->where('approval_headers.customer_id', $customerId);
         }
 
         if (!empty($fromDate) && !empty($toDate)) {
@@ -482,6 +490,7 @@ class ApprovalController extends Controller
                 'qr_code' => $row->qr_code ?: '-',
                 'total_qty' => 1,
                 'gross_wt' => (float) ($row->gross_weight ?? 0),
+                'other_wt' => (float) ($row->other_weight ?? 0),
                 'net_wt' => (float) ($row->net_weight ?? 0),
                 'fine_wt' => (float) ($row->total_fine_weight ?? 0),
                 'metal_amt' => (float) ($row->metal_amount ?? 0),
@@ -503,6 +512,32 @@ class ApprovalController extends Controller
         return $pdf->stream('approval-list-' . now()->format('YmdHis') . '.pdf');
     }
 
+    private function resolveEncryptedCustomerFilterId(Request $request, int $companyId): ?int
+    {
+        if (!$request->filled('customer_id')) {
+            return null;
+        }
+
+        $customerIdValue = (string) $request->input('customer_id');
+        try {
+            $customerId = ctype_digit($customerIdValue)
+                ? (int) $customerIdValue
+                : (int) Crypt::decryptString($customerIdValue);
+        } catch (\Illuminate\Contracts\Encryption\DecryptException $exception) {
+            abort(404);
+        }
+
+        abort_unless(
+            Customer::where('company_id', $companyId)
+                ->saleParties()
+                ->whereKey($customerId)
+                ->exists(),
+            404
+        );
+
+        return $customerId;
+    }
+
     public function create($slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
@@ -513,7 +548,16 @@ class ApprovalController extends Controller
             ->orderBy('name')
             ->get();
 
-        return view('company.approval.create', compact('company', 'customers'));
+        $itemsQuery = Item::where('company_id', $company->id)
+            ->orderBy('item_name');
+
+        if (Schema::hasColumn('items', 'is_active')) {
+            $itemsQuery->where('is_active', 1);
+        }
+
+        $items = $itemsQuery->get(['id', 'item_name', 'item_code']);
+
+        return view('company.approval.create', compact('company', 'customers', 'items'));
     }
 
     public function edit($slug, $encryptedId)
@@ -536,6 +580,15 @@ class ApprovalController extends Controller
             ->where('is_active', 1)
             ->orderBy('name')
             ->get();
+
+        $itemsQuery = Item::where('company_id', $company->id)
+            ->orderBy('item_name');
+
+        if (Schema::hasColumn('items', 'is_active')) {
+            $itemsQuery->where('is_active', 1);
+        }
+
+        $items = $itemsQuery->get(['id', 'item_name', 'item_code']);
 
         $editableItems = $approval->items
             ->where('status', 'pending')
@@ -596,6 +649,7 @@ class ApprovalController extends Controller
         return view('company.approval.create', [
             'company' => $company,
             'customers' => $customers,
+            'items' => $items,
             'approval' => $approval,
             'editableItems' => $editableItems,
             'isEdit' => true,
@@ -621,19 +675,25 @@ class ApprovalController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
 
         $keyword = trim((string) $request->keyword);
+        $itemId = (int) $request->input('item_id', 0);
         $limit = max(10, min((int) $request->input('limit', 1000), 2000));
 
         $data = ItemSet::with('item')
             ->where('company_id', $company->id)
-             ->where('is_final', 1)
+            ->where('is_final', 1)
             ->where('is_sold', 0)
-            ->where(function ($q) use ($keyword) {
-                $q->where('HUID', 'LIKE', "%{$keyword}%")
-                    ->orWhere('qr_code', 'LIKE', "%{$keyword}%")
-                    ->orWhere('barcode', 'LIKE', "%{$keyword}%")
-                    ->orWhereHas('item', function ($q2) use ($keyword) {
-                        $q2->where('item_name', 'like', "%{$keyword}%");
-                    });
+            ->when($itemId > 0, function ($q) use ($itemId) {
+                $q->where('item_id', $itemId);
+            })
+            ->when($keyword !== '', function ($q) use ($keyword) {
+                $q->where(function ($inner) use ($keyword) {
+                    $inner->where('HUID', 'LIKE', "%{$keyword}%")
+                        ->orWhere('qr_code', 'LIKE', "%{$keyword}%")
+                        ->orWhere('barcode', 'LIKE', "%{$keyword}%")
+                        ->orWhereHas('item', function ($q2) use ($keyword) {
+                            $q2->where('item_name', 'like', "%{$keyword}%");
+                        });
+                });
             })
             ->orderByDesc('id')
             ->limit($limit)
@@ -641,10 +701,15 @@ class ApprovalController extends Controller
         $itemSetItemIds = $data->pluck('item_id')->filter()->unique()->values()->all();
         $itemOnly = Item::query()
             ->where('company_id', $company->id)
+            ->when($itemId > 0, function ($q) use ($itemId) {
+                $q->where('id', $itemId);
+            })
             ->whereNotIn('id', $itemSetItemIds)
-            ->where(function ($q) use ($keyword) {
-                $q->where('item_name', 'like', "%{$keyword}%")
-                    ->orWhere('item_code', 'like', "%{$keyword}%");
+            ->when($keyword !== '', function ($q) use ($keyword) {
+                $q->where(function ($inner) use ($keyword) {
+                    $inner->where('item_name', 'like', "%{$keyword}%")
+                        ->orWhere('item_code', 'like', "%{$keyword}%");
+                });
             })
             ->orderBy('item_name')
             ->limit($limit)
@@ -654,10 +719,15 @@ class ApprovalController extends Controller
             $itemOnly = Item::query()
                 ->where('company_id', $company->id)
                 ->where('is_active', 1)
+                ->when($itemId > 0, function ($q) use ($itemId) {
+                    $q->where('id', $itemId);
+                })
                 ->whereNotIn('id', $itemSetItemIds)
-                ->where(function ($q) use ($keyword) {
-                    $q->where('item_name', 'like', "%{$keyword}%")
-                        ->orWhere('item_code', 'like', "%{$keyword}%");
+                ->when($keyword !== '', function ($q) use ($keyword) {
+                    $q->where(function ($inner) use ($keyword) {
+                        $inner->where('item_name', 'like', "%{$keyword}%")
+                            ->orWhere('item_code', 'like', "%{$keyword}%");
+                    });
                 })
                 ->orderBy('item_name')
                 ->limit($limit)
@@ -719,7 +789,7 @@ class ApprovalController extends Controller
             $approval = ApprovalHeader::create([
                 'company_id' => $company->id,
                 'customer_id' => $request->customer_id,
-                'approval_no' => 'APP' . time(),
+                'approval_no' => \App\Services\VoucherSeries::next($company->id, 'APP'),
                 'approval_date' => now(),
                 'status' => 'open',
                 'remarks' => $request->input('voucher_remarks'),
@@ -921,8 +991,10 @@ class ApprovalController extends Controller
         return view('company.approval.view', compact('company', 'approval'));
     }
 
-    public function pdf($slug, $encryptedId)
+    public function pdf(Request $request, $slug, $encryptedId)
     {
+        $request->validate(['status' => 'nullable|in:all,pending,partial,sold,returned']);
+        $pdfStatus = $request->input('status') ?: 'partial';
         $company = Company::whereSlug($slug)->firstOrFail();
         $id = (int) Crypt::decryptString($encryptedId);
 
@@ -942,7 +1014,7 @@ class ApprovalController extends Controller
             ?? 'System';
         $printedAt = now();
 
-        $pdf = Pdf::loadView('company.approval.approval_pdf', compact('company', 'approval', 'printedBy', 'printedAt'))
+        $pdf = Pdf::loadView('company.approval.approval_pdf', compact('company', 'approval', 'printedBy', 'printedAt', 'pdfStatus'))
             ->setPaper('a4', 'portrait');
 
         return $pdf->stream('Approval-' . $approval->approval_no . '.pdf');
@@ -1033,7 +1105,7 @@ class ApprovalController extends Controller
         $hasReturnApprovalItemId = Schema::hasColumn('sale_return_items', 'approval_item_id');
         $hasReturnItemsetId = Schema::hasColumn('sale_return_items', 'itemset_id');
 
-        $items = ApprovalItem::with('itemSet.item', 'legacyItemSet.item')
+        $items = ApprovalItem::with('itemSet.item', 'legacyItemSet.item', 'approval:id,approval_no')
             ->whereHas('approval', function ($q) use ($company, $customerId) {
                 $q->where('company_id', $company->id)
                     ->where('customer_id', $customerId);
@@ -1079,6 +1151,8 @@ class ApprovalController extends Controller
             $totalAmount = $this->resolveTotalAmount($row->total_amount ?? null, $metalAmount, $labourAmount, $otherAmount);
             return [
                 'id' => $row->id,
+                'approval_id' => $row->approval_id,
+                'approval_no' => $row->approval?->approval_no,
                 'item_id' => $row->item_id ?? optional($itemSet)->item_id,
                 'qr_code' => $row->qr_code ?? optional($itemSet)->qr_code,
                 'huid' => $row->huid ?? optional($itemSet)->HUID,
@@ -1286,7 +1360,7 @@ class ApprovalController extends Controller
                 'sale_id' => null,
                 'source_type' => 'approval',
                 'source_id' => $request->approval_id,
-                'return_voucher_no' => 'SR' . time(),
+                'return_voucher_no' => \App\Services\VoucherSeries::next($company->id, 'AR'),
                 'return_date' => now(),
                 'return_total' => 0,
                 'remarks' => $request->input('voucher_remarks'),
@@ -1354,3 +1428,4 @@ class ApprovalController extends Controller
         }
     }
 }
+

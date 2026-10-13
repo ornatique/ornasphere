@@ -55,10 +55,15 @@
                             <label><input type="checkbox" class="report-column-toggle" value="customer" checked> Customer</label>
                             <label><input type="checkbox" class="report-column-toggle" value="status" checked> Status</label>
                             <label><input type="checkbox" class="report-column-toggle" value="pending_pcs" checked> Pending Pcs</label>
-                            <label><input type="checkbox" class="report-column-toggle" value="gross_weight"> Gross Wt</label>
-                            <label><input type="checkbox" class="report-column-toggle" value="other_weight"> Other Wt</label>
+                            <label><input type="checkbox" class="report-column-toggle" value="gross_weight" checked> Gross Wt</label>
+                            <label><input type="checkbox" class="report-column-toggle" value="other_weight" checked> Other Wt</label>
                             <label><input type="checkbox" class="report-column-toggle" value="net_weight" checked> Net Wt</label>
-                            <label><input type="checkbox" class="report-column-toggle" value="other_amount"> Other Amount</label>
+                            <label><input type="checkbox" class="report-column-toggle" value="fine_weight" checked> Fine Wt</label>
+                            <label><input type="checkbox" class="report-column-toggle" value="purity" checked> Purity</label>
+                            <label><input type="checkbox" class="report-column-toggle" value="waste_percent" checked> Waste %</label>
+                            <label><input type="checkbox" class="report-column-toggle" value="metal_rate" checked> Metal Rate</label>
+                            <label><input type="checkbox" class="report-column-toggle" value="labour_rate" checked> Labour Rate</label>
+                            <label><input type="checkbox" class="report-column-toggle" value="other_amount" checked> Other Amount</label>
                             <label><input type="checkbox" class="report-column-toggle" value="pending_amount" checked> Pending Amount</label>
                             <label><input type="checkbox" class="report-column-toggle" value="remarks" checked> Remarks</label>
                             <label><input type="checkbox" class="report-column-toggle" value="created_by" checked> Created By</label>
@@ -67,25 +72,32 @@
                 </div>
             </div>
 
-            <table class="table table-bordered" id="approvalOutstandingTable">
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>Approval No</th>
-                        <th>Date</th>
-                        <th>Customer Name</th>
-                        <th>Status</th>
-                        <th>Pending Pcs</th>
-                        <th>Gross Wt</th>
-                        <th>Other Wt</th>
-                        <th>Pending Net Wt</th>
-                        <th>Other Amount</th>
-                        <th>Pending Amount</th>
-                        <th>Remarks</th>
-                        <th>Created By</th>
-                    </tr>
-                </thead>
-            </table>
+            <div class="report-table-scroll">
+                <table class="table table-bordered" id="approvalOutstandingTable">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Approval No</th>
+                            <th>Date</th>
+                            <th>Customer Name</th>
+                            <th>Status</th>
+                            <th>Pending Pcs</th>
+                            <th>Gross Wt</th>
+                            <th>Other Wt</th>
+                            <th>Pending Net Wt</th>
+                            <th>Fine Wt</th>
+                            <th>Purity</th>
+                            <th>Waste %</th>
+                            <th>Metal Rate</th>
+                            <th>Labour Rate</th>
+                            <th>Other Amount</th>
+                            <th>Pending Amount</th>
+                            <th>Remarks</th>
+                            <th>Created By</th>
+                        </tr>
+                    </thead>
+                </table>
+            </div>
         </div>
     </div>
 </div>
@@ -162,6 +174,40 @@
         gap: 6px;
         margin: 0;
         white-space: nowrap;
+    }
+
+    .report-table-scroll {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+        overflow-y: hidden;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+    }
+
+    #approvalOutstandingTable {
+        width: 100% !important;
+        min-width: 1500px;
+        margin-bottom: 0;
+    }
+
+    #approvalOutstandingTable th,
+    #approvalOutstandingTable td {
+        white-space: nowrap;
+    }
+
+    #approvalOutstandingTable_wrapper {
+        max-width: 100%;
+        overflow: visible;
+    }
+
+    #approvalOutstandingTable_wrapper .row {
+        margin-left: 0;
+        margin-right: 0;
+    }
+
+    #approvalOutstandingTable_wrapper .dataTables_info,
+    #approvalOutstandingTable_wrapper .dataTables_paginate {
+        padding-top: 14px;
     }
 
     #approvalDetailsModal .modal-dialog {
@@ -273,6 +319,10 @@
 $(function () {
     $('#from_date').val('');
     $('#to_date').val('');
+    ['gross_weight', 'other_weight', 'purity', 'waste_percent', 'metal_rate', 'labour_rate', 'other_amount'].forEach(function (key) {
+        $(`.report-column-toggle[value="${key}"]`).prop('checked', true);
+    });
+
     if ($.fn.select2) {
         $('#customer_id').select2({
             theme: 'bootstrap4',
@@ -291,10 +341,15 @@ $(function () {
         gross_weight: 6,
         other_weight: 7,
         net_weight: 8,
-        other_amount: 9,
-        pending_amount: 10,
-        remarks: 11,
-        created_by: 12,
+        fine_weight: 9,
+        purity: 10,
+        waste_percent: 11,
+        metal_rate: 12,
+        labour_rate: 13,
+        other_amount: 14,
+        pending_amount: 15,
+        remarks: 16,
+        created_by: 17,
     };
 
     function selectedReportColumns() {
@@ -344,6 +399,11 @@ $(function () {
             { data: 'pending_gross_weight_fmt', orderable: false, searchable: false },
             { data: 'pending_other_weight_fmt', orderable: false, searchable: false },
             { data: 'pending_net_weight_fmt', orderable: false, searchable: false },
+            { data: 'pending_fine_weight_fmt', orderable: false, searchable: false },
+            { data: 'pending_purity_fmt', orderable: false, searchable: false },
+            { data: 'pending_waste_percent_fmt', orderable: false, searchable: false },
+            { data: 'pending_metal_rate_fmt', orderable: false, searchable: false },
+            { data: 'pending_labour_rate_fmt', orderable: false, searchable: false },
             { data: 'pending_other_amount_fmt', orderable: false, searchable: false },
             { data: 'pending_total_amount_fmt', orderable: false, searchable: false },
             { data: 'remarks', orderable: false, searchable: false },

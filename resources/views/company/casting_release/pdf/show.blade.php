@@ -4,11 +4,16 @@
     <meta charset="utf-8">
     <title>Casting Receive {{ $voucher->voucher_no }}</title>
     <style>
+        @page {
+            size: A4 portrait;
+            margin: 12mm 10mm;
+        }
+
         body {
             font-family: DejaVu Sans, sans-serif;
-            font-size: 11px;
+            font-size: 10px;
             color: #111;
-            margin: 18px;
+            margin: 0;
         }
 
         .title {
@@ -51,14 +56,17 @@
         .items th,
         .items td {
             border: 1px solid #444;
-            padding: 6px;
+            padding: 5px 4px;
             vertical-align: top;
             word-wrap: break-word;
+            overflow-wrap: break-word;
         }
 
         .items th {
             background: #f0f0f0;
+            font-size: 8px;
             font-weight: 700;
+            line-height: 1.15;
             text-align: left;
         }
 
@@ -69,6 +77,10 @@
         .num {
             text-align: right;
             white-space: nowrap;
+        }
+
+        .items th.num {
+            white-space: normal;
         }
 
         .total-row td {
@@ -106,16 +118,26 @@
     </table>
 
     <table class="items">
+        <colgroup>
+            <col style="width: 6%;">
+            <col style="width: 10%;">
+            <col style="width: 16%;">
+            <col style="width: 16%;">
+            <col style="width: 13%;">
+            <col style="width: 13%;">
+            <col style="width: 16%;">
+            <col style="width: 10%;">
+        </colgroup>
         <thead>
             <tr>
-                <th style="width: 6%;">Sr. No</th>
-                <th style="width: 12%;">B. No</th>
-                <th style="width: 16%;">Item Name</th>
-                <th style="width: 16%;">Voucher Remark</th>
-                <th class="num" style="width: 13%;">Issue Silver Wt</th>
-                <th class="num" style="width: 13%;">Release Tree Wt</th>
-                <th class="num" style="width: 14%;">Release Tree Bhuko</th>
-                <th class="num" style="width: 10%;">Loss</th>
+                <th>Sr.<br>No</th>
+                <th>B. No</th>
+                <th>Item<br>Name</th>
+                <th>Voucher<br>Remark</th>
+                <th class="num">Issue<br>Silver Wt</th>
+                <th class="num">Release<br>Tree Wt</th>
+                <th class="num">Release Tree<br>Bhuko</th>
+                <th class="num">Loss</th>
             </tr>
         </thead>
         <tbody>

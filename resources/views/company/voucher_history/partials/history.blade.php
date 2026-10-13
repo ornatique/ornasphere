@@ -62,12 +62,12 @@
         <div class="history-title"><h5>Casting Receive</h5></div>
         <div class="history-table-wrap">
             <table class="table table-bordered table-sm history-table">
-                <thead><tr><th>Sr No</th><th>Buch No</th><th>Item Name</th><th>Voucher Remark</th><th>Release Tree Wt</th><th>Tree Bhuko</th><th>Loss</th><th>Received At</th></tr></thead>
+                <thead><tr><th>Sr No</th><th>Buch No</th><th>Item Name</th><th>Voucher Remark</th><th>Release Tree Wt</th><th>Tree Bhuko</th><th>Release Tree Total Wt</th><th>Loss</th><th>Received At</th></tr></thead>
                 <tbody>
                     @forelse($history['casting_receive']['rows'] as $row)
-                    <tr><td>{{ $loop->iteration }}</td><td>{{ $row['buch_no'] }}</td><td>{{ $row['item_name'] ?? '-' }}</td><td>{{ $row['voucher_remarks'] ?? '-' }}</td><td>{{ $row['release_tree_wt'] }}</td><td>{{ $row['release_tree_bhuko'] }}</td><td>{{ $row['loss'] }}</td><td>{{ $row['received_at'] }}</td></tr>
+                    <tr><td>{{ $loop->iteration }}</td><td>{{ $row['buch_no'] }}</td><td>{{ $row['item_name'] ?? '-' }}</td><td>{{ $row['voucher_remarks'] ?? '-' }}</td><td>{{ $row['release_tree_wt'] }}</td><td>{{ $row['release_tree_bhuko'] }}</td><td>{{ $row['release_tree_total_wt'] }}</td><td>{{ $row['loss'] }}</td><td>{{ $row['received_at'] }}</td></tr>
                     @empty
-                    <tr><td colspan="8" class="text-center">No data found</td></tr>
+                    <tr><td colspan="9" class="text-center">No data found</td></tr>
                     @endforelse
                 </tbody>
                 @if($history['casting_receive']['rows']->isNotEmpty())
@@ -76,6 +76,7 @@
                         <td colspan="4"><strong>Total</strong></td>
                         <td><strong>{{ $history['casting_receive']['totals']['release_tree_wt'] }}</strong></td>
                         <td><strong>{{ $history['casting_receive']['totals']['release_tree_bhuko'] }}</strong></td>
+                        <td><strong>{{ $history['casting_receive']['totals']['release_tree_total_wt'] }}</strong></td>
                         <td><strong>{{ $history['casting_receive']['totals']['loss'] }}</strong></td>
                         <td></td>
                     </tr>

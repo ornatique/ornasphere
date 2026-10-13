@@ -127,7 +127,10 @@ class CompanyUserController extends Controller
                 ->addIndexColumn()
 
                 ->addColumn('role', function ($user) {
-                    return $user->roles->pluck('name')->implode(', ');
+                    return $user->roles
+                        ->pluck('name')
+                        ->map(fn ($role) => ucwords(str_replace(['_', '-'], ' ', (string) $role)))
+                        ->implode(', ');
                 })
 
                 ->addColumn('status', function ($user) {
@@ -565,6 +568,7 @@ class CompanyUserController extends Controller
             'two_factor_secret' => null,
             'two_factor_recovery_codes' => null,
             'two_factor_enabled' => false,
+            'active_web_session_id' => (string) Str::uuid(),
         ])->save();
 
         return redirect()

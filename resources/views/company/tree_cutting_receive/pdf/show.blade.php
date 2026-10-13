@@ -4,15 +4,16 @@
     <meta charset="utf-8">
     <title>Tree Cutting Receive {{ $voucher->voucher_no }}</title>
     <style>
-        body { font-family: DejaVu Sans, sans-serif; font-size: 10px; color: #111; margin: 16px; }
-        .title { text-align: center; font-size: 18px; font-weight: 700; margin-bottom: 4px; }
-        .company { text-align: center; font-size: 13px; font-weight: 700; margin-bottom: 16px; }
+        @page { size: A4 portrait; margin: 12mm 9mm; }
+        body { font-family: DejaVu Sans, sans-serif; font-size: 8.5px; color: #111; margin: 0; }
+        .title { text-align: center; font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+        .company { text-align: center; font-size: 11px; font-weight: 700; margin-bottom: 12px; }
         .meta { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
-        .meta td { width: 25%; padding: 4px 6px; border: 1px solid #444; vertical-align: top; }
+        .meta td { width: 25%; padding: 4px 5px; border: 1px solid #444; vertical-align: top; }
         .label { font-weight: 700; }
         .items { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        .items th, .items td { border: 1px solid #444; padding: 5px; vertical-align: top; word-wrap: break-word; }
-        .items th { background: #f0f0f0; font-size: 9px; font-weight: 700; line-height: 1.15; text-align: left; }
+        .items th, .items td { border: 1px solid #444; padding: 4px 3px; vertical-align: top; word-wrap: break-word; overflow-wrap: break-word; }
+        .items th { background: #f0f0f0; font-size: 7.2px; font-weight: 700; line-height: 1.1; text-align: left; }
         .center { text-align: center; }
         .num { text-align: right; white-space: nowrap; }
         .items th.num { text-align: right; white-space: normal; }
@@ -49,18 +50,30 @@
     </table>
 
     <table class="items">
+        <colgroup>
+            <col style="width: 5%;">
+            <col style="width: 9%;">
+            <col style="width: 13%;">
+            <col style="width: 13%;">
+            <col style="width: 11%;">
+            <col style="width: 10%;">
+            <col style="width: 10%;">
+            <col style="width: 10%;">
+            <col style="width: 11%;">
+            <col style="width: 8%;">
+        </colgroup>
         <thead>
             <tr>
-                <th style="width: 6%;">Sr. No</th>
-                <th style="width: 12%;">B. No</th>
-                <th style="width: 14%;">Item Name</th>
-                <th style="width: 14%;">Remarks</th>
-                <th style="width: 12%;">Worker</th>
-                <th class="num" style="width: 10%;">Office Cut</th>
-                <th class="num" style="width: 10%;">Issue Tree</th>
-                <th class="num" style="width: 10%;">Receive Pc</th>
-                <th class="num" style="width: 8%;">Tree Bhuko</th>
-                <th class="num" style="width: 4%;">Loss</th>
+                <th>Sr.<br>No</th>
+                <th>B. No</th>
+                <th>Item<br>Name</th>
+                <th>Remarks</th>
+                <th>Worker</th>
+                <th class="num">Office<br>Cut</th>
+                <th class="num">Issue<br>Tree</th>
+                <th class="num">Receive<br>Pc</th>
+                <th class="num">Tree<br>Bhuko</th>
+                <th class="num">Loss</th>
             </tr>
         </thead>
         <tbody>

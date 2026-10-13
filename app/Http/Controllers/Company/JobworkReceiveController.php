@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Company;
 
 use App\Http\Controllers\Controller;
 use App\Models\Company;
+use App\Services\JobworkRawStock;
 use App\Models\Customer;
 use App\Models\Item;
 use App\Models\JobworkIssue;
@@ -187,8 +188,16 @@ class JobworkReceiveController extends Controller
         $receiveItemOptions = $this->receiveItemOptions($company, $issueItemOptions);
         $workerIssueVouchers = $this->workerIssueVouchers($company, $row);
         $otherCharges = $this->otherChargeOptions($company);
+        $available = app(JobworkRawStock::class)->available((int) $company->id);
+        $rawStockSummary = $row->items->filter(fn($line) => strtolower((string) $line->item?->jobwork_item_type) === 'raw')
+            ->groupBy('item_id')->map(function ($lines, $itemId) use ($receive, $available) {
+                $issued = (float) $lines->sum('net_wt');
+                $returned = (float) $receive->items->where('item_id', $itemId)->sum('receive_net_wt');
+                return ['name'=>$lines->first()->item->item_name, 'available'=>$available[$itemId] ?? 0,
+                    'issued'=>$issued, 'returned'=>$returned, 'outstanding'=>max(0, $issued-$returned)];
+            });
 
-        return view('company.jobwork_receive.show', compact('company', 'row', 'receive', 'issueItemOptions', 'receiveItemOptions', 'workerIssueVouchers', 'otherCharges'));
+        return view('company.jobwork_receive.show', compact('company', 'row', 'receive', 'issueItemOptions', 'receiveItemOptions', 'workerIssueVouchers', 'otherCharges', 'rawStockSummary'));
     }
 
     public function update(Request $request, string $slug, string $encryptedId)
@@ -219,6 +228,7 @@ class JobworkReceiveController extends Controller
         ]);
 
         DB::transaction(function () use ($validated, $receive, $row) {
+            app(JobworkRawStock::class)->lock((int) $receive->company_id);
             $receive->update([
                 'receive_date' => $validated['receive_date'],
                 'remarks' => $validated['remarks'] ?? null,
@@ -228,6 +238,9 @@ class JobworkReceiveController extends Controller
 
             $receive->items()->delete();
             $this->createReceiveItems($receive, $row, $validated['items'] ?? []);
+            if ($receive->jobwork_issue_id) {
+                app(JobworkRawStock::class)->validateReturns((int) $receive->company_id, (int) $receive->jobwork_issue_id);
+            }
         });
 
         return redirect()
@@ -264,7 +277,7 @@ class JobworkReceiveController extends Controller
         $toDate = $request->input('to_date');
         $workerId = $request->input('worker_id');
         $status = $request->input('status');
-        $searchText = trim((string) $request->input('search_text', ''));
+        $searchText = $this->searchText($request);
         $issueNetSql = '(select coalesce(sum(jii.net_wt), 0) from jobwork_issue_items jii where jii.jobwork_issue_id = jobwork_issues.id)';
         $receiveNetSql = '(select coalesce(sum(jri.receive_net_wt), 0) from jobwork_receives jr inner join jobwork_receive_items jri on jri.jobwork_receive_id = jr.id where jr.jobwork_issue_id = jobwork_issues.id)';
 
@@ -492,7 +505,7 @@ class JobworkReceiveController extends Controller
                 'jobWorker:id,name',
                 'productionStep:id,name',
                 'createdByUser:id,name',
-                'items.item:id,item_name',
+                'items.item:id,item_name,jobwork_item_type',
                 'items.otherCharge:id,other_charge',
                 'items.receiveItem',
             ])
@@ -510,7 +523,7 @@ class JobworkReceiveController extends Controller
         $workerId = $request->input('worker_id');
         $customerId = $request->input('customer_id');
         $status = $request->input('status');
-        $searchText = trim((string) ($request->input('search_text') ?: data_get($request->input('search'), 'value', '')));
+        $searchText = $this->searchText($request);
 
         return JobworkReceive::query()
             ->where('company_id', $company->id)
@@ -536,6 +549,11 @@ class JobworkReceiveController extends Controller
             }))
             ->latest('created_at')
             ->latest('id');
+    }
+
+    private function searchText(Request $request): string
+    {
+        return trim((string) ($request->input('search_text') ?: data_get($request->input('search'), 'value', '')));
     }
 
     private function ensureReceive(Company $company, JobworkIssue $row): JobworkReceive
@@ -704,13 +722,7 @@ class JobworkReceiveController extends Controller
 
     private function generateDirectReceiveNo(int $companyId, string $receiveDate): string
     {
-        $prefix = 'JWR' . date('ymd', strtotime($receiveDate));
-        $count = JobworkReceive::where('company_id', $companyId)
-            ->where('receive_type', 'direct')
-            ->whereDate('receive_date', $receiveDate)
-            ->count() + 1;
-
-        return $prefix . '-' . str_pad((string) $count, 3, '0', STR_PAD_LEFT);
+        return \App\Services\VoucherSeries::next($companyId, 'JWR');
     }
 
     private function syncDirectReceiveItems(JobworkReceive $receive, array $items): void
@@ -815,6 +827,7 @@ class JobworkReceiveController extends Controller
             $itemId = $prepared['item_id'];
             $issueItem = $issueItemByItem->get($itemId);
             $loss = empty($lossAssigned[$itemId]) ? (float) ($lossByItem->get($itemId, 0) ?? 0) : 0.0;
+            if (strtolower((string) optional($issueItem?->item)->jobwork_item_type) === 'raw') $loss = 0.0;
             $lossAssigned[$itemId] = true;
 
             $receive->items()->create([

@@ -19,7 +19,21 @@
                     </select>
                 </div>
 
-                <div class="col-md-8 search-wrapper">
+                <div class="col-md-4">
+                    <label>Item Name</label>
+                    <select id="filter_item_id" class="form-select">
+                        <option value="">All Items</option>
+                        @foreach(($items ?? collect()) as $item)
+                            <option value="{{ $item->id }}">{{ $item->item_name }}{{ $item->item_code ? ' - '.$item->item_code : '' }}</option>
+                        @endforeach
+                    </select>
+                    <label class="item-bulk-select mt-2">
+                        <input type="checkbox" id="select_item_labels" disabled>
+                        <span>Add all labels for selected item</span>
+                    </label>
+                </div>
+
+                <div class="col-md-4 search-wrapper">
                     <label>Scan / Search (HUID / QR)</label>
                     <input type="text" id="label_search" class="form-control" autocomplete="off">
                     <div id="search_results" class="list-group"></div>
@@ -158,6 +172,25 @@
 
     #search_results .list-group-item:hover {
         background: #3a3f63;
+    }
+
+    .item-bulk-select {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.82);
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .item-bulk-select input {
+        width: 16px;
+        height: 16px;
+    }
+
+    .item-bulk-select input:disabled + span {
+        opacity: 0.55;
     }
 
     .approval-grid-wrap {
@@ -398,6 +431,13 @@ $(function () {
             theme: 'bootstrap4',
             width: '100%',
             placeholder: 'Select Customer',
+            allowClear: true
+        });
+
+        $('#filter_item_id').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            placeholder: 'All Items',
             allowClear: true
         });
     }
@@ -801,6 +841,46 @@ $(function () {
         calculateRow(row.itemset_id);
     }
 
+    function buildRowFromItemSet(itemSet) {
+        const item = itemSet.item || {};
+
+        return {
+            itemset_id: Number(itemSet.id),
+            item_id: Number(itemSet.item_id || item.id || 0),
+            item_name: item.item_name || '',
+            huid: itemSet.HUID || '',
+            qr_code: itemSet.qr_code || '',
+            gross_weight: toNum(itemSet.gross_weight),
+            other_weight: toNum(itemSet.other),
+            net_weight: toNum(itemSet.net_weight),
+            purity: toNum(item.outward_purity ?? itemSet.purity),
+            waste_percent: 0,
+            net_purity: 0,
+            total_fine_weight: 0,
+            metal_rate: 0,
+            metal_amount: 0,
+            labour_rate: toNum(itemSet.sale_labour_rate ?? item.labour_rate),
+            labour_amount: 0,
+            other_amount: toNum(itemSet.sale_other),
+            total_amount: 0,
+            remarks: '',
+            other_charges: [],
+        };
+    }
+
+    function refreshBulkCheckbox() {
+        const hasItem = !!$('#filter_item_id').val();
+        $('#select_item_labels').prop('disabled', !hasItem).prop('checked', false);
+    }
+
+    function loadSearchResults(keyword) {
+        return $.get("{{ route('company.approval.searchItemSets', $company->slug) }}", {
+            keyword,
+            item_id: $('#filter_item_id').val() || '',
+            limit: 1000
+        });
+    }
+
     $('#label_search').on('keyup', function () {
         const keyword = $(this).val().trim();
 
@@ -809,7 +889,7 @@ $(function () {
             return;
         }
 
-        $.get("{{ route('company.approval.searchItemSets', $company->slug) }}", { keyword, limit: 1000 }, function (res) {
+        loadSearchResults(keyword).done(function (res) {
             let html = '';
 
             res.forEach(itemSet => {
@@ -840,6 +920,45 @@ $(function () {
             });
 
             $('#search_results').html(html || '<div class="p-2">No result</div>').show();
+        });
+    });
+
+    $('#filter_item_id').on('change', function () {
+        refreshBulkCheckbox();
+        $('#search_results').hide().empty();
+        const keyword = $('#label_search').val().trim();
+
+        if (keyword.length >= 2) {
+            $('#label_search').trigger('keyup');
+        }
+    });
+
+    $('#select_item_labels').on('change', function () {
+        const itemId = $('#filter_item_id').val();
+        if (!itemId) {
+            $(this).prop('checked', false);
+            return;
+        }
+
+        const $checkbox = $(this);
+        $checkbox.prop('disabled', true);
+
+        loadSearchResults('').done(function (res) {
+            let added = 0;
+
+            res.forEach(itemSet => {
+                if (itemSet.is_item_only || !itemSet.id || selectedItems[itemSet.id]) return;
+                addRow(buildRowFromItemSet(itemSet));
+                added += 1;
+            });
+
+            if (!added) {
+                alert('No available label found for selected item.');
+            }
+        }).fail(function () {
+            alert('Unable to load labels for selected item.');
+        }).always(function () {
+            $checkbox.prop('disabled', !$('#filter_item_id').val()).prop('checked', false);
         });
     });
 
@@ -1053,6 +1172,8 @@ $(function () {
             });
         });
     }
+
+    refreshBulkCheckbox();
 });
 </script>
 @endpush

@@ -14,6 +14,7 @@ class SaleCart extends Model
     protected $fillable = [
         'user_id',
         'company_id',
+        'customer_id',
         'itemset_id',
         'approval_item_id',
     ];

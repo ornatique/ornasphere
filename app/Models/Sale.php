@@ -23,6 +23,7 @@ class Sale extends Model
         'payment_reference',
         'payment_note',
         'use_silver_balance',
+        'show_previous_bills',
         'net_total',
         'remarks',
         'employee_id',
@@ -33,12 +34,20 @@ class Sale extends Model
         'sale_date' => 'date',
         'modified_count' => 'integer',
         'use_silver_balance' => 'boolean',
+        'show_previous_bills' => 'boolean',
     ];
 
 
     public function customer()
     {
         return $this->belongsTo(Customer::class);
+    }
+
+    public function appliedReceivedAmount(): float
+    {
+        return $this->use_silver_balance
+            ? (float) $this->received_amount - (float) $this->paid_amount
+            : 0.0;
     }
 
     public function saleItems()

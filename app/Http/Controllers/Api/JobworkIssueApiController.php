@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Company;
+use App\Services\JobworkRawStock;
 use App\Models\JobworkIssue;
 use App\Models\JobworkIssueItem;
 use App\Models\OtherCharge;
@@ -16,6 +17,18 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class JobworkIssueApiController extends Controller
 {
+    public function rawStock(Request $request)
+    {
+        $companyId = (int) $request->user()->company_id;
+        $available = app(JobworkRawStock::class)->available($companyId);
+        $items = \App\Models\Item::where('company_id', $companyId)
+            ->whereRaw("LOWER(jobwork_item_type) = 'raw'")->orderBy('item_name')->get(['id', 'item_name']);
+        return response()->json(['success'=>true, 'data'=>$items->map(fn($item) => [
+            'item_id'=>$item->id, 'item_name'=>$item->item_name,
+            'available_net_wt'=>round($available[$item->id] ?? 0, 3), 'unit'=>'g',
+        ])]);
+    }
+
     public function otherCharges(Request $request)
     {
         $companyId = (int) $request->user()->company_id;
@@ -132,6 +145,7 @@ class JobworkIssueApiController extends Controller
         $validated = $this->validatePayload($request, $companyId);
 
         $row = DB::transaction(function () use ($validated, $companyId, $request) {
+            app(JobworkRawStock::class)->lock((int) $companyId);
             $issue = JobworkIssue::create([
                 'company_id' => $companyId,
                 'voucher_no' => $this->generateVoucherNo($companyId, $validated['jobwork_date']),
@@ -162,6 +176,7 @@ class JobworkIssueApiController extends Controller
                 ]);
             }
 
+            $issue->setAttribute('raw_stock_shortages', app(JobworkRawStock::class)->syncIssue($issue, true));
             return $issue->load('items.item:id,item_name', 'jobWorker:id,name', 'productionStep:id,name');
         });
 
@@ -181,6 +196,8 @@ class JobworkIssueApiController extends Controller
         $validated = $this->validatePayload($request, $companyId, (int) $issue->id);
 
         $row = DB::transaction(function () use ($issue, $validated, $request) {
+            app(JobworkRawStock::class)->lock((int) $issue->company_id);
+            app(JobworkRawStock::class)->guardIssueEdit($issue);
             $issue->update([
                 'jobwork_date' => $validated['jobwork_date'],
                 'job_worker_id' => $validated['job_worker_id'],
@@ -191,6 +208,7 @@ class JobworkIssueApiController extends Controller
             ]);
 
             $this->syncIssueItems($issue, $validated['items']);
+            $issue->setAttribute('raw_stock_shortages', app(JobworkRawStock::class)->syncIssue($issue, true));
 
             return $issue->load('items.item:id,item_name', 'jobWorker:id,name', 'productionStep:id,name');
         });
@@ -207,7 +225,11 @@ class JobworkIssueApiController extends Controller
             return response()->json(['success' => false, 'message' => 'Jobwork Issue not found.'], 404);
         }
 
-        $issue->delete();
+        DB::transaction(function () use ($issue) {
+            app(JobworkRawStock::class)->lock((int) $issue->company_id);
+            app(JobworkRawStock::class)->guardIssueEdit($issue);
+            $issue->delete();
+        });
         return response()->json(['success' => true, 'message' => 'Jobwork Issue deleted successfully.']);
     }
 
@@ -230,11 +252,14 @@ class JobworkIssueApiController extends Controller
         }
 
         DB::transaction(function () use ($issue, $item) {
+            app(JobworkRawStock::class)->lock((int) $issue->company_id);
+            app(JobworkRawStock::class)->guardIssueEdit($issue);
             DB::table('jobwork_receive_items')
                 ->where('jobwork_issue_item_id', $item->id)
                 ->delete();
 
             $item->delete();
+            app(JobworkRawStock::class)->syncIssue($issue, true);
             $issue->update([
                 'modified_count' => ((int) $issue->modified_count) + 1,
             ]);
@@ -498,22 +523,7 @@ class JobworkIssueApiController extends Controller
 
     private function generateVoucherNo(int $companyId, string $date): string
     {
-        $yearShort = Carbon::parse($date)->format('y');
-        $prefix = 'JI' . $yearShort . '-';
-
-        $last = JobworkIssue::where('company_id', $companyId)
-            ->where('voucher_no', 'like', $prefix . '%')
-            ->orderByDesc('id')
-            ->value('voucher_no');
-
-        $next = 1;
-        if ($last && str_contains($last, '-')) {
-            $parts = explode('-', $last);
-            $lastNo = (int) end($parts);
-            $next = $lastNo + 1;
-        }
-
-        return $prefix . $next;
+        return \App\Services\VoucherSeries::next($companyId, 'JI');
     }
 
     private function normalizeOtherChargeDetails($value): ?string

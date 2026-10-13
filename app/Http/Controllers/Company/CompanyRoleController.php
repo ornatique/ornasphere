@@ -54,8 +54,10 @@ class CompanyRoleController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
         $this->ensureWebPermissions($company->id);
         $permissions = $this->groupedPermissions($company->id);
+        $permissionModuleLabels = $this->permissionModuleLabels();
+        $permissionMenuLabels = $this->permissionMenuLabels();
 
-        return view('company.roles.create', compact('company', 'permissions'));
+        return view('company.roles.create', compact('company', 'permissions', 'permissionModuleLabels', 'permissionMenuLabels'));
     }
 
     public function store(Request $request, $slug)
@@ -102,8 +104,10 @@ class CompanyRoleController extends Controller
         $this->ensureWebPermissions($company->id);
         $permissions = $this->groupedPermissions($company->id);
         $rolePermissions = $role->permissions->pluck('name')->toArray();
+        $permissionModuleLabels = $this->permissionModuleLabels();
+        $permissionMenuLabels = $this->permissionMenuLabels();
 
-        return view('company.roles.edit', compact('company', 'role', 'permissions', 'rolePermissions'));
+        return view('company.roles.edit', compact('company', 'role', 'permissions', 'rolePermissions', 'permissionModuleLabels', 'permissionMenuLabels'));
     }
 
     public function update(Request $request, $slug, $encryptedId)
@@ -199,7 +203,173 @@ class CompanyRoleController extends Controller
                     ->values();
             })
             ->filter(fn($items) => $items->isNotEmpty())
-            ->sortKeys();
+            ->sortBy(function ($items, $module) {
+                $order = $this->sidebarPermissionOrder();
+
+                return sprintf('%04d-%s', $order[$module] ?? 1000, $module);
+            });
+    }
+
+    private function sidebarPermissionOrder(): array
+    {
+        return array_flip([
+            'dashboard',
+            'vacuum-live-dashboard',
+            'app-theme',
+            'user',
+            'office-access',
+            'category-person',
+            'person',
+            'role',
+            'permission',
+            'vacuum-buch',
+            'vacuum-process',
+            'vacuum-voucher',
+            'casting-heating',
+            'casting-metal-issue',
+            'casting-release',
+            'tree-cutting-office',
+            'tree-cutting-issue',
+            'tree-cutting-receive',
+            'casting-sorting',
+            'voucher-history',
+            'labour-formula',
+            'production-cost',
+            'production-step',
+            'jobwork-issue',
+            'jobwork-receive',
+            'item',
+            'label-config',
+            'item-set',
+            'label-print',
+            'other-charge',
+            'stock-gallery',
+            'qr-making',
+            // Temporarily disabled: 'customer-order',
+            // Temporarily disabled: 'cad-design',
+            // Temporarily disabled: 'rpt-production',
+            'approval',
+            'approval-return',
+            'sale',
+            'sale-advance',
+            'report-sales-summary',
+            'report-purchase-receiver-summary',
+            'report-stock-position',
+            'report-approval-outstanding',
+            'report-outstanding-amount',
+            'report-barcode-history',
+            'report-worker-loss',
+            'report-visiting-cards',
+            'notification',
+        ]);
+    }
+
+    private function permissionModuleLabels(): array
+    {
+        return [
+            'dashboard' => 'Dashboard',
+            'vacuum-live-dashboard' => 'Production Monitor',
+            'app-theme' => 'App Theme',
+            'user' => 'Users',
+            'office-access' => 'Office Access',
+            'category-person' => 'Category Person',
+            'person' => 'Person',
+            'role' => 'Roles',
+            'permission' => 'Permissions',
+            'vacuum-buch' => 'Buch',
+            'vacuum-process' => 'Process',
+            'vacuum-voucher' => 'Vacuum',
+            'casting-heating' => 'Casting Heating',
+            'casting-metal-issue' => 'Casting Metal Issue',
+            'casting-release' => 'Casting Receive',
+            'tree-cutting-office' => 'Tree Cutting Issue Office',
+            'tree-cutting-issue' => 'Tree Cutting Issue',
+            'tree-cutting-receive' => 'Tree Cutting Receive',
+            'casting-sorting' => 'Casting Sorting',
+            'voucher-history' => 'Voucher History',
+            'labour-formula' => 'Labour Formula',
+            'production-cost' => 'Production Cost',
+            'production-step' => 'Production Step',
+            'jobwork-issue' => 'Jobwork Issue',
+            'jobwork-receive' => 'Jobwork Receive',
+            'item' => 'Items List',
+            'label-config' => 'Label Config',
+            'item-set' => 'Label Items',
+            'label-print' => 'Label Printing',
+            'other-charge' => 'Other Charges',
+            'stock-gallery' => 'Stock Gallery',
+            'qr-making' => 'QR Making',
+            // Temporarily disabled: 'customer-order' => 'Customer Orders',
+            // Temporarily disabled: 'cad-design' => 'CAD Designs',
+            // Temporarily disabled: 'rpt-production' => 'RPT Production',
+            'approval' => 'Sale on Approval',
+            'approval-return' => 'Approval Return',
+            'sale' => 'Sales Estimate',
+            'sale-advance' => 'Receive / Return / Purchase',
+            'report-sales-summary' => 'Sales Summary',
+            'report-purchase-receiver-summary' => 'Purchase / Receiver Summary',
+            'report-stock-position' => 'Stock Position',
+            'report-approval-outstanding' => 'Approval Outstanding',
+            'report-outstanding-amount' => 'Outstanding Amount',
+            'report-barcode-history' => 'Barcode History',
+            'report-worker-loss' => 'Worker Loss Report',
+            'report-visiting-cards' => 'Visiting Cards',
+            'notification' => 'Notifications',
+        ];
+    }
+
+    private function permissionMenuLabels(): array
+    {
+        return [
+            'dashboard' => 'Dashboard',
+            'vacuum-live-dashboard' => 'Production Monitor',
+            'app-theme' => 'App Theme',
+            'user' => 'User Management',
+            'office-access' => 'User Management',
+            'category-person' => 'User Management',
+            'person' => 'User Management',
+            'role' => 'User Management',
+            'permission' => 'User Management',
+            'vacuum-buch' => 'Casting',
+            'vacuum-process' => 'Casting',
+            'vacuum-voucher' => 'Casting',
+            'casting-heating' => 'Casting',
+            'casting-metal-issue' => 'Casting',
+            'casting-release' => 'Casting',
+            'tree-cutting-office' => 'Casting',
+            'tree-cutting-issue' => 'Casting',
+            'tree-cutting-receive' => 'Casting',
+            'casting-sorting' => 'Casting',
+            'voucher-history' => 'Casting',
+            'labour-formula' => 'Jobwork',
+            'production-cost' => 'Jobwork',
+            'production-step' => 'Jobwork',
+            'jobwork-issue' => 'Jobwork',
+            'jobwork-receive' => 'Jobwork',
+            'item' => 'Item Management',
+            'label-config' => 'Item Management',
+            'item-set' => 'Item Management',
+            'label-print' => 'Item Management',
+            'other-charge' => 'Item Management',
+            'stock-gallery' => 'Stock Gallery',
+            'qr-making' => 'QR Making',
+            // Temporarily disabled: 'customer-order' => 'Customer Orders',
+            // Temporarily disabled: 'cad-design' => 'CAD Designs',
+            // Temporarily disabled: 'rpt-production' => 'RPT Production',
+            'approval' => 'Sales',
+            'approval-return' => 'Sales',
+            'sale' => 'Sales',
+            'sale-advance' => 'Sales',
+            'report-sales-summary' => 'Reports',
+            'report-purchase-receiver-summary' => 'Reports',
+            'report-stock-position' => 'Reports',
+            'report-approval-outstanding' => 'Reports',
+            'report-outstanding-amount' => 'Reports',
+            'report-barcode-history' => 'Reports',
+            'report-worker-loss' => 'Reports',
+            'report-visiting-cards' => 'Visiting Cards',
+            'notification' => 'Other',
+        ];
     }
 
     private function usersCountForRole(int $roleId, int $companyId): int
@@ -229,12 +399,15 @@ class CompanyRoleController extends Controller
             'app-theme',
             'office-access',
             'person',
-            'job-worker',
             'jobwork-issue',
             'jobwork-receive',
             'item',
             'item-set',
             'stock-gallery',
+            'qr-making',
+            // Temporarily disabled: 'customer-order',
+            // Temporarily disabled: 'cad-design',
+            // Temporarily disabled: 'rpt-production',
             'label-config',
             'label-print',
             'other-charge',
@@ -315,7 +488,7 @@ class CompanyRoleController extends Controller
 
     private function deprecatedPermissionModules(): array
     {
-        return ['return', 'customer'];
+        return ['return', 'customer', 'job-worker', 'customer-order', 'cad-design', 'rpt-production'];
     }
 
     private function actionsForModule(string $module): array

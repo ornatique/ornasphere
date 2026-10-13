@@ -71,6 +71,20 @@
             @method('PUT')
 
             <div class="card-body">
+                @if(isset($rawStockSummary) && $rawStockSummary->isNotEmpty())
+                    <section class="raw-stock-summary" aria-label="Raw material stock">
+                        <div class="raw-stock-heading"><strong>Raw material stock</strong><span>Saved balances &middot; grams</span></div>
+                        @foreach($rawStockSummary as $stock)
+                            <div class="raw-stock-grid">
+                                <div class="raw-stock-item"><span>Raw material</span><strong>{{ $stock['name'] }}</strong></div>
+                                @foreach(['available'=>'Shop stock', 'issued'=>'This issue', 'returned'=>'Raw returned', 'outstanding'=>'Still with worker'] as $field=>$label)
+                                    <div class="raw-stock-metric raw-stock-{{ $field }}"><span>{{ $label }}</span><strong>{{ number_format($stock[$field], 3) }} <small>g</small></strong></div>
+                                @endforeach
+                            </div>
+                        @endforeach
+                        <p class="raw-stock-help">Return the same raw item below. Enter the cumulative return (50 g + 20 g = 70 g). Stock updates after saving.</p>
+                    </section>
+                @endif
                 @if ($errors->any())
                     <div class="alert alert-danger">
                         <ul class="mb-0">
@@ -81,26 +95,27 @@
                     </div>
                 @endif
 
-                <div class="row mb-3">
-                    <div class="col-md-3">
-                        <label class="form-label mb-1">Receive Date</label>
-                        <input type="date" name="receive_date" class="form-control" value="{{ old('receive_date', optional($receive->receive_date)->toDateString() ?: now()->toDateString()) }}" required>
+                <div class="receive-detail-grid">
+                    <div class="receive-detail">
+                        <label for="receiveDate" class="form-label mb-1">Receive Date</label>
+                        <input id="receiveDate" type="date" name="receive_date" class="form-control" value="{{ old('receive_date', optional($receive->receive_date)->toDateString() ?: now()->toDateString()) }}" required>
                     </div>
-                    <div class="col-md-3"><strong>Jobworker:</strong><br>{{ $row->jobWorker?->name ?? '-' }}</div>
-                    <div class="col-md-3"><strong>Production Step:</strong><br>{{ $row->productionStep?->name ?? '-' }}</div>
-                    <div class="col-md-3"><strong>Created At:</strong><br>{{ optional($row->created_at)->format('d-m-Y h:i A') }}</div>
+                    <div class="receive-detail"><span class="receive-detail-label">Jobworker</span><strong>{{ $row->jobWorker?->name ?? '-' }}</strong></div>
+                    <div class="receive-detail"><span class="receive-detail-label">Production Step</span><strong>{{ $row->productionStep?->name ?? '-' }}</strong></div>
+                    <div class="receive-detail"><span class="receive-detail-label">Created At</span><strong>{{ optional($row->created_at)->format('d-m-Y h:i A') }}</strong></div>
                 </div>
 
-                <div class="row mb-3">
-                    <div class="col-md-2"><strong>Issue Net Wt:</strong><br>{{ number_format($totalIssueNet, 3, '.', '') }}</div>
-                    <div class="col-md-2"><strong>Receive Net Wt:</strong><br><span id="topReceiveNet">0.000</span></div>
-                    <div class="col-md-2"><strong>Pending Net Wt:</strong><br><span id="topPendingNet">0.000</span></div>
-                    <div class="col-md-2"><strong>Extra Net Wt:</strong><br><span id="topExtraNet">0.000</span></div>
-                    <div class="col-md-2"><strong>Total Amt:</strong><br>{{ number_format((float) ($row->total_amt_sum ?? 0), 2, '.', '') }}</div>
+                <div class="receive-totals-grid">
+                    <div class="receive-total"><span>Issue Net Wt</span><strong>{{ number_format($totalIssueNet, 3, '.', '') }} <small>g</small></strong></div>
+                    <div class="receive-total receive-total-received"><span>Receive Net Wt</span><strong><span id="topReceiveNet">0.000</span> <small>g</small></strong></div>
+                    <div class="receive-total"><span>Other Wt</span><strong><span id="topOtherWt">0.000</span> <small>g</small></strong></div>
+                    <div class="receive-total receive-total-pending"><span>Pending Net Wt</span><strong><span id="topPendingNet">0.000</span> <small>g</small></strong></div>
+                    <div class="receive-total"><span>Extra Net Wt</span><strong><span id="topExtraNet">0.000</span> <small>g</small></strong></div>
+                    <div class="receive-total"><span>Total Amount</span><strong><small>Rs</small> {{ number_format((float) ($row->total_amt_sum ?? 0), 2, '.', '') }}</strong></div>
                 </div>
 
                 <div class="worker-voucher-select-wrap mb-4">
-                    <label class="form-label mb-1">Voucher Name</label>
+                    <label for="workerVoucherSelect" class="form-label mb-1">Voucher Name</label>
                     <select class="form-control worker-voucher-select" id="workerVoucherSelect">
                         @foreach($workerIssueVouchers as $voucherRow)
                             <option value="{{ route('company.jobwork-receive.show', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $voucherRow->id)]) }}"
@@ -205,7 +220,7 @@
                                 <th colspan="2">Total</th>
                                 <th></th>
                                 <th id="totalReceiveGross">0.000</th>
-                                <th></th>
+                                <th id="totalOtherWt">0.000</th>
                                 <th id="totalReceiveNet">0.000</th>
                                 <th id="totalReceiveFine">0.000</th>
                                 <th id="totalReceiveQty">0</th>
@@ -274,6 +289,55 @@
 
 @push('styles')
 <style>
+    .receive-detail-grid { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:14px; margin-bottom:16px; }
+    .receive-detail { background:#292a40; border:1px solid #42435c; border-radius:8px; padding:12px 14px; min-width:0; }
+    .receive-detail-label, .receive-detail label { display:block; color:#bfc2d7; font-size:12px; margin-bottom:8px; }
+    .receive-detail > strong { display:flex; align-items:center; min-height:44px; color:#fff; font-size:15px; overflow-wrap:anywhere; }
+    .receive-detail .form-control { min-height:44px; color:#fff; color-scheme:dark; }
+    .receive-totals-grid { display:grid; grid-template-columns:repeat(6, minmax(0, 1fr)); gap:12px; margin-bottom:20px; }
+    .receive-total { background:#2d2e46; border:1px solid #43445f; border-radius:8px; padding:14px; min-width:0; }
+    .receive-total > span { display:block; font-size:12px; color:#c5c8dc; margin-bottom:8px; }
+    .receive-total > strong { display:block; color:#fff; font-size:21px; line-height:1.3; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+    .receive-total small { color:#bfc2d7; font-size:12px; font-weight:400; }
+    .receive-total-received > strong { color:#8be0bf; }
+    .receive-total-pending > strong { color:#ffdb93; }
+    @media (max-width:1100px) {
+        .receive-detail-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+        .receive-totals-grid { grid-template-columns:repeat(3, minmax(0, 1fr)); }
+    }
+    @media (max-width:600px) {
+        .receive-detail-grid { grid-template-columns:1fr; }
+        .receive-totals-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+        .receive-total > strong { font-size:18px; }
+    }
+    .raw-stock-summary {
+        background: #242538;
+        color: #fff;
+        border: 1px solid #44445f;
+        border-radius: 10px;
+        padding: 16px;
+        margin-bottom: 24px;
+    }
+    .raw-stock-heading { display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+    .raw-stock-heading > span, .raw-stock-help { color:#bfc2d7; font-size:12px; }
+    .raw-stock-grid { display:grid; grid-template-columns:minmax(140px, 1.2fr) repeat(4, minmax(130px, 1fr)); gap:10px; margin-bottom:10px; }
+    .raw-stock-grid > div { background:#2d2e46; border:1px solid #43445f; border-radius:8px; padding:12px 14px; min-width:0; }
+    .raw-stock-grid span { display:block; color:#c5c8dc; font-size:12px; margin-bottom:6px; }
+    .raw-stock-grid strong { display:block; color:#fff; font-size:20px; line-height:1.3; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+    .raw-stock-grid small { font-size:12px; font-weight:400; color:#c5c8dc; }
+    .raw-stock-item strong { font-size:16px; }
+    .raw-stock-available strong, .raw-stock-returned strong { color:#8be0bf; }
+    .raw-stock-outstanding strong { color:#ffdb93; }
+    .raw-stock-help { margin:12px 0 0; line-height:1.5; }
+    @media (max-width: 1100px) {
+        .raw-stock-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+        .raw-stock-item { grid-column:1 / -1; }
+    }
+    @media (max-width: 480px) {
+        .raw-stock-summary { padding:12px; }
+        .raw-stock-grid > div { padding:10px; }
+        .raw-stock-grid strong { font-size:17px; }
+    }
     .section-title {
         margin: 18px 0 10px;
         color: #fff;
@@ -923,6 +987,7 @@ window.initJobworkReceivePage = function () {
 
     function recalculateTotals() {
         let receiveGross = 0;
+        let otherWt = 0;
         let receiveNet = 0;
         let receiveFine = 0;
         let receiveQty = 0;
@@ -930,6 +995,7 @@ window.initJobworkReceivePage = function () {
         document.querySelectorAll('.receive-row').forEach(function (row) {
             recalculateRow(row);
             receiveGross += numberValue(row.querySelector('.receive-gross-wt')?.value);
+            otherWt += numberValue(row.querySelector('.other-wt')?.value);
             receiveNet += numberValue(row.querySelector('.receive-net-wt')?.value);
             receiveFine += numberValue(row.querySelector('.receive-fine-wt')?.value);
             receiveQty += numberValue(row.querySelector('.receive-qty-pcs')?.value);
@@ -939,12 +1005,14 @@ window.initJobworkReceivePage = function () {
         const extraNet = Math.max(0, receiveNet - totalIssueNet);
 
         document.getElementById('totalReceiveGross').textContent = fixed(receiveGross);
+        document.getElementById('totalOtherWt').textContent = fixed(otherWt);
         document.getElementById('totalReceiveNet').textContent = fixed(receiveNet);
         document.getElementById('totalReceiveFine').textContent = fixed(receiveFine);
         document.getElementById('totalReceiveQty').textContent = String(Math.round(receiveQty));
         document.getElementById('totalPendingNet').textContent = fixed(pendingNet);
         document.getElementById('totalExtraNet').textContent = fixed(extraNet);
         document.getElementById('topReceiveNet').textContent = fixed(receiveNet);
+        document.getElementById('topOtherWt').textContent = fixed(otherWt);
         document.getElementById('topPendingNet').textContent = fixed(pendingNet);
         document.getElementById('topExtraNet').textContent = fixed(extraNet);
     }

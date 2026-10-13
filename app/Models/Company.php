@@ -38,9 +38,14 @@ class Company extends Model
 
     public function getCompanyLogoUrlAttribute(): ?string
     {
+        $defaultLogo = asset('celestial/assets/images/ornasphere-auth-logo.png') . '?v=' . @filemtime(public_path('celestial/assets/images/ornasphere-auth-logo.png'));
         $rawPath = trim((string) ($this->attributes['company_logo'] ?? ''));
         if ($rawPath === '') {
-            return null;
+            return $defaultLogo;
+        }
+
+        if (preg_match('/^https?:\/\//i', $rawPath)) {
+            return $rawPath;
         }
 
         $path = ltrim($rawPath, '/');
@@ -49,14 +54,22 @@ class Company extends Model
         }
 
         if (file_exists(public_path($path))) {
-            return asset('public/' . $path);
+            return asset($path);
+        }
+
+        if (str_starts_with($path, 'storage/')) {
+            return asset($path);
         }
 
         if (file_exists(storage_path('app/public/' . $path))) {
             return asset('storage/' . $path);
         }
 
-        return null;
+        if (str_starts_with($path, 'uploads/') || str_starts_with($path, 'celestial/')) {
+            return asset($path);
+        }
+
+        return $defaultLogo;
     }
 
     public function customers()

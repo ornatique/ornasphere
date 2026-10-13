@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ApprovalHeader;
 use App\Models\Company;
+use App\Models\Customer;
 use App\Models\ItemSet;
 use App\Models\Sale;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -191,6 +192,167 @@ class ReportApiController extends Controller
             ->download('stock_position_report.pdf');
     }
 
+    public function workerLoss(Request $request)
+    {
+        $companyId = (int) $request->user()->company_id;
+        if ($request->input('mode') === 'ledger') {
+            return response()->json(['success' => true, 'data' => app(\App\Services\WorkerMetalLedger::class)->report($companyId, $request)]);
+        }
+        $rows = $this->workerLossBaseQuery($request, $companyId)
+            ->get()
+            ->map(function ($row) {
+                $processDateTime = $row->process_datetime ? Carbon::parse($row->process_datetime) : null;
+
+                return [
+                    'stage' => (string) ($row->stage ?: '-'),
+                    'worker_id' => $row->worker_id ? (int) $row->worker_id : null,
+                    'worker_name' => (string) ($row->worker_name ?: '-'),
+                    'voucher_id' => $row->voucher_id ? (int) $row->voucher_id : null,
+                    'voucher_no' => (string) ($row->voucher_no ?: '-'),
+                    'buch_no' => (string) ($row->buch_no ?: '-'),
+                    'source_wt' => (float) ($row->source_wt ?? 0),
+                    'receive_wt' => (float) ($row->receive_wt ?? 0),
+                    'bhuko' => (float) ($row->bhuko ?? 0),
+                    'loss' => (float) ($row->loss ?? 0),
+                    'process_datetime' => $processDateTime?->format('Y-m-d H:i:s'),
+                    'process_datetime_fmt' => $processDateTime?->format('d-m-Y h:i A') ?? '-',
+                ];
+            })
+            ->values();
+
+        $summary = $this->workerLossSummary($request, $companyId);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Worker loss report fetched successfully.',
+            'count' => $rows->count(),
+            'filters' => [
+                'from_date' => $request->input('from_date'),
+                'to_date' => $request->input('to_date'),
+                'worker_id' => $request->input('worker_id'),
+                'stage' => $request->input('stage'),
+                'voucher_no' => $request->input('voucher_no'),
+                'loss_type' => $request->input('loss_type'),
+                'only_loss' => $this->truthyApiValue($request->input('only_loss')),
+            ],
+            'totals' => $this->workerLossTotals($request, $companyId),
+            'worker_summary' => $summary['workers'],
+            'stage_summary' => $summary['stages'],
+            'data' => $rows,
+        ]);
+    }
+
+    public function workerLossSuggest(Request $request)
+    {
+        $companyId = (int) $request->user()->company_id;
+        $term = trim((string) $request->get('q', ''));
+        $limit = max(1, min((int) $request->get('limit', 12), 50));
+
+        $filterRequest = new Request($request->except(['q', 'limit', 'voucher_no']));
+        $baseQuery = $this->workerLossBaseQuery($filterRequest, $companyId);
+        $rows = DB::query()
+            ->fromSub($baseQuery, 'loss_rows')
+            ->when($term !== '', fn($q) => $q->where('voucher_no', 'like', "%{$term}%"))
+            ->selectRaw('voucher_id, voucher_no, MAX(process_datetime) as latest_process_datetime')
+            ->groupBy('voucher_id', 'voucher_no')
+            ->orderByDesc('latest_process_datetime')
+            ->limit($limit)
+            ->get()
+            ->map(function ($row) {
+                return [
+                    'id' => (int) $row->voucher_id,
+                    'voucher_no' => $row->voucher_no,
+                    'date_time' => $row->latest_process_datetime
+                        ? Carbon::parse($row->latest_process_datetime)->format('d-m-Y h:i A')
+                        : null,
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => $rows,
+        ]);
+    }
+
+    public function workerLossExcel(Request $request): StreamedResponse
+    {
+        $companyId = (int) $request->user()->company_id;
+        if ($request->input('mode') === 'ledger') {
+            $service = app(\App\Services\WorkerMetalLedger::class);
+            return $service->csv($service->report($companyId, $request));
+        }
+        $rows = $this->workerLossBaseQuery($request, $companyId)->get();
+        $totals = $this->workerLossTotals($request, $companyId);
+        $summary = $this->workerLossSummary($request, $companyId);
+
+        return response()->streamDownload(function () use ($rows, $totals, $summary) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, ['Date Time', 'Worker', 'Voucher No', 'B. No', 'Stage', 'Source Wt', 'Receive Wt', 'Bhuko', 'Loss']);
+            foreach ($rows as $row) {
+                fputcsv($out, [
+                    $row->process_datetime ? Carbon::parse($row->process_datetime)->format('d-m-Y h:i A') : '-',
+                    $row->worker_name ?: '-',
+                    $row->voucher_no ?: '-',
+                    $row->buch_no ?: '-',
+                    $row->stage ?: '-',
+                    number_format((float) ($row->source_wt ?? 0), 3, '.', ''),
+                    number_format((float) ($row->receive_wt ?? 0), 3, '.', ''),
+                    number_format((float) ($row->bhuko ?? 0), 3, '.', ''),
+                    number_format((float) ($row->loss ?? 0), 3, '.', ''),
+                ]);
+            }
+            fputcsv($out, [
+                'TOTAL',
+                '',
+                '',
+                '',
+                '',
+                number_format((float) ($totals['source_wt'] ?? 0), 3, '.', ''),
+                number_format((float) ($totals['receive_wt'] ?? 0), 3, '.', ''),
+                number_format((float) ($totals['bhuko'] ?? 0), 3, '.', ''),
+                number_format((float) ($totals['loss'] ?? 0), 3, '.', ''),
+            ]);
+            fputcsv($out, []);
+            fputcsv($out, ['Worker Summary']);
+            fputcsv($out, ['Worker', 'Rows', 'Source Wt', 'Receive Wt', 'Bhuko', 'Loss']);
+            foreach ($summary['workers'] as $row) {
+                fputcsv($out, [$row['label'], $row['rows'], $row['source_wt'], $row['receive_wt'], $row['bhuko'], $row['loss']]);
+            }
+            fputcsv($out, []);
+            fputcsv($out, ['Stage Summary']);
+            fputcsv($out, ['Stage', 'Rows', 'Source Wt', 'Receive Wt', 'Bhuko', 'Loss']);
+            foreach ($summary['stages'] as $row) {
+                fputcsv($out, [$row['label'], $row['rows'], $row['source_wt'], $row['receive_wt'], $row['bhuko'], $row['loss']]);
+            }
+            fclose($out);
+        }, 'worker_loss_report.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
+    public function workerLossPdf(Request $request)
+    {
+        $companyId = (int) $request->user()->company_id;
+        if ($request->input('mode') === 'ledger') {
+            $company = Company::findOrFail($companyId);
+            $ledger = app(\App\Services\WorkerMetalLedger::class)->report($companyId, $request);
+            return Pdf::loadView('company.reports.pdf.worker_metal_ledger', compact('company', 'ledger'))->setPaper('a4', 'portrait')->download('worker_metal_ledger.pdf');
+        }
+        $company = Company::select('id', 'name')->find($companyId);
+        if (!$company) {
+            $company = (object) ['name' => 'Company', 'company_name' => 'Company'];
+        }
+
+        $rows = $this->workerLossBaseQuery($request, $companyId)->get();
+        $totals = $this->workerLossTotals($request, $companyId);
+        $summary = $this->workerLossSummary($request, $companyId);
+
+        return Pdf::loadView('company.reports.pdf.worker_loss', compact('company', 'rows', 'totals', 'summary', 'request'))
+            ->setPaper('a4', 'landscape')
+            ->download('worker_loss_report.pdf');
+    }
+
     public function approvalOutstanding(Request $request)
     {
         $companyId = (int) $request->user()->company_id;
@@ -220,6 +382,10 @@ class ReportApiController extends Controller
                     'pending_gross_weight' => (float) ($row->pending_gross_weight ?? 0),
                     'pending_other_weight' => (float) ($row->pending_other_weight ?? 0),
                     'pending_net_weight' => (float) ($row->pending_net_weight ?? 0),
+                    'pending_purity' => (float) ($row->pending_purity ?? 0),
+                    'pending_waste_percent' => (float) ($row->pending_waste_percent ?? 0),
+                    'pending_metal_rate' => (float) ($row->pending_metal_rate ?? 0),
+                    'pending_labour_rate' => (float) ($row->pending_labour_rate ?? 0),
                     'pending_other_amount' => (float) ($row->pending_other_amount ?? 0),
                     'pending_total_amount' => (float) ($row->pending_total_amount ?? 0),
                     'qty_pcs' => (int) ($rowTotals['qty_pcs'] ?? 0),
@@ -250,6 +416,10 @@ class ReportApiController extends Controller
                 'gross_weight' => 'pending_gross_weight',
                 'other_weight' => 'pending_other_weight',
                 'net_weight' => 'pending_net_weight',
+                'purity' => 'pending_purity',
+                'waste_percent' => 'pending_waste_percent',
+                'metal_rate' => 'pending_metal_rate',
+                'labour_rate' => 'pending_labour_rate',
                 'other_amount' => 'pending_other_amount',
                 'pending_amount' => 'pending_total_amount',
             ]),
@@ -314,7 +484,7 @@ class ReportApiController extends Controller
         $visibleColumns = $this->approvalOutstandingVisibleColumns($request);
 
         return Pdf::loadView('company.reports.pdf.approval_outstanding', compact('company', 'rows', 'summary', 'visibleColumns'))
-            ->setPaper('a4', 'portrait')
+            ->setPaper('a4', 'landscape')
             ->download('approval_outstanding_report.pdf');
     }
 
@@ -373,7 +543,8 @@ class ReportApiController extends Controller
             $received = (float) ($row->received_amount ?? 0);
             $amountOut = (float) ($row->paid_amount ?? 0);
             $totalAmount = (float) ($row->net_total ?? 0);
-            $pending = max(0, $totalAmount - ($received - $amountOut));
+            $pending = max(0, $totalAmount - $row->appliedReceivedAmount());
+            $metalDebit = $this->outstandingMetalDebit($row);
 
             return [
                 'id' => (int) $row->id,
@@ -385,6 +556,10 @@ class ReportApiController extends Controller
                 'payment_mode' => (string) ($row->payment_mode ?? '-'),
                 'gross_weight' => (float) ($row->sum_gross_weight ?? 0),
                 'net_weight' => (float) ($row->sum_net_weight ?? 0),
+                'fine_weight' => (float) ($row->sum_fine_weight ?? 0),
+                'metal_amount' => (float) ($row->sum_metal_amount ?? 0),
+                'labour_amount' => (float) ($row->sum_labour_amount ?? 0),
+                'metal_debit' => $metalDebit,
                 'total_amount' => $totalAmount,
                 'amount_in' => $received,
                 'amount_out' => $amountOut,
@@ -420,11 +595,11 @@ class ReportApiController extends Controller
 
         return response()->streamDownload(function () use ($rows, $summary) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Voucher No', 'Date', 'Party', 'City', 'Payment Mode', 'Gross Wt', 'Net Wt', 'Total Amount', 'Amount In', 'Amount Out', 'Pending']);
+            fputcsv($out, ['Voucher No', 'Date', 'Party', 'City', 'Payment Mode', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Metal Amt', 'Labour Amt', 'Metal Dr', 'Total Amount', 'Amount In', 'Amount Out', 'Pending']);
             foreach ($rows as $r) {
                 $received = (float) ($r->received_amount ?? 0);
                 $outAmt = (float) ($r->paid_amount ?? 0);
-                $pending = max(0, (float) ($r->net_total ?? 0) - ($received - $outAmt));
+                $pending = max(0, (float) ($r->net_total ?? 0) - $r->appliedReceivedAmount());
                 fputcsv($out, [
                     $r->voucher_no,
                     optional($r->sale_date)?->format('d-m-Y') ?? '-',
@@ -433,6 +608,10 @@ class ReportApiController extends Controller
                     $r->payment_mode ?? '-',
                     number_format((float) ($r->sum_gross_weight ?? 0), 3, '.', ''),
                     number_format((float) ($r->sum_net_weight ?? 0), 3, '.', ''),
+                    number_format((float) ($r->sum_fine_weight ?? 0), 3, '.', ''),
+                    number_format((float) ($r->sum_metal_amount ?? 0), 2, '.', ''),
+                    number_format((float) ($r->sum_labour_amount ?? 0), 2, '.', ''),
+                    number_format($this->outstandingMetalDebit($r), 3, '.', ''),
                     number_format((float) ($r->net_total ?? 0), 2, '.', ''),
                     number_format($received, 2, '.', ''),
                     number_format($outAmt, 2, '.', ''),
@@ -448,6 +627,10 @@ class ReportApiController extends Controller
                 '',
                 number_format((float) ($summary['gross_weight'] ?? 0), 3, '.', ''),
                 number_format((float) ($summary['net_weight'] ?? 0), 3, '.', ''),
+                number_format((float) ($summary['fine_weight'] ?? 0), 3, '.', ''),
+                number_format((float) ($summary['metal_amount'] ?? 0), 2, '.', ''),
+                number_format((float) ($summary['labour_amount'] ?? 0), 2, '.', ''),
+                number_format((float) ($summary['metal_debit'] ?? 0), 3, '.', ''),
                 number_format((float) ($summary['total_amount'] ?? 0), 2, '.', ''),
                 number_format((float) ($summary['amount_in'] ?? 0), 2, '.', ''),
                 number_format((float) ($summary['amount_out'] ?? 0), 2, '.', ''),
@@ -469,6 +652,9 @@ class ReportApiController extends Controller
 
         $rows = $this->outstandingAmountBaseQuery($request, $companyId)->latest('id')->get();
         $summary = $this->outstandingAmountTotals($rows);
+        $selectedCustomer = $request->filled('customer_id')
+            ? Customer::where('company_id', $companyId)->find((int) $request->customer_id)
+            : null;
         $visible = [
             'default' => $this->isToggleEnabled($request, ['use_default_report', 'use_default']),
             'date' => $this->isToggleEnabled($request, ['use_date']),
@@ -483,8 +669,8 @@ class ReportApiController extends Controller
             $visible['default'] = true;
         }
 
-        return Pdf::loadView('company.reports.pdf.outstanding_amount', compact('company', 'rows', 'summary', 'visible'))
-            ->setPaper('a4', 'portrait')
+        return Pdf::loadView('company.reports.pdf.outstanding_amount', compact('company', 'rows', 'summary', 'visible', 'selectedCustomer'))
+            ->setPaper('a4', 'landscape')
             ->download('outstanding_amount_report.pdf');
     }
 
@@ -501,8 +687,11 @@ class ReportApiController extends Controller
             ->latest('id')
             ->get();
         $summary = $this->outstandingAmountTotals($rows);
+        $selectedCustomer = $request->filled('customer_id')
+            ? Customer::where('company_id', $companyId)->find((int) $request->customer_id)
+            : null;
 
-        return Pdf::loadView('company.reports.pdf.outstanding_amount_ledger', compact('company', 'rows', 'summary'))
+        return Pdf::loadView('company.reports.pdf.outstanding_amount_ledger', compact('company', 'rows', 'summary', 'selectedCustomer'))
             ->setPaper('a4', 'landscape')
             ->download('outstanding_amount_ledger_report.pdf');
     }
@@ -528,8 +717,12 @@ class ReportApiController extends Controller
                     'gross_weight' => (float) ($sale->total_gross_weight ?? 0),
                     'other_weight' => (float) ($sale->total_other_weight ?? 0),
                     'net_weight' => (float) ($sale->total_net_weight ?? 0),
+                    'purity' => (float) ($sale->total_purity ?? 0),
+                    'waste_percent' => (float) ($sale->total_waste_percent ?? 0),
                     'fine_weight' => (float) ($sale->total_fine_weight ?? 0),
+                    'metal_rate' => (float) ($sale->total_metal_rate ?? 0),
                     'metal_amount' => (float) ($sale->total_metal_amount ?? 0),
+                    'labour_rate' => (float) ($sale->total_labour_rate ?? 0),
                     'labour_amount' => (float) ($sale->total_labour_amount ?? 0),
                     'other_amount' => (float) ($sale->total_other_amount ?? 0),
                     'net_total' => (float) ($sale->net_total ?? 0),
@@ -588,7 +781,7 @@ class ReportApiController extends Controller
         $visibleColumns = $this->salesSummaryVisibleColumns($request);
 
         return Pdf::loadView('company.reports.pdf.sales_summary', compact('company', 'rows', 'totals', 'visibleColumns'))
-            ->setPaper('a4', 'portrait')
+            ->setPaper('a4', 'landscape')
             ->download('sales_summary_report.pdf');
     }
 
@@ -1085,6 +1278,10 @@ class ReportApiController extends Controller
             'gross_weight' => ['label' => 'Gross Wt', 'total_key' => 'pending_gross_weight', 'decimals' => 3],
             'other_weight' => ['label' => 'Other Wt', 'total_key' => 'pending_other_weight', 'decimals' => 3],
             'net_weight' => ['label' => 'Pending Net Wt', 'total_key' => 'pending_net_weight', 'decimals' => 3],
+            'purity' => ['label' => 'Purity', 'total_key' => 'pending_purity', 'decimals' => 3],
+            'waste_percent' => ['label' => 'Waste %', 'total_key' => 'pending_waste_percent', 'decimals' => 3],
+            'metal_rate' => ['label' => 'Metal Rate', 'total_key' => 'pending_metal_rate', 'decimals' => 2],
+            'labour_rate' => ['label' => 'Labour Rate', 'total_key' => 'pending_labour_rate', 'decimals' => 2],
             'other_amount' => ['label' => 'Other Amount', 'total_key' => 'pending_other_amount', 'decimals' => 2],
             'pending_amount' => ['label' => 'Pending Amount', 'total_key' => 'pending_amount', 'decimals' => 2],
             'remarks' => ['label' => 'Remarks', 'total' => ''],
@@ -1114,7 +1311,8 @@ class ReportApiController extends Controller
     {
         return $this->visibleReportColumns($request, $this->approvalOutstandingColumnDefinitions(), [
             'approval_no', 'date', 'customer', 'status', 'pending_pcs', 'gross_weight',
-            'other_weight', 'net_weight', 'other_amount', 'pending_amount', 'remarks', 'created_by',
+            'other_weight', 'net_weight', 'purity', 'waste_percent', 'metal_rate', 'labour_rate',
+            'other_amount', 'pending_amount', 'remarks', 'created_by',
         ]);
     }
 
@@ -1150,6 +1348,10 @@ class ReportApiController extends Controller
             'gross_weight' => number_format((float) ($row->pending_gross_weight ?? 0), 3, '.', ''),
             'other_weight' => number_format((float) ($row->pending_other_weight ?? 0), 3, '.', ''),
             'net_weight' => number_format((float) ($row->pending_net_weight ?? 0), 3, '.', ''),
+            'purity' => number_format((float) ($row->pending_purity ?? 0), 3, '.', ''),
+            'waste_percent' => number_format((float) ($row->pending_waste_percent ?? 0), 3, '.', ''),
+            'metal_rate' => number_format((float) ($row->pending_metal_rate ?? 0), 2, '.', ''),
+            'labour_rate' => number_format((float) ($row->pending_labour_rate ?? 0), 2, '.', ''),
             'other_amount' => number_format((float) ($row->pending_other_amount ?? 0), 2, '.', ''),
             'pending_amount' => number_format((float) ($row->pending_total_amount ?? 0), 2, '.', ''),
             'remarks' => $row->remarks ?? '-',
@@ -1262,8 +1464,12 @@ class ReportApiController extends Controller
             'gross_weight' => ['label' => 'Gross Wt', 'total_key' => 'gross_weight', 'decimals' => 3],
             'other_weight' => ['label' => 'Other Wt', 'total_key' => 'other_weight', 'decimals' => 3],
             'net_weight' => ['label' => 'Net Wt', 'total_key' => 'net_weight', 'decimals' => 3],
+            'purity' => ['label' => 'Purity', 'total_key' => 'purity', 'decimals' => 3],
+            'waste_percent' => ['label' => 'Waste %', 'total_key' => 'waste_percent', 'decimals' => 3],
             'fine_weight' => ['label' => 'Fine Wt', 'total_key' => 'fine_weight', 'decimals' => 3],
+            'metal_rate' => ['label' => 'Metal Rate', 'total_key' => 'metal_rate', 'decimals' => 2],
             'metal_amount' => ['label' => 'Metal Amt', 'total_key' => 'metal_amount', 'decimals' => 2],
+            'labour_rate' => ['label' => 'Labour Rate', 'total_key' => 'labour_rate', 'decimals' => 2],
             'labour_amount' => ['label' => 'Labour Amt', 'total_key' => 'labour_amount', 'decimals' => 2],
             'other_amount' => ['label' => 'Other Amt', 'total_key' => 'other_amount', 'decimals' => 2],
             'net_total' => ['label' => 'Total', 'total_key' => 'net_total', 'decimals' => 2],
@@ -1305,7 +1511,7 @@ class ReportApiController extends Controller
     {
         return $this->visibleReportColumns($request, $this->salesSummaryColumnDefinitions(), [
             'voucher_no', 'date', 'customer', 'qty_pcs', 'gross_weight', 'other_weight', 'net_weight',
-            'fine_weight', 'metal_amount', 'labour_amount', 'other_amount', 'net_total', 'remarks', 'created_by',
+            'purity', 'waste_percent', 'fine_weight', 'metal_rate', 'metal_amount', 'labour_rate', 'labour_amount', 'other_amount', 'net_total', 'remarks', 'created_by',
         ]);
     }
 
@@ -1416,8 +1622,12 @@ class ReportApiController extends Controller
             'gross_weight' => number_format((float) ($row->total_gross_weight ?? 0), 3, '.', ''),
             'other_weight' => number_format((float) ($row->total_other_weight ?? 0), 3, '.', ''),
             'net_weight' => number_format((float) ($row->total_net_weight ?? 0), 3, '.', ''),
+            'purity' => number_format((float) ($row->total_purity ?? 0), 3, '.', ''),
+            'waste_percent' => number_format((float) ($row->total_waste_percent ?? 0), 3, '.', ''),
             'fine_weight' => number_format((float) ($row->total_fine_weight ?? 0), 3, '.', ''),
+            'metal_rate' => number_format((float) ($row->total_metal_rate ?? 0), 2, '.', ''),
             'metal_amount' => number_format((float) ($row->total_metal_amount ?? 0), 2, '.', ''),
+            'labour_rate' => number_format((float) ($row->total_labour_rate ?? 0), 2, '.', ''),
             'labour_amount' => number_format((float) ($row->total_labour_amount ?? 0), 2, '.', ''),
             'other_amount' => number_format((float) ($row->total_other_amount ?? 0), 2, '.', ''),
             'net_total' => number_format((float) ($row->net_total ?? 0), 2, '.', ''),
@@ -1462,12 +1672,33 @@ class ReportApiController extends Controller
     private function salesSummaryBaseQuery(Request $request, int $companyId)
     {
         $query = Sale::with(['customer', 'creator'])
+            ->select('sales.*')
             ->withSum('saleItems as total_qty', 'qty')
             ->withSum('saleItems as total_gross_weight', 'gross_weight')
             ->withSum('saleItems as total_other_weight', 'other_weight')
             ->withSum('saleItems as total_net_weight', 'net_weight')
+            ->selectSub(function ($q) {
+                $q->from('sale_items')
+                    ->selectRaw('COALESCE(SUM(net_weight * purity) / NULLIF(SUM(net_weight), 0), 0)')
+                    ->whereColumn('sale_items.sale_id', 'sales.id');
+            }, 'total_purity')
+            ->selectSub(function ($q) {
+                $q->from('sale_items')
+                    ->selectRaw('COALESCE(SUM(net_weight * waste_percent) / NULLIF(SUM(net_weight), 0), 0)')
+                    ->whereColumn('sale_items.sale_id', 'sales.id');
+            }, 'total_waste_percent')
             ->withSum('saleItems as total_fine_weight', 'fine_weight')
+            ->selectSub(function ($q) {
+                $q->from('sale_items')
+                    ->selectRaw('COALESCE(SUM(COALESCE(fine_weight, 0) * COALESCE(metal_rate, 0)) / NULLIF(SUM(COALESCE(fine_weight, 0)), 0), 0)')
+                    ->whereColumn('sale_items.sale_id', 'sales.id');
+            }, 'total_metal_rate')
             ->withSum('saleItems as total_metal_amount', 'metal_amount')
+            ->selectSub(function ($q) {
+                $q->from('sale_items')
+                    ->selectRaw('COALESCE(SUM(COALESCE(net_weight, 0) * COALESCE(labour_rate, 0)) / NULLIF(SUM(COALESCE(net_weight, 0)), 0), 0)')
+                    ->whereColumn('sale_items.sale_id', 'sales.id');
+            }, 'total_labour_rate')
             ->withSum('saleItems as total_labour_amount', 'labour_amount')
             ->withSum('saleItems as total_other_amount', 'other_amount')
             ->where('company_id', $companyId);
@@ -1511,8 +1742,12 @@ class ReportApiController extends Controller
                 COALESCE(SUM(sale_items.gross_weight), 0) as gross_weight,
                 COALESCE(SUM(sale_items.other_weight), 0) as other_weight,
                 COALESCE(SUM(sale_items.net_weight), 0) as net_weight,
+                COALESCE(SUM(sale_items.net_weight * sale_items.purity) / NULLIF(SUM(sale_items.net_weight), 0), 0) as purity,
+                COALESCE(SUM(sale_items.net_weight * sale_items.waste_percent) / NULLIF(SUM(sale_items.net_weight), 0), 0) as waste_percent,
                 COALESCE(SUM(sale_items.fine_weight), 0) as fine_weight,
+                COALESCE(SUM(COALESCE(sale_items.fine_weight, 0) * COALESCE(sale_items.metal_rate, 0)) / NULLIF(SUM(COALESCE(sale_items.fine_weight, 0)), 0), 0) as metal_rate,
                 COALESCE(SUM(sale_items.metal_amount), 0) as metal_amount,
+                COALESCE(SUM(COALESCE(sale_items.net_weight, 0) * COALESCE(sale_items.labour_rate, 0)) / NULLIF(SUM(COALESCE(sale_items.net_weight, 0)), 0), 0) as labour_rate,
                 COALESCE(SUM(sale_items.labour_amount), 0) as labour_amount,
                 COALESCE(SUM(sale_items.other_amount), 0) as other_amount
             ')
@@ -1528,8 +1763,12 @@ class ReportApiController extends Controller
             'gross_weight' => (float) ($weightAndAmountTotals->gross_weight ?? 0),
             'other_weight' => (float) ($weightAndAmountTotals->other_weight ?? 0),
             'net_weight' => (float) ($weightAndAmountTotals->net_weight ?? 0),
+            'purity' => (float) ($weightAndAmountTotals->purity ?? 0),
+            'waste_percent' => (float) ($weightAndAmountTotals->waste_percent ?? 0),
             'fine_weight' => (float) ($weightAndAmountTotals->fine_weight ?? 0),
+            'metal_rate' => (float) ($weightAndAmountTotals->metal_rate ?? 0),
             'metal_amount' => (float) ($weightAndAmountTotals->metal_amount ?? 0),
+            'labour_rate' => (float) ($weightAndAmountTotals->labour_rate ?? 0),
             'labour_amount' => (float) ($weightAndAmountTotals->labour_amount ?? 0),
             'other_amount' => (float) ($weightAndAmountTotals->other_amount ?? 0),
             'net_total' => (float) ($netTotal ?? 0),
@@ -1716,6 +1955,7 @@ class ReportApiController extends Controller
             ->groupBy('item_sets.item_id', 'items.item_name', 'supplier_customers.id', 'item_sets.supplier_person');
 
         $customerReceivedStock = DB::table('customer_advance_voucher_items as cavi')
+            ->leftJoinSub(app(\App\Services\JobworkRawStock::class)->consumption((int) $companyId), 'raw_used', 'raw_used.voucher_item_id', '=', 'cavi.id')
             ->join('customer_advance_vouchers as cav', 'cav.id', '=', 'cavi.voucher_id')
             ->join('customers as customers', 'customers.id', '=', 'cav.customer_id')
             ->leftJoin('items', 'items.id', '=', 'cavi.product_id')
@@ -1733,11 +1973,11 @@ class ReportApiController extends Controller
                 DB::raw("'Customer Received' as stock_type_name"),
                 'cav.customer_id',
                 DB::raw('customers.name as customer_name'),
-                DB::raw('COUNT(cavi.id) as qty_pcs'),
-                DB::raw('SUM(COALESCE(cavi.gross_weight,0)) as gross_weight'),
-                DB::raw('SUM(COALESCE(cavi.other_weight,0)) as less_weight'),
-                DB::raw('SUM(COALESCE(cavi.net_weight,0)) as net_weight'),
-                DB::raw('SUM(COALESCE(cavi.fine_weight,0)) as fine_weight'),
+                DB::raw('SUM(CASE WHEN COALESCE(raw_used.used_net,0) > 0 AND COALESCE(cavi.net_weight,0) - raw_used.used_net < 0.0005 THEN 0 ELSE 1 END) as qty_pcs'),
+                DB::raw('SUM(' . \App\Services\JobworkRawStock::reportWeight('gross_weight') . ') as gross_weight'),
+                DB::raw('SUM(' . \App\Services\JobworkRawStock::reportWeight('other_weight') . ') as less_weight'),
+                DB::raw('SUM(' . \App\Services\JobworkRawStock::reportWeight('net_weight') . ') as net_weight'),
+                DB::raw('SUM(' . \App\Services\JobworkRawStock::reportWeight('fine_weight') . ') as fine_weight'),
                 DB::raw('SUM(COALESCE(cavi.labour_amount,0)) as labour_amount'),
                 DB::raw('SUM(COALESCE(cavi.other_amount,0)) as other_amount'),
                 DB::raw('MAX(cavi.created_at) as created_at'),
@@ -1779,7 +2019,11 @@ class ReportApiController extends Controller
         $search = trim((string) ($request->input('search') ?: $request->input('search_text') ?: $request->input('party_name', '')));
 
         return DB::query()
-            ->fromSub($labelStock->unionAll($customerReceivedStock)->unionAll($castingSortingStock), 'stock_rows')
+            ->fromSub($labelStock->unionAll($customerReceivedStock)->unionAll($castingSortingStock)->unionAll(
+                app(\App\Services\JobworkRawStock::class)->debtReport((int) $companyId, true)
+                    ->when($request->filled('item_id'), fn($q) => $q->where('debt.item_id', (int) $request->item_id))
+                    ->when($request->filled('customer_id'), fn($q) => $q->whereRaw('1 = 0'))
+            ), 'stock_rows')
             ->select([
                 'stock_rows.item_id',
                 'stock_rows.item_name',
@@ -1807,6 +2051,188 @@ class ReportApiController extends Controller
             ->groupBy('stock_rows.item_id', 'stock_rows.item_name', 'stock_rows.stock_type', 'stock_rows.stock_type_name', 'stock_rows.customer_id', 'stock_rows.customer_name');
     }
 
+    private function workerLossBaseQuery(Request $request, int $companyId)
+    {
+        $castingReceive = DB::table('casting_release_items as cr')
+            ->join('vacuum_vouchers as vv', 'vv.id', '=', 'cr.vacuum_voucher_id')
+            ->leftJoin('vacuum_voucher_items as vvi', 'vvi.id', '=', 'cr.vacuum_voucher_item_id')
+            ->leftJoin('casting_metal_issue_items as cmi', function ($join) {
+                $join->on('cmi.company_id', '=', 'cr.company_id')
+                    ->on('cmi.vacuum_voucher_item_id', '=', 'cr.vacuum_voucher_item_id');
+            })
+            ->leftJoin('job_workers as jw', 'jw.id', '=', 'vv.job_worker_id')
+            ->where('cr.company_id', $companyId)
+            ->where(function ($query) {
+                $query->where('cr.release_tree_wt', '>', 0)
+                    ->orWhere('cr.release_tree_bhuko', '>', 0);
+            })
+            ->selectRaw("
+                'Casting Receive' as stage,
+                vv.job_worker_id as worker_id,
+                jw.name as worker_name,
+                vv.id as voucher_id,
+                vv.voucher_no as voucher_no,
+                vvi.buch_no as buch_no,
+                cmi.issue_silver_wt as source_wt,
+                cr.release_tree_wt as receive_wt,
+                cr.release_tree_bhuko as bhuko,
+                cr.loss as loss,
+                COALESCE(cr.released_at, cr.created_at) as process_datetime
+            ");
+
+        $treeCuttingReceive = DB::table('tree_cutting_receive_items as tcr')
+            ->join('vacuum_vouchers as vv', 'vv.id', '=', 'tcr.vacuum_voucher_id')
+            ->leftJoin('tree_cutting_issue_items as tci', 'tci.id', '=', 'tcr.tree_cutting_issue_item_id')
+            ->leftJoin('vacuum_voucher_items as vvi', function ($join) {
+                $join->on('vvi.id', '=', DB::raw('COALESCE(tcr.vacuum_voucher_item_id, tci.vacuum_voucher_item_id)'));
+            })
+            ->leftJoin('job_workers as jw', function ($join) {
+                $join->on('jw.id', '=', DB::raw('COALESCE(tcr.job_worker_id, tci.job_worker_id)'));
+            })
+            ->where('tcr.company_id', $companyId)
+            ->where(function ($query) {
+                $query->where('tcr.receive_pc_wt', '>', 0)
+                    ->orWhere('tcr.receive_tree_bhuko', '>', 0);
+            })
+            ->selectRaw("
+                'Tree Cutting Receive' as stage,
+                COALESCE(tcr.job_worker_id, tci.job_worker_id) as worker_id,
+                jw.name as worker_name,
+                vv.id as voucher_id,
+                vv.voucher_no as voucher_no,
+                CASE
+                    WHEN COALESCE(tcr.is_custom, tci.is_custom, 0) = 1
+                        THEN COALESCE(tcr.custom_buch_no, tci.custom_buch_no)
+                    ELSE COALESCE(vvi.buch_no, tcr.custom_buch_no, tci.custom_buch_no)
+                END as buch_no,
+                tci.receive_tree_wt as source_wt,
+                tcr.receive_pc_wt as receive_wt,
+                tcr.receive_tree_bhuko as bhuko,
+                tcr.loss as loss,
+                COALESCE(tcr.received_at, tcr.created_at) as process_datetime
+            ");
+
+        $jobworkReceive = DB::table('jobwork_receive_items as jri')
+            ->join('jobwork_receives as jr', 'jr.id', '=', 'jri.jobwork_receive_id')
+            ->join('jobwork_issues as ji', 'ji.id', '=', 'jr.jobwork_issue_id')
+            ->leftJoin('jobwork_issue_items as jii', 'jii.id', '=', 'jri.jobwork_issue_item_id')
+            ->leftJoin('items as i', function ($join) {
+                $join->on('i.id', '=', DB::raw('COALESCE(jri.item_id, jii.item_id)'));
+            })
+            ->leftJoin('job_workers as jw', 'jw.id', '=', 'ji.job_worker_id')
+            ->where('jr.company_id', $companyId)
+            ->where(function ($query) {
+                $query->where('jri.receive_gross_wt', '>', 0)
+                    ->orWhere('jri.receive_net_wt', '>', 0)
+                    ->orWhere('jri.other_wt', '>', 0)
+                    ->orWhere('jri.loss_wt', '!=', 0);
+            })
+            ->selectRaw("
+                'Jobwork Receive' as stage,
+                ji.job_worker_id as worker_id,
+                jw.name as worker_name,
+                ji.id as voucher_id,
+                ji.voucher_no as voucher_no,
+                COALESCE(i.item_name, '-') as buch_no,
+                COALESCE(
+                    jii.net_wt,
+                    (
+                        SELECT COALESCE(SUM(jii2.net_wt), 0)
+                        FROM jobwork_issue_items jii2
+                        WHERE jii2.jobwork_issue_id = ji.id
+                            AND jii2.item_id = jri.item_id
+                    ),
+                    0
+                ) as source_wt,
+                jri.receive_net_wt as receive_wt,
+                jri.other_wt as bhuko,
+                jri.loss_wt as loss,
+                COALESCE(jr.updated_at, jr.created_at, jr.receive_date) as process_datetime
+            ");
+
+        $query = DB::query()
+            ->fromSub($castingReceive->unionAll($treeCuttingReceive)->unionAll($jobworkReceive), 'worker_loss')
+            ->select('worker_loss.*');
+
+        if ($request->filled('from_date')) {
+            $query->whereDate('process_datetime', '>=', $request->input('from_date'));
+        }
+        if ($request->filled('to_date')) {
+            $query->whereDate('process_datetime', '<=', $request->input('to_date'));
+        }
+        if ($request->filled('worker_id')) {
+            $query->where('worker_id', (int) $request->input('worker_id'));
+        }
+        if ($request->filled('stage')) {
+            $query->where('stage', $request->input('stage'));
+        }
+        if ($request->filled('voucher_no')) {
+            $voucherNo = trim((string) $request->input('voucher_no'));
+            $query->where('voucher_no', 'like', "%{$voucherNo}%");
+        }
+
+        match ($request->input('loss_type')) {
+            'plus' => $query->where('loss', '>', 0),
+            'minus' => $query->where('loss', '<', 0),
+            'zero' => $query->where(function ($q) {
+                $q->where('loss', 0)->orWhereNull('loss');
+            }),
+            default => null,
+        };
+
+        if ($this->truthyApiValue($request->input('only_loss'))) {
+            $query->where('loss', '!=', 0);
+        }
+
+        return $query->orderByDesc('process_datetime');
+    }
+
+    private function workerLossTotals(Request $request, int $companyId): array
+    {
+        $rows = $this->workerLossBaseQuery($request, $companyId)->get();
+
+        return [
+            'row_count' => $rows->count(),
+            'source_wt' => (float) $rows->sum(fn($row) => (float) ($row->source_wt ?? 0)),
+            'receive_wt' => (float) $rows->sum(fn($row) => (float) ($row->receive_wt ?? 0)),
+            'bhuko' => (float) $rows->sum(fn($row) => (float) ($row->bhuko ?? 0)),
+            'loss' => (float) $rows->sum(fn($row) => (float) ($row->loss ?? 0)),
+        ];
+    }
+
+    private function workerLossSummary(Request $request, int $companyId): array
+    {
+        $rows = $this->workerLossBaseQuery($request, $companyId)->get();
+        $format = fn($value) => number_format((float) $value, 3, '.', '');
+
+        $mapSummary = function ($groupedRows, string $labelField) use ($format) {
+            return $groupedRows->map(function ($group, $key) use ($format, $labelField) {
+                $first = $group->first();
+
+                return [
+                    'label' => $labelField === 'worker_name'
+                        ? ($first->worker_name ?: 'No Worker')
+                        : ($key ?: '-'),
+                    'rows' => $group->count(),
+                    'source_wt' => $format($group->sum(fn($row) => (float) ($row->source_wt ?? 0))),
+                    'receive_wt' => $format($group->sum(fn($row) => (float) ($row->receive_wt ?? 0))),
+                    'bhuko' => $format($group->sum(fn($row) => (float) ($row->bhuko ?? 0))),
+                    'loss' => $format($group->sum(fn($row) => (float) ($row->loss ?? 0))),
+                ];
+            })->values();
+        };
+
+        return [
+            'workers' => $mapSummary($rows->groupBy(fn($row) => $row->worker_id ?: 'no-worker'), 'worker_name'),
+            'stages' => $mapSummary($rows->groupBy(fn($row) => $row->stage ?: '-'), 'stage'),
+        ];
+    }
+
+    private function truthyApiValue($value): bool
+    {
+        return in_array(strtolower((string) $value), ['1', 'true', 'yes', 'on'], true);
+    }
+
     private function approvalOutstandingBaseQuery(Request $request, int $companyId)
     {
         $query = ApprovalHeader::with(['customer', 'creator'])
@@ -1830,6 +2256,26 @@ class ReportApiController extends Controller
                     $q->where('status', 'pending');
                 }
             ], 'net_weight')
+            ->withAvg([
+                'items as pending_purity' => function ($q) {
+                    $q->where('status', 'pending');
+                }
+            ], 'purity')
+            ->withAvg([
+                'items as pending_waste_percent' => function ($q) {
+                    $q->where('status', 'pending');
+                }
+            ], 'waste_percent')
+            ->withAvg([
+                'items as pending_metal_rate' => function ($q) {
+                    $q->where('status', 'pending');
+                }
+            ], 'metal_rate')
+            ->withAvg([
+                'items as pending_labour_rate' => function ($q) {
+                    $q->where('status', 'pending');
+                }
+            ], 'labour_rate')
             ->withSum([
                 'items as pending_other_amount' => function ($q) {
                     $q->where('status', 'pending');
@@ -1859,12 +2305,25 @@ class ReportApiController extends Controller
 
     private function approvalOutstandingTotals(Collection $rows): array
     {
+        $netWeight = (float) $rows->sum(fn($r) => (float) ($r->pending_net_weight ?? 0));
+        $weightedAverage = function (string $field) use ($rows, $netWeight): float {
+            if ($netWeight <= 0) {
+                return 0.0;
+            }
+
+            return (float) $rows->sum(fn($r) => (float) ($r->pending_net_weight ?? 0) * (float) ($r->{$field} ?? 0)) / $netWeight;
+        };
+
         return [
             'voucher_count' => (int) $rows->count(),
             'pending_pcs' => (int) $rows->sum(fn($r) => (int) ($r->pending_items_count ?? 0)),
             'pending_gross_weight' => (float) $rows->sum(fn($r) => (float) ($r->pending_gross_weight ?? 0)),
             'pending_other_weight' => (float) $rows->sum(fn($r) => (float) ($r->pending_other_weight ?? 0)),
-            'pending_net_weight' => (float) $rows->sum(fn($r) => (float) ($r->pending_net_weight ?? 0)),
+            'pending_net_weight' => $netWeight,
+            'pending_purity' => $weightedAverage('pending_purity'),
+            'pending_waste_percent' => $weightedAverage('pending_waste_percent'),
+            'pending_metal_rate' => $weightedAverage('pending_metal_rate'),
+            'pending_labour_rate' => $weightedAverage('pending_labour_rate'),
             'pending_other_amount' => (float) $rows->sum(fn($r) => (float) ($r->pending_other_amount ?? 0)),
             'pending_amount' => (float) $rows->sum(fn($r) => (float) ($r->pending_total_amount ?? 0)),
         ];
@@ -1910,6 +2369,10 @@ class ReportApiController extends Controller
                 COALESCE(SUM(COALESCE(ai.gross_weight, 0)), 0) as gross_weight,
                 COALESCE(SUM(COALESCE(ai.other_weight, 0)), 0) as other_weight,
                 COALESCE(SUM(COALESCE(ai.net_weight, 0)), 0) as net_weight,
+                COALESCE(SUM(COALESCE(ai.net_weight, 0) * COALESCE(ai.purity, 0)) / NULLIF(SUM(COALESCE(ai.net_weight, 0)), 0), 0) as purity,
+                COALESCE(SUM(COALESCE(ai.net_weight, 0) * COALESCE(ai.waste_percent, 0)) / NULLIF(SUM(COALESCE(ai.net_weight, 0)), 0), 0) as waste_percent,
+                COALESCE(SUM(COALESCE(ai.net_weight, 0) * COALESCE(ai.metal_rate, 0)) / NULLIF(SUM(COALESCE(ai.net_weight, 0)), 0), 0) as metal_rate,
+                COALESCE(SUM(COALESCE(ai.net_weight, 0) * COALESCE(ai.labour_rate, 0)) / NULLIF(SUM(COALESCE(ai.net_weight, 0)), 0), 0) as labour_rate,
                 COALESCE(SUM({$fineExpr}), 0) as fine_weight,
                 COALESCE(SUM({$metalExpr}), 0) as metal_amount,
                 COALESCE(SUM({$labourExpr}), 0) as labour_amount,
@@ -1993,6 +2456,10 @@ class ReportApiController extends Controller
             'gross_weight' => (float) ($totals->gross_weight ?? 0),
             'other_weight' => (float) ($totals->other_weight ?? 0),
             'net_weight' => (float) ($totals->net_weight ?? 0),
+            'purity' => (float) ($totals->purity ?? 0),
+            'waste_percent' => (float) ($totals->waste_percent ?? 0),
+            'metal_rate' => (float) ($totals->metal_rate ?? 0),
+            'labour_rate' => (float) ($totals->labour_rate ?? 0),
             'fine_weight' => (float) ($totals->fine_weight ?? 0),
             'metal_amount' => (float) ($totals->metal_amount ?? 0),
             'labour_amount' => (float) ($totals->labour_amount ?? 0),
@@ -2002,6 +2469,10 @@ class ReportApiController extends Controller
             'pending_gross_weight' => (float) ($totals->gross_weight ?? 0),
             'pending_other_weight' => (float) ($totals->other_weight ?? 0),
             'pending_net_weight' => (float) ($totals->net_weight ?? 0),
+            'pending_purity' => (float) ($totals->purity ?? 0),
+            'pending_waste_percent' => (float) ($totals->waste_percent ?? 0),
+            'pending_metal_rate' => (float) ($totals->metal_rate ?? 0),
+            'pending_labour_rate' => (float) ($totals->labour_rate ?? 0),
             'pending_other_amount' => (float) ($totals->other_amount ?? 0),
             'pending_amount' => (float) ($totals->net_total ?? 0),
         ];
@@ -2012,6 +2483,9 @@ class ReportApiController extends Controller
         $query = Sale::with(['customer'])
             ->withSum('saleItems as sum_gross_weight', 'gross_weight')
             ->withSum('saleItems as sum_net_weight', 'net_weight')
+            ->withSum('saleItems as sum_fine_weight', 'fine_weight')
+            ->withSum('saleItems as sum_metal_amount', 'metal_amount')
+            ->withSum('saleItems as sum_labour_amount', 'labour_amount')
             ->where('company_id', $companyId);
 
         $hasUseToggles = $this->hasAnyUseToggle($request);
@@ -2097,20 +2571,34 @@ class ReportApiController extends Controller
         $amountIn = (float) $rows->sum(fn($r) => (float) ($r->received_amount ?? 0));
         $amountOut = (float) $rows->sum(fn($r) => (float) ($r->paid_amount ?? 0));
         $totalAmount = (float) $rows->sum(fn($r) => (float) ($r->net_total ?? 0));
+        $metalDebit = (float) $rows->sum(fn($r) => $this->outstandingMetalDebit($r));
         $pendingAmount = (float) $rows->sum(function ($r) {
             $received = (float) ($r->received_amount ?? 0);
             $out = (float) ($r->paid_amount ?? 0);
-            return max(0, (float) ($r->net_total ?? 0) - ($received - $out));
+            return max(0, (float) ($r->net_total ?? 0) - $r->appliedReceivedAmount());
         });
 
         return [
             'voucher_count' => (int) $rows->count(),
             'gross_weight' => (float) $rows->sum(fn($r) => (float) ($r->sum_gross_weight ?? 0)),
             'net_weight' => (float) $rows->sum(fn($r) => (float) ($r->sum_net_weight ?? 0)),
+            'fine_weight' => (float) $rows->sum(fn($r) => (float) ($r->sum_fine_weight ?? 0)),
+            'metal_amount' => (float) $rows->sum(fn($r) => (float) ($r->sum_metal_amount ?? 0)),
+            'labour_amount' => (float) $rows->sum(fn($r) => (float) ($r->sum_labour_amount ?? 0)),
+            'metal_debit' => $metalDebit,
             'total_amount' => $totalAmount,
             'amount_in' => $amountIn,
             'amount_out' => $amountOut,
             'pending_amount' => $pendingAmount,
         ];
+    }
+
+    private function outstandingMetalDebit($row): float
+    {
+        $fineWeight = (float) ($row->sum_fine_weight ?? 0);
+        $metalAmount = (float) ($row->sum_metal_amount ?? 0);
+        $useMetalBalance = (bool) ($row->use_silver_balance ?? false);
+
+        return (!$useMetalBalance && $metalAmount <= 0.000001 && $fineWeight > 0.000001) ? $fineWeight : 0.0;
     }
 }

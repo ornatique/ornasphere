@@ -154,11 +154,11 @@ class VoucherHistoryApiController extends Controller
             fputcsv($handle, []);
 
             fputcsv($handle, ['3. Casting Receive']);
-            fputcsv($handle, ['Sr No', 'Buch No', 'Item Name', 'Voucher Remark', 'Release Tree Wt', 'Tree Bhuko', 'Loss', 'Received At']);
+            fputcsv($handle, ['Sr No', 'Buch No', 'Item Name', 'Voucher Remark', 'Release Tree Wt', 'Tree Bhuko', 'Release Tree Total Wt', 'Loss', 'Received At']);
             foreach ($history['casting_receive']['rows'] as $index => $row) {
-                fputcsv($handle, [$index + 1, $row['buch_no'], $row['item_name'] ?? '-', $row['voucher_remarks'] ?? '-', $row['release_tree_wt'], $row['release_tree_bhuko'], $row['loss'], $row['received_at']]);
+                fputcsv($handle, [$index + 1, $row['buch_no'], $row['item_name'] ?? '-', $row['voucher_remarks'] ?? '-', $row['release_tree_wt'], $row['release_tree_bhuko'], $row['release_tree_total_wt'], $row['loss'], $row['received_at']]);
             }
-            fputcsv($handle, ['Total', '', '', '', $history['casting_receive']['totals']['release_tree_wt'], $history['casting_receive']['totals']['release_tree_bhuko'], $history['casting_receive']['totals']['loss'], '']);
+            fputcsv($handle, ['Total', '', '', '', $history['casting_receive']['totals']['release_tree_wt'], $history['casting_receive']['totals']['release_tree_bhuko'], $history['casting_receive']['totals']['release_tree_total_wt'], $history['casting_receive']['totals']['loss'], '']);
             fputcsv($handle, []);
 
             fputcsv($handle, ['4. Tree Cutting Issue Office']);
@@ -336,6 +336,7 @@ class VoucherHistoryApiController extends Controller
                 'received_count' => $releaseItems->count(),
                 'release_tree_wt_total' => $this->decimal($releaseItems->sum(fn($item) => (float) ($item->release_tree_wt ?? 0))),
                 'release_tree_bhuko_total' => $this->decimal($releaseItems->sum(fn($item) => (float) ($item->release_tree_bhuko ?? 0))),
+                'release_tree_total_wt_total' => $this->decimal($releaseItems->sum(fn($item) => (float) ($item->release_tree_wt ?? 0) + (float) ($item->release_tree_bhuko ?? 0))),
                 'loss_total' => $this->decimal($releaseItems->sum(fn($item) => (float) ($item->loss ?? 0))),
                 'rows' => $releaseItems->map(fn($item) => [
                     'id' => (int) $item->id,
@@ -345,6 +346,7 @@ class VoucherHistoryApiController extends Controller
                     'voucher_remarks' => $item->voucherItem?->remarks,
                     'release_tree_wt' => $this->decimal($item->release_tree_wt),
                     'release_tree_bhuko' => $this->decimal($item->release_tree_bhuko),
+                    'release_tree_total_wt' => $this->decimal((float) ($item->release_tree_wt ?? 0) + (float) ($item->release_tree_bhuko ?? 0)),
                     'loss' => $this->decimal($item->loss),
                     'released_at' => $this->dateTimeValue($item->released_at ?: $item->created_at),
                     'released_at_view' => $this->dateTime($item->released_at ?: $item->created_at),
@@ -461,6 +463,7 @@ class VoucherHistoryApiController extends Controller
                 'totals' => [
                     'release_tree_wt' => $history['casting_receive']['release_tree_wt_total'],
                     'release_tree_bhuko' => $history['casting_receive']['release_tree_bhuko_total'],
+                    'release_tree_total_wt' => $history['casting_receive']['release_tree_total_wt_total'],
                     'loss' => $history['casting_receive']['loss_total'],
                 ],
                 'rows' => $history['casting_receive']['rows']->map(fn($row) => [
@@ -469,6 +472,7 @@ class VoucherHistoryApiController extends Controller
                     'voucher_remarks' => $row['voucher_remarks'] ?? null,
                     'release_tree_wt' => $row['release_tree_wt'],
                     'release_tree_bhuko' => $row['release_tree_bhuko'],
+                    'release_tree_total_wt' => $row['release_tree_total_wt'],
                     'loss' => $row['loss'],
                     'received_at' => $row['released_at_view'] ?? '-',
                 ]),

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Company;
+use App\Services\JobworkRawStock;
 use App\Models\Customer;
 use App\Models\Item;
 use App\Models\JobworkIssue;
@@ -71,6 +72,7 @@ class JobworkReceiveApiController extends Controller
         ]);
 
         $receive = DB::transaction(function () use ($request, $issue, $validated) {
+            app(JobworkRawStock::class)->lock((int) $issue->company_id);
             $receive = $this->ensureReceive($request, $issue);
             $receive->update([
                 'receive_date' => $validated['receive_date'],
@@ -81,6 +83,9 @@ class JobworkReceiveApiController extends Controller
 
             $receive->items()->delete();
             $this->createReceiveItems($receive, $issue, $validated['items'] ?? []);
+            if ($receive->jobwork_issue_id) {
+                app(JobworkRawStock::class)->validateReturns((int) $receive->company_id, (int) $receive->jobwork_issue_id, false);
+            }
 
             return $receive->load(['items.item:id,item_name', 'items.jobworkIssueItem.item:id,item_name']);
         });
@@ -115,7 +120,11 @@ class JobworkReceiveApiController extends Controller
         }
 
         DB::transaction(function () use ($receive, $item) {
+            app(JobworkRawStock::class)->lock((int) $receive->company_id);
             $item->delete();
+            if ($receive->jobwork_issue_id) {
+                app(JobworkRawStock::class)->validateReturns((int) $receive->company_id, (int) $receive->jobwork_issue_id, false);
+            }
             $receive->update([
                 'modified_count' => ((int) $receive->modified_count) + 1,
             ]);
@@ -143,7 +152,11 @@ class JobworkReceiveApiController extends Controller
         }
 
         $receive = $this->ensureReceive($request, $row);
-        $workerIssueVouchers = collect();
+        $workerIssueVouchers = JobworkIssue::where('company_id', $companyId)
+            ->where('job_worker_id', $row->job_worker_id)
+            ->whereHas('items')
+            ->orderByDesc('jobwork_date')->orderByDesc('id')
+            ->get(['id', 'voucher_no']);
 
         return Pdf::loadView('company.jobwork_receive.pdf.show', compact('company', 'row', 'receive', 'workerIssueVouchers'))
             ->setPaper('a4', 'portrait')
@@ -302,7 +315,11 @@ class JobworkReceiveApiController extends Controller
         }
 
         DB::transaction(function () use ($receive, $item) {
+            app(JobworkRawStock::class)->lock((int) $receive->company_id);
             $item->delete();
+            if ($receive->jobwork_issue_id) {
+                app(JobworkRawStock::class)->validateReturns((int) $receive->company_id, (int) $receive->jobwork_issue_id, false);
+            }
             $receive->update([
                 'modified_count' => ((int) $receive->modified_count) + 1,
             ]);
@@ -659,13 +676,7 @@ class JobworkReceiveApiController extends Controller
 
     private function generateDirectReceiveNo(int $companyId, string $receiveDate): string
     {
-        $prefix = 'JWR' . date('ymd', strtotime($receiveDate));
-        $count = JobworkReceive::where('company_id', $companyId)
-            ->where('receive_type', 'direct')
-            ->whereDate('receive_date', $receiveDate)
-            ->count() + 1;
-
-        return $prefix . '-' . str_pad((string) $count, 3, '0', STR_PAD_LEFT);
+        return \App\Services\VoucherSeries::next($companyId, 'JWR');
     }
 
     private function syncDirectReceiveItems(JobworkReceive $receive, array $items): void
@@ -893,6 +904,7 @@ class JobworkReceiveApiController extends Controller
             $itemId = $prepared['item_id'];
             $issueItem = $issueItemByItem->get($itemId);
             $loss = empty($lossAssigned[$itemId]) ? (float) ($lossByItem->get($itemId, 0) ?? 0) : 0.0;
+            if (strtolower((string) optional($issueItem?->item)->jobwork_item_type) === 'raw') $loss = 0.0;
             $lossAssigned[$itemId] = true;
 
             $receive->items()->create([

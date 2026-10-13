@@ -100,33 +100,40 @@
 </head>
 <body>
 @php
-    $defaultLogo = asset('celestial/assets/images/logo.svg') . '?v=' . @filemtime(public_path('celestial/assets/images/logo.svg'));
-    $logo = $defaultLogo;
+    $defaultLogo = url('/celestial/assets/images/ornasphere-auth-logo.png');
+    $homeUrl = url('/');
+    $homeLabel = 'Go Home';
 
     $companyUser = auth()->user();
     $superAdminUser = auth('superadmin')->user();
-
-    if ($companyUser && optional($companyUser->company)->company_logo_url) {
-        $logo = optional($companyUser->company)->company_logo_url;
-    }
-
-    $homeUrl = url('/');
+    $requestCompanySlug = request()->segment(1) === 'company' ? request()->segment(2) : null;
+    $requestCompany = $requestCompanySlug
+        ? \App\Models\Company::where('slug', $requestCompanySlug)->where('status', true)->first()
+        : null;
 
     if ($superAdminUser && \Illuminate\Support\Facades\Route::has('superadmin.dashboard')) {
         $homeUrl = route('superadmin.dashboard');
-    } elseif ($companyUser && \Illuminate\Support\Facades\Route::has('company.dashboard') && !empty(optional($companyUser->company)->slug)) {
-        $homeUrl = route('company.dashboard', optional($companyUser->company)->slug);
+    } elseif (\Illuminate\Support\Facades\Route::has('company.dashboard')) {
+        if ($requestCompany) {
+            $homeUrl = route('company.dashboard', ['slug' => $requestCompany->slug]);
+        } elseif (
+            $companyUser
+            && optional($companyUser->company)->slug
+            && (int) optional($companyUser->company)->status === 1
+        ) {
+            $homeUrl = route('company.dashboard', ['slug' => $companyUser->company->slug]);
+        }
     }
 @endphp
 
 <div class="error-wrap">
     <div class="error-card">
-        <img src="{{ $logo }}" alt="logo" class="error-logo" onerror="this.onerror=null;this.src='{{ $defaultLogo }}';">
+        <img src="{{ $defaultLogo }}" alt="OrnaSphere" class="error-logo">
         <div class="error-code">{{ $code ?? '500' }}</div>
         <div class="error-title">{{ $title ?? 'Something went wrong' }}</div>
         <div class="error-message">{{ $message ?? 'An unexpected error occurred.' }}</div>
         <div class="error-actions">
-            <a href="{{ $homeUrl }}" class="btn-error-primary">Go Dashboard</a>
+            <a href="{{ $homeUrl }}" class="btn-error-primary">{{ $homeLabel }}</a>
             <a href="javascript:history.back()" class="btn-error-secondary">Go Back</a>
         </div>
     </div>

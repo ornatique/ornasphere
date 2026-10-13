@@ -2,6 +2,24 @@
 
 @section('content')
 <style>
+    #approvalReturnModal .select2-dropdown,
+    #approvalReturnModal .select2-search__field,
+    #approvalReturnModal .select2-selection {
+        background: #2e2d4d;
+        color: #fff;
+        border-color: #555475;
+    }
+    #approvalReturnModal .select2-selection__rendered,
+    #approvalReturnModal .select2-results__option {
+        color: #fff;
+    }
+    #approvalReturnModal .select2-results__option[aria-selected="true"] {
+        background: #454463;
+    }
+    #approvalReturnModal .select2-results__option--highlighted[aria-selected] {
+        background: #2864df;
+        color: #fff;
+    }
     .sale-search-wrap {
         position: relative;
     }
@@ -38,12 +56,48 @@
     }
 
     .return-grid-wrap {
-        overflow-x: auto;
-        overflow-y: visible;
+        max-height: 55vh;
+        overflow: auto;
+        scrollbar-gutter: stable;
+        border: 1px solid #393c59;
+        border-radius: 6px;
     }
 
     #selectedQrTable {
         min-width: 2200px;
+        margin-bottom: 0;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    #selectedQrTable thead th {
+        position: sticky;
+        top: 0;
+        z-index: 3;
+        background: #2b2f4a;
+    }
+    #selectedQrTable tfoot th {
+        position: sticky;
+        bottom: 0;
+        z-index: 2;
+        background: #2b2f4a;
+    }
+    #selectedQrTable th:last-child, #selectedQrTable td:last-child {
+        position: sticky;
+        right: 0;
+        background: #2b2f4a;
+        box-shadow: -2px 0 3px rgba(0,0,0,.15);
+    }
+    #selectedQrTable thead th:last-child { z-index: 4; }
+    #selectedQrTable tbody td { padding: 10px 12px; }
+    .return-edit-fields { display: grid; grid-template-columns: minmax(180px, 1fr) 2fr; gap: 16px; margin-bottom: 16px; }
+    .return-picker-scroll { max-height: 45vh; overflow: auto; scrollbar-gutter: stable; }
+    #approvalReturnModal .modal-content { max-height: 90vh; }
+    #approvalReturnModal .modal-body { overflow-y: auto; }
+    #approvalReturnModal .return-picker-table { margin-bottom: 0; }
+    @media (max-width: 767px) {
+        .return-edit-fields { grid-template-columns: 1fr; }
+        .return-picker-scroll { max-height: 28vh; }
     }
 
     #selectedQrTable th,
@@ -197,7 +251,7 @@
     <div class="card">
 
         <div class="card-header d-flex justify-content-between align-items-center">
-            <h4 class="card-title">Approval Return</h4>
+            <h4 class="card-title">{{ isset($return) ? 'Edit Approval Return · '.$return->return_voucher_no : 'Approval Return' }}</h4>
 
             <button type="button" class="btn btn-warning" id="openApprovalModal">
                 Add Approval Items
@@ -208,10 +262,10 @@
             <div class="row mb-3">
                 <div class="col-md-4">
                     <label>Customer</label>
-                    <select id="filter_customer" class="form-select">
+                    <select id="filter_customer" class="form-select" @disabled(isset($return))>
                         <option value="">Select Customer</option>
                         @foreach($customers as $customer)
-                        <option value="{{ $customer->id }}">{{ $customer->name }}</option>
+                        <option value="{{ $customer->id }}" @selected(isset($return) && $loop->first)>{{ $customer->name }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -225,16 +279,25 @@
                 --}}
             </div>
 
-            <form method="POST" action="{{ route('company.returns.processSelected', $company->slug) }}" id="returnSubmitForm">
+            <form method="POST" action="{{ isset($return) ? route('company.returns.update', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string)$return->id)]) : route('company.returns.processSelected', $company->slug) }}" id="returnSubmitForm">
                 @csrf
+                @if(isset($return))
+                @method('PUT')
+                <div class="return-edit-fields">
+                <div><label for="return-date">Return date</label><input id="return-date" type="date" name="return_date" class="form-control" value="{{ old('return_date', \Carbon\Carbon::parse($return->return_date)->format('Y-m-d')) }}" required></div>
+                <div><label for="removal-reason">Reason for removed items</label><input id="removal-reason" name="removal_reason" class="form-control" value="{{ old('removal_reason') }}" maxlength="500"></div>
+                </div>
+                @endif
+                @if($errors->any())<div class="alert alert-danger">{{ $errors->first() }}</div>@endif
+                @if(session('success'))<div class="alert alert-success">{{ session('success') }}</div>@endif
 
                 <div class="mb-3">
                     <label>Voucher Remarks</label>
-                    <textarea name="voucher_remarks" class="form-control" rows="2" placeholder="Enter remarks for this return"></textarea>
+                    <textarea name="voucher_remarks" class="form-control" rows="2" placeholder="Enter remarks for this return">{{ old('voucher_remarks', $return->remarks ?? '') }}</textarea>
                 </div>
 
                 <div class="row mb-3">
-                    <div class="col-md-12 return-grid-wrap">
+                    <div class="col-md-12 return-grid-wrap" tabindex="0" role="region" aria-label="Return items — scroll to see more rows and columns">
                         <table class="table table-bordered" id="selectedQrTable">
                             <thead>
                                 <tr>
@@ -279,7 +342,7 @@
 
                 <div class="text-end">
                     <button type="submit" class="btn btn-danger" id="finalReturnBtn" disabled>
-                        Return Selected Items
+                        {{ isset($return) ? 'Save Changes' : 'Return Selected Items' }}
                     </button>
                 </div>
             </form>
@@ -291,17 +354,31 @@
     <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header">
-                <h5>Approval Return Items (Pending)</h5>
+                <h5 class="modal-title" style="font-size:24px;font-weight:700;margin:0">Approval Return Items (Pending)</h5>
             </div>
 
             <div class="modal-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="returnVoucherFilter">Approval voucher</label>
+                        <select id="returnVoucherFilter" class="form-control"><option value="">All vouchers</option></select>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="returnProductFilter">Item</label>
+                        <select id="returnProductFilter" class="form-control"><option value="">All items</option></select>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label for="returnItemSearch">Search available items</label>
+                    <input type="search" id="returnItemSearch" class="form-control" placeholder="Search label / barcode or item name" autocomplete="off">
+                </div>
                 <div class="row">
                     <div class="col-md-6">
                         <div class="approval-return-modal-toolbar d-flex align-items-center justify-content-between mb-2">
                             <h6>Available</h6>
                             <button type="button" class="btn btn-sm btn-primary" id="selectAllReturnItems">Select All</button>
                         </div>
-                        <div style="max-height:400px; overflow:auto;">
+                        <div class="return-picker-scroll" tabindex="0" role="region" aria-label="Available approval items">
                             <table class="table table-bordered return-picker-table">
                                 <tbody id="leftReturn"></tbody>
                             </table>
@@ -313,7 +390,7 @@
                             <h6>Selected</h6>
                             <button type="button" class="btn btn-sm btn-secondary" id="clearReturnItems">Clear</button>
                         </div>
-                        <div style="max-height:400px; overflow:auto;">
+                        <div class="return-picker-scroll" tabindex="0" role="region" aria-label="Selected approval items">
                             <table class="table table-bordered return-picker-table">
                                 <tbody id="rightReturn"></tbody>
                             </table>
@@ -382,6 +459,12 @@ $(function() {
             width: '100%',
             placeholder: 'Select Customer',
             allowClear: true
+        });
+        $('#returnVoucherFilter, #returnProductFilter').select2({
+            theme: 'bootstrap4',
+            width: '100%',
+            dropdownParent: $('#approvalReturnModal'),
+            minimumResultsForSearch: 0
         });
     }
 
@@ -918,6 +1001,19 @@ $(function() {
         }, function(data) {
             let html = '';
 
+            const vouchers = new Map();
+            const products = new Set();
+            data.forEach(item => {
+                if (selectedApprovalItemIds.has(Number(item.id))) return;
+                if (item.approval_id) vouchers.set(String(item.approval_id), item.approval_no || String(item.approval_id));
+                if (item.name) products.add(item.name);
+            });
+            $('#returnVoucherFilter').empty().append(new Option('All vouchers', ''));
+            vouchers.forEach((name, id) => $('#returnVoucherFilter').append(new Option(name, id)));
+            $('#returnProductFilter').empty().append(new Option('All items', ''));
+            [...products].sort().forEach(name => $('#returnProductFilter').append(new Option(name, name)));
+            $('#returnVoucherFilter, #returnProductFilter').val('').trigger('change.select2');
+
             data.forEach((item, i) => {
                 if (selectedApprovalItemIds.has(Number(item.id))) return;
 
@@ -928,7 +1024,7 @@ $(function() {
                         data-gross="${item.gross_weight}">
                         <td>${i + 1}</td>
                         <td>${escapeHtml(item.qr_code || '-')}</td>
-                        <td>${escapeHtml(item.name || '-')}</td>
+                        <td>${escapeHtml(item.name || '-')}<small class="d-block text-info">${escapeHtml(item.approval_no || '')}</small></td>
                         <td>${nfix(item.gross_weight, 3)}</td>
                     </tr>
                 `;
@@ -936,6 +1032,7 @@ $(function() {
 
             $('#leftReturn').html(html || '<tr class="return-empty-row"><td colspan="4" class="text-center">No pending approval items</td></tr>');
             $('#rightReturn').html('');
+            $('#returnItemSearch').val('');
             ensureReturnPickerEmptyRows();
             updateModalTotals();
         });
@@ -956,7 +1053,7 @@ $(function() {
     });
 
     $('#selectAllReturnItems').click(function() {
-        const $items = $('#leftReturn tr.leftItem');
+        const $items = $('#leftReturn tr.leftItem').filter(function() { return !this.hidden; });
         if (!$items.length) return;
 
         $('#rightReturn .return-empty-row').remove();
@@ -989,7 +1086,33 @@ $(function() {
         if ($('#rightReturn tr.rightItem').length === 0) {
             $('#rightReturn').html('<tr class="return-empty-row"><td colspan="4" class="text-center">No item selected</td></tr>');
         }
+        $('#rightReturn tr.rightItem').prop('hidden', false);
+        filterReturnItems();
     }
+
+    function filterReturnItems() {
+        const term = String($('#returnItemSearch').val() || '').trim().toLowerCase();
+        const voucher = String($('#returnVoucherFilter').val() || '');
+        const product = String($('#returnProductFilter').val() || '');
+        const $items = $('#leftReturn tr.leftItem');
+        $('#leftReturn .return-search-empty').remove();
+        let matches = 0;
+        $items.each(function() {
+            const item = $(this).data('row') || {};
+            const match = (!voucher || String(item.approval_id) === voucher)
+                && (!product || item.name === product)
+                && [item.qr_code, item.name, item.approval_no].some(value => String(value || '').toLowerCase().includes(term));
+            this.hidden = !match;
+            if (match) matches++;
+        });
+        if ($items.length && !matches) {
+            $('#leftReturn').append('<tr class="return-search-empty"><td colspan="4" class="text-center">No matching items</td></tr>');
+        }
+        $('#selectAllReturnItems').prop('disabled', matches === 0).text(term || voucher || product ? 'Select Matching' : 'Select All');
+    }
+
+    $('#returnItemSearch').on('input', filterReturnItems);
+    $('#returnVoucherFilter, #returnProductFilter').on('change', filterReturnItems);
 
     function updateModalTotals() {
         let count = 0;
@@ -1016,6 +1139,11 @@ $(function() {
         $('#approvalReturnModal').modal('hide');
     });
 
+    const initialRows = @json($initialRows ?? []);
+    initialRows.forEach(function(row) {
+        selectedApprovalItemIds.add(Number(row.id));
+        appendRow('approval', Number(row.id), row);
+    });
     $('#returnSubmitForm').submit(function(e) {
         if (selectedApprovalItemIds.size === 0) {
             e.preventDefault();
