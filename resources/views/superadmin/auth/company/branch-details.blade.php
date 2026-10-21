@@ -12,7 +12,7 @@
             <label for="company-switch">Select main company or branch</label>
             <select id="company-switch" class="bp-input" onchange="window.location.assign(this.value)">
                 @foreach($locations as $location)
-                    <option value="{{ route('superadmin.companies.branches.show', [$company, $location]) }}" @selected($location->id === $branch->id)>{{ $location->name }} � {{ $location->id === $company->id ? 'Main company' : 'Sub-branch' }}</option>
+                    <option value="{{ route('superadmin.companies.branches.show', [$company, $location]) }}" @selected($location->id === $branch->id)>{{ $location->name }} — {{ $location->id === $company->id ? 'Main company' : 'Sub-branch' }}</option>
                 @endforeach
             </select>
         </div>
@@ -26,7 +26,7 @@
             <div class="bp-fact"><span>Total users</span><strong>{{ $users->total() }}</strong></div>
         </div>
         <div class="bp-access">
-            <div><span class="bp-badge {{ $branch->status ? 'bp-good' : 'bp-muted' }}">Branch {{ $branch->status ? 'active' : 'inactive' }}</span><p>Deactivation signs out users and blocks access. For the main company, this also blocks its branches. Individual user statuses are preserved.</p></div>
+            <div><span class="bp-badge {{ $branch->status ? 'bp-good' : 'bp-muted' }}">Branch {{ $branch->status ? 'active' : 'inactive' }}</span><p>Deactivation signs out users and blocks access. For the main company, this also blocks its branches. Activation enables all related users, including individually inactive users. Activating the main company also activates its branches.</p></div>
             <form method="POST" action="{{ route('superadmin.companies.branches.status', [$company, $branch]) }}" onsubmit="return confirm('Change branch access for all its users?')">
                 @csrf @method('PUT')
                 <input type="hidden" name="status" value="{{ $branch->status ? 0 : 1 }}">
@@ -50,7 +50,7 @@
             <div class="bp-fields">
                 <div><label for="name-{{ $user->id }}">Full name</label><input class="bp-input" id="name-{{ $user->id }}" name="name" value="{{ $user->name }}" required maxlength="255"></div>
                 <div><label for="email-{{ $user->id }}">Login email</label><input class="bp-input" id="email-{{ $user->id }}" name="email" type="email" value="{{ $user->email }}" required maxlength="255"></div>
-                <div><label for="status-{{ $user->id }}">User access</label><select class="bp-input" id="status-{{ $user->id }}" name="is_active"><option value="1" @selected($user->is_active)>Active</option><option value="0" @selected(!$user->is_active)>Inactive — reset 2FA</option></select></div>
+                <div><label for="status-{{ $user->id }}">User access</label><select class="bp-input" id="status-{{ $user->id }}" name="is_active"><option value="1" @selected($user->is_active)>Active</option><option value="0" @selected(!$user->is_active)>Inactive (reset 2FA)</option></select></div>
             </div>
             <div class="bp-footer"><p>Email changes sign this user out. Deactivation also resets their 2FA.</p><button class="bp-button bp-save">Save changes</button></div>
         </form>

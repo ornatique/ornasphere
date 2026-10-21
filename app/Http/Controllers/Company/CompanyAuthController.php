@@ -17,11 +17,12 @@ class CompanyAuthController extends Controller
 
         $company = Company::where('slug', $slug)->first();
 
-        if (!$company || (int) $company->status !== 1) {
+        if (!$company) {
             return redirect('/')
                 ->with('company_unavailable', 'This company workspace is not available or has been removed.');
         }
 
+        $companyInactive = !\App\Services\CompanyBranches::isActive($company);
         $pending = Auth::user();
         if ($pending && (!$pending->two_factor_enabled || session('company_2fa_verified') !== true)) {
             if ($pending->active_web_session_id === session()->getId()) {
@@ -32,7 +33,7 @@ class CompanyAuthController extends Controller
             session()->regenerateToken();
         }
 
-        return response()->view('company.login-company', compact('company'))
+        return response()->view('company.login-company', compact('company', 'companyInactive'))
             ->header('Cache-Control', 'no-store, private');
     }
 
@@ -40,9 +41,14 @@ class CompanyAuthController extends Controller
     {
         $company = Company::where('slug', $slug)->first();
 
-        if (!$company || (int) $company->status !== 1) {
+        if (!$company) {
             return redirect('/')
                 ->with('company_unavailable', 'This company workspace is not available or has been removed.');
+        }
+
+        if (!\App\Services\CompanyBranches::isActive($company)) {
+            return redirect()->route('company.login', $company->slug)
+                ->withErrors(['email' => 'Your company has been deactivated. Please contact the administrator.']);
         }
 
         $credentials = $request->validate([

@@ -42,7 +42,9 @@ class SuperAdminBranchManagementTest extends TestCase
         $controller->status(Request::create('/', 'PUT', ['status'=>0]), Company::find(1), Company::find(2));
         $this->assertSame(0, Company::find(2)->status);
         $this->assertSame(1, User::find(1)->is_active);
-        $this->assertSame('secret', User::find(1)->two_factor_secret);
+        $this->assertNull(User::find(1)->two_factor_secret);
+        $this->assertNull(User::find(1)->two_factor_recovery_codes);
+        $this->assertSame('secret', User::find(2)->two_factor_secret);
         $this->assertNotSame('old', User::find(1)->active_web_session_id);
         $this->assertSame(0, User::find(1)->tokens()->count());
         $this->assertSame('COMPANY_INACTIVE', \App\Services\InactiveTokenResponse::code('1|test-secret-1'));
@@ -60,6 +62,23 @@ class SuperAdminBranchManagementTest extends TestCase
         $this->assertNull($user->two_factor_recovery_codes);
         $this->assertSame(0, $user->is_active);
         $this->assertSame(0, $user->tokens()->count());
+    }
+
+    public function test_main_company_reactivation_activates_related_users_and_branches(): void
+    {
+        User::whereKey(1)->update(['is_active'=>0]);
+        Company::find(1)->update(['status'=>0]);
+        $this->assertNull(User::find(1)->two_factor_secret);
+        $this->assertSame(0, User::find(1)->two_factor_enabled);
+        $this->assertSame('secret', User::find(2)->two_factor_secret);
+        Company::whereKey(2)->update(['status'=>0]);
+        User::whereKey(2)->update(['is_active'=>0]);
+        Company::find(1)->update(['status'=>1]);
+        $this->assertSame(1, Company::find(2)->status);
+        $this->assertSame(0, User::find(2)->is_active);
+        $this->assertSame(0, User::find(1)->tokens()->count());
+        $this->assertSame(1, User::find(1)->is_active);
+        $this->assertNull(User::find(1)->two_factor_secret);
     }
 
     public function test_other_branch_user_cannot_be_changed(): void

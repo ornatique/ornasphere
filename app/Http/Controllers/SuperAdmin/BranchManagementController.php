@@ -55,7 +55,7 @@ class BranchManagementController extends Controller
             }
             AuditLog::logEvent('branch_status', 'company', 'Branch status set to '.(int) $data['status'], ['company_id' => $branch->id]);
         });
-        return back()->with('success', 'Branch status updated. Individual user statuses are preserved.');
+        return back()->with('success', 'Company status updated. Activation enables all related users; deactivation resets their 2FA.');
     }
 
     public function updateUser(Request $request, Company $company, Company $branch, User $user)
