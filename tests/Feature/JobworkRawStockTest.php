@@ -33,6 +33,25 @@ class JobworkRawStockTest extends TestCase
         DB::table('jobwork_issue_items')->insert(['id'=>1,'jobwork_issue_id'=>1,'item_id'=>1,'net_wt'=>100]);
     }
 
+    public function test_additional_material_after_receipt_preserves_allocations_and_receipts(): void
+    {
+        $this->sync();
+        $this->receive(50);
+        $service = new JobworkRawStock;
+        $data = ['jobwork_date'=>'2026-10-10','job_worker_id'=>'','production_step_id'=>'',
+            'items'=>[['id'=>1,'item_id'=>1,'net_wt'=>100],['item_id'=>1,'net_wt'=>25]]];
+        $ids = $service->guardIssueUpdate(JobworkIssue::find(1), $data);
+        $allocation = DB::table('jobwork_raw_stock_allocations')->first()->id;
+        DB::table('jobwork_issue_items')->insert(['id'=>2,'jobwork_issue_id'=>1,'item_id'=>1,'net_wt'=>25]);
+        $service->syncIssue(JobworkIssue::find(1), true, $ids);
+        $this->assertEquals(425, $service->available(1)[1]);
+        $this->assertTrue(DB::table('jobwork_raw_stock_allocations')->where('id',$allocation)->exists());
+        $this->assertSame(1, DB::table('jobwork_receive_items')->count());
+        $data['items'][0]['net_wt'] = 99;
+        $this->expectException(ValidationException::class);
+        $service->guardIssueUpdate(JobworkIssue::find(1), $data);
+    }
+
     private function sync(int $id = 1): void
     {
         DB::transaction(function () use ($id) {

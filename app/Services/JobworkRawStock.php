@@ -66,7 +66,30 @@ class JobworkRawStock
         }
     }
 
-    public function syncIssue(JobworkIssue $issue, bool $allowShortage = false): array
+    public function guardIssueUpdate(JobworkIssue $issue, array $data): ?array
+    {
+        if (!DB::table('jobwork_receives')->where('jobwork_issue_id', $issue->id)->exists()) return null;
+        foreach (['jobwork_date', 'job_worker_id', 'production_step_id'] as $key) {
+            $old = $key === 'jobwork_date' ? substr((string) $issue->$key, 0, 10) : (string) $issue->$key;
+            if ($old !== (string) $data[$key]) {
+                throw ValidationException::withMessages([$key => 'This issue has receipts. Keep its date, worker and production step unchanged when adding items.']);
+            }
+        }
+        $submitted = collect($data['items'])->keyBy('id');
+        $existing = $issue->items()->get();
+        foreach ($existing as $line) {
+            $row = $submitted->get($line->id);
+            if (!$row) throw ValidationException::withMessages(['items' => 'Keep existing issue rows and their IDs. Add additional material as a new row.']);
+            foreach (['item_id','gross_wt','other_wt','other_amt','purity','net_purity','net_wt','fine_wt','qty_pcs','total_amt'] as $key) {
+                if (abs((float) $line->$key - (float) ($row[$key] ?? 0)) > 0.00001) {
+                    throw ValidationException::withMessages(['items' => 'Existing issue quantities cannot change after receipts. Add additional material as a new row.']);
+                }
+            }
+        }
+        return $existing->pluck('id')->all();
+    }
+
+    public function syncIssue(JobworkIssue $issue, bool $allowShortage = false, ?array $existingIds = null): array
     {
         $shortages = [];
         // Caller holds the company lock in the voucher transaction.
@@ -79,8 +102,8 @@ class JobworkRawStock
                 throw ValidationException::withMessages(['items' => 'Raw material requires positive net weight equal to gross weight minus other weight.']);
             }
         }
-        DB::table('jobwork_raw_stock_allocations')->where('jobwork_issue_id', $issue->id)->delete();
-        $rows = $issue->items()->join('items', 'items.id', '=', 'jobwork_issue_items.item_id')
+        if ($existingIds === null) DB::table('jobwork_raw_stock_allocations')->where('jobwork_issue_id', $issue->id)->delete();
+        $rows = $issue->items()->when($existingIds !== null, fn($q) => $q->whereNotIn('jobwork_issue_items.id', $existingIds))->join('items', 'items.id', '=', 'jobwork_issue_items.item_id')
             ->where('items.company_id', $issue->company_id)->whereRaw("LOWER(items.jobwork_item_type) = 'raw'")
             ->selectRaw('items.id as item_id, items.item_name, SUM(jobwork_issue_items.net_wt) as required_net')
             ->groupBy('items.id', 'items.item_name')->get();
@@ -103,8 +126,14 @@ class JobworkRawStock
             foreach ($lots as $lot) {
                 $take = min($needed, max(0, (float) $lot->available_net));
                 if ($take <= 0) continue;
-                DB::table('jobwork_raw_stock_allocations')->insert(['company_id'=>$issue->company_id,
-                    'jobwork_issue_id'=>$issue->id, 'voucher_item_id'=>$lot->id, 'item_id'=>$row->item_id, 'net_weight'=>$take]);
+                $allocation = DB::table('jobwork_raw_stock_allocations')
+                    ->where('jobwork_issue_id', $issue->id)->where('voucher_item_id', $lot->id);
+                if ($existingIds !== null && $allocation->exists()) {
+                    $allocation->increment('net_weight', $take);
+                } else {
+                    DB::table('jobwork_raw_stock_allocations')->insert(['company_id'=>$issue->company_id,
+                        'jobwork_issue_id'=>$issue->id, 'voucher_item_id'=>$lot->id, 'item_id'=>$row->item_id, 'net_weight'=>$take]);
+                }
                 $needed = round($needed - $take, 3);
                 if ($needed <= 0) break;
             }

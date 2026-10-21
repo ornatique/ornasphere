@@ -209,7 +209,7 @@ class JobworkIssueController extends Controller
 
         DB::transaction(function () use ($issue, $validated) {
             app(JobworkRawStock::class)->lock((int) $issue->company_id);
-            app(JobworkRawStock::class)->guardIssueEdit($issue);
+            $existingIds = app(JobworkRawStock::class)->guardIssueUpdate($issue, $validated);
             $issue->update([
                 'jobwork_date' => $validated['jobwork_date'],
                 'job_worker_id' => $validated['job_worker_id'],
@@ -220,7 +220,7 @@ class JobworkIssueController extends Controller
             ]);
 
             $this->syncIssueItems($issue, $validated['items']);
-            app(JobworkRawStock::class)->syncIssue($issue, true);
+            app(JobworkRawStock::class)->syncIssue($issue, true, $existingIds);
         });
 
         return redirect()

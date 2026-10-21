@@ -197,7 +197,7 @@ class JobworkIssueApiController extends Controller
 
         $row = DB::transaction(function () use ($issue, $validated, $request) {
             app(JobworkRawStock::class)->lock((int) $issue->company_id);
-            app(JobworkRawStock::class)->guardIssueEdit($issue);
+            $existingIds = app(JobworkRawStock::class)->guardIssueUpdate($issue, $validated);
             $issue->update([
                 'jobwork_date' => $validated['jobwork_date'],
                 'job_worker_id' => $validated['job_worker_id'],
@@ -208,7 +208,7 @@ class JobworkIssueApiController extends Controller
             ]);
 
             $this->syncIssueItems($issue, $validated['items']);
-            $issue->setAttribute('raw_stock_shortages', app(JobworkRawStock::class)->syncIssue($issue, true));
+            $issue->setAttribute('raw_stock_shortages', app(JobworkRawStock::class)->syncIssue($issue, true, $existingIds));
 
             return $issue->load('items.item:id,item_name', 'jobWorker:id,name', 'productionStep:id,name');
         });
