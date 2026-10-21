@@ -5,6 +5,7 @@
         <div class="card-header d-flex justify-content-between align-items-center">
             <h4 class="card-title">Persons List</h4>
             <div class="d-flex gap-2">
+                <a class="btn btn-info" href="{{ route('company.gst-search.create', $company->slug) }}">Search GSTIN / Add Customer</a>
                 <button type="button" id="exportExcelBtn" class="btn btn-success">Export Excel</button>
                 <button type="button" id="exportPdfBtn" class="btn btn-danger">Export PDF</button>
                 <a href="{{ route('company.customers.create', $company->slug) }}" class="btn btn-primary">
@@ -66,6 +67,7 @@ $(function () {
     }
 
     const table = $('#customers-table').DataTable({
+        order: [],
         processing: true,
         serverSide: true,
         ajax: {

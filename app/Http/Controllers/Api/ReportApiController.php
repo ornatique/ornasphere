@@ -19,6 +19,40 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportApiController extends Controller
 {
+    public function stockPositionDetails(Request $request, string $format = 'json')
+    {
+        $request->validate([
+            'item_id' => 'required|integer|min:1',
+            'stock_type' => 'nullable|in:all,finished_item,customer_received,raw_material,scrap,repair',
+            'customer_id' => 'nullable|integer|min:1',
+            'image_status' => 'nullable|in:all,with,without',
+            'report_branches' => 'sometimes|string',
+        ]);
+        if (!$request->filled('stock_type')) $request->merge(['stock_type' => 'all']);
+        $company = $request->user()->company;
+        abort_unless($company, 403);
+        \App\Services\ReportBranches::ids($company, $request);
+        $controller = app(\App\Http\Controllers\Company\ReportController::class);
+        if ($format === 'pdf') return $controller->stockPositionDetailsPdf($request, $company->slug);
+        if ($format === 'excel') return $controller->stockPositionDetailsExcel($request, $company->slug);
+        $data = $controller->stockPositionDetails($request, $company->slug)->getData();
+        $rows = $data['rows']->map(function ($row) {
+            $item = (array) $row;
+            $item['branch_name'] = \App\Services\ReportBranches::name($row->company_id);
+            return $item;
+        })->values();
+        return response()->json([
+            'success' => true,
+            'item_name' => $data['itemName'],
+            'stock_type_name' => $data['stockTypeName'],
+            'customer_name' => $data['customerName'],
+            'image_counts' => $request->attributes->get('stock_image_counts', ['with_image'=>0, 'without_image'=>0]),
+            'summary' => $data['summary'],
+            'count' => $rows->count(),
+            'data' => $rows,
+        ]);
+    }
+
     public function purchaseReceiverSummary(Request $request)
     {
         $companyId = (int) $request->user()->company_id;
@@ -104,7 +138,7 @@ class ReportApiController extends Controller
     public function purchaseReceiverSummaryPdf(Request $request)
     {
         $companyId = (int) $request->user()->company_id;
-        $company = Company::select('id', 'name')->find($companyId);
+        $company = Company::find($companyId);
         if (!$company) {
             $company = (object) ['name' => 'Company', 'company_name' => 'Company'];
         }
@@ -131,6 +165,8 @@ class ReportApiController extends Controller
                     'customer_id' => $row->customer_id ? (int) $row->customer_id : null,
                     'customer_name' => $row->customer_name ?? '-',
                     'qty_pcs' => (int) ($row->qty_pcs ?? 0),
+                    'with_image' => (int)$row->with_image,
+                    'without_image' => max(0, (int)$row->qty_pcs - (int)$row->with_image),
                     'gross_weight' => (float) ($row->gross_weight ?? 0),
                     'less_weight' => (float) ($row->less_weight ?? 0),
                     'net_weight' => (float) ($row->net_weight ?? 0),
@@ -145,7 +181,9 @@ class ReportApiController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Stock position fetched successfully.',
+            'supplier_balances' => \App\Services\SupplierMetalBalances::rows([$companyId], $request->filled('supplier_id') ? (int)$request->supplier_id : null),
             'count' => $rows->count(),
+            'summary' => collect(['qty_pcs','gross_weight','less_weight','net_weight','fine_weight','with_image','without_image'])->mapWithKeys(fn ($key) => [$key=>$rows->sum($key)]),
             'data' => $rows,
         ]);
     }
@@ -157,7 +195,7 @@ class ReportApiController extends Controller
 
         return response()->streamDownload(function () use ($rows) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Item', 'Stock Type', 'Party', 'Qty Pcs', 'Gross Wt', 'Less Wt', 'Net Wt', 'Fine Wt', 'Labour Amt', 'Other Amt']);
+            fputcsv($out, ['Item', 'Stock Type', 'Party', 'Qty Pcs', 'Gross Wt', 'Less Wt', 'Net Wt', 'Fine Wt', 'Labour Amt', 'Other Amt', 'With image', 'Without image']);
             foreach ($rows as $r) {
                 fputcsv($out, [
                     $r->item_name,
@@ -170,6 +208,7 @@ class ReportApiController extends Controller
                     number_format((float) ($r->fine_weight ?? 0), 3, '.', ''),
                     number_format((float) ($r->labour_amount ?? 0), 2, '.', ''),
                     number_format((float) ($r->other_amount ?? 0), 2, '.', ''),
+                    (int)$r->with_image, max(0, (int)$r->qty_pcs - (int)$r->with_image),
                 ]);
             }
             fclose($out);
@@ -181,13 +220,15 @@ class ReportApiController extends Controller
     public function stockPositionPdf(Request $request)
     {
         $companyId = (int) $request->user()->company_id;
-        $company = Company::select('id', 'name')->find($companyId);
+        $company = Company::find($companyId);
         if (!$company) {
             $company = (object) ['name' => 'Company', 'company_name' => 'Company'];
         }
         $rows = $this->stockPositionBaseQuery($request, $companyId)->get();
 
-        return Pdf::loadView('company.reports.pdf.stock_position', compact('company', 'rows'))
+        $summary = collect(['qty_pcs','gross_weight','other_weight','net_weight','fine_weight','with_image'])->mapWithKeys(fn ($key) => [$key=>$rows->sum($key)])->all();
+        $summary['without_image'] = $rows->sum(fn ($row) => max(0, (int)$row->qty_pcs - (int)$row->with_image));
+        return Pdf::loadView('company.reports.pdf.stock_position', compact('company', 'rows', 'summary'))
             ->setPaper('a4', 'portrait')
             ->download('stock_position_report.pdf');
     }
@@ -196,7 +237,7 @@ class ReportApiController extends Controller
     {
         $companyId = (int) $request->user()->company_id;
         if ($request->input('mode') === 'ledger') {
-            return response()->json(['success' => true, 'data' => app(\App\Services\WorkerMetalLedger::class)->report($companyId, $request)]);
+            return response()->json(['success' => true, 'data' => app(\App\Services\WorkerMetalLedger::class)->report(\App\Services\ReportBranches::ids(Company::findOrFail($companyId), $request), $request)]);
         }
         $rows = $this->workerLossBaseQuery($request, $companyId)
             ->get()
@@ -205,6 +246,8 @@ class ReportApiController extends Controller
 
                 return [
                     'stage' => (string) ($row->stage ?: '-'),
+                    'company_id' => (int) $row->company_id,
+                    'branch_name' => \App\Services\ReportBranches::name($row->company_id),
                     'worker_id' => $row->worker_id ? (int) $row->worker_id : null,
                     'worker_name' => (string) ($row->worker_name ?: '-'),
                     'voucher_id' => $row->voucher_id ? (int) $row->voucher_id : null,
@@ -275,71 +318,39 @@ class ReportApiController extends Controller
         ]);
     }
 
-    public function workerLossExcel(Request $request): StreamedResponse
+    public function workerLossExcel(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
-        if ($request->input('mode') === 'ledger') {
-            $service = app(\App\Services\WorkerMetalLedger::class);
-            return $service->csv($service->report($companyId, $request));
+        $company = Company::findOrFail((int) $request->user()->company_id);
+        \App\Services\ReportBranches::ids($company, $request);
+        $csv = app(\App\Http\Controllers\Company\ReportController::class)
+            ->workerLossExcel($request, $company->slug);
+        ob_start();
+        try {
+            $csv->sendContent();
+            $content = ob_get_contents();
+        } finally {
+            ob_end_clean();
         }
-        $rows = $this->workerLossBaseQuery($request, $companyId)->get();
-        $totals = $this->workerLossTotals($request, $companyId);
-        $summary = $this->workerLossSummary($request, $companyId);
-
-        return response()->streamDownload(function () use ($rows, $totals, $summary) {
-            $out = fopen('php://output', 'w');
-            fputcsv($out, ['Date Time', 'Worker', 'Voucher No', 'B. No', 'Stage', 'Source Wt', 'Receive Wt', 'Bhuko', 'Loss']);
-            foreach ($rows as $row) {
-                fputcsv($out, [
-                    $row->process_datetime ? Carbon::parse($row->process_datetime)->format('d-m-Y h:i A') : '-',
-                    $row->worker_name ?: '-',
-                    $row->voucher_no ?: '-',
-                    $row->buch_no ?: '-',
-                    $row->stage ?: '-',
-                    number_format((float) ($row->source_wt ?? 0), 3, '.', ''),
-                    number_format((float) ($row->receive_wt ?? 0), 3, '.', ''),
-                    number_format((float) ($row->bhuko ?? 0), 3, '.', ''),
-                    number_format((float) ($row->loss ?? 0), 3, '.', ''),
-                ]);
-            }
-            fputcsv($out, [
-                'TOTAL',
-                '',
-                '',
-                '',
-                '',
-                number_format((float) ($totals['source_wt'] ?? 0), 3, '.', ''),
-                number_format((float) ($totals['receive_wt'] ?? 0), 3, '.', ''),
-                number_format((float) ($totals['bhuko'] ?? 0), 3, '.', ''),
-                number_format((float) ($totals['loss'] ?? 0), 3, '.', ''),
-            ]);
-            fputcsv($out, []);
-            fputcsv($out, ['Worker Summary']);
-            fputcsv($out, ['Worker', 'Rows', 'Source Wt', 'Receive Wt', 'Bhuko', 'Loss']);
-            foreach ($summary['workers'] as $row) {
-                fputcsv($out, [$row['label'], $row['rows'], $row['source_wt'], $row['receive_wt'], $row['bhuko'], $row['loss']]);
-            }
-            fputcsv($out, []);
-            fputcsv($out, ['Stage Summary']);
-            fputcsv($out, ['Stage', 'Rows', 'Source Wt', 'Receive Wt', 'Bhuko', 'Loss']);
-            foreach ($summary['stages'] as $row) {
-                fputcsv($out, [$row['label'], $row['rows'], $row['source_wt'], $row['receive_wt'], $row['bhuko'], $row['loss']]);
-            }
-            fclose($out);
-        }, 'worker_loss_report.csv', [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-        ]);
+        $stream = fopen('php://temp', 'w+');
+        try {
+            fwrite($stream, $content);
+            rewind($stream);
+            $rows = [];
+            while (($row = fgetcsv($stream)) !== false) $rows[] = $row;
+            return \App\Services\ReportXlsx::download($rows, 'worker_loss_report.xlsx', 'Worker Loss');
+        } finally {
+            fclose($stream);
+        }
     }
-
     public function workerLossPdf(Request $request)
     {
         $companyId = (int) $request->user()->company_id;
         if ($request->input('mode') === 'ledger') {
             $company = Company::findOrFail($companyId);
-            $ledger = app(\App\Services\WorkerMetalLedger::class)->report($companyId, $request);
+            $ledger = app(\App\Services\WorkerMetalLedger::class)->report(\App\Services\ReportBranches::ids(Company::findOrFail($companyId), $request), $request);
             return Pdf::loadView('company.reports.pdf.worker_metal_ledger', compact('company', 'ledger'))->setPaper('a4', 'portrait')->download('worker_metal_ledger.pdf');
         }
-        $company = Company::select('id', 'name')->find($companyId);
+        $company = Company::find($companyId);
         if (!$company) {
             $company = (object) ['name' => 'Company', 'company_name' => 'Company'];
         }
@@ -475,7 +486,7 @@ class ReportApiController extends Controller
     public function approvalOutstandingPdf(Request $request)
     {
         $companyId = (int) $request->user()->company_id;
-        $company = Company::select('id', 'name')->find($companyId);
+        $company = Company::find($companyId);
         if (!$company) {
             $company = (object) ['name' => 'Company', 'company_name' => 'Company'];
         }
@@ -499,11 +510,13 @@ class ReportApiController extends Controller
 
         return response()->streamDownload(function () use ($payload, $columns) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, array_column($columns, 'label'));
+            fputcsv($out, [...array_column($columns, 'label'), 'Company / Branch']);
+            $branchName = (string) $payload['approval']['branch_name'];
+            if (preg_match('/^[=+@\-\t\r\n]/', $branchName)) $branchName = "'".$branchName;
             foreach ($payload['data'] as $item) {
-                fputcsv($out, $this->approvalOutstandingDetailsExportRow($item, $columns));
+                fputcsv($out, [...$this->approvalOutstandingDetailsExportRow($item, $columns), $branchName]);
             }
-            fputcsv($out, $this->reportTotalRow($payload['summary'], $columns));
+            fputcsv($out, [...$this->reportTotalRow($payload['summary'], $columns), '']);
             fclose($out);
         }, 'approval_outstanding_details.csv', [
             'Content-Type' => 'text/csv; charset=UTF-8',
@@ -513,7 +526,7 @@ class ReportApiController extends Controller
     public function approvalOutstandingDetailsPdf(Request $request, ApprovalHeader $approval)
     {
         $companyId = (int) $request->user()->company_id;
-        $company = Company::select('id', 'name')->find($companyId) ?: (object) ['name' => 'Company', 'company_name' => 'Company'];
+        $company = Company::find($companyId) ?: (object) ['name' => 'Company', 'company_name' => 'Company'];
         $payload = $this->approvalOutstandingDetailsPayload($companyId, $approval);
         if (!$payload) {
             abort(404, 'Approval voucher not found for this company.');
@@ -645,7 +658,7 @@ class ReportApiController extends Controller
     public function outstandingAmountPdf(Request $request)
     {
         $companyId = (int) $request->user()->company_id;
-        $company = Company::select('id', 'name')->find($companyId);
+        $company = Company::find($companyId);
         if (!$company) {
             $company = (object) ['name' => 'Company', 'company_name' => 'Company'];
         }
@@ -677,7 +690,7 @@ class ReportApiController extends Controller
     public function outstandingAmountLedgerPdf(Request $request)
     {
         $companyId = (int) $request->user()->company_id;
-        $company = Company::select('id', 'name')->find($companyId);
+        $company = Company::find($companyId);
         if (!$company) {
             $company = (object) ['name' => 'Company', 'company_name' => 'Company'];
         }
@@ -771,7 +784,7 @@ class ReportApiController extends Controller
     public function salesSummaryPdf(Request $request)
     {
         $companyId = (int) $request->user()->company_id;
-        $company = Company::select('id', 'name')->find($companyId);
+        $company = Company::find($companyId);
         if (!$company) {
             $company = (object) ['name' => 'Company', 'company_name' => 'Company'];
         }
@@ -819,11 +832,13 @@ class ReportApiController extends Controller
 
         return response()->streamDownload(function () use ($payload, $columns) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, array_column($columns, 'label'));
+            fputcsv($out, [...array_column($columns, 'label'), 'Company / Branch']);
             foreach ($payload['data'] as $item) {
-                fputcsv($out, $this->salesSummaryDetailsExportRow($item, $columns));
+                $branchName = (string) $payload['sale']['branch_name'];
+                if (preg_match('/^[=+@\-\t\r\n]/', $branchName)) $branchName = "'".$branchName;
+                fputcsv($out, [...$this->salesSummaryDetailsExportRow($item, $columns), $branchName]);
             }
-            fputcsv($out, $this->reportTotalRow($payload['summary'], $columns));
+            fputcsv($out, [...$this->reportTotalRow($payload['summary'], $columns), '']);
             fclose($out);
         }, 'sales_summary_details.csv', [
             'Content-Type' => 'text/csv; charset=UTF-8',
@@ -833,7 +848,7 @@ class ReportApiController extends Controller
     public function salesSummaryDetailsPdf(Request $request, Sale $sale)
     {
         $companyId = (int) $request->user()->company_id;
-        $company = Company::select('id', 'name')->find($companyId) ?: (object) ['name' => 'Company', 'company_name' => 'Company'];
+        $company = Company::find($companyId) ?: (object) ['name' => 'Company', 'company_name' => 'Company'];
         $payload = $this->salesSummaryDetailsPayload($companyId, $sale);
         if (!$payload) {
             abort(404, 'Sale voucher not found for this company.');
@@ -875,6 +890,7 @@ class ReportApiController extends Controller
     public function barcodeHistorySuggest(Request $request)
     {
         $user = $request->user();
+        $companyIds = \App\Services\ReportBranches::ids(Company::findOrFail($user->company_id), $request);
         $term = trim((string) $request->get('q', ''));
         $limit = max(1, min((int) $request->get('limit', 12), 50));
 
@@ -888,7 +904,7 @@ class ReportApiController extends Controller
         $like = '%' . $term . '%';
         $raw = DB::table('item_sets')
             ->leftJoin('items', 'items.id', '=', 'item_sets.item_id')
-            ->where('item_sets.company_id', $user->company_id)
+            ->whereIn('item_sets.company_id', $companyIds)
             ->where(function ($q) use ($like) {
                 $q->where('item_sets.qr_code', 'like', $like)
                     ->orWhere('item_sets.barcode', 'like', $like)
@@ -897,6 +913,7 @@ class ReportApiController extends Controller
             ->orderByDesc('item_sets.id')
             ->limit($limit * 3)
             ->get([
+                'item_sets.company_id',
                 'item_sets.qr_code',
                 'item_sets.barcode',
                 'item_sets.HUID',
@@ -911,6 +928,8 @@ class ReportApiController extends Controller
                     continue;
                 }
                 $codes->push([
+                    'company_id' => (int) $row->company_id,
+                    'branch_name' => \App\Services\ReportBranches::name($row->company_id),
                     'code' => $val,
                     'item_name' => $row->item_name ?: '',
                     'type' => $field,
@@ -920,54 +939,16 @@ class ReportApiController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $codes->unique('code')->values()->take($limit)->values(),
+            'data' => $codes->unique(fn ($row) => $row['company_id'].'|'.$row['code'])->values()->take($limit)->values(),
         ]);
     }
 
-    public function barcodeHistoryExcel(Request $request): StreamedResponse
+    public function barcodeHistoryExcel(Request $request)
     {
-        $user = $request->user();
-        $code = trim((string) ($request->code ?? $request->barcode ?? $request->qr_code ?? $request->huid ?? ''));
-
-        if ($code === '') {
-            abort(422, 'Code is required.');
-        }
-
-        $rows = $this->barcodeHistoryRows($request, (int) $user->company_id, $code)
-            ->map(fn($r) => is_array($r) ? $r : (array) $r)
-            ->values();
-
-        return response()->streamDownload(function () use ($rows) {
-            $out = fopen('php://output', 'w');
-            fputcsv($out, [
-                'Item',
-                'Label Code',
-                'Label Created At',
-                'Label Printed At',
-                'Approval History',
-                'Sale History',
-                'Return History',
-                'Current Status',
-            ]);
-
-            foreach ($rows as $r) {
-                fputcsv($out, [
-                    $r['item_name'] ?? '-',
-                    $r['label_code'] ?? '-',
-                    $r['label_created_at_fmt'] ?? '-',
-                    $r['label_printed_at_fmt'] ?? '-',
-                    $this->historyToText($r['approval_history'] ?? []),
-                    $this->historyToText($r['sale_history'] ?? []),
-                    $this->historyToText($r['return_history'] ?? []),
-                    $r['current_status'] ?? '-',
-                ]);
-            }
-            fclose($out);
-        }, 'barcode_history_report.csv', [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-        ]);
+        $company = Company::findOrFail($request->user()->company_id);
+        $request->merge(['code' => trim((string) ($request->code ?? $request->barcode ?? $request->qr_code ?? $request->huid ?? ''))]);
+        return app(\App\Http\Controllers\Company\ReportController::class)->barcodeHistoryExcel($request, $company->slug);
     }
-
     public function barcodeHistoryPdf(Request $request)
     {
         $user = $request->user();
@@ -980,7 +961,7 @@ class ReportApiController extends Controller
             ], 422);
         }
 
-        $company = Company::select('id', 'name')->find((int) $user->company_id);
+        $company = Company::find((int) $user->company_id);
         if (!$company) {
             $company = (object) ['name' => 'Company', 'company_name' => 'Company'];
         }
@@ -995,6 +976,7 @@ class ReportApiController extends Controller
 
     private function barcodeHistoryRows(Request $request, int $companyId, string $code): Collection
     {
+        $companyIds = \App\Services\ReportBranches::ids(Company::findOrFail($companyId), $request);
         $slug = trim((string) $request->get('slug', ''));
         if ($slug === '') {
             $slug = (string) (Company::where('id', $companyId)->value('slug') ?? '');
@@ -1002,7 +984,7 @@ class ReportApiController extends Controller
 
         $itemSets = ItemSet::query()
             ->leftJoin('items', 'items.id', '=', 'item_sets.item_id')
-            ->where('item_sets.company_id', $companyId)
+            ->whereIn('item_sets.company_id', $companyIds)
             ->where(function ($q) use ($code) {
                 $q->where('item_sets.qr_code', $code)
                     ->orWhere('item_sets.barcode', $code)
@@ -1016,6 +998,8 @@ class ReportApiController extends Controller
             ->get();
 
         return $itemSets->map(function ($set) use ($companyId, $slug) {
+            $companyId = (int) $set->company_id;
+            $slug = (string) Company::whereKey($companyId)->value('slug');
             $hasApprovalItemsetId = Schema::hasColumn('approval_items', 'itemset_id');
             $hasSaleReturnItemsetId = Schema::hasColumn('sale_return_items', 'itemset_id');
 
@@ -1155,6 +1139,8 @@ class ReportApiController extends Controller
 
             return [
                 'itemset_id' => (int) $set->id,
+                'company_id' => (int) $set->company_id,
+                'branch_name' => \App\Services\ReportBranches::name($set->company_id),
                 'item_name' => $set->item_name,
                 'label_code' => $set->qr_code ?: $set->barcode,
                 'barcode' => $set->barcode,
@@ -1363,9 +1349,12 @@ class ReportApiController extends Controller
 
     private function approvalOutstandingDetailsPayload(int $companyId, ApprovalHeader $approval): ?array
     {
-        if ((int) $approval->company_id !== $companyId) {
+        $company = Company::findOrFail($companyId);
+        $allowedIds = \App\Services\ReportBranches::ids($company);
+        if (!in_array((int) $approval->company_id, $allowedIds, true)) {
             return null;
         }
+        $branch = Company::findOrFail($approval->company_id);
 
         $approval->load(['customer', 'creator']);
 
@@ -1412,6 +1401,8 @@ class ReportApiController extends Controller
 
         return [
             'approval' => [
+                'company_id' => (int) $branch->id,
+                'branch_name' => $branch->name,
                 'id' => (int) $approval->id,
                 'approval_no' => $approval->approval_no,
                 'approval_date' => optional($approval->approval_date)?->format('Y-m-d'),
@@ -1536,9 +1527,12 @@ class ReportApiController extends Controller
 
     private function salesSummaryDetailsPayload(int $companyId, Sale $sale): ?array
     {
-        if ((int) $sale->company_id !== $companyId) {
+        $company = Company::findOrFail($companyId);
+        $allowedIds = \App\Services\ReportBranches::ids($company);
+        if (!in_array((int) $sale->company_id, $allowedIds, true)) {
             return null;
         }
+        $branch = Company::findOrFail($sale->company_id);
 
         $sale->load(['customer', 'creator', 'saleItems.itemset.item', 'saleItems.product']);
 
@@ -1588,6 +1582,8 @@ class ReportApiController extends Controller
 
         return [
             'sale' => [
+                'company_id' => (int) $branch->id,
+                'branch_name' => $branch->name,
                 'id' => (int) $sale->id,
                 'voucher_no' => $sale->voucher_no,
                 'sale_date' => optional($sale->sale_date)?->format('Y-m-d'),
@@ -1921,6 +1917,7 @@ class ReportApiController extends Controller
 
     private function stockPositionBaseQuery(Request $request, int $companyId)
     {
+        $request->validate(['stock_type'=>'nullable|in:raw_material,finished_item,customer_received,scrap,repair']);
         $labelStock = ItemSet::query()
             ->join('items', 'items.id', '=', 'item_sets.item_id')
             ->leftJoin('customers as supplier_customers', function ($join) use ($companyId) {
@@ -2018,12 +2015,13 @@ class ReportApiController extends Controller
 
         $search = trim((string) ($request->input('search') ?: $request->input('search_text') ?: $request->input('party_name', '')));
 
-        return DB::query()
+        $grouped = DB::query()
             ->fromSub($labelStock->unionAll($customerReceivedStock)->unionAll($castingSortingStock)->unionAll(
                 app(\App\Services\JobworkRawStock::class)->debtReport((int) $companyId, true)
                     ->when($request->filled('item_id'), fn($q) => $q->where('debt.item_id', (int) $request->item_id))
                     ->when($request->filled('customer_id'), fn($q) => $q->whereRaw('1 = 0'))
             ), 'stock_rows')
+            ->when($request->filled('stock_type'), fn ($q) => $q->where('stock_rows.stock_type', $request->input('stock_type')))
             ->select([
                 'stock_rows.item_id',
                 'stock_rows.item_name',
@@ -2049,144 +2047,15 @@ class ReportApiController extends Controller
                 });
             })
             ->groupBy('stock_rows.item_id', 'stock_rows.item_name', 'stock_rows.stock_type', 'stock_rows.stock_type_name', 'stock_rows.customer_id', 'stock_rows.customer_name');
+        return DB::query()->fromSub($grouped, 'stock_group')->select('stock_group.*')
+            ->selectRaw("CASE WHEN stock_type = 'finished_item' THEN (SELECT COUNT(*) FROM item_sets img WHERE img.company_id = ? AND img.item_id = stock_group.item_id AND img.is_final = 1 AND img.is_sold = 0 AND COALESCE(NULLIF(img.supplier_person, ''), '-') = stock_group.customer_name AND NULLIF(TRIM(img.image_path), '') IS NOT NULL) ELSE 0 END as with_image", [$companyId]);
     }
 
     private function workerLossBaseQuery(Request $request, int $companyId)
     {
-        $castingReceive = DB::table('casting_release_items as cr')
-            ->join('vacuum_vouchers as vv', 'vv.id', '=', 'cr.vacuum_voucher_id')
-            ->leftJoin('vacuum_voucher_items as vvi', 'vvi.id', '=', 'cr.vacuum_voucher_item_id')
-            ->leftJoin('casting_metal_issue_items as cmi', function ($join) {
-                $join->on('cmi.company_id', '=', 'cr.company_id')
-                    ->on('cmi.vacuum_voucher_item_id', '=', 'cr.vacuum_voucher_item_id');
-            })
-            ->leftJoin('job_workers as jw', 'jw.id', '=', 'vv.job_worker_id')
-            ->where('cr.company_id', $companyId)
-            ->where(function ($query) {
-                $query->where('cr.release_tree_wt', '>', 0)
-                    ->orWhere('cr.release_tree_bhuko', '>', 0);
-            })
-            ->selectRaw("
-                'Casting Receive' as stage,
-                vv.job_worker_id as worker_id,
-                jw.name as worker_name,
-                vv.id as voucher_id,
-                vv.voucher_no as voucher_no,
-                vvi.buch_no as buch_no,
-                cmi.issue_silver_wt as source_wt,
-                cr.release_tree_wt as receive_wt,
-                cr.release_tree_bhuko as bhuko,
-                cr.loss as loss,
-                COALESCE(cr.released_at, cr.created_at) as process_datetime
-            ");
-
-        $treeCuttingReceive = DB::table('tree_cutting_receive_items as tcr')
-            ->join('vacuum_vouchers as vv', 'vv.id', '=', 'tcr.vacuum_voucher_id')
-            ->leftJoin('tree_cutting_issue_items as tci', 'tci.id', '=', 'tcr.tree_cutting_issue_item_id')
-            ->leftJoin('vacuum_voucher_items as vvi', function ($join) {
-                $join->on('vvi.id', '=', DB::raw('COALESCE(tcr.vacuum_voucher_item_id, tci.vacuum_voucher_item_id)'));
-            })
-            ->leftJoin('job_workers as jw', function ($join) {
-                $join->on('jw.id', '=', DB::raw('COALESCE(tcr.job_worker_id, tci.job_worker_id)'));
-            })
-            ->where('tcr.company_id', $companyId)
-            ->where(function ($query) {
-                $query->where('tcr.receive_pc_wt', '>', 0)
-                    ->orWhere('tcr.receive_tree_bhuko', '>', 0);
-            })
-            ->selectRaw("
-                'Tree Cutting Receive' as stage,
-                COALESCE(tcr.job_worker_id, tci.job_worker_id) as worker_id,
-                jw.name as worker_name,
-                vv.id as voucher_id,
-                vv.voucher_no as voucher_no,
-                CASE
-                    WHEN COALESCE(tcr.is_custom, tci.is_custom, 0) = 1
-                        THEN COALESCE(tcr.custom_buch_no, tci.custom_buch_no)
-                    ELSE COALESCE(vvi.buch_no, tcr.custom_buch_no, tci.custom_buch_no)
-                END as buch_no,
-                tci.receive_tree_wt as source_wt,
-                tcr.receive_pc_wt as receive_wt,
-                tcr.receive_tree_bhuko as bhuko,
-                tcr.loss as loss,
-                COALESCE(tcr.received_at, tcr.created_at) as process_datetime
-            ");
-
-        $jobworkReceive = DB::table('jobwork_receive_items as jri')
-            ->join('jobwork_receives as jr', 'jr.id', '=', 'jri.jobwork_receive_id')
-            ->join('jobwork_issues as ji', 'ji.id', '=', 'jr.jobwork_issue_id')
-            ->leftJoin('jobwork_issue_items as jii', 'jii.id', '=', 'jri.jobwork_issue_item_id')
-            ->leftJoin('items as i', function ($join) {
-                $join->on('i.id', '=', DB::raw('COALESCE(jri.item_id, jii.item_id)'));
-            })
-            ->leftJoin('job_workers as jw', 'jw.id', '=', 'ji.job_worker_id')
-            ->where('jr.company_id', $companyId)
-            ->where(function ($query) {
-                $query->where('jri.receive_gross_wt', '>', 0)
-                    ->orWhere('jri.receive_net_wt', '>', 0)
-                    ->orWhere('jri.other_wt', '>', 0)
-                    ->orWhere('jri.loss_wt', '!=', 0);
-            })
-            ->selectRaw("
-                'Jobwork Receive' as stage,
-                ji.job_worker_id as worker_id,
-                jw.name as worker_name,
-                ji.id as voucher_id,
-                ji.voucher_no as voucher_no,
-                COALESCE(i.item_name, '-') as buch_no,
-                COALESCE(
-                    jii.net_wt,
-                    (
-                        SELECT COALESCE(SUM(jii2.net_wt), 0)
-                        FROM jobwork_issue_items jii2
-                        WHERE jii2.jobwork_issue_id = ji.id
-                            AND jii2.item_id = jri.item_id
-                    ),
-                    0
-                ) as source_wt,
-                jri.receive_net_wt as receive_wt,
-                jri.other_wt as bhuko,
-                jri.loss_wt as loss,
-                COALESCE(jr.updated_at, jr.created_at, jr.receive_date) as process_datetime
-            ");
-
-        $query = DB::query()
-            ->fromSub($castingReceive->unionAll($treeCuttingReceive)->unionAll($jobworkReceive), 'worker_loss')
-            ->select('worker_loss.*');
-
-        if ($request->filled('from_date')) {
-            $query->whereDate('process_datetime', '>=', $request->input('from_date'));
-        }
-        if ($request->filled('to_date')) {
-            $query->whereDate('process_datetime', '<=', $request->input('to_date'));
-        }
-        if ($request->filled('worker_id')) {
-            $query->where('worker_id', (int) $request->input('worker_id'));
-        }
-        if ($request->filled('stage')) {
-            $query->where('stage', $request->input('stage'));
-        }
-        if ($request->filled('voucher_no')) {
-            $voucherNo = trim((string) $request->input('voucher_no'));
-            $query->where('voucher_no', 'like', "%{$voucherNo}%");
-        }
-
-        match ($request->input('loss_type')) {
-            'plus' => $query->where('loss', '>', 0),
-            'minus' => $query->where('loss', '<', 0),
-            'zero' => $query->where(function ($q) {
-                $q->where('loss', 0)->orWhereNull('loss');
-            }),
-            default => null,
-        };
-
-        if ($this->truthyApiValue($request->input('only_loss'))) {
-            $query->where('loss', '!=', 0);
-        }
-
-        return $query->orderByDesc('process_datetime');
+        return app(\App\Http\Controllers\Company\ReportController::class)
+            ->workerLossBaseQuery(Company::findOrFail($companyId), $request);
     }
-
     private function workerLossTotals(Request $request, int $companyId): array
     {
         $rows = $this->workerLossBaseQuery($request, $companyId)->get();

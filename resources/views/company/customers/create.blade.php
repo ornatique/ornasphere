@@ -6,10 +6,13 @@
         <div class="col-12 grid-margin">
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
-                    <h3 class="mb-0">Create Person</h3>
+                    <h3 class="mb-0">Create Person</h3><a class="btn btn-info" href="{{ route('company.gst-search.create', $company->slug) }}">Search GSTIN</a>
                 </div>
 
                 <div class="card-body">
+                    @if(!empty($gstPrefill))
+                    <div class="alert alert-info">Customer details loaded from GST Search. Review the prefilled fields below before saving.</div>
+                    @endif
                     <form method="POST" action="{{ route('company.customers.store', $company->slug) }}">
                         @csrf
 
@@ -17,7 +20,7 @@
                             <div class="col-md-6">
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">Name</label>
-                                    <div class="col-sm-9"><input type="text" name="name" value="{{ old('name') }}" class="form-control" required></div>
+                                    <div class="col-sm-9"><input type="text" name="name" value="{{ old('name', $gstPrefill['name'] ?? '') }}" class="form-control" required></div>
                                 </div>
                             </div>
                             <div class="col-md-6">
@@ -41,7 +44,7 @@
                                         <select name="category_person_id" class="form-control searchable-person-select @error('category_person_id') is-invalid @enderror">
                                             <option value="">Select Category Person</option>
                                             @foreach($categoryPeople as $categoryPerson)
-                                                <option value="{{ $categoryPerson->id }}" {{ (string) old('category_person_id') === (string) $categoryPerson->id ? 'selected' : '' }}>
+                                                <option value="{{ $categoryPerson->id }}" {{ (string) old('category_person_id', $gstPrefill['category_person_id'] ?? '') === (string) $categoryPerson->id ? 'selected' : '' }}>
                                                     {{ $categoryPerson->category_name }}
                                                 </option>
                                             @endforeach
@@ -64,7 +67,7 @@
                             <div class="col-md-6">
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">City</label>
-                                    <div class="col-sm-9"><input type="text" id="city" name="city" value="{{ old('city') }}" class="form-control"></div>
+                                    <div class="col-sm-9"><input type="text" id="city" name="city" value="{{ old('city', $gstPrefill['city'] ?? '') }}" class="form-control"></div>
                                 </div>
                             </div>
                         </div>
@@ -73,13 +76,13 @@
                             <div class="col-md-6">
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">Area</label>
-                                    <div class="col-sm-9"><input type="text" id="area" name="area" value="{{ old('area') }}" class="form-control"></div>
+                                    <div class="col-sm-9"><input type="text" id="area" name="area" value="{{ old('area', $gstPrefill['area'] ?? '') }}" class="form-control"></div>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">Landmark</label>
-                                    <div class="col-sm-9"><input type="text" id="landmark" name="landmark" value="{{ old('landmark') }}" class="form-control"></div>
+                                    <div class="col-sm-9"><input type="text" id="landmark" name="landmark" value="{{ old('landmark', $gstPrefill['landmark'] ?? '') }}" class="form-control"></div>
                                 </div>
                             </div>
                         </div>
@@ -88,13 +91,13 @@
                             <div class="col-md-6">
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">Pincode</label>
-                                    <div class="col-sm-9"><input type="text" id="pincode" name="pincode" value="{{ old('pincode') }}" class="form-control"></div>
+                                    <div class="col-sm-9"><input type="text" id="pincode" name="pincode" value="{{ old('pincode', $gstPrefill['pincode'] ?? '') }}" class="form-control"></div>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">Address</label>
-                                    <div class="col-sm-9"><textarea id="address" name="address" class="form-control">{{ old('address') }}</textarea></div>
+                                    <div class="col-sm-9"><textarea id="address" name="address" class="form-control">{{ old('address', $gstPrefill['address'] ?? '') }}</textarea></div>
                                 </div>
                             </div>
                         </div>
@@ -133,13 +136,13 @@
                             <div class="col-md-6">
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">GST No</label>
-                                    <div class="col-sm-9"><input type="text" name="gst_no" value="{{ old('gst_no') }}" class="form-control"></div>
+                                    <div class="col-sm-9"><input type="text" name="gst_no" value="{{ old('gst_no', $gstPrefill['gst_no'] ?? '') }}" class="form-control"></div>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">PAN No</label>
-                                    <div class="col-sm-9"><input type="text" name="pan_no" value="{{ old('pan_no') }}" class="form-control"></div>
+                                    <div class="col-sm-9"><input type="text" name="pan_no" value="{{ old('pan_no', $gstPrefill['pan_no'] ?? '') }}" class="form-control"></div>
                                 </div>
                             </div>
                         </div>
@@ -178,7 +181,7 @@
                             <div class="col-md-6">
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">Remarks</label>
-                                    <div class="col-sm-9"><textarea name="remarks" class="form-control">{{ old('remarks') }}</textarea></div>
+                                    <div class="col-sm-9"><textarea name="remarks" class="form-control" rows="4">{{ old('remarks', $gstPrefill['remarks'] ?? '') }}</textarea></div>
                                 </div>
                             </div>
                             <div class="col-md-6">

@@ -40,11 +40,32 @@ class ApprovalReturnRegisterTest extends TestCase
         foreach ([1,2,3,null] as $approvalId) DB::table('sale_items')->insert(['sale_id'=>1,'approval_item_id'=>$approvalId,'gross_weight'=>12,'other_weight'=>2,'net_weight'=>10,'fine_weight'=>9.35,'total_amount'=>150]);
         $sales = ApprovalReturnRegister::query(1,['entry_type'=>'Sale from Approval'])->get();
         $this->assertCount(2, $sales);
+        $this->assertCount(2, ApprovalReturnRegister::query([1,2], ['entry_type'=>'Sale from Approval'])->get());
+        $combined = ApprovalReturnRegister::query([1,2], ['entry_type'=>'Approval'])->get();
+        $this->assertCount(3, $combined);
+        $this->assertEquals([1,2], $combined->pluck('company_id')->unique()->sort()->values()->all());
+        $this->assertCount(2, ApprovalReturnRegister::query([1,2], ['entry_type'=>'Approval Return'])->get());
         $this->assertEquals(300, $sales->sum('amount'));
         $this->assertEquals(20, $sales->sum('net'));
         $this->assertEquals('SALE-1', $sales->first()->voucher_no);
         $this->assertCount(2, ApprovalReturnRegister::query(1,['from_date'=>'2026-10-14'])->get());
         DB::table('sale_items')->where('approval_item_id', 2)->delete();
         $this->assertCount(1, ApprovalReturnRegister::query(1,['entry_type'=>'Sale from Approval'])->get());
+        DB::statement('ALTER TABLE approval_items ADD COLUMN status text');
+        DB::statement('ALTER TABLE approval_items ADD COLUMN item_id integer');
+        DB::statement('ALTER TABLE approval_items ADD COLUMN qr_code text');
+        DB::statement('ALTER TABLE approval_items ADD COLUMN huid text');
+        DB::statement('CREATE TABLE items (id integer primary key, item_name text)');
+        DB::table('approval_items')->where('id', 1)->update(['status'=>'returned']);
+        DB::table('approval_items')->where('id', 2)->update(['status'=>'pending', 'qr_code'=>'PENDING-2']);
+        $pending = ApprovalReturnRegister::pendingItems(1)->get();
+        $this->assertCount(1, $pending);
+        $this->assertSame('PENDING-2', $pending->first()->qr_code);
+        $this->assertEquals(9, $pending->sum('net'));
+        $this->assertCount(0, ApprovalReturnRegister::pendingItems(1, ['voucher'=>'APP-1'])->get());
+        $this->assertCount(0, ApprovalReturnRegister::pendingItems(1, ['from_date'=>'2026-10-12'])->get());
+        $this->assertCount(2, ApprovalReturnRegister::pendingItems([1,2])->get());
+        DB::table('approval_items')->where('id', 2)->update(['status'=>'sold']);
+        $this->assertCount(0, ApprovalReturnRegister::pendingItems(1)->get());
     }
 }

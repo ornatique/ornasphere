@@ -84,6 +84,7 @@
     $canReportSalesSummary = $canModule('report-sales-summary');
     $canReportPurchaseReceiverSummary = $canModule('report-purchase-receiver-summary');
     $canReportStockPosition = $canModule('report-stock-position');
+    $canReportApprovalSummary = $canModule('report-approval-summary');
     $canReportApprovalOutstanding = $canModule('report-approval-outstanding');
     $canReportOutstandingAmount = $canModule('report-outstanding-amount');
     $canReportBarcodeHistory = $canModule('report-barcode-history');
@@ -149,6 +150,16 @@
     </style>
 
     <ul class="nav" id="sidebar-accordion">
+        @if($canModule('bullion'))
+        <li class="nav-item"><a class="nav-link {{ request()->routeIs('company.bullion.*') ? 'active' : '' }}" href="{{ route('company.bullion.index',auth()->user()->company->slug) }}"><i class="mdi mdi-gold menu-icon"></i><span class="menu-title">Bullion Management</span></a></li>
+        @endif
+        @if($canModule('gst-search'))
+        <li class="nav-item {{ request()->routeIs('company.gst-search.*', 'company.customers.gst-search.*') ? 'active' : '' }}">
+            <a class="nav-link {{ request()->routeIs('company.gst-search.*', 'company.customers.gst-search.*') ? 'active' : '' }}" href="{{ route('company.gst-search.create', auth()->user()->company->slug) }}">
+                <i class="mdi mdi-magnify menu-icon"></i><span class="menu-title">GST Search</span>
+            </a>
+        </li>
+        @endif
         @if($canModule('qr-making'))
         <li class="nav-item {{ request()->routeIs('company.qr-making.*') ? 'active' : '' }}">
             <a class="nav-link" href="{{ route('company.qr-making.index', auth()->user()->company->slug) }}"><i class="mdi mdi-qrcode menu-icon"></i><span class="menu-title">QR Making</span></a>
@@ -787,7 +798,7 @@
 
         {{-- ================= REPORTS ================= --}}
         @php $reportActive = $isReportRoute; @endphp
-        @if($canReportSalesSummary || $canReportPurchaseReceiverSummary || $canReportStockPosition || $canReportApprovalOutstanding || $canReportOutstandingAmount || $canReportBarcodeHistory || $canReportWorkerLoss)
+        @if($canReportApprovalSummary || $canReportSalesSummary || $canReportPurchaseReceiverSummary || $canReportStockPosition || $canReportApprovalOutstanding || $canReportOutstandingAmount || $canReportBarcodeHistory || $canReportWorkerLoss)
         <li class="nav-item {{ $reportActive ? 'active' : '' }}">
             <a class="nav-link"
                 data-bs-toggle="collapse"
@@ -829,11 +840,15 @@
 
                     @if($canReportApprovalOutstanding)
                     <li class="nav-item"><a class="nav-link {{ request()->routeIs('company.reports.approval-return-register.*') ? 'active' : '' }}" href="{{ route('company.reports.approval-return-register.index', auth()->user()->company->slug) }}">Approval &amp; Return Register</a></li>
+                    @endif
+                    @if($canReportApprovalSummary)
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('company.reports.approval-summary.*') ? 'active' : '' }}"
                            href="{{ route('company.reports.approval-summary.index', auth()->user()->company->slug) }}">Approval Summary</a>
                     </li>
 
+                    @endif
+                    @if($canReportApprovalOutstanding)
                     <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('company.reports.approval-outstanding.*') ? 'active' : '' }}"
                             href="{{ route('company.reports.approval-outstanding.index', auth()->user()->company->slug) }}">

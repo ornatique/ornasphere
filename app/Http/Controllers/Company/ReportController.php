@@ -210,12 +210,14 @@ class ReportController extends Controller
     public function salesSummary(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
 
         if ($request->ajax()) {
             $totals = $this->salesSummaryTotals($company, $request);
 
             return DataTables::of($this->salesSummaryBaseQuery($company, $request)->latest())
                 ->addIndexColumn()
+                ->addColumn('branch_name', fn ($row) => \App\Services\ReportBranches::name(data_get($row, 'company_id')))
                 ->addColumn('customer_name', fn($row) => optional($row->customer)->name ?? '-')
                 ->addColumn('remarks', fn($row) => $row->remarks ?? '-')
                 ->addColumn('created_by', fn($row) => optional($row->creator)->name ?? '-')
@@ -238,7 +240,7 @@ class ReportController extends Controller
                 ->make(true);
         }
 
-        $customers = Customer::where('company_id', $company->id)
+        $customers = Customer::whereIn('company_id', \App\Services\ReportBranches::ids($company))
             ->where('is_active', 1)
             ->orderBy('name')
             ->get();
@@ -249,6 +251,7 @@ class ReportController extends Controller
     public function salesSummaryExcel(Request $request, $slug): StreamedResponse
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $rows = $this->salesSummaryBaseQuery($company, $request)->latest()->get();
         $totals = $this->salesSummaryTotals($company, $request);
         $visibleColumns = $this->salesSummaryVisibleColumns($request);
@@ -269,12 +272,13 @@ class ReportController extends Controller
     public function salesSummaryPdf(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $rows = $this->salesSummaryBaseQuery($company, $request)->latest()->get();
         $totals = $this->salesSummaryTotals($company, $request);
         $visibleColumns = $this->salesSummaryVisibleColumns($request);
 
         $selectedCustomer = $request->filled('customer_id')
-            ? Customer::where('company_id', $company->id)->findOrFail((int) $request->customer_id)
+            ? Customer::whereIn('company_id', \App\Services\ReportBranches::ids($company))->findOrFail((int) $request->customer_id)
             : null;
 
         return Pdf::loadView('company.reports.pdf.sales_summary', compact('company', 'rows', 'totals', 'visibleColumns', 'selectedCustomer'))
@@ -285,6 +289,7 @@ class ReportController extends Controller
     public function salesSummaryDetails(Request $request, $slug, Sale $sale)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
 
         return response()->json(['success' => true] + $this->salesSummaryDetailsPayload($company, $sale));
     }
@@ -292,6 +297,7 @@ class ReportController extends Controller
     public function salesSummaryDetailsExcel(Request $request, $slug, Sale $sale): StreamedResponse
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $payload = $this->salesSummaryDetailsPayload($company, $sale);
         $columns = $this->salesSummaryDetailsVisibleColumns($request);
 
@@ -311,6 +317,7 @@ class ReportController extends Controller
     public function salesSummaryDetailsPdf(Request $request, $slug, Sale $sale)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $payload = $this->salesSummaryDetailsPayload($company, $sale);
         $columns = $this->salesSummaryDetailsVisibleColumns($request);
 
@@ -326,12 +333,14 @@ class ReportController extends Controller
     public function purchaseReceiverSummary(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
 
         if ($request->ajax()) {
             $totals = $this->purchaseReceiverSummaryTotals($company, $request);
 
             return DataTables::of($this->purchaseReceiverSummaryBaseQuery($company, $request)->orderByDesc('sr.id'))
                 ->addIndexColumn()
+                ->addColumn('branch_name', fn ($row) => \App\Services\ReportBranches::name(data_get($row, 'company_id')))
                 ->editColumn('return_date', fn($row) => $row->return_date ? Carbon::parse($row->return_date)->format('d-m-Y') : '-')
                 ->editColumn('source_type', fn($row) => ucfirst((string) ($row->source_type ?: 'sale')))
                 ->addColumn('remarks', fn($row) => $row->remarks ?? '-')
@@ -348,7 +357,7 @@ class ReportController extends Controller
                 ->make(true);
         }
 
-        $customers = Customer::where('company_id', $company->id)
+        $customers = Customer::whereIn('company_id', \App\Services\ReportBranches::ids($company))
             ->where('is_active', 1)
             ->orderBy('name')
             ->get();
@@ -359,12 +368,13 @@ class ReportController extends Controller
     public function purchaseReceiverSummaryExcel(Request $request, $slug): StreamedResponse
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $rows = $this->purchaseReceiverSummaryBaseQuery($company, $request)->orderByDesc('sr.id')->get();
         $totals = $this->purchaseReceiverSummaryTotals($company, $request);
 
         return response()->streamDownload(function () use ($rows, $totals) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Voucher No', 'Date', 'Customer', 'Source', 'Qty', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Metal Amt', 'Labour Amt', 'Other Amt', 'Total', 'Remarks', 'Created By']);
+            fputcsv($out, ['Voucher No', 'Date', 'Customer', 'Source', 'Qty', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Metal Amt', 'Labour Amt', 'Other Amt', 'Total', 'Remarks', 'Created By', 'Branch']);
             foreach ($rows as $r) {
                 fputcsv($out, [
                     $r->return_voucher_no,
@@ -380,8 +390,7 @@ class ReportController extends Controller
                     number_format((float) ($r->total_other_amount ?? 0), 2, '.', ''),
                     number_format((float) ($r->return_total ?? 0), 2, '.', ''),
                     $r->remarks ?? '-',
-                    $r->created_by ?? '-',
-                ]);
+                    $r->created_by ?? '-', \App\Services\ReportBranches::name(data_get($row, 'company_id'))]);
             }
 
             fputcsv($out, [
@@ -409,6 +418,7 @@ class ReportController extends Controller
     public function purchaseReceiverSummaryPdf(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $rows = $this->purchaseReceiverSummaryBaseQuery($company, $request)->orderByDesc('sr.id')->get();
         $totals = $this->purchaseReceiverSummaryTotals($company, $request);
 
@@ -420,20 +430,24 @@ class ReportController extends Controller
     public function stockPosition(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
 
         if ($request->ajax()) {
             $summary = $this->stockPositionSummary($company, $request);
 
             return DataTables::of($this->stockPositionBaseQuery($company, $request))
                 ->addIndexColumn()
+                ->editColumn('with_image', fn ($row) => (int)$row->with_image)
+                ->addColumn('without_image', fn ($row) => max(0, (int)$row->qty_pcs - (int)$row->with_image))
+                ->addColumn('branch_name', fn ($row) => \App\Services\ReportBranches::name(data_get($row, 'company_id')))
                 ->filterColumn('item_name', function ($query, $keyword) {
-                    $query->where('stock_rows.item_name', 'like', '%' . $keyword . '%');
+                    $query->where('stock_group.item_name', 'like', '%' . $keyword . '%');
                 })
                 ->filterColumn('customer_name', function ($query, $keyword) {
-                    $query->where('stock_rows.customer_name', 'like', '%' . $keyword . '%');
+                    $query->where('stock_group.customer_name', 'like', '%' . $keyword . '%');
                 })
                 ->filterColumn('stock_type_name', function ($query, $keyword) {
-                    $query->where('stock_rows.stock_type_name', 'like', '%' . $keyword . '%');
+                    $query->where('stock_group.stock_type_name', 'like', '%' . $keyword . '%');
                 })
                 ->addColumn('item_name_link', function ($row) use ($company) {
                     $url = route('company.reports.stock-position.details', [
@@ -441,6 +455,7 @@ class ReportController extends Controller
                         'item_id' => $row->item_id,
                         'stock_type' => $row->stock_type,
                         'customer_id' => $row->customer_id,
+                        'report_branches' => Company::find($row->company_id)?->slug,
                     ]);
 
                     return '<a href="' . e($url) . '" class="text-info fw-semibold">' . e($row->item_name ?: '-') . '</a>';
@@ -453,21 +468,21 @@ class ReportController extends Controller
                 ->editColumn('labour_amount', fn($row) => number_format((float) ($row->labour_amount ?? 0), 2))
                 ->editColumn('other_amount', fn($row) => number_format((float) ($row->other_amount ?? 0), 2))
                 ->rawColumns(['item_name_link'])
-                ->with(['summary' => $this->formatStockPositionSummary($summary)])
+                ->with(['summary' => $this->formatStockPositionSummary($summary), 'supplier_balances' => \App\Services\SupplierMetalBalances::rows(\App\Services\ReportBranches::ids($company), $request->filled('supplier_id') ? (int)$request->supplier_id : null)])
                 ->make(true);
         }
 
         $items = DB::table('items')
-            ->where('company_id', $company->id)
+            ->whereIn('company_id', \App\Services\ReportBranches::ids($company))
             ->orderBy('item_name')
             ->select('id', 'item_name')
             ->get();
 
         $customers = DB::table('customers')
-            ->where('company_id', $company->id)
+            ->whereIn('company_id', \App\Services\ReportBranches::ids($company))
             ->where('is_active', 1)
             ->orderBy('name')
-            ->select('id', 'name')
+            ->select('id', 'name', 'company_id')
             ->get();
 
         return view('company.reports.stock_position', compact('company', 'items', 'customers'));
@@ -476,11 +491,12 @@ class ReportController extends Controller
     public function stockPositionExcel(Request $request, $slug): StreamedResponse
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $rows = $this->stockPositionBaseQuery($company, $request)->get();
 
         return response()->streamDownload(function () use ($rows) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Item', 'Stock Type', 'Party', 'Qty Pcs', 'Gross Wt', 'Other Wt', 'Net Wt', 'Fine Wt', 'Labour Amt', 'Other Amt']);
+            fputcsv($out, ['Item', 'Stock Type', 'Party', 'Qty Pcs', 'Gross Wt', 'Other Wt', 'Net Wt', 'Fine Wt', 'Labour Amt', 'Other Amt', 'With image', 'Without image', 'Branch']);
             foreach ($rows as $r) {
                 fputcsv($out, [
                     $r->item_name,
@@ -492,8 +508,7 @@ class ReportController extends Controller
                     number_format((float) ($r->net_weight ?? 0), 3, '.', ''),
                     number_format((float) ($r->fine_weight ?? 0), 3, '.', ''),
                     number_format((float) ($r->labour_amount ?? 0), 2, '.', ''),
-                    number_format((float) ($r->other_amount ?? 0), 2, '.', ''),
-                ]);
+                    number_format((float) ($r->other_amount ?? 0), 2, '.', ''), (int)$r->with_image, max(0, (int)$r->qty_pcs - (int)$r->with_image), \App\Services\ReportBranches::name($r->company_id)]);
             }
             fclose($out);
         }, 'stock_position_report.csv', [
@@ -504,6 +519,7 @@ class ReportController extends Controller
     public function stockPositionPdf(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $rows = $this->stockPositionBaseQuery($company, $request)->get();
         $summary = $this->stockPositionSummary($company, $request);
 
@@ -515,6 +531,7 @@ class ReportController extends Controller
     public function stockPositionDetails(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $rows = $this->stockPositionDetailRows($company, $request);
         $summary = $this->stockPositionDetailSummary($rows);
         $itemName = optional($rows->first())->item_name ?: 'Stock Details';
@@ -534,6 +551,7 @@ class ReportController extends Controller
     public function stockPositionDetailsPdf(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $rows = $this->stockPositionDetailRows($company, $request);
         $summary = $this->stockPositionDetailSummary($rows);
         $itemName = optional($rows->first())->item_name ?: 'Stock Details';
@@ -555,12 +573,13 @@ class ReportController extends Controller
     public function stockPositionDetailsExcel(Request $request, $slug): StreamedResponse
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $rows = $this->stockPositionDetailRows($company, $request);
         $summary = $this->stockPositionDetailSummary($rows);
 
         return response()->streamDownload(function () use ($rows, $summary) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['#', 'Date', 'Label Code', 'Item', 'Qty Pcs', 'Gross Wt', 'Net Wt', 'Fine Wt']);
+            fputcsv($out, ['#', 'Date', 'Label Code', 'Item', 'Stock Type', 'Qty Pcs', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Image status']);
 
             foreach ($rows as $index => $row) {
                 fputcsv($out, [
@@ -568,16 +587,19 @@ class ReportController extends Controller
                     $row->source_date ? Carbon::parse($row->source_date)->format('d-m-Y h:i A') : '-',
                     $row->label_code ?? '-',
                     $row->item_name ?? '-',
+                    $row->stock_type_name ?? '-',
                     (int) ($row->qty_pcs ?? 0),
                     number_format((float) ($row->gross_weight ?? 0), 3, '.', ''),
                     number_format((float) ($row->net_weight ?? 0), 3, '.', ''),
                     number_format((float) ($row->fine_weight ?? 0), 3, '.', ''),
+                    $row->has_image ? 'With image' : 'Without image',
                 ]);
             }
 
             fputcsv($out, []);
             fputcsv($out, [
                 'Total',
+                '',
                 '',
                 '',
                 '',
@@ -601,18 +623,19 @@ class ReportController extends Controller
             } catch (\Illuminate\Contracts\Encryption\DecryptException $exception) {
                 abort(422, 'Invalid worker selection. Reopen the Worker Metal Ledger and select the worker again.');
             }
-            abort_unless(ctype_digit($id) && DB::table('job_workers')->where('company_id', $company->id)->where('id', $id)->exists(), 422, 'Invalid worker selection.');
+            abort_unless(ctype_digit($id) && DB::table('job_workers')->whereIn('company_id', \App\Services\ReportBranches::ids($company))->where('id', $id)->exists(), 422, 'Invalid worker selection.');
             $filters->merge(['worker_id' => (int) $id]);
         }
-        return app(\App\Services\WorkerMetalLedger::class)->report((int) $company->id, $filters);
+        return app(\App\Services\WorkerMetalLedger::class)->report(\App\Services\ReportBranches::ids($company), $filters);
     }
 
     public function workerLoss(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         if ($request->input('mode') === 'ledger') {
             $ledger = $this->workerMetalLedger($company, $request);
-            $workers = DB::table('job_workers')->where('company_id', $company->id)->orderBy('name')->get();
+            $workers = DB::table('job_workers')->whereIn('company_id', \App\Services\ReportBranches::ids($company))->orderBy('name')->get();
             return view('company.reports.worker_metal_ledger', compact('company', 'ledger', 'workers'));
         }
 
@@ -623,6 +646,7 @@ class ReportController extends Controller
 
             return DataTables::of($query)
                 ->addIndexColumn()
+                ->addColumn('branch_name', fn ($row) => \App\Services\ReportBranches::name(data_get($row, 'company_id')))
                 ->editColumn('process_datetime', function ($row) {
                     return $row->process_datetime
                         ? Carbon::parse($row->process_datetime)->format('d-m-Y h:i A')
@@ -644,7 +668,7 @@ class ReportController extends Controller
                 ->make(true);
         }
 
-        $workers = WorkerPersonService::activeWorkers((int) $company->id);
+        $workers = collect(\App\Services\ReportBranches::ids($company))->flatMap(fn ($id) => WorkerPersonService::activeWorkers($id));
 
         $defaultFromDate = now()->subDays(6)->toDateString();
         $defaultToDate = now()->toDateString();
@@ -655,6 +679,7 @@ class ReportController extends Controller
     public function workerLossSuggest(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $term = trim((string) $request->get('q', ''));
         $limit = max(1, min((int) $request->get('limit', 12), 50));
 
@@ -686,6 +711,7 @@ class ReportController extends Controller
     public function workerLossPdf(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         if ($request->input('mode') === 'ledger') {
             $ledger = $this->workerMetalLedger($company, $request);
             return Pdf::loadView('company.reports.pdf.worker_metal_ledger', compact('company', 'ledger'))->setPaper('a4', 'portrait')->download('worker_metal_ledger.pdf');
@@ -702,6 +728,7 @@ class ReportController extends Controller
     public function workerLossExcel(Request $request, $slug): StreamedResponse
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         if ($request->input('mode') === 'ledger') {
             $service = app(\App\Services\WorkerMetalLedger::class);
             return $service->csv($this->workerMetalLedger($company, $request));
@@ -712,7 +739,7 @@ class ReportController extends Controller
 
         return response()->streamDownload(function () use ($rows, $totals, $summary) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Date Time', 'Worker', 'Voucher No', 'B. No', 'Stage', 'Source Wt', 'Receive Wt', 'Bhuko', 'Loss']);
+            fputcsv($out, ['Date Time', 'Worker', 'Voucher No', 'B. No', 'Stage', 'Source Wt', 'Receive Wt', 'Bhuko', 'Loss', 'Branch']);
             foreach ($rows as $row) {
                 fputcsv($out, [
                     $row->process_datetime ? Carbon::parse($row->process_datetime)->format('d-m-Y h:i A') : '-',
@@ -723,8 +750,7 @@ class ReportController extends Controller
                     number_format((float) ($row->source_wt ?? 0), 3, '.', ''),
                     number_format((float) ($row->receive_wt ?? 0), 3, '.', ''),
                     number_format((float) ($row->bhuko ?? 0), 3, '.', ''),
-                    number_format((float) ($row->loss ?? 0), 3, '.', ''),
-                ]);
+                    number_format((float) ($row->loss ?? 0), 3, '.', ''), \App\Services\ReportBranches::name(data_get($row, 'company_id'))]);
             }
             fputcsv($out, [
                 'TOTAL',
@@ -758,23 +784,24 @@ class ReportController extends Controller
     public function approvalRegisterDetails(Request $request, $slug, $type, $id)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $relations = ['itemSet.item', 'legacyItemSet.item', 'item', 'approval'];
         if ($type === 'approval') {
-            $voucher = ApprovalHeader::where('company_id', $company->id)->findOrFail($id);
+            $voucher = ApprovalHeader::whereIn('company_id', \App\Services\ReportBranches::ids($company))->findOrFail($id);
             $lines = $voucher->items()->with($relations)->get()->map(fn ($a) => ['source'=>$a, 'approval'=>$a, 'amount'=>$a->total_amount]);
             $number = $voucher->approval_no;
             $date = $voucher->approval_date;
         } elseif ($type === 'return') {
-            $voucher = \App\Models\SaleReturn::where('company_id', $company->id)->where('source_type', 'approval')->findOrFail($id);
+            $voucher = \App\Models\SaleReturn::whereIn('company_id', \App\Services\ReportBranches::ids($company))->where('source_type', 'approval')->findOrFail($id);
             $lines = $voucher->items()->with(array_map(fn ($r) => 'approvalItem.'.$r, $relations))->get()
-                ->filter(fn ($r) => $r->approvalItem && (int) $r->approvalItem->approval?->company_id === (int) $company->id)
+                ->filter(fn ($r) => $r->approvalItem && (int) $r->approvalItem->approval?->company_id === (int) $voucher->company_id)
                 ->map(fn ($r) => ['source'=>$r->approvalItem, 'approval'=>$r->approvalItem, 'amount'=>$r->return_amount]);
             $number = $voucher->return_voucher_no;
             $date = $voucher->return_date;
         } elseif ($type === 'sale') {
-            $voucher = \App\Models\Sale::where('company_id', $company->id)->findOrFail($id);
-            $lines = $voucher->saleItems()->whereNotNull('approval_item_id')->get()->map(function ($r) use ($company, $relations) {
-                $a = \App\Models\ApprovalItem::with($relations)->whereHas('approval', fn ($q) => $q->where('company_id', $company->id))->find($r->approval_item_id);
+            $voucher = \App\Models\Sale::whereIn('company_id', \App\Services\ReportBranches::ids($company))->findOrFail($id);
+            $lines = $voucher->saleItems()->whereNotNull('approval_item_id')->get()->map(function ($r) use ($company, $relations, $voucher) {
+                $a = \App\Models\ApprovalItem::with($relations)->whereHas('approval', fn ($q) => $q->where('company_id', $voucher->company_id))->find($r->approval_item_id);
                 return $a ? ['source'=>$r, 'approval'=>$a, 'amount'=>$r->total_amount] : null;
             })->filter();
             $number = $voucher->voucher_no;
@@ -792,6 +819,7 @@ class ReportController extends Controller
     public function approvalReturnRegister(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $filters = $request->validate([
             'customer_id' => 'nullable|string|max:2048',
             'from_date' => 'nullable|date',
@@ -810,74 +838,120 @@ class ReportController extends Controller
             }
             abort_unless(ctype_digit($decoded), 404);
             $selectedCustomerId = (int) $decoded;
-            abort_unless(Customer::where('company_id', $company->id)->whereKey($selectedCustomerId)->exists(), 404);
+            abort_unless(Customer::whereIn('company_id', \App\Services\ReportBranches::ids($company))->whereKey($selectedCustomerId)->exists(), 404);
             $filters['customer_id'] = $selectedCustomerId;
         }
-        $query = \App\Services\ApprovalReturnRegister::query($company->id, $filters);
+        $query = \App\Services\ApprovalReturnRegister::query(\App\Services\ReportBranches::ids($company), $filters);
         $metrics = ['qty'=>'Qty', 'gross'=>'Gross Wt', 'other'=>'Other Wt', 'net'=>'Net Wt', 'fine'=>'Fine Wt', 'amount'=>'Amount'];
         $totals = array_fill_keys(['Approval', 'Approval Return', 'Sale from Approval'], array_fill_keys(array_keys($metrics), 0));
         foreach ((clone $query)->reorder()->cursor() as $row) {
             foreach ($metrics as $key => $label) $totals[$row->entry_type][$key] += (float) $row->$key;
         }
+        $pendingItems = \App\Services\ApprovalReturnRegister::pendingItems(\App\Services\ReportBranches::ids($company), $filters)->get();
+        $totals['Pending Approval (current)'] = ['qty' => $pendingItems->count()];
+        foreach (['gross', 'other', 'net', 'fine', 'amount'] as $key) {
+            $totals['Pending Approval (current)'][$key] = $pendingItems->sum($key);
+        }
         if ($request->input('export') === 'pdf') {
             $rows = $query->get();
-            return Pdf::loadView('company.reports.pdf.approval_return_register', compact('company', 'rows', 'metrics', 'totals', 'filters'))
+            return Pdf::loadView('company.reports.pdf.approval_return_register', compact('company', 'rows', 'metrics', 'totals', 'filters', 'pendingItems'))
                 ->setPaper('a4', 'landscape')->download('approval-return-register.pdf');
         }
         if ($request->input('export') === 'csv') {
-            return response()->streamDownload(function () use ($query, $metrics) {
+            $showCompany = count(\App\Services\ReportBranches::ids($company)) > 1;
+            $showSourceApproval = ($filters['entry_type'] ?? null) !== 'Approval';
+            $heading = \App\Services\ReportBranches::heading($company);
+            return response()->streamDownload(function () use ($query, $metrics, $totals, $filters, $showCompany, $showSourceApproval, $heading) {
                 $out = fopen('php://output', 'w');
-                fputcsv($out, array_merge(['Date','Type','Voucher','Approval Voucher','Customer'], array_values($metrics)));
+                fwrite($out, "\xEF\xBB\xBF");
+                $safe = fn ($v) => preg_match('/^[=+@-]/', (string) $v) ? "'".$v : $v;
+                fputcsv($out, [$safe($heading)]);
+                fputcsv($out, ['Approval & Return Register']);
+                fputcsv($out, ['From', $filters['from_date'] ?? 'All dates', 'To', $filters['to_date'] ?? 'All dates', 'Type', $filters['entry_type'] ?? 'All types']);
+                fputcsv($out, []);
+                fputcsv($out, array_merge(['Totals'], array_values($metrics)));
+                foreach ($totals as $type => $values) {
+                    fputcsv($out, array_merge([$type], array_map(fn ($key) => $values[$key], array_keys($metrics))));
+                }
+                fputcsv($out, []);
+                $columns = ['Date','Type','Transaction Voucher'];
+                if ($showSourceApproval) $columns[] = 'Original Approval';
+                $columns[] = 'Customer';
+                $columns = array_merge($columns, array_values($metrics));
+                if ($showCompany) $columns[] = 'Company / Branch';
+                fputcsv($out, $columns);
                 foreach ($query->cursor() as $row) {
-                    $safe = fn ($v) => preg_match('/^[=+@-]/', (string) $v) ? "'".$v : $v;
-                    fputcsv($out, array_merge([$row->entry_date,$row->entry_type,$safe($row->voucher_no),$safe($row->approval_no),$safe($row->customer_name)],
-                        array_map(fn ($key) => $row->$key, array_keys($metrics))));
+                    $values = [\Carbon\Carbon::parse($row->entry_date)->format('d-m-Y'), $row->entry_type, $safe($row->voucher_no)];
+                    if ($showSourceApproval) $values[] = $row->entry_type === 'Approval' ? '' : $safe($row->approval_no);
+                    $values[] = $safe($row->customer_name);
+                    $values = array_merge($values, array_map(fn ($key) => $row->$key, array_keys($metrics)));
+                    if ($showCompany) $values[] = $safe(\App\Services\ReportBranches::name($row->company_id));
+                    fputcsv($out, $values);
                 }
                 fclose($out);
             }, 'approval-return-register.csv', ['Content-Type'=>'text/csv']);
         }
         $rows = $query->paginate((int) $request->input('per_page', 10))->withQueryString();
-        $customers = Customer::where('company_id', $company->id)->orderBy('name')->get(['id','name']);
-        return view('company.reports.approval_return_register', compact('company','rows','customers','metrics','totals','selectedCustomerId'));
+        $customers = Customer::whereIn('company_id', \App\Services\ReportBranches::ids($company))->orderBy('name')->get(['id','name','company_id']);
+        return view('company.reports.approval_return_register', compact('company','rows','customers','metrics','totals','selectedCustomerId','pendingItems'));
     }
 
     public function approvalSummary(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $filters = $request->validate([
             'customer_id' => 'nullable|integer',
             'from_date' => 'nullable|date',
             'to_date' => $request->filled('from_date') ? 'nullable|date|after_or_equal:from_date' : 'nullable|date',
             'voucher' => 'nullable|string|max:100',
         ]);
-        $query = \App\Services\ApprovalSummaryReport::query($company->id, $filters);
+        $query = \App\Services\ApprovalSummaryReport::query(\App\Services\ReportBranches::ids($company), $filters);
         $metrics = \App\Services\ApprovalSummaryReport::metrics();
         $totals = (clone $query)->reorder()->get()->reduce(function ($total, $row) use ($metrics) {
             $total['vouchers']++;
             foreach ($metrics as $key => $label) $total[$key] += (float) ($row->$key ?? 0);
             return $total;
         }, array_merge(['vouchers' => 0], array_fill_keys(array_keys($metrics), 0)));
+        if ($request->input('export') === 'pdf') {
+            $rows = $query->get();
+            return Pdf::loadView('company.reports.pdf.approval_summary', compact('company','rows','metrics','totals','filters'))
+                ->setPaper('a4','landscape')->download('approval-summary.pdf');
+        }
+        if (in_array($request->input('export'), ['xlsx', 'excel'], true)) {
+            $exportRows = (function () use ($query, $metrics, $totals) {
+                yield array_merge(['Voucher','Date','Customer','Branch'], array_values($metrics));
+                foreach ($query->cursor() as $row) {
+                    yield array_merge([$row->approval_no, \Carbon\Carbon::parse($row->approval_date)->format('d-m-Y'), $row->customer_name,
+                        \App\Services\ReportBranches::name($row->company_id)],
+                        array_map(fn ($key) => str_ends_with($key, '_qty') ? (int) $row->$key : (float) $row->$key, array_keys($metrics)));
+                }
+                yield array_merge(['Total','','',''], array_map(fn ($key) => $totals[$key], array_keys($metrics)));
+            })();
+            return \App\Services\ReportXlsx::download($exportRows, 'approval-summary.xlsx');
+        }
         if ($request->input('export') === 'csv') {
             return response()->streamDownload(function () use ($query, $metrics, $totals) {
                 $out = fopen('php://output', 'w');
-                fputcsv($out, array_merge(['Voucher', 'Date', 'Customer'], array_values($metrics)));
+                fputcsv($out, array_merge(['Voucher', 'Date', 'Customer', 'Branch'], array_values($metrics)));
                 foreach ($query->cursor() as $row) {
                     $safe = fn ($v) => preg_match('/^[=+@-]/', (string) $v) ? "'".$v : $v;
-                    fputcsv($out, array_merge([$safe($row->approval_no), $row->approval_date, $safe($row->customer_name)],
+                    fputcsv($out, array_merge([$safe($row->approval_no), $row->approval_date, $safe($row->customer_name),$safe(\App\Services\ReportBranches::name($row->company_id))],
                         array_map(fn ($key) => $row->$key ?? 0, array_keys($metrics))));
                 }
-                fputcsv($out, array_merge(['Total', '', ''], array_map(fn ($key) => $totals[$key], array_keys($metrics))));
+                fputcsv($out, array_merge(['Total', '', '', ''], array_map(fn ($key) => $totals[$key], array_keys($metrics))));
                 fclose($out);
             }, 'approval-summary.csv', ['Content-Type' => 'text/csv']);
         }
         $rows = $query->paginate(25)->withQueryString();
-        $customers = Customer::where('company_id', $company->id)->orderBy('name')->get(['id', 'name']);
+        $customers = Customer::whereIn('company_id', \App\Services\ReportBranches::ids($company))->orderBy('name')->get(['id', 'name', 'company_id']);
         return view('company.reports.approval_summary', compact('company', 'rows', 'customers', 'metrics', 'totals'));
     }
 
     public function approvalOutstanding(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
 
         if ($request->ajax()) {
             $baseQuery = $this->approvalOutstandingBaseQuery($company, $request);
@@ -885,6 +959,7 @@ class ReportController extends Controller
 
             return DataTables::of($baseQuery->latest('approval_date'))
                 ->addIndexColumn()
+                ->addColumn('branch_name', fn ($row) => \App\Services\ReportBranches::name(data_get($row, 'company_id')))
                 ->addColumn('customer_name', fn($row) => optional($row->customer)->name ?? '-')
                 ->addColumn('approval_date_fmt', fn($row) => optional($row->approval_date)?->format('d-m-Y') ?? '-')
                 ->addColumn('remarks', fn($row) => $row->remarks ?? '-')
@@ -904,7 +979,7 @@ class ReportController extends Controller
                 ->make(true);
         }
 
-        $customers = Customer::where('company_id', $company->id)
+        $customers = Customer::whereIn('company_id', \App\Services\ReportBranches::ids($company))
             ->where('is_active', 1)
             ->orderBy('name')
             ->get();
@@ -915,6 +990,7 @@ class ReportController extends Controller
     public function approvalOutstandingDetails($slug, ApprovalHeader $approval)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $payload = $this->approvalOutstandingDetailsPayload($company, $approval);
 
         return response()->json(['success' => true] + $payload);
@@ -923,6 +999,7 @@ class ReportController extends Controller
     public function approvalOutstandingDetailsExcel(Request $request, $slug, ApprovalHeader $approval): StreamedResponse
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $payload = $this->approvalOutstandingDetailsPayload($company, $approval);
         $columns = $this->approvalOutstandingDetailsVisibleColumns($request);
 
@@ -942,6 +1019,7 @@ class ReportController extends Controller
     public function approvalOutstandingDetailsPdf(Request $request, $slug, ApprovalHeader $approval)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $payload = $this->approvalOutstandingDetailsPayload($company, $approval);
         $columns = $this->approvalOutstandingDetailsVisibleColumns($request);
 
@@ -959,6 +1037,7 @@ class ReportController extends Controller
     public function approvalOutstandingExcel(Request $request, $slug): StreamedResponse
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $rows = $this->approvalOutstandingBaseQuery($company, $request)->latest('approval_date')->get();
         $summary = $this->approvalOutstandingTotals($rows);
         $visibleColumns = $this->approvalOutstandingVisibleColumns($request);
@@ -979,12 +1058,13 @@ class ReportController extends Controller
     public function approvalOutstandingPdf(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $rows = $this->approvalOutstandingBaseQuery($company, $request)->latest('approval_date')->get();
         $summary = $this->approvalOutstandingTotals($rows);
         $visibleColumns = $this->approvalOutstandingVisibleColumns($request);
 
         $selectedCustomer = $request->filled('customer_id')
-            ? Customer::where('company_id', $company->id)->findOrFail((int) $request->customer_id)
+            ? Customer::whereIn('company_id', \App\Services\ReportBranches::ids($company))->findOrFail((int) $request->customer_id)
             : null;
 
         return Pdf::loadView('company.reports.pdf.approval_outstanding', compact('company', 'rows', 'summary', 'visibleColumns', 'selectedCustomer'))
@@ -995,6 +1075,7 @@ class ReportController extends Controller
     public function outstandingAmount(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
 
         if ($request->ajax()) {
             $baseQuery = $this->outstandingAmountBaseQuery($company, $request);
@@ -1002,6 +1083,7 @@ class ReportController extends Controller
 
             return DataTables::of($baseQuery->latest('id'))
                 ->addIndexColumn()
+                ->addColumn('branch_name', fn ($row) => \App\Services\ReportBranches::name(data_get($row, 'company_id')))
                 ->addColumn('sale_date_fmt', fn($row) => optional($row->sale_date)?->format('d-m-Y') ?? '-')
                 ->addColumn('customer_name', fn($row) => optional($row->customer)->name ?? '-')
                 ->addColumn('city', fn($row) => optional($row->customer)->city ?? '-')
@@ -1025,19 +1107,19 @@ class ReportController extends Controller
 
         CategoryPerson::ensureCompanyDefaults($company->id);
 
-        $customers = Customer::where('company_id', $company->id)
+        $customers = Customer::whereIn('company_id', \App\Services\ReportBranches::ids($company))
             ->where('is_active', 1)
             ->whereHas('categoryPerson', function ($query) use ($company) {
-                $query->where('company_id', $company->id)
+                $query->whereIn('company_id', \App\Services\ReportBranches::ids($company))
                     ->whereIn(DB::raw('LOWER(TRIM(category_name))'), ['customer', 'party']);
             })
             ->orderBy('name')
-            ->get(['id', 'name', 'city']);
+            ->get(['id', 'name', 'city', 'company_id']);
 
-        $cities = Customer::where('company_id', $company->id)
+        $cities = Customer::whereIn('company_id', \App\Services\ReportBranches::ids($company))
             ->where('is_active', 1)
             ->whereHas('categoryPerson', function ($query) use ($company) {
-                $query->where('company_id', $company->id)
+                $query->whereIn('company_id', \App\Services\ReportBranches::ids($company))
                     ->whereIn(DB::raw('LOWER(TRIM(category_name))'), ['customer', 'party']);
             })
             ->whereNotNull('city')
@@ -1053,12 +1135,13 @@ class ReportController extends Controller
     public function outstandingAmountExcel(Request $request, $slug): StreamedResponse
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $rows = $this->outstandingAmountBaseQuery($company, $request)->latest('id')->get();
         $summary = $this->outstandingAmountTotals($rows);
 
         return response()->streamDownload(function () use ($rows, $summary) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Voucher No', 'Date', 'Party', 'City', 'Payment Mode', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Metal Amt', 'Labour Amt', 'Metal Dr', 'Total Amount', 'Amount In', 'Amount Out', 'Pending']);
+            fputcsv($out, ['Voucher No', 'Date', 'Party', 'City', 'Payment Mode', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Metal Amt', 'Labour Amt', 'Metal Dr', 'Total Amount', 'Amount In', 'Amount Out', 'Pending', 'Branch']);
             foreach ($rows as $r) {
                 $received = (float) ($r->received_amount ?? 0);
                 $outAmt = (float) ($r->paid_amount ?? 0);
@@ -1078,8 +1161,7 @@ class ReportController extends Controller
                     number_format((float) ($r->net_total ?? 0), 2, '.', ''),
                     number_format($received, 2, '.', ''),
                     number_format($outAmt, 2, '.', ''),
-                    number_format($pending, 2, '.', ''),
-                ]);
+                    number_format($pending, 2, '.', ''), \App\Services\ReportBranches::name(data_get($r, 'company_id'))]);
             }
 
             fputcsv($out, [
@@ -1108,10 +1190,11 @@ class ReportController extends Controller
     public function outstandingAmountPdf(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $rows = $this->outstandingAmountBaseQuery($company, $request)->latest('id')->get();
         $summary = $this->outstandingAmountTotals($rows);
         $selectedCustomer = $request->filled('customer_id')
-            ? Customer::where('company_id', $company->id)->find((int) $request->customer_id)
+            ? Customer::whereIn('company_id', \App\Services\ReportBranches::ids($company))->find((int) $request->customer_id)
             : null;
         $visible = [
             'default' => $this->isOutstandingToggleEnabled($request, ['use_default_report', 'use_default']),
@@ -1135,10 +1218,11 @@ class ReportController extends Controller
     public function outstandingAmountLedgerPdf(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $rows = $this->outstandingAmountBaseQuery($company, $request)->latest('sale_date')->latest('id')->get();
         $summary = $this->outstandingAmountTotals($rows);
         $selectedCustomer = $request->filled('customer_id')
-            ? Customer::where('company_id', $company->id)->find((int) $request->customer_id)
+            ? Customer::whereIn('company_id', \App\Services\ReportBranches::ids($company))->find((int) $request->customer_id)
             : null;
 
         return Pdf::loadView('company.reports.pdf.outstanding_amount_ledger', compact('company', 'rows', 'summary', 'selectedCustomer'))
@@ -1149,12 +1233,14 @@ class ReportController extends Controller
     public function barcodeHistory(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
 
         if ($request->ajax()) {
             $rows = $this->barcodeHistoryRows($company, $request);
 
             return DataTables::of($rows)
                 ->addIndexColumn()
+                ->addColumn('branch_name', fn ($row) => \App\Services\ReportBranches::name(data_get($row, 'company_id')))
                 ->addColumn('item_name', fn($row) => $row['item_name'] ?: '-')
                 ->addColumn('label_code', fn($row) => $row['label_code'] ?: '-')
                 ->addColumn('label_created_at_fmt', fn($row) => $row['label_created_at_fmt'] ?: '-')
@@ -1173,6 +1259,7 @@ class ReportController extends Controller
     public function barcodeHistorySuggest(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $term = trim((string) $request->get('q', ''));
         $limit = max(1, min((int) $request->get('limit', 12), 50));
 
@@ -1186,7 +1273,7 @@ class ReportController extends Controller
         $like = '%' . $term . '%';
         $raw = DB::table('item_sets')
             ->leftJoin('items', 'items.id', '=', 'item_sets.item_id')
-            ->where('item_sets.company_id', $company->id)
+            ->whereIn('item_sets.company_id', \App\Services\ReportBranches::ids($company))
             ->where(function ($q) use ($like) {
                 $q->where('item_sets.qr_code', 'like', $like)
                     ->orWhere('item_sets.barcode', 'like', $like)
@@ -1227,45 +1314,29 @@ class ReportController extends Controller
         ]);
     }
 
-    public function barcodeHistoryExcel(Request $request, $slug): StreamedResponse
+    public function barcodeHistoryExcel(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company, $request);
         $rows = $this->barcodeHistoryRows($company, $request);
-
-        return response()->streamDownload(function () use ($rows) {
-            $out = fopen('php://output', 'w');
-            fputcsv($out, [
-                'Item',
-                'Label Code',
-                'Label Created At',
-                'Label Printed At',
-                'Approval History',
-                'Sale History',
-                'Return History',
-                'Current Status',
-            ]);
-
-            foreach ($rows as $r) {
-                fputcsv($out, [
-                    $r['item_name'] ?? '-',
-                    $r['label_code'] ?? '-',
-                    $r['label_created_at_fmt'] ?? '-',
-                    $r['label_printed_at_fmt'] ?? '-',
-                    $this->historyToText($r['approval_history'] ?? []),
-                    $this->historyToText($r['sale_history'] ?? []),
-                    $this->historyToText($r['return_history'] ?? []),
-                    $r['current_status'] ?? '-',
-                ]);
-            }
-            fclose($out);
-        }, 'barcode_history_report.csv', [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-        ]);
+        $export = [['Item', 'Label Code', 'Label Created At', 'Label Printed At', 'Approval History', 'Sale History', 'Return History', 'Current Status', 'Company / Branch']];
+        foreach ($rows as $row) {
+            $export[] = [
+                $row['item_name'] ?? '-', $row['label_code'] ?? '-',
+                $row['label_created_at_fmt'] ?? '-', $row['label_printed_at_fmt'] ?? '-',
+                $this->historyToText($row['approval_history'] ?? []),
+                $this->historyToText($row['sale_history'] ?? []),
+                $this->historyToText($row['return_history'] ?? []),
+                $row['current_status'] ?? '-',
+                \App\Services\ReportBranches::name(data_get($row, 'company_id')),
+            ];
+        }
+        return \App\Services\ReportXlsx::download($export, 'barcode_history_report.xlsx', 'Barcode History');
     }
-
     public function barcodeHistoryPdf(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        \App\Services\ReportBranches::ids($company);
         $rows = $this->barcodeHistoryRows($company, $request);
 
         return Pdf::loadView('company.reports.pdf.barcode_history', compact('company', 'rows'))
@@ -1276,6 +1347,7 @@ class ReportController extends Controller
     private function salesSummaryColumnDefinitions(): array
     {
         return [
+            'branch' => ['label'=>'Company / Branch', 'total'=>''],
             'voucher_no' => ['label' => 'Voucher No', 'total' => 'TOTAL'],
             'date' => ['label' => 'Date', 'total' => ''],
             'customer' => ['label' => 'Customer Name', 'total' => ''],
@@ -1338,7 +1410,7 @@ class ReportController extends Controller
             $requested = ['voucher_no', 'date', 'customer', 'qty_pcs', 'gross_weight', 'other_weight', 'net_weight', 'purity', 'waste_percent', 'fine_weight', 'metal_rate', 'metal_amount', 'labour_rate', 'labour_amount', 'other_amount', 'net_total', 'remarks', 'created_by'];
         }
 
-        $visible = [];
+        $visible = ['branch' => $definitions['branch'] + ['key'=>'branch']];
         foreach ($requested as $key) {
             if (isset($definitions[$key])) {
                 $visible[$key] = $definitions[$key] + ['key' => $key];
@@ -1387,7 +1459,7 @@ class ReportController extends Controller
 
     private function salesSummaryDetailsPayload(Company $company, Sale $sale): array
     {
-        abort_unless((int) $sale->company_id === (int) $company->id, 404);
+        abort_unless(in_array((int) $sale->company_id, \App\Services\ReportBranches::ids($company), true), 404);
 
         $sale->load(['customer', 'creator', 'saleItems.itemset.item', 'saleItems.product']);
 
@@ -1467,6 +1539,7 @@ class ReportController extends Controller
     private function salesSummaryExportRow($row, array $visibleColumns): array
     {
         $values = [
+            'branch' => \App\Services\ReportBranches::name($row->company_id),
             'voucher_no' => $row->voucher_no,
             'date' => optional($row->sale_date)?->format('d-m-Y'),
             'customer' => optional($row->customer)->name ?? '-',
@@ -1589,7 +1662,7 @@ class ReportController extends Controller
             }, 'total_labour_rate')
             ->withSum('saleItems as total_labour_amount', 'labour_amount')
             ->withSum('saleItems as total_other_amount', 'other_amount')
-            ->where('company_id', $company->id);
+            ->whereIn('company_id', \App\Services\ReportBranches::ids($company));
 
         if ($request->filled('customer_id')) {
             $query->where('customer_id', (int) $request->customer_id);
@@ -1618,7 +1691,7 @@ class ReportController extends Controller
             })
             ->leftJoin('customers as ac', 'ac.id', '=', 'ah.customer_id')
             ->leftJoin('users as au', 'au.id', '=', 'ah.employee_id')
-            ->where('sr.company_id', $company->id)
+            ->whereIn('sr.company_id', \App\Services\ReportBranches::ids($company))
             ->when($request->filled('customer_id'), function ($q) use ($request) {
                 $customerId = (int) $request->customer_id;
                 $q->where(function ($inner) use ($customerId) {
@@ -1636,7 +1709,7 @@ class ReportController extends Controller
                 $q->whereDate('sr.return_date', '<=', $request->to_date);
             })
             ->groupBy(
-                'sr.id',
+                'sr.company_id', 'sr.id',
                 'sr.return_voucher_no',
                 'sr.return_date',
                 'sr.return_total',
@@ -1708,7 +1781,7 @@ class ReportController extends Controller
         $totalAmountExpr = "COALESCE(NULLIF(si.total_amount, 0), NULLIF({$approvalTotalExpr}, 0), ({$metalAmountExpr} + {$labourAmountExpr} + {$otherAmountExpr}), 0)";
 
         $query->selectRaw("
-            sr.id,
+            sr.company_id, sr.id,
             sr.return_voucher_no,
             sr.return_date,
             COALESCE(NULLIF(sr.return_total, 0), SUM({$totalAmountExpr}), 0) as return_total,
@@ -1732,7 +1805,7 @@ class ReportController extends Controller
     private function salesSummaryTotals(Company $company, Request $request): array
     {
         $applySalesFilters = function ($query) use ($company, $request) {
-            $query->where('sales.company_id', $company->id);
+            $query->whereIn('sales.company_id', \App\Services\ReportBranches::ids($company));
 
             if ($request->filled('customer_id')) {
                 $query->where('sales.customer_id', (int) $request->customer_id);
@@ -1801,13 +1874,14 @@ class ReportController extends Controller
 
     private function stockPositionBaseQuery(Company $company, Request $request)
     {
+        $request->validate(['stock_type' => 'nullable|in:raw_material,finished_item,customer_received,scrap,repair']);
         $labelStock = ItemSet::query()
             ->join('items', 'items.id', '=', 'item_sets.item_id')
             ->leftJoin('customers as supplier_customers', function ($join) use ($company) {
                 $join->on('supplier_customers.name', '=', 'item_sets.supplier_person')
-                    ->where('supplier_customers.company_id', $company->id);
+                    ->on('supplier_customers.company_id', '=', 'item_sets.company_id');
             })
-            ->where('item_sets.company_id', $company->id)
+            ->whereIn('item_sets.company_id', \App\Services\ReportBranches::ids($company))
             ->where('item_sets.is_final', 1)
             ->where('item_sets.is_sold', 0)
             ->when($request->filled('item_id'), function ($q) use ($request) {
@@ -1830,15 +1904,16 @@ class ReportController extends Controller
                 DB::raw('SUM(COALESCE(item_sets.net_weight,0)) as fine_weight'),
                 DB::raw('SUM(COALESCE(item_sets.sale_labour_amount,0)) as labour_amount'),
                 DB::raw('SUM(COALESCE(item_sets.sale_other,0)) as other_amount'),
+                'item_sets.company_id',
             ])
-            ->groupBy('item_sets.item_id', 'items.item_name', 'supplier_customers.id', 'item_sets.supplier_person');
+            ->groupBy('item_sets.company_id', 'item_sets.item_id', 'items.item_name', 'supplier_customers.id', 'item_sets.supplier_person');
 
         $customerReceivedStock = DB::table('customer_advance_voucher_items as cavi')
-            ->leftJoinSub(app(\App\Services\JobworkRawStock::class)->consumption((int) $company->id), 'raw_used', 'raw_used.voucher_item_id', '=', 'cavi.id')
+            ->leftJoinSub(app(\App\Services\JobworkRawStock::class)->consumption(\App\Services\ReportBranches::ids($company)), 'raw_used', 'raw_used.voucher_item_id', '=', 'cavi.id')
             ->join('customer_advance_vouchers as cav', 'cav.id', '=', 'cavi.voucher_id')
             ->join('customers as customers', 'customers.id', '=', 'cav.customer_id')
             ->leftJoin('items', 'items.id', '=', 'cavi.product_id')
-            ->where('cav.company_id', $company->id)
+            ->whereIn('cav.company_id', \App\Services\ReportBranches::ids($company))
             ->when($request->filled('item_id'), function ($q) use ($request) {
                 $q->where('cavi.product_id', (int) $request->item_id);
             })
@@ -1859,12 +1934,13 @@ class ReportController extends Controller
                 DB::raw('SUM(' . \App\Services\JobworkRawStock::reportWeight('fine_weight') . ') as fine_weight'),
                 DB::raw('SUM(COALESCE(cavi.labour_amount,0)) as labour_amount'),
                 DB::raw('SUM(COALESCE(cavi.other_amount,0)) as other_amount'),
+                'cav.company_id',
             ])
-            ->groupBy('cavi.product_id', 'items.item_name', 'cavi.item_name', 'cav.customer_id', 'customers.name');
+            ->groupBy('cav.company_id', 'cavi.product_id', 'items.item_name', 'cavi.item_name', 'cav.customer_id', 'customers.name');
 
         $castingSortingStock = DB::table('casting_sorting_items as csi')
             ->join('items', 'items.id', '=', 'csi.item_id')
-            ->where('csi.company_id', $company->id)
+            ->whereIn('csi.company_id', \App\Services\ReportBranches::ids($company))
             ->when($request->filled('item_id'), function ($q) use ($request) {
                 $q->where('csi.item_id', (int) $request->item_id);
             })
@@ -1890,12 +1966,13 @@ class ReportController extends Controller
                 DB::raw('SUM(COALESCE(csi.weight,0)) as fine_weight'),
                 DB::raw('0 as labour_amount'),
                 DB::raw('0 as other_amount'),
+                'csi.company_id',
             ])
-            ->groupBy('csi.item_id', 'items.item_name', 'csi.stock_type');
+            ->groupBy('csi.company_id', 'csi.item_id', 'items.item_name', 'csi.stock_type');
 
-        return DB::query()
+        $grouped = DB::query()
             ->fromSub($labelStock->unionAll($customerReceivedStock)->unionAll($castingSortingStock)->unionAll(
-                app(\App\Services\JobworkRawStock::class)->debtReport((int) $company->id, false)
+                app(\App\Services\JobworkRawStock::class)->debtReport(\App\Services\ReportBranches::ids($company), false, true)
                     ->when($request->filled('item_id'), fn($q) => $q->where('debt.item_id', (int) $request->item_id))
                     ->when($request->filled('customer_id'), fn($q) => $q->whereRaw('1 = 0'))
             ), 'stock_rows')
@@ -1913,8 +1990,12 @@ class ReportController extends Controller
                 DB::raw('SUM(stock_rows.fine_weight) as fine_weight'),
                 DB::raw('SUM(stock_rows.labour_amount) as labour_amount'),
                 DB::raw('SUM(stock_rows.other_amount) as other_amount'),
+                'stock_rows.company_id',
             ])
-            ->groupBy('stock_rows.item_id', 'stock_rows.item_name', 'stock_rows.stock_type', 'stock_rows.stock_type_name', 'stock_rows.customer_id', 'stock_rows.customer_name');
+            ->groupBy('stock_rows.company_id', 'stock_rows.item_id', 'stock_rows.item_name', 'stock_rows.stock_type', 'stock_rows.stock_type_name', 'stock_rows.customer_id', 'stock_rows.customer_name');
+        return DB::query()->fromSub($grouped, 'stock_group')->select('stock_group.*')
+            ->when($request->filled('stock_type'), fn ($query) => $query->where('stock_group.stock_type', $request->input('stock_type')))
+            ->selectRaw("CASE WHEN stock_type = 'finished_item' THEN (SELECT COUNT(*) FROM item_sets img WHERE img.company_id = stock_group.company_id AND img.item_id = stock_group.item_id AND img.is_final = 1 AND img.is_sold = 0 AND COALESCE(NULLIF(img.supplier_person, ''), '-') = stock_group.customer_name AND NULLIF(TRIM(img.image_path), '') IS NOT NULL) ELSE 0 END as with_image");
     }
 
     private function stockPositionSummary(Company $company, Request $request): array
@@ -1922,6 +2003,8 @@ class ReportController extends Controller
         $rows = $this->stockPositionBaseQuery($company, $request)->get();
 
         return [
+            'with_image' => (int)$rows->sum('with_image'),
+            'without_image' => (int)$rows->sum(fn ($r) => max(0, (int)$r->qty_pcs - (int)$r->with_image)),
             'qty_pcs' => (int) $rows->sum(fn($row) => (int) ($row->qty_pcs ?? 0)),
             'gross_weight' => (float) $rows->sum(fn($row) => (float) ($row->gross_weight ?? 0)),
             'other_weight' => (float) $rows->sum(fn($row) => (float) ($row->other_weight ?? 0)),
@@ -1935,6 +2018,8 @@ class ReportController extends Controller
     private function formatStockPositionSummary(array $summary): array
     {
         return [
+            'with_image' => $summary['with_image'] ?? 0,
+            'without_image' => $summary['without_image'] ?? 0,
             'qty_pcs' => (string) ($summary['qty_pcs'] ?? 0),
             'gross_weight' => number_format((float) ($summary['gross_weight'] ?? 0), 3),
             'other_weight' => number_format((float) ($summary['other_weight'] ?? 0), 3),
@@ -1947,6 +2032,7 @@ class ReportController extends Controller
 
     private function stockPositionDetailRows(Company $company, Request $request): Collection
     {
+        $request->validate(['image_status'=>'nullable|in:all,with,without']);
         $itemId = (int) $request->input('item_id');
         $stockType = $this->stockPositionNormalizeStockType($request->input('stock_type'));
         $customerId = $request->filled('customer_id') ? (int) $request->input('customer_id') : null;
@@ -1956,21 +2042,23 @@ class ReportController extends Controller
             return $rows;
         }
 
-        if ($stockType === 'finished_item') {
+        if (in_array($stockType, ['all', 'finished_item'], true)) {
             $rows = $rows->merge(
                 ItemSet::query()
                     ->join('items', 'items.id', '=', 'item_sets.item_id')
                     ->leftJoin('customers as supplier_customers', function ($join) use ($company) {
                         $join->on('supplier_customers.name', '=', 'item_sets.supplier_person')
-                            ->where('supplier_customers.company_id', $company->id);
+                            ->on('supplier_customers.company_id', '=', 'item_sets.company_id');
                     })
-                    ->where('item_sets.company_id', $company->id)
+                    ->whereIn('item_sets.company_id', \App\Services\ReportBranches::ids($company))
                     ->where('item_sets.item_id', $itemId)
                     ->where('item_sets.is_final', 1)
                     ->where('item_sets.is_sold', 0)
                     ->when($customerId !== null, fn($q) => $q->where('supplier_customers.id', $customerId))
                     ->select([
                         DB::raw("'Label Stock' as source"),
+                        'item_sets.image_path',
+                        'item_sets.company_id',
                         DB::raw('item_sets.created_at as source_date'),
                         DB::raw('COALESCE(item_sets.qr_code, item_sets.barcode) as reference_no'),
                         'items.item_name',
@@ -1993,17 +2081,18 @@ class ReportController extends Controller
             );
         }
 
-        if ($stockType === 'customer_received') {
+        if (in_array($stockType, ['all', 'customer_received'], true)) {
             $rows = $rows->merge(
                 DB::table('customer_advance_voucher_items as cavi')
-                    ->leftJoinSub(app(\App\Services\JobworkRawStock::class)->consumption((int) $company->id), 'raw_used', 'raw_used.voucher_item_id', '=', 'cavi.id')
+                    ->leftJoinSub(app(\App\Services\JobworkRawStock::class)->consumption(\App\Services\ReportBranches::ids($company)), 'raw_used', 'raw_used.voucher_item_id', '=', 'cavi.id')
                     ->join('customer_advance_vouchers as cav', 'cav.id', '=', 'cavi.voucher_id')
                     ->join('customers', 'customers.id', '=', 'cav.customer_id')
                     ->leftJoin('items', 'items.id', '=', 'cavi.product_id')
-                    ->where('cav.company_id', $company->id)
+                    ->whereIn('cav.company_id', \App\Services\ReportBranches::ids($company))
                     ->where('cavi.product_id', $itemId)
                     ->when($customerId !== null, fn($q) => $q->where('cav.customer_id', $customerId))
                     ->select([
+                        'cav.company_id',
                         DB::raw("'Customer Received' as source"),
                         DB::raw('cav.voucher_date as source_date'),
                         'cav.voucher_no as reference_no',
@@ -2028,15 +2117,16 @@ class ReportController extends Controller
             );
         }
 
-        if (in_array($stockType, ['raw_material', 'finished_item', 'scrap', 'repair'], true) && $customerId === null) {
+        if (in_array($stockType, ['all', 'raw_material', 'finished_item', 'scrap', 'repair'], true) && $customerId === null) {
             $rows = $rows->merge(
                 DB::table('casting_sorting_items as csi')
                     ->join('items', 'items.id', '=', 'csi.item_id')
                     ->leftJoin('vacuum_vouchers as vv', 'vv.id', '=', 'csi.vacuum_voucher_id')
-                    ->where('csi.company_id', $company->id)
+                    ->whereIn('csi.company_id', \App\Services\ReportBranches::ids($company))
                     ->where('csi.item_id', $itemId)
-                    ->where(DB::raw("COALESCE(csi.stock_type, 'raw_material')"), $stockType)
+                    ->when($stockType !== 'all', fn ($query) => $query->where(DB::raw("COALESCE(csi.stock_type, 'raw_material')"), $stockType))
                     ->select([
+                        'csi.company_id',
                         DB::raw("'Casting Sorting' as source"),
                         DB::raw('COALESCE(csi.sorted_at, csi.created_at) as source_date'),
                         'vv.voucher_no as reference_no',
@@ -2061,6 +2151,9 @@ class ReportController extends Controller
             );
         }
 
+        $rows->each(function ($row) { $row->has_image = trim((string)($row->image_path ?? '')) !== ''; });
+        $request->attributes->set('stock_image_counts', ['with_image'=>(int)$rows->where('has_image', true)->sum('qty_pcs'), 'without_image'=>(int)$rows->where('has_image', false)->sum('qty_pcs')]);
+        if (in_array($request->input('image_status'), ['with','without'], true)) $rows = $rows->where('has_image', $request->input('image_status') === 'with');
         return $rows->sortByDesc(fn($row) => (string) ($row->source_date ?? ''))->values();
     }
 
@@ -2080,7 +2173,7 @@ class ReportController extends Controller
     {
         $stockType = trim((string) $stockType);
 
-        return in_array($stockType, ['finished_item', 'customer_received', 'raw_material', 'scrap', 'repair'], true)
+        return in_array($stockType, ['all', 'finished_item', 'customer_received', 'raw_material', 'scrap', 'repair'], true)
             ? $stockType
             : 'finished_item';
     }
@@ -2088,6 +2181,7 @@ class ReportController extends Controller
     private function stockPositionStockTypeName(?string $stockType): string
     {
         return match ($this->stockPositionNormalizeStockType($stockType)) {
+            'all' => 'All Stock Types',
             'customer_received' => 'Customer Received',
             'raw_material' => 'Raw Material',
             'scrap' => 'Scrap',
@@ -2106,7 +2200,7 @@ class ReportController extends Controller
         END";
     }
 
-    private function workerLossBaseQuery(Company $company, Request $request)
+    public function workerLossBaseQuery(Company $company, Request $request)
     {
         $castingReceive = DB::table('casting_release_items as cr')
             ->join('vacuum_vouchers as vv', 'vv.id', '=', 'cr.vacuum_voucher_id')
@@ -2116,13 +2210,13 @@ class ReportController extends Controller
                     ->on('cmi.vacuum_voucher_item_id', '=', 'cr.vacuum_voucher_item_id');
             })
             ->leftJoin('job_workers as jw', 'jw.id', '=', 'vv.job_worker_id')
-            ->where('cr.company_id', $company->id)
+            ->whereIn('cr.company_id', \App\Services\ReportBranches::ids($company))
             ->where(function ($query) {
                 $query->where('cr.release_tree_wt', '>', 0)
                     ->orWhere('cr.release_tree_bhuko', '>', 0);
             })
             ->selectRaw("
-                'Casting Receive' as stage,
+                cr.company_id, 'Casting Receive' as stage,
                 vv.job_worker_id as worker_id,
                 jw.name as worker_name,
                 vv.id as voucher_id,
@@ -2144,13 +2238,13 @@ class ReportController extends Controller
             ->leftJoin('job_workers as jw', function ($join) {
                 $join->on('jw.id', '=', DB::raw('COALESCE(tcr.job_worker_id, tci.job_worker_id)'));
             })
-            ->where('tcr.company_id', $company->id)
+            ->whereIn('tcr.company_id', \App\Services\ReportBranches::ids($company))
             ->where(function ($query) {
                 $query->where('tcr.receive_pc_wt', '>', 0)
                     ->orWhere('tcr.receive_tree_bhuko', '>', 0);
             })
             ->selectRaw("
-                'Tree Cutting Receive' as stage,
+                tcr.company_id, 'Tree Cutting Receive' as stage,
                 COALESCE(tcr.job_worker_id, tci.job_worker_id) as worker_id,
                 jw.name as worker_name,
                 vv.id as voucher_id,
@@ -2175,7 +2269,7 @@ class ReportController extends Controller
                 $join->on('i.id', '=', DB::raw('COALESCE(jri.item_id, jii.item_id)'));
             })
             ->leftJoin('job_workers as jw', 'jw.id', '=', 'ji.job_worker_id')
-            ->where('jr.company_id', $company->id)
+            ->whereIn('jr.company_id', \App\Services\ReportBranches::ids($company))
             ->where(function ($query) {
                 $query->where('jri.receive_gross_wt', '>', 0)
                     ->orWhere('jri.receive_net_wt', '>', 0)
@@ -2183,7 +2277,7 @@ class ReportController extends Controller
                     ->orWhere('jri.loss_wt', '!=', 0);
             })
             ->selectRaw("
-                'Jobwork Receive' as stage,
+                jr.company_id, 'Jobwork Receive' as stage,
                 ji.job_worker_id as worker_id,
                 jw.name as worker_name,
                 ji.id as voucher_id,
@@ -2361,7 +2455,7 @@ class ReportController extends Controller
                     $q->where('status', 'pending');
                 }
             ], 'total_amount')
-            ->where('company_id', $company->id)
+            ->whereIn('company_id', \App\Services\ReportBranches::ids($company))
             ->whereIn('status', ['open', 'partial']);
 
         if ($request->filled('customer_id')) {
@@ -2377,6 +2471,7 @@ class ReportController extends Controller
     private function approvalOutstandingColumnDefinitions(): array
     {
         return [
+            'branch' => ['label'=>'Company / Branch', 'total'=>''],
             'approval_no' => ['label' => 'Approval No', 'total' => 'TOTAL'],
             'date' => ['label' => 'Date', 'total' => ''],
             'customer' => ['label' => 'Customer Name', 'total' => ''],
@@ -2454,7 +2549,7 @@ class ReportController extends Controller
 
     private function approvalOutstandingDetailsPayload(Company $company, ApprovalHeader $approval): array
     {
-        abort_unless((int) $approval->company_id === (int) $company->id, 404);
+        abort_unless(in_array((int) $approval->company_id, \App\Services\ReportBranches::ids($company), true), 404);
 
         $approval->load(['customer', 'creator']);
 
@@ -2585,7 +2680,7 @@ class ReportController extends Controller
             ];
         }
 
-        $visible = [];
+        $visible = ['branch' => $definitions['branch'] + ['key'=>'branch']];
         foreach ($requested as $key) {
             if (isset($definitions[$key])) {
                 $visible[$key] = $definitions[$key] + ['key' => $key];
@@ -2598,6 +2693,7 @@ class ReportController extends Controller
     private function approvalOutstandingExportRow($row, array $visibleColumns): array
     {
         $values = [
+            'branch' => \App\Services\ReportBranches::name($row->company_id),
             'approval_no' => $row->approval_no,
             'date' => optional($row->approval_date)?->format('d-m-Y'),
             'customer' => optional($row->customer)->name ?? '-',
@@ -2682,7 +2778,7 @@ class ReportController extends Controller
             ->withSum('saleItems as sum_fine_weight', 'fine_weight')
             ->withSum('saleItems as sum_metal_amount', 'metal_amount')
             ->withSum('saleItems as sum_labour_amount', 'labour_amount')
-            ->where('company_id', $company->id);
+            ->whereIn('company_id', \App\Services\ReportBranches::ids($company));
 
         $hasUseToggles = $this->hasOutstandingUseToggles($request);
         $useDate = $this->isOutstandingToggleEnabled($request, ['use_date']);
@@ -2808,7 +2904,7 @@ class ReportController extends Controller
 
         $itemSets = ItemSet::query()
             ->leftJoin('items', 'items.id', '=', 'item_sets.item_id')
-            ->where('item_sets.company_id', $company->id)
+            ->whereIn('item_sets.company_id', \App\Services\ReportBranches::ids($company))
             ->where(function ($q) use ($code) {
                 $q->where('item_sets.qr_code', $code)
                     ->orWhere('item_sets.barcode', $code)
@@ -2827,7 +2923,7 @@ class ReportController extends Controller
 
             $approvalHistory = DB::table('approval_items as ai')
                 ->join('approval_headers as ah', 'ah.id', '=', 'ai.approval_id')
-                ->where('ah.company_id', $company->id)
+                ->where('ah.company_id', $set->company_id)
                 ->where(function ($q) use ($set, $hasApprovalItemsetId) {
                     if ($hasApprovalItemsetId) {
                         $q->where('ai.itemset_id', $set->id);
@@ -2862,7 +2958,7 @@ class ReportController extends Controller
 
             $saleHistory = DB::table('sale_items as si')
                 ->join('sales as s', 's.id', '=', 'si.sale_id')
-                ->where('s.company_id', $company->id)
+                ->where('s.company_id', $set->company_id)
                 ->where(function ($q) use ($set, $approvalItemIds) {
                     $q->where('si.itemset_id', $set->id);
                     if (!empty($approvalItemIds) && Schema::hasColumn('sale_items', 'approval_item_id')) {
@@ -2885,7 +2981,7 @@ class ReportController extends Controller
             $returnHistory = DB::table('sale_return_items as sri')
                 ->join('sale_returns as sr', 'sr.id', '=', 'sri.sale_return_id')
                 ->leftJoin('sale_items as si', 'si.id', '=', 'sri.sale_item_id')
-                ->where('sr.company_id', $company->id)
+                ->where('sr.company_id', $set->company_id)
                 ->where(function ($q) use ($set, $hasSaleReturnItemsetId) {
                     if ($hasSaleReturnItemsetId) {
                         $q->where('sri.itemset_id', $set->id);
@@ -2924,6 +3020,7 @@ class ReportController extends Controller
             }
 
             return [
+                'company_id' => $set->company_id,
                 'id' => $set->id,
                 'item_name' => $set->item_name,
                 'label_code' => $set->qr_code ?: $set->barcode,

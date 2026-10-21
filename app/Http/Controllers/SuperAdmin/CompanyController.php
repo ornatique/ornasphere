@@ -33,6 +33,10 @@ class CompanyController extends Controller
         if ($request->ajax()) {
 
             $companies = Company::query()
+                ->when(\App\Services\CompanyBranches::ready(), function ($query) {
+                    $query->whereNull('parent_company_id')
+                        ->with(['branches' => fn ($branches) => $branches->withCount('users')->orderBy('name')]);
+                })
                 ->withCount('users')
                 ->withCount(['planRenewals as plan_renewals_count'])
                 ->with(['users' => function ($query) {
@@ -49,6 +53,12 @@ class CompanyController extends Controller
             return DataTables::of($companies)
 
                 ->addIndexColumn()
+                ->editColumn('name', function ($row) {
+                    return view('superadmin.auth.company.branch-list', [
+                        'company' => $row,
+                        'parentActive' => $this->companyEffectiveStatus($row),
+                    ])->render();
+                })
                 ->addColumn('password_set_url', function ($row) {
 
                     $adminUser = $row->users->first();
@@ -155,7 +165,7 @@ class CompanyController extends Controller
 
 
 
-                ->rawColumns(['password_set_url', 'logo', 'plan_status', 'action', 'status'])
+                ->rawColumns(['name', 'password_set_url', 'logo', 'plan_status', 'action', 'status'])
                 ->make(true);
         }
 
@@ -164,13 +174,8 @@ class CompanyController extends Controller
 
     private function companyEffectiveStatus(Company $company): bool
     {
-        $adminUser = $company->users->first();
-
-        if (!$adminUser) {
-            return (bool) $company->status;
-        }
-
-        return (bool) $company->status && (bool) $adminUser->is_active;
+        // Company access and individual user access are independent settings.
+        return (bool) $company->status;
     }
 
     private function companyAdminUsersQuery(Company $company)
@@ -521,20 +526,21 @@ class CompanyController extends Controller
                 });
         }]);
 
-        $newStatus = !$this->companyEffectiveStatus($company);
+        $newStatus = !(bool) $company->status;
 
         $company->update([
             'status' => $newStatus
         ]);
 
-        $this->companyAdminUsersQuery($company)->update([
-            'is_active' => $newStatus
-        ]);
-
         if (!$newStatus) {
-            $company->users()->update([
-                'active_web_session_id' => (string) Str::uuid(),
-            ]);
+            $ids = [$company->id];
+            if (\App\Services\CompanyBranches::ready()) {
+                $ids = array_merge($ids, Company::where('parent_company_id', $company->id)->pluck('id')->all());
+            }
+            foreach (User::whereIn('company_id', $ids)->get() as $user) {
+                $user->forceFill(['active_web_session_id' => (string) Str::uuid(), 'remember_token' => null])->save();
+                \App\Services\InactiveTokenResponse::revoke($user);
+            }
         }
 
         AuditLog::logEvent(
@@ -552,6 +558,7 @@ class CompanyController extends Controller
 
     public function renewPlan(Request $request, Company $company)
     {
+        abort_if($company->parent_company_id, 422, 'Renew the main company plan. Branches inherit its expiry date.');
         $request->validate([
             'remarks' => 'nullable|string|max:1000',
         ]);

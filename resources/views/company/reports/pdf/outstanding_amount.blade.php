@@ -16,6 +16,7 @@
     </style>
 </head>
 <body>
+@include('company.reports.partials.pdf_company_scope')
     @php
         $selectedPartyName = optional($selectedCustomer ?? null)->name;
         $selectedPartyCity = optional($selectedCustomer ?? null)->city;
@@ -24,7 +25,7 @@
         $totalLabelColspan = 4 + ($showPartyColumn ? 1 : 0) + ($showCityColumn ? 1 : 0);
         $emptyColspan = 14 + ($showPartyColumn ? 1 : 0) + ($showCityColumn ? 1 : 0);
     @endphp
-    <div class="title">Outstanding Amount Report - {{ $company->name }}</div>
+    <div class="title">Outstanding Amount Report - {{ \App\Services\ReportBranches::heading($company) }}</div>
     @if(filled($selectedPartyName))
         <div class="filter-line">
             Party : {{ $selectedPartyName }}
@@ -56,7 +57,7 @@
                 <th style="width:5%;">Amt In</th>
                 <th style="width:5%;">Amt Out</th>
                 <th style="width:6%;">Pending</th>
-            </tr>
+            <th>Company / Branch</th></tr>
         </thead>
         <tbody>
             @forelse($rows as $i => $r)
@@ -89,7 +90,7 @@
                     <td class="text-right amount-cell">{{ number_format($received, 2, '.', '') }}</td>
                     <td class="text-right amount-cell">{{ number_format($out, 2, '.', '') }}</td>
                     <td class="text-right amount-cell">{{ number_format($pending, 2, '.', '') }}</td>
-                </tr>
+                <td>{{ \App\Services\ReportBranches::name(data_get($r, 'company_id')) }}</td></tr>
             @empty
                 <tr><td colspan="{{ $emptyColspan }}" class="text-center">No records found</td></tr>
             @endforelse
@@ -105,7 +106,7 @@
                 <td class="text-right amount-cell" style="font-weight:700;">{{ number_format((float) ($summary['amount_in'] ?? 0), 2, '.', '') }}</td>
                 <td class="text-right amount-cell" style="font-weight:700;">{{ number_format((float) ($summary['amount_out'] ?? 0), 2, '.', '') }}</td>
                 <td class="text-right amount-cell" style="font-weight:700;">{{ number_format((float) ($summary['pending_amount'] ?? 0), 2, '.', '') }}</td>
-            </tr>
+            <td></td></tr>
         </tbody>
     </table>
 </body>

@@ -16,7 +16,7 @@ use Illuminate\Support\Collection;
 
 class CompanyDashboardController extends Controller
 {
-    public function index()
+    public function index(\Illuminate\Http\Request $request)
     {
         $user = auth()->user();
         $canViewDashboardData = $user->hasRole('company_admin') || $user->can('dashboard-view');
@@ -27,36 +27,48 @@ class CompanyDashboardController extends Controller
             ]);
         }
 
-        $companyId = $user->company_id;
+        $dashboardBranches = \App\Services\CompanyBranches::visibleCompanies($user);
+        $canManageBranches = \App\Services\CompanyBranches::canManage($user);
+        $dashboardBranch = (string) $request->input('branch', $canManageBranches ? 'all' : $user->company->slug);
+        if ($dashboardBranch === 'all') {
+            abort_unless($canManageBranches, 403);
+            $companyIds = $dashboardBranches->pluck('id')->all();
+        } else {
+            $selected = $dashboardBranches->firstWhere('slug', $dashboardBranch);
+            abort_unless($selected, 403);
+            $companyIds = [$selected->id];
+        }
+        $branchNames = $dashboardBranches->pluck('name', 'id');
+
         $today = Carbon::today();
         $monthStart = Carbon::now()->startOfMonth();
         $monthEnd = Carbon::now()->endOfMonth();
 
-        $usersCount = User::where('company_id', $companyId)->count();
-        $customersCount = Customer::where('company_id', $companyId)->count();
-        $activeCustomersCount = Customer::where('company_id', $companyId)->where('is_active', 1)->count();
+        $usersCount = User::whereIn('company_id', $companyIds)->count();
+        $customersCount = Customer::whereIn('company_id', $companyIds)->count();
+        $activeCustomersCount = Customer::whereIn('company_id', $companyIds)->where('is_active', 1)->count();
 
-        $salesToday = (float) Sale::where('company_id', $companyId)
+        $salesToday = (float) Sale::whereIn('company_id', $companyIds)
             ->whereDate('sale_date', $today)
             ->sum('net_total');
 
-        $salesMonth = (float) Sale::where('company_id', $companyId)
+        $salesMonth = (float) Sale::whereIn('company_id', $companyIds)
             ->whereBetween('sale_date', [$monthStart->toDateString(), $monthEnd->toDateString()])
             ->sum('net_total');
 
-        $returnsMonth = (float) SaleReturn::where('company_id', $companyId)
+        $returnsMonth = (float) SaleReturn::whereIn('company_id', $companyIds)
             ->whereBetween('return_date', [$monthStart->toDateString(), $monthEnd->toDateString()])
             ->sum('return_total');
 
-        $approvalsOpen = ApprovalHeader::where('company_id', $companyId)
+        $approvalsOpen = ApprovalHeader::whereIn('company_id', $companyIds)
             ->whereIn('status', ['open', 'partial'])
             ->count();
 
-        $pendingApprovalItems = ApprovalItem::whereHas('approval', function ($q) use ($companyId) {
-            $q->where('company_id', $companyId);
+        $pendingApprovalItems = ApprovalItem::whereHas('approval', function ($q) use ($companyIds) {
+            $q->whereIn('company_id', $companyIds);
         })->where('status', 'pending')->count();
 
-        $labelsInStock = ItemSet::where('company_id', $companyId)
+        $labelsInStock = ItemSet::whereIn('company_id', $companyIds)
             ->where('is_final', 1)
             ->where('is_sold', 0)
             ->count();
@@ -71,21 +83,22 @@ class CompanyDashboardController extends Controller
             $end = $month->copy()->endOfMonth()->toDateString();
 
             $monthlyLabels[] = $month->format('M Y');
-            $monthlySales[] = (float) Sale::where('company_id', $companyId)
+            $monthlySales[] = (float) Sale::whereIn('company_id', $companyIds)
                 ->whereBetween('sale_date', [$start, $end])
                 ->sum('net_total');
-            $monthlyReturns[] = (float) SaleReturn::where('company_id', $companyId)
+            $monthlyReturns[] = (float) SaleReturn::whereIn('company_id', $companyIds)
                 ->whereBetween('return_date', [$start, $end])
                 ->sum('return_total');
         }
 
         $recentSales = Sale::with('customer')
-            ->where('company_id', $companyId)
+            ->whereIn('company_id', $companyIds)
             ->latest('sale_date')
             ->limit(5)
             ->get()
-            ->map(function ($sale) {
+            ->map(function ($sale) use ($branchNames) {
                 return [
+                    'branch' => $branchNames[$sale->company_id] ?? '-',
                     'type' => 'Sale',
                     'number' => $sale->voucher_no,
                     'customer' => optional($sale->customer)->name ?: '-',
@@ -94,12 +107,13 @@ class CompanyDashboardController extends Controller
                 ];
             });
 
-        $recentReturns = SaleReturn::where('company_id', $companyId)
+        $recentReturns = SaleReturn::whereIn('company_id', $companyIds)
             ->latest('return_date')
             ->limit(5)
             ->get()
-            ->map(function ($ret) {
+            ->map(function ($ret) use ($branchNames) {
                 return [
+                    'branch' => $branchNames[$ret->company_id] ?? '-',
                     'type' => 'Return',
                     'number' => $ret->return_voucher_no,
                     'customer' => '-',
@@ -109,12 +123,13 @@ class CompanyDashboardController extends Controller
             });
 
         $recentApprovals = ApprovalHeader::with('customer')
-            ->where('company_id', $companyId)
+            ->whereIn('company_id', $companyIds)
             ->latest('approval_date')
             ->limit(5)
             ->get()
-            ->map(function ($approval) {
+            ->map(function ($approval) use ($branchNames) {
                 return [
+                    'branch' => $branchNames[$approval->company_id] ?? '-',
                     'type' => 'Approval',
                     'number' => $approval->approval_no,
                     'customer' => optional($approval->customer)->name ?: '-',
@@ -135,6 +150,7 @@ class CompanyDashboardController extends Controller
 
         return view('company.dashboard', [
             'canViewDashboardData' => true,
+            'dashboardBranches' => $dashboardBranches, 'dashboardBranch' => $dashboardBranch, 'canManageBranches' => $canManageBranches,
             'users' => $usersCount,
             'customersCount' => $customersCount,
             'activeCustomersCount' => $activeCustomersCount,

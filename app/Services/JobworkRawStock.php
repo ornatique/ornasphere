@@ -16,13 +16,13 @@ class JobworkRawStock
         Company::whereKey($companyId)->lockForUpdate()->firstOrFail();
     }
 
-    public function consumption(int $companyId): Builder
+    public function consumption(int|array $companyId): Builder
     {
-        $issued = DB::table('jobwork_raw_stock_allocations')->where('company_id', $companyId)
+        $issued = DB::table('jobwork_raw_stock_allocations')->whereIn('company_id', (array) $companyId)
             ->selectRaw('jobwork_issue_id, item_id, SUM(net_weight) as issued')->groupBy('jobwork_issue_id', 'item_id');
         $returned = DB::table('jobwork_receive_items as ri')
             ->join('jobwork_receives as r', 'r.id', '=', 'ri.jobwork_receive_id')
-            ->where('r.company_id', $companyId)->whereNotNull('r.jobwork_issue_id')
+            ->whereIn('r.company_id', (array) $companyId)->whereNotNull('r.jobwork_issue_id')
             ->selectRaw('r.jobwork_issue_id, ri.item_id, SUM(ri.receive_net_wt) as returned')
             ->groupBy('r.jobwork_issue_id', 'ri.item_id');
 
@@ -30,7 +30,7 @@ class JobworkRawStock
         return DB::table('jobwork_raw_stock_allocations as a')
             ->joinSub($issued, 'i', fn($j) => $j->on('i.jobwork_issue_id', '=', 'a.jobwork_issue_id')->on('i.item_id', '=', 'a.item_id'))
             ->leftJoinSub($returned, 'r', fn($j) => $j->on('r.jobwork_issue_id', '=', 'a.jobwork_issue_id')->on('r.item_id', '=', 'a.item_id'))
-            ->where('a.company_id', $companyId)
+            ->whereIn('a.company_id', (array) $companyId)
             ->selectRaw('a.voucher_item_id, a.item_id, SUM(a.net_weight * (1 - CASE WHEN COALESCE(r.returned,0) > i.issued THEN i.issued ELSE COALESCE(r.returned,0) END / NULLIF(i.issued,0))) as used_net')
             ->groupBy('a.voucher_item_id', 'a.item_id');
     }
@@ -145,12 +145,13 @@ class JobworkRawStock
         }
     }
 
-    public function debtReport(int $companyId, bool $api = false): Builder
+    public function debtReport(int|array $companyId, bool $api = false, bool $includeCompany = false): Builder
     {
         $query = DB::query()->fromSub($this->consumption($companyId)->whereNull('a.voucher_item_id'), 'debt')
             ->join('items', 'items.id', '=', 'debt.item_id')
-            ->where('items.company_id', $companyId)->whereRaw('debt.used_net > 0.0005')
+            ->whereIn('items.company_id', (array) $companyId)->whereRaw('debt.used_net > 0.0005')
             ->selectRaw("debt.item_id, items.item_name, 'raw_stock_debt' as stock_type, 'Raw Stock Shortage' as stock_type_name, NULL as customer_id, '-' as customer_name, 0 as qty_pcs, -debt.used_net as gross_weight, 0 as ".($api ? 'less_weight' : 'other_weight').", -debt.used_net as net_weight, 0 as fine_weight, 0 as labour_amount, 0 as other_amount");
+        if ($includeCompany) $query->selectRaw('items.company_id');
         if ($api) $query->selectRaw('NULL as created_at');
         return $query;
     }

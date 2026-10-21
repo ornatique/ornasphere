@@ -305,6 +305,9 @@ class PermissionApiController extends Controller
 
     private function actionsForModule(string $module): array
     {
+        if ($module === 'bullion') return ['view', 'create'];
+        if ($module === 'report-approval-summary') return ['view'];
+        if ($module === 'gst-search') return ['view'];
         return in_array($module, ['dashboard', 'notification', 'vacuum-live-dashboard'], true)
             ? ['view']
             : ['view', 'create', 'edit', 'delete', 'manage'];
@@ -349,6 +352,8 @@ class PermissionApiController extends Controller
             'label-print' => 'Label Printing',
             'other-charge' => 'Other Charges',
             'stock-gallery' => 'Stock Gallery',
+            'bullion' => 'Bullion Management',
+            'gst-search' => 'GST Search',
             'qr-making' => 'QR Making',
             'approval' => 'Sale on Approval',
             'approval-return' => 'Approval Return',
@@ -357,6 +362,7 @@ class PermissionApiController extends Controller
             'report-sales-summary' => 'Sales Summary',
             'report-purchase-receiver-summary' => 'Purchase / Receiver Summary',
             'report-stock-position' => 'Stock Position',
+            'report-approval-summary' => 'Approval Summary',
             'report-approval-outstanding' => 'Approval Outstanding',
             'report-outstanding-amount' => 'Outstanding Amount',
             'report-barcode-history' => 'Barcode History',
@@ -400,6 +406,8 @@ class PermissionApiController extends Controller
             'label-print' => 'Item Management',
             'other-charge' => 'Item Management',
             'stock-gallery' => 'Stock Gallery',
+            'bullion' => 'Bullion Management',
+            'gst-search' => 'GST Search',
             'qr-making' => 'QR Making',
             'approval' => 'Sales',
             'approval-return' => 'Sales',
@@ -408,6 +416,7 @@ class PermissionApiController extends Controller
             'report-sales-summary' => 'Reports',
             'report-purchase-receiver-summary' => 'Reports',
             'report-stock-position' => 'Reports',
+            'report-approval-summary' => 'Approval Summary',
             'report-approval-outstanding' => 'Reports',
             'report-outstanding-amount' => 'Reports',
             'report-barcode-history' => 'Reports',

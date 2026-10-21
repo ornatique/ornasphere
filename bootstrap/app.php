@@ -111,6 +111,16 @@ return Application::configure(basePath: dirname(__DIR__))
                 return null;
             }
 
+            if ($code = \App\Services\InactiveTokenResponse::code($request->bearerToken())) {
+                return response()->json([
+                    'success' => false,
+                    'code' => $code,
+                    'message' => $code === 'COMPANY_INACTIVE'
+                        ? 'Your company has been deactivated. Please contact the administrator.'
+                        : 'Your account has been deactivated. Please contact your company admin.',
+                ], 403);
+            }
+
             return response()->json([
                 'success' => false,
                 'message' => 'Unauthenticated.',

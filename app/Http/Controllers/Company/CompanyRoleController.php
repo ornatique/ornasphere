@@ -244,6 +244,8 @@ class CompanyRoleController extends Controller
             'label-print',
             'other-charge',
             'stock-gallery',
+            'bullion',
+            'gst-search',
             'qr-making',
             // Temporarily disabled: 'customer-order',
             // Temporarily disabled: 'cad-design',
@@ -256,6 +258,7 @@ class CompanyRoleController extends Controller
             'report-purchase-receiver-summary',
             'report-stock-position',
             'report-approval-outstanding',
+            'report-approval-summary',
             'report-outstanding-amount',
             'report-barcode-history',
             'report-worker-loss',
@@ -298,6 +301,8 @@ class CompanyRoleController extends Controller
             'label-print' => 'Label Printing',
             'other-charge' => 'Other Charges',
             'stock-gallery' => 'Stock Gallery',
+            'bullion' => 'Bullion Management',
+            'gst-search' => 'GST Search',
             'qr-making' => 'QR Making',
             // Temporarily disabled: 'customer-order' => 'Customer Orders',
             // Temporarily disabled: 'cad-design' => 'CAD Designs',
@@ -309,6 +314,7 @@ class CompanyRoleController extends Controller
             'report-sales-summary' => 'Sales Summary',
             'report-purchase-receiver-summary' => 'Purchase / Receiver Summary',
             'report-stock-position' => 'Stock Position',
+            'report-approval-summary' => 'Approval Summary',
             'report-approval-outstanding' => 'Approval Outstanding',
             'report-outstanding-amount' => 'Outstanding Amount',
             'report-barcode-history' => 'Barcode History',
@@ -352,6 +358,8 @@ class CompanyRoleController extends Controller
             'label-print' => 'Item Management',
             'other-charge' => 'Item Management',
             'stock-gallery' => 'Stock Gallery',
+            'bullion' => 'Bullion Management',
+            'gst-search' => 'GST Search',
             'qr-making' => 'QR Making',
             // Temporarily disabled: 'customer-order' => 'Customer Orders',
             // Temporarily disabled: 'cad-design' => 'CAD Designs',
@@ -363,6 +371,7 @@ class CompanyRoleController extends Controller
             'report-sales-summary' => 'Reports',
             'report-purchase-receiver-summary' => 'Reports',
             'report-stock-position' => 'Reports',
+            'report-approval-summary' => 'Approval Summary',
             'report-approval-outstanding' => 'Reports',
             'report-outstanding-amount' => 'Reports',
             'report-barcode-history' => 'Reports',
@@ -404,6 +413,8 @@ class CompanyRoleController extends Controller
             'item',
             'item-set',
             'stock-gallery',
+            'bullion',
+            'gst-search',
             'qr-making',
             // Temporarily disabled: 'customer-order',
             // Temporarily disabled: 'cad-design',
@@ -434,6 +445,7 @@ class CompanyRoleController extends Controller
             'report-purchase-receiver-summary',
             'report-stock-position',
             'report-approval-outstanding',
+            'report-approval-summary',
             'report-outstanding-amount',
             'report-barcode-history',
             'report-worker-loss',
@@ -493,6 +505,9 @@ class CompanyRoleController extends Controller
 
     private function actionsForModule(string $module): array
     {
+        if ($module === 'bullion') return ['view', 'create'];
+        if ($module === 'report-approval-summary') return ['view'];
+        if ($module === 'gst-search') return ['view'];
         return in_array($module, ['dashboard', 'notification', 'vacuum-live-dashboard'], true)
             ? ['view']
             : ['view', 'create', 'edit', 'delete', 'manage'];

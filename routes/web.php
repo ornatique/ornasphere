@@ -277,6 +277,9 @@ Route::middleware([
         ->name('notifications.read');
 
     Route::resource('companies', CompanyController::class);
+    Route::get('companies/{company}/branches/{branch}', [\App\Http\Controllers\SuperAdmin\BranchManagementController::class, 'show'])->name('companies.branches.show');
+    Route::put('companies/{company}/branches/{branch}/status', [\App\Http\Controllers\SuperAdmin\BranchManagementController::class, 'status'])->name('companies.branches.status');
+    Route::put('companies/{company}/branches/{branch}/users/{user}', [\App\Http\Controllers\SuperAdmin\BranchManagementController::class, 'updateUser'])->name('companies.branches.users.update');
 
     Route::post(
         'companies/{company}/toggle-status',
@@ -350,8 +353,12 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
         Route::get('/dashboard/metal-rates', [CompanyDashboardController::class, 'metalRatesJson'])
             ->name('dashboard.metal-rates');
 
+        Route::post('/profile/branches', [\App\Http\Controllers\Company\BranchController::class, 'store'])->name('branches.store');
+        Route::patch('/profile/branches/{branch}/status', [\App\Http\Controllers\Company\BranchController::class, 'status'])->whereNumber('branch')->name('branches.status');
+        Route::put('/profile/branches/{branch}', [\App\Http\Controllers\Company\BranchController::class, 'update'])->whereNumber('branch')->name('branches.update');
         Route::get('/profile', [CompanyProfileController::class, 'show'])
             ->name('profile.show');
+        Route::put('/profile/opening-balances', [CompanyProfileController::class, 'openingBalances'])->name('profile.opening-balances');
         Route::put('/profile/voucher-series', [\App\Http\Controllers\Company\VoucherSeriesController::class, 'update'])
             ->name('profile.voucher-series.update');
 
@@ -378,6 +385,10 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
             ->name('customers.index');
         Route::get('/customers/create', [CustomerController::class, 'create'])
             ->name('customers.create');
+        Route::match(['get', 'post'], '/customers/gst-search', [\App\Http\Controllers\Company\GstinLookupController::class, 'search'])
+            ->middleware('throttle:10,1')->name('customers.gst-search.create');
+        Route::match(['get', 'post'], '/gst-search', [\App\Http\Controllers\Company\GstinLookupController::class, 'search'])
+            ->middleware('throttle:10,1')->name('gst-search.create');
         Route::post('/customers', [CustomerController::class, 'store'])
             ->name('customers.store');
         Route::get('/customers/export/excel', [CustomerController::class, 'exportExcel'])
@@ -947,6 +958,12 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
 
         Route::get('/stock-gallery', [StockGalleryController::class, 'index'])
             ->name('stock-gallery.index');
+        Route::get('/stock-gallery/{encryptedId}/image', [ItemSetController::class, 'showImage'])
+            ->name('stock-gallery.image.show');
+        Route::post('/stock-gallery/{encryptedId}/image', [ItemSetController::class, 'updateImage'])
+            ->name('stock-gallery.image.update');
+        Route::delete('/stock-gallery/{encryptedId}/image', [ItemSetController::class, 'removeImage'])
+            ->name('stock-gallery.image.remove');
         Route::get('/stock-gallery/{encryptedId}/media', [\App\Http\Controllers\Company\StockGalleryMediaController::class, 'show'])->middleware(\App\Http\Middleware\StockGalleryDiagnostics::class)->name('stock-gallery.media.show');
         Route::get('/stock-gallery/{encryptedId}/media/{kind}', [\App\Http\Controllers\Company\StockGalleryMediaController::class, 'asset'])->whereIn('kind', ['original', 'cutout'])->middleware(\App\Http\Middleware\StockGalleryDiagnostics::class)->name('stock-gallery.media.asset');
         Route::post('/stock-gallery/{encryptedId}/media/upload', [\App\Http\Controllers\Company\StockGalleryMediaController::class, 'upload'])->middleware('throttle:10,1')->middleware(\App\Http\Middleware\StockGalleryDiagnostics::class)->name('stock-gallery.media.upload.update');
@@ -995,6 +1012,9 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
 
         Route::get('/sales/advance-ledger', [CustomerAdvanceController::class, 'index'])
             ->name('sales.advance.index');
+        Route::get('/bullion', [\App\Http\Controllers\Company\BullionController::class, 'index'])->name('bullion.index');
+        Route::get('/bullion/pdf', [\App\Http\Controllers\Company\BullionController::class, 'index'])->name('bullion.pdf');
+        Route::post('/bullion', [\App\Http\Controllers\Company\BullionController::class, 'store'])->name('bullion.store');
         Route::get('/sales/advance-ledger/create', [CustomerAdvanceController::class, 'create'])
             ->name('sales.advance.create');
         Route::get('/sales/advance-ledger/sold-items', [CustomerAdvanceController::class, 'soldItems'])->name('sales.advance.soldItems');

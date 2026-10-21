@@ -103,9 +103,7 @@ class VoucherHistoryController extends Controller
             ->orderBy('id')
             ->get();
 
-        $releaseItems = CastingReleaseItem::where('company_id', $companyId)
-            ->where('vacuum_voucher_id', $voucher->id)
-            ->when($validItemIds !== [], fn($query) => $query->whereIn('vacuum_voucher_item_id', $validItemIds))
+        $releaseItems = CastingReleaseItem::forVoucherHistory($companyId, $voucher->id, $validItemIds)
             ->with('voucherItem:id,buch_no,item_name,remarks')
             ->orderBy('id')
             ->get();
@@ -192,7 +190,7 @@ class VoucherHistoryController extends Controller
                     'loss' => $this->decimal($releaseItems->sum(fn($item) => (float) ($item->loss ?? 0))),
                 ],
                 'rows' => $releaseItems->map(fn($item) => [
-                    'buch_no' => $item->voucherItem?->buch_no ?? '-',
+                    'buch_no' => $this->buchNo($item),
                     'item_name' => $item->voucherItem?->item_name ?? '-',
                     'voucher_remarks' => $item->voucherItem?->remarks ?? '-',
                     'release_tree_wt' => $this->decimal($item->release_tree_wt),

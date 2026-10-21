@@ -522,9 +522,9 @@ document.addEventListener('DOMContentLoaded', function () {
     const dataUrl = @json(route('company.stock-gallery.data', $company->slug));
     const pdfUrl = @json(route('company.stock-gallery.pdf', $company->slug));
     const downloadListUrl = @json(route('company.stock-gallery.download-list', $company->slug));
-    const imageShowUrlTemplate = @json(route('company.itemsets.image.show', [$company->slug, '__ID__']));
-    const imageUpdateUrlTemplate = @json(route('company.itemsets.image.update', [$company->slug, '__ID__']));
-    const imageRemoveUrlTemplate = @json(route('company.itemsets.image.remove', [$company->slug, '__ID__']));
+    const imageShowUrlTemplate = @json(route('company.stock-gallery.image.show', [$company->slug, '__ID__']));
+    const imageUpdateUrlTemplate = @json(route('company.stock-gallery.image.update', [$company->slug, '__ID__']));
+    const imageRemoveUrlTemplate = @json(route('company.stock-gallery.image.remove', [$company->slug, '__ID__']));
     const csrfToken = @json(csrf_token());
     const grid = document.getElementById('galleryGrid');
     const status = document.getElementById('galleryStatus');

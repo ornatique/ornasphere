@@ -27,8 +27,10 @@
         .voucher-grid td { white-space: nowrap; font-size: 8.4px; }
         .voucher-grid td:nth-child(2) { white-space: normal; }
         .amount-cell { white-space: nowrap; font-size: 7.6px; padding-left: 1px; padding-right: 1px; }
-        .voucher-grid tfoot th { font-size: 9.2px; font-weight: 700; background: #e2e2e2; padding-top: 5px; padding-bottom: 5px; }
-        .voucher-grid tfoot th.amount-cell { font-size: 9.2px; padding-left: 1px; padding-right: 1px; white-space: nowrap; }
+        .voucher-grid tfoot th { font-size: 7px; font-weight: 700; background: #e2e2e2; padding: 6px 2px; vertical-align: top; line-height: 1.4; }
+        .voucher-grid tfoot th.text-right { text-align: right; }
+        .voucher-grid tfoot th.amount-cell { font-size: 7px; padding-left: 2px; padding-right: 2px; white-space: nowrap; }
+        .total-unit { display:block; font-size:6.5px; font-weight:400; margin-top:2px; }
         .item-remark { margin-top: 2px; font-size: 8px; color: #333; }
         .payment-grid { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 4px; }
         .payment-grid th, .payment-grid td { border: 1px solid #000; padding: 4px 6px; }
@@ -259,11 +261,11 @@
                 <th class="text-right">{{ number_format($sumLess, 3) }}</th>
                 <th class="text-right">{{ number_format($sumNet, 3) }}</th>
                 <th></th>
-                <th class="text-right">{{ number_format($sumFine, 3) }} <span class="unit-circle">F</span></th>
+                <th class="text-right">{{ number_format($sumFine, 3) }}<span class="total-unit">Fine (g)</span></th>
                 <th></th>
                 <th></th>
-                <th class="text-right amount-cell">Rs&nbsp;{{ number_format($sumOther, 2) }}</th>
-                <th class="text-right amount-cell">Rs&nbsp;{{ number_format($sumTotal, 2) }}</th>
+                <th class="text-right amount-cell">{{ number_format($sumOther, 2) }}<span class="total-unit">Rs</span></th>
+                <th class="text-right amount-cell">{{ number_format($sumTotal, 2) }}<span class="total-unit">Rs</span></th>
             </tr>
         </tfoot>
     </table>

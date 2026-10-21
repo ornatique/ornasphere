@@ -35,8 +35,19 @@
     $planExpired = (bool) data_get($planStatus, 'expired', false);
 @endphp
 
-<div class="content-wrapper">
-    <div class="card profile-card">
+<div class="content-wrapper profile-management">
+    <header class="pm-heading"><div><span class="pm-eyebrow">Company settings</span><h1>Profile management</h1><p>Manage your company, branches and account settings in one place.</p></div></header>
+    <nav class="pm-nav" aria-label="Profile sections">
+        <a href="#profile-details">Profile details</a>
+        @if($canManageBranches ?? false)<a href="#branch-management">Branches</a>@endif
+        @if(!$company->parent_company_id && $user->hasRole('company_admin'))<a href="#opening-balances">Opening balances</a>@endif
+        @if($user->hasRole('company_admin'))<a href="#voucher-settings">Voucher settings</a>@endif
+    </nav>
+    @include('company.profile.branches')
+    @if(!$company->parent_company_id && $user->hasRole('company_admin'))
+    @include('company.profile.opening_balances')
+    @endif
+    <div class="card profile-card" id="profile-details">
         <div class="card-header profile-header">
             <div class="profile-title-wrap">
                 <div class="profile-avatar">
@@ -103,23 +114,24 @@
             </div>
 
             @if($voucherConfiguration)
-            <div class="profile-section">
-                <h5>Voucher Configuration</h5>
+            <div class="profile-section voucher-settings" id="voucher-settings">
+                <h2>Voucher Configuration</h2>
+                <p class="voucher-settings-intro">Choose your company prefix and preview the next number for each voucher type.</p>
                 @if(session('voucher_success'))<div class="alert alert-success">{{ session('voucher_success') }}</div>@endif
                 @error('prefix')<div class="alert alert-danger">{{ $message }}</div>@enderror
                 <form method="POST" action="{{ route('company.profile.voucher-series.update', $company->slug) }}">
                     @csrf @method('PUT')
-                    <div class="row align-items-end mb-3">
-                        <div class="col-md-5">
+                    <div class="voucher-settings-form mb-3">
+                        <div>
                             <label for="voucher-prefix">Company voucher prefix</label>
                             <input id="voucher-prefix" name="prefix" class="form-control" maxlength="20" pattern="[A-Za-z0-9]+" value="{{ old('prefix', $voucherConfiguration['custom_prefix']) }}" placeholder="{{ $voucherConfiguration['default_prefix'] }}">
                             <small>Leave empty for company initials: {{ $voucherConfiguration['default_prefix'] }}. Letters and numbers only.</small>
                         </div>
-                        <div class="col-md-4 mt-2"><button class="btn btn-primary">Save Voucher Configuration</button></div>
+                        <div><button class="btn btn-primary">Save Configuration</button></div>
                     </div>
                 </form>
                 <p>Each voucher type has a separate counter shared by the website and API. Changing the prefix continues the counter. Existing vouchers keep their numbers.</p>
-                <div class="table-responsive"><table class="table table-bordered">
+                <div class="table-responsive voucher-settings-table"><table class="table table-bordered mb-0">
                     <thead><tr><th>Voucher type</th><th>Next voucher preview</th></tr></thead>
                     <tbody>@foreach($voucherConfiguration['series'] as $series)
                         <tr><td>{{ $series['label'] }}</td><td class="voucher-preview" data-module="{{ $series['module'] }}" data-number="{{ $series['next_number'] }}">{{ $series['preview'] }}</td></tr>
@@ -145,10 +157,22 @@
         </div>
     </div>
 </div>
+<button type="button" id="profile-back-top" aria-label="Back to top" title="Back to top" hidden>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 12 6-6 6 6M12 6v13"/></svg>
+</button>
 @endsection
 
 @push('scripts')
 <script>
+const profileBackTop = document.getElementById('profile-back-top');
+function updateProfileBackTop() {
+    profileBackTop.hidden = window.scrollY < 300;
+}
+window.addEventListener('scroll', updateProfileBackTop, { passive: true });
+updateProfileBackTop();
+profileBackTop.addEventListener('click', function () {
+    window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+});
 document.getElementById('voucher-prefix')?.addEventListener('input', function () {
     const prefix = this.value.trim().toUpperCase() || @json($voucherConfiguration['default_prefix'] ?? '');
     document.querySelectorAll('.voucher-preview').forEach(function (cell) {
@@ -160,6 +184,24 @@ document.getElementById('voucher-prefix')?.addEventListener('input', function ()
 
 @push('styles')
 <style>
+    #profile-back-top {position:fixed;right:24px;bottom:24px;width:48px;height:48px;border:1px solid #9aaaff;border-radius:50%;background:#5265cf;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px #0005;cursor:pointer;z-index:1000}
+    #profile-back-top[hidden] {display:none}
+    #profile-back-top:hover {background:#6478e1}
+    #profile-back-top:focus-visible {outline:3px solid #c4ceff;outline-offset:3px}
+    @media(max-width:576px){#profile-back-top{right:16px;bottom:16px}}
+    .voucher-settings { padding:24px; border:1px solid #484b66; border-radius:14px; background:#27283b; }
+    .voucher-settings h2 { font-size:26px; font-weight:700; margin:0 0 10px; color:#fff; }
+    .voucher-settings-intro { color:#c2c9de; margin-bottom:24px; }
+    .voucher-settings-form { display:grid; grid-template-columns:minmax(220px,520px) auto; align-items:start; gap:20px; justify-content:start; padding:20px; background:#303148; border-radius:10px; }
+    .voucher-settings-form label { display:block; font-weight:600; margin-bottom:8px; }
+    .voucher-settings-form small { display:block; margin-top:8px; color:#c2c9de; }
+    .voucher-settings-form button { margin-top:28px; min-height:46px; white-space:nowrap; }
+    .voucher-settings-table { border:1px solid #484b66; border-radius:10px; margin:18px 0 12px; }
+    .voucher-settings-table th { background:#34364f; padding:15px 18px; }
+    .voucher-settings-table td { padding:14px 18px; vertical-align:middle; }
+    .voucher-settings-table .voucher-preview { font-family:monospace; font-size:16px; font-weight:700; color:#c1cdff; letter-spacing:.4px; }
+    .voucher-settings-table tbody tr:nth-child(even) { background:rgba(255,255,255,.025); }
+    @media(max-width:767px) { .voucher-settings { padding:16px; } .voucher-settings-form { grid-template-columns:1fr; } .voucher-settings-form button { margin-top:0; width:100%; } }
     .profile-header {
         display: flex;
         align-items: center;
@@ -315,5 +357,36 @@ document.getElementById('voucher-prefix')?.addEventListener('input', function ()
             grid-column: span 1;
         }
     }
+
+    .profile-management .pm-heading {margin:0 0 22px}
+    .profile-management .pm-eyebrow {text-transform:uppercase;letter-spacing:1.5px;font-size:11px;font-weight:700;color:#abbcff}
+    .profile-management h1 {font-size:28px;font-weight:700;color:#fff;margin:8px 0}
+    .profile-management .pm-heading p {color:#bbc4dc;line-height:1.6;margin:0}
+    .profile-management .pm-nav {display:flex;flex-wrap:wrap;gap:10px;margin-bottom:26px}
+    .profile-management .pm-nav a {padding:11px 17px;background:#30344e;color:#dce5ff;border:1px solid #505977;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px}
+    .profile-management .pm-nav a:hover {background:#414c74}
+    .profile-management .card {border:1px solid #444862;border-radius:14px;background:#26283c;margin-bottom:26px;scroll-margin-top:85px}
+    .profile-management .card-header {padding:22px 24px;background:#2d3046;border-bottom:1px solid #444862;border-radius:14px 14px 0 0;gap:16px}
+    .profile-management .card-header h3,.profile-management .card-header .card-title {font-size:21px;font-weight:700;color:#fff}
+    .profile-management .card-body {padding:24px}
+    .profile-management .card-body>p {color:#c1c9dd;line-height:1.7;margin-bottom:20px}
+    .profile-management .btn {min-height:42px;padding:10px 16px!important;border-radius:8px;line-height:1.35!important;font-size:13px;font-weight:600;color:#fff}
+    .profile-management .btn-primary,.profile-management .btn-info {background:#4d61c5;border:1px solid #788ae6;color:#fff}
+    .profile-management .btn-outline-light,.profile-management .btn-secondary {background:#363e59;border:1px solid #687391;color:#edf1ff}
+    .profile-management .btn-outline-danger,.profile-management .btn-danger {background:#482c3a;border:1px solid #a85b72;color:#ffd1dd}
+    .profile-management .btn:hover {filter:brightness(1.12)}
+    .profile-management label {font-size:13px;color:#ccd5e9;font-weight:600;margin-bottom:8px}
+    .profile-management .form-control {min-height:46px;border:1px solid #555e7d;border-radius:8px;background:#30334d;color:#fff;padding:11px 13px;line-height:1.5}
+    .profile-management input:focus,.profile-management select:focus,.profile-management textarea:focus {outline:2px solid #98aaff;outline-offset:2px}
+    .profile-management a:focus-visible,.profile-management button:focus-visible,.profile-management summary:focus-visible {outline:2px solid #98aaff;outline-offset:3px}
+    .profile-management #branch-management .branch-panel {border-radius:12px;background:#292d43;padding:22px}
+    .profile-management #branch-management .branch-overview {padding:22px;border-radius:10px}
+    .profile-management #branch-management .branch-actions {gap:10px}
+    .profile-management #branch-management .branch-edit summary {color:#c4d0ff}
+    .profile-management .profile-summary>div,.profile-management .profile-grid>div {border:1px solid #414961;border-radius:9px;padding:16px;background:#24273a;min-width:0;overflow-wrap:anywhere}
+    .profile-management .profile-section {margin-top:28px;scroll-margin-top:85px}
+    .profile-management .profile-section h5 {font-size:18px;margin-bottom:16px}
+    .profile-management .voucher-settings h2 {font-size:21px}
+    @media(max-width:767px){.profile-management .card-header,.profile-management .card-body{padding:18px}.profile-management h1{font-size:24px}.profile-management .pm-nav a{flex:1 1 140px;text-align:center}.profile-management .profile-grid,.profile-management .profile-summary{grid-template-columns:1fr}.profile-management #branch-management .branch-actions .btn{flex:1 1 150px}.profile-management .voucher-settings-form{padding:14px}}
 </style>
 @endpush

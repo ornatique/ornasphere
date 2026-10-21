@@ -13,9 +13,11 @@
     </style>
 </head>
 <body>
-    <h3>Stock Position Details - {{ $company->name }}</h3>
+@include('company.reports.partials.pdf_company_scope')
+    <h3>Stock Position Details - {{ \App\Services\ReportBranches::heading($company) }}</h3>
     <p>{{ $itemName }} | {{ $stockTypeName }} @if($customerName !== '-') | {{ $customerName }} @endif</p>
 
+<p>With image: <strong>{{ request()->attributes->get('stock_image_counts')['with_image'] ?? 0 }}</strong> &nbsp; Without image: <strong>{{ request()->attributes->get('stock_image_counts')['without_image'] ?? 0 }}</strong> (before image filter)</p><p>Image filter: {{ request('image_status','all') }}</p>
     <table style="margin-bottom: 6px;">
         <tbody>
             <tr class="summary">
@@ -30,15 +32,16 @@
     <table>
         <thead>
             <tr>
-                <th style="width: 4%;">#</th>
-                <th style="width: 13%;">Date</th>
-                <th style="width: 14%;">Label Code</th>
-                <th style="width: 25%;">Item</th>
-                <th style="width: 8%;">Qty</th>
-                <th style="width: 12%;">Gross Wt</th>
-                <th style="width: 12%;">Net Wt</th>
-                <th style="width: 12%;">Fine Wt</th>
-            </tr>
+                <th>#</th>
+                <th>Date</th>
+                <th>Label Code</th>
+                <th>Item</th>
+                <th>Stock Type</th>
+                <th>Qty</th>
+                <th>Gross Wt</th>
+                <th>Net Wt</th>
+                <th>Fine Wt</th>
+            <th>Image status</th><th>Company / Branch</th></tr>
         </thead>
         <tbody>
             @forelse($rows as $row)
@@ -47,14 +50,15 @@
                     <td>{{ $row->source_date ? \Carbon\Carbon::parse($row->source_date)->format('d-m-Y h:i A') : '-' }}</td>
                     <td>{{ $row->label_code ?? '-' }}</td>
                     <td>{{ $row->item_name ?? '-' }}</td>
+                    <td>{{ $row->stock_type_name ?? '-' }}</td>
                     <td>{{ (int) ($row->qty_pcs ?? 0) }}</td>
                     <td>{{ number_format((float) ($row->gross_weight ?? 0), 3, '.', '') }}</td>
                     <td>{{ number_format((float) ($row->net_weight ?? 0), 3, '.', '') }}</td>
                     <td>{{ number_format((float) ($row->fine_weight ?? 0), 3, '.', '') }}</td>
-                </tr>
+                <td>{{ $row->has_image ? 'With image' : 'Without image' }}</td><td>{{ \App\Services\ReportBranches::name($row->company_id ?? null) }}</td></tr>
             @empty
                 <tr>
-                    <td colspan="8" style="text-align: center;">No stock details found.</td>
+                    <td colspan="11" style="text-align: center;">No stock details found.</td>
                 </tr>
             @endforelse
         </tbody>

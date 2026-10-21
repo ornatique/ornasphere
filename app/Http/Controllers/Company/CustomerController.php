@@ -29,6 +29,9 @@ class CustomerController extends Controller
         if ($request->ajax()) {
             $customers = $this->personQuery($request, (int) $company->id)
                 ->select('customers.*');
+            if (!$request->filled('order')) {
+                $customers->orderByDesc('customers.created_at')->orderByDesc('customers.id');
+            }
 
             return DataTables::of($customers)
                 ->addIndexColumn()
@@ -55,12 +58,27 @@ class CustomerController extends Controller
         return view('company.customers.index', compact('company', 'categoryPeople'));
     }
 
-    public function create($slug)
+    public function create(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
         $categoryPeople = $this->categoryPeopleForCompany((int) $company->id);
 
-        return view('company.customers.create', compact('company', 'categoryPeople'));
+        $gstPrefill = [];
+        if ($request->filled('gst_prefill')) {
+            $stored = $request->session()->get('gst_customer_prefill', []);
+            abort_unless(($stored['token'] ?? null) === $request->query('gst_prefill')
+                && (int) ($stored['company_id'] ?? 0) === (int) $company->id
+                && ($stored['expires_at'] ?? 0) > now()->timestamp, 422, 'GST details expired. Search the GSTIN again.');
+            $gstPrefill = \Illuminate\Support\Arr::only($stored['data'], ['name','gst_no','pan_no','address','city','area','landmark','pincode']);
+            $gstPrefill['category_person_id'] = $categoryPeople->first(fn ($category) => strtolower(trim($category->category_name)) === 'customer')?->id;
+            $gstPrefill['remarks'] = collect([
+                'Legal name'=>'legal_name', 'GST status'=>'status', 'State'=>'state',
+                'Entity type'=>'entity_type', 'Nature of business'=>'nature_of_business',
+                'Department'=>'department', 'Registration type'=>'registration_type', 'Registration date'=>'registration_date',
+            ])->map(fn ($key, $label) => !empty($stored['data'][$key]) ? $label.': '.$stored['data'][$key] : null)
+                ->filter()->implode("\n");
+        }
+        return view('company.customers.create', compact('company', 'categoryPeople', 'gstPrefill'));
     }
 
     public function store(Request $request, $slug)

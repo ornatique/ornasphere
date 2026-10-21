@@ -49,12 +49,14 @@
     @media (max-width: 480px) { .register-filters { grid-template-columns: 1fr; } }
 </style>
 <div class="content-wrapper">
+@php($reportCompanyIds = \App\Services\ReportBranches::ids($company))
+@include('company.reports.partials.branch_filter')
 <div class="card approval-register">
     <div class="card-header"><h4 class="card-title">Approval &amp; Return Register</h4></div>
     <div class="card-body">
 
         <form method="GET" id="register-filters" class="register-filters mb-3">
-            <div><label for="summary-customer">Customer</label><select name="customer_id" id="summary-customer" class="form-control"><option value="">All customers</option>@foreach($customers as $customer)<option value="{{ \Illuminate\Support\Facades\Crypt::encryptString((string) $customer->id) }}" @selected($selectedCustomerId == $customer->id)>{{ $customer->name }}</option>@endforeach</select></div>
+            <div><label for="summary-customer">Customer</label><select name="customer_id" id="summary-customer" class="form-control"><option value="">All customers</option>@foreach($customers as $customer)<option value="{{ \Illuminate\Support\Facades\Crypt::encryptString((string) $customer->id) }}" @selected($selectedCustomerId == $customer->id)>{{ $customer->name }}{{ count($reportCompanyIds) > 1 ? ' — '.\App\Services\ReportBranches::name($customer->company_id) : '' }}</option>@endforeach</select></div>
             <div><label for="summary-from">From date</label><input id="summary-from" type="date" name="from_date" value="{{ request('from_date') }}" class="form-control"></div>
             <div><label for="summary-to">To date</label><input id="summary-to" type="date" name="to_date" value="{{ request('to_date') }}" class="form-control"></div>
             <div><label for="summary-voucher">Voucher</label><input id="summary-voucher" name="voucher" value="{{ request('voucher') }}" class="form-control" placeholder="Approval voucher number"></div>
@@ -63,7 +65,7 @@
         </form>
         @if($errors->any())<div class="alert alert-danger">{{ $errors->first() }}</div>@endif
         <div class="register-export-toolbar mb-3">
-            <strong>Approval issues, returns and sales</strong>
+            <div><strong>Approval issues, returns and sales</strong><p class="mb-0 mt-1">Each row shows one transaction voucher against one original approval. A return covering multiple approvals appears on multiple rows. Row count is not the number of distinct return vouchers.</p></div>
             <div class="register-export-actions" role="group" aria-label="Export report">
                 <a class="btn btn-primary" href="{{ request()->fullUrlWithQuery(['export' => 'csv', 'page' => null]) }}">Export CSV</a>
                 <a class="btn btn-info" href="{{ request()->fullUrlWithQuery(['export' => 'pdf', 'page' => null]) }}" target="_blank" rel="noopener">Export PDF</a>
@@ -82,7 +84,7 @@
         <div class="border rounded p-3 mb-3" style="background:rgba(255,255,255,.025)">
             <strong>Custom Report Columns</strong>
             <div class="d-flex flex-wrap mt-2" style="gap:12px">
-            @foreach(array_merge(['Date','Type','Voucher','Approval Voucher','Customer'], array_values($metrics)) as $label)
+            @foreach(array_merge(['Date','Type','Voucher','Approval Voucher','Customer','Branch'], array_values($metrics), ['Pending Qty']) as $label)
                 <label class="mb-0"><input type="checkbox" class="register-column-toggle" value="{{ $loop->index }}" checked @disabled($label === 'Voucher')> {{ $label }}</label>
             @endforeach
             </div>
@@ -93,11 +95,12 @@
         </div>
         <div class="register-table" tabindex="0" role="region" aria-label="Approval and return entries, scroll horizontally for more columns">
             <table id="register-table" class="table table-bordered text-nowrap">
-                <thead><tr><th>Date</th><th>Type</th><th>Voucher</th><th>Approval Voucher</th><th>Customer</th>@foreach($metrics as $label)<th>{{ $label }}</th>@endforeach</tr></thead>
-                <tbody>@forelse($rows as $row)<tr><td>{{ \Carbon\Carbon::parse($row->entry_date)->format('d-m-Y') }}</td><td><span class="badge {{ $row->entry_type === 'Approval' ? 'bg-primary' : ($row->entry_type === 'Approval Return' ? 'bg-success' : 'bg-info') }}">{{ $row->entry_type }}</span></td><td><a class="register-voucher-link text-info" href="{{ route('company.reports.approval-return-register.details', [$company->slug, $row->entry_type === 'Approval' ? 'approval' : ($row->entry_type === 'Approval Return' ? 'return' : 'sale'), $row->voucher_id]) }}?{{ http_build_query(['approval_no' => $row->approval_no]) }}">{{ $row->voucher_no }}</a></td><td>{{ $row->approval_no }}</td><td>{{ $row->customer_name ?? '-' }}</td>@foreach($metrics as $key => $label)<td class="text-end">{{ number_format($row->$key, $key === 'qty' ? 0 : ($key === 'amount' ? 2 : 3)) }}</td>@endforeach</tr>@empty<tr><td colspan="11" class="text-center">No entries match these filters.</td></tr>@endforelse</tbody>
+                <thead><tr><th>Date</th><th>Type</th><th>Voucher</th><th>Approval Voucher</th><th>Customer</th><th>Branch</th>@foreach($metrics as $label)<th>{{ $label }}</th>@endforeach<th>Pending Qty</th></tr></thead>
+                <tbody>@forelse($rows as $row)<tr><td>{{ \Carbon\Carbon::parse($row->entry_date)->format('d-m-Y') }}</td><td><span class="badge {{ $row->entry_type === 'Approval' ? 'bg-primary' : ($row->entry_type === 'Approval Return' ? 'bg-success' : 'bg-info') }}">{{ $row->entry_type }}</span></td><td><a class="register-voucher-link text-info" href="{{ route('company.reports.approval-return-register.details', [$company->slug, $row->entry_type === 'Approval' ? 'approval' : ($row->entry_type === 'Approval Return' ? 'return' : 'sale'), $row->voucher_id]) }}?{{ http_build_query(['approval_no' => $row->approval_no]) }}">{{ $row->voucher_no }}</a></td><td>{{ $row->approval_no }}</td><td>{{ $row->customer_name ?? '-' }}</td><td>{{ \App\Services\ReportBranches::name($row->company_id) }}</td>@foreach($metrics as $key => $label)<td class="text-end">{{ number_format($row->$key, $key === 'qty' ? 0 : ($key === 'amount' ? 2 : 3)) }}</td>@endforeach<td class="text-end">{{ $row->entry_type === 'Approval' ? $pendingItems->where('voucher_id', $row->voucher_id)->count() : '-' }}</td></tr>@empty<tr><td colspan="13" class="text-center">No entries match these filters.</td></tr>@endforelse</tbody>
             </table>
         </div>
-        <div class="mt-3">Showing {{ $rows->firstItem() ?? 0 }} to {{ $rows->lastItem() ?? 0 }} of {{ $rows->total() }} entries</div><div class="mt-3 register-pagination">{{ $rows->links('pagination::bootstrap-4') }}</div>
+        <div class="mt-3">Showing {{ $rows->firstItem() ?? 0 }} to {{ $rows->lastItem() ?? 0 }} of {{ $rows->total() }} approval-wise rows</div><div class="mt-3 register-pagination">{{ $rows->links('pagination::bootstrap-4') }}</div>
+        @include('company.reports.partials.approval_register_pending')
     </div>
 </div>
 </div>

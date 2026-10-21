@@ -16,7 +16,7 @@
               </div>
             </div>
           </li>
-          <li class="nav-item active">
+          <li class="nav-item {{ request()->routeIs('superadmin.dashboard') ? 'active' : '' }}">
             <a class="nav-link" href="{{ route('superadmin.dashboard') }}">
               <i class="typcn typcn-device-desktop menu-icon"></i>
               <span class="menu-title">Dashboard </span>
@@ -28,15 +28,15 @@
               <span class="menu-title">Notifications</span>
             </a>
           </li>
-          <li class="nav-item">
-            <a class="nav-link" data-bs-toggle="collapse" href="#ui-basic" aria-expanded="false" aria-controls="ui-basic">
+          <li class="nav-item {{ request()->routeIs('superadmin.companies.*') ? 'active' : '' }}">
+            <a class="nav-link" data-bs-toggle="collapse" href="#ui-basic" aria-expanded="{{ request()->routeIs('superadmin.companies.*') ? 'true' : 'false' }}" aria-controls="ui-basic">
               <i class="typcn typcn-briefcase menu-icon"></i>
               <span class="menu-title">Company</span>
               <i class="typcn typcn-chevron-right menu-arrow"></i>
             </a>
-            <div class="collapse" id="ui-basic">
+            <div class="collapse {{ request()->routeIs('superadmin.companies.*') ? 'show' : '' }}" id="ui-basic">
               <ul class="nav flex-column sub-menu">
-                <li class="nav-item"> <a class="nav-link" href="{{route('superadmin.companies.index')}}">Company List</a></li>
+                <li class="nav-item"> <a class="nav-link {{ request()->routeIs('superadmin.companies.*') ? 'active' : '' }}" href="{{route('superadmin.companies.index')}}">Company List</a></li>
                 <li class="nav-item"> <a class="nav-link" href="./pages/ui-features/buttons.html">Buttons</a></li>
               </ul>
             </div>

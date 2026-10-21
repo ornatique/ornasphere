@@ -79,7 +79,7 @@ class AuthController extends Controller
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
-        if (!$user->company || $user->company->status != 1) {
+        if (!\App\Services\CompanyBranches::isActive($user->company)) {
             return response()->json(['message' => 'Company inactive'], 403);
         }
 
@@ -128,6 +128,9 @@ class AuthController extends Controller
 
         if (!$user) {
             return response()->json(['message' => 'User not found'], 404);
+        }
+        if (!\App\Services\CompanyBranches::isActive($user->company) || (int) $user->is_active !== 1) {
+            return response()->json(['success'=>false, 'message'=>'Company or user inactive. Contact administrator.'], 403);
         }
 
         // A reset clears the secret while an app may still have its OTP screen open.
@@ -354,6 +357,8 @@ class AuthController extends Controller
             'profile_image' => $user->profile_image,
             'profile_image_url' => $this->safeProfileImageUrl($user),
             'avatar_initials' => $this->initials($user->name),
+            'can_manage_branches' => \App\Services\CompanyBranches::canManage($user),
+            'parent_company_id' => $company?->parent_company_id,
             'person_code' => $user->person_code,
             'mobile_no' => $user->mobile_no,
             'phone_no' => $user->phone_no,
@@ -568,6 +573,8 @@ class AuthController extends Controller
             'item',
             'item-set',
             'stock-gallery',
+            'bullion',
+            'gst-search',
             'label-config',
             'label-print',
             'other-charge',
@@ -594,6 +601,7 @@ class AuthController extends Controller
             'report-purchase-receiver-summary',
             'report-stock-position',
             'report-approval-outstanding',
+            'report-approval-summary',
             'report-outstanding-amount',
             'report-barcode-history',
             'report-worker-loss',

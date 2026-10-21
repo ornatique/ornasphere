@@ -15,8 +15,9 @@
     </style>
 </head>
 <body>
-    <h3>Stock Position Report - {{ $company->name }}</h3>
-    <table class="summary">
+@include('company.reports.partials.pdf_company_scope')
+    <h3>Stock Position Report - {{ \App\Services\ReportBranches::heading($company) }}</h3>
+    <p>With image: {{ $summary['with_image'] }} | Without image: {{ $summary['without_image'] }}</p><table class="summary">
         <tr>
             <th>Total Qty Pcs</th>
             <th>Total Gross Wt</th>
@@ -43,7 +44,7 @@
                 <th>Fine Wt</th>
                 <th>Labour Amt</th>
                 <th>Other Amt</th>
-            </tr>
+            <th>With image</th><th>Without image</th><th>Company / Branch</th></tr>
         </thead>
         <tbody>
             @foreach($rows as $r)
@@ -58,7 +59,7 @@
                 <td>{{ number_format((float)($r->fine_weight ?? 0), 3, '.', '') }}</td>
                 <td>{{ number_format((float)($r->labour_amount ?? 0), 2, '.', '') }}</td>
                 <td>{{ number_format((float)($r->other_amount ?? 0), 2, '.', '') }}</td>
-            </tr>
+            <td style="text-align:center">{{ (int)$r->with_image }}</td><td style="text-align:center">{{ max(0, (int)$r->qty_pcs - (int)$r->with_image) }}</td><td>{{ \App\Services\ReportBranches::name(data_get($r, 'company_id')) }}</td></tr>
             @endforeach
         </tbody>
     </table>

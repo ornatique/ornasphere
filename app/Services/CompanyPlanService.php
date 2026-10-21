@@ -21,6 +21,11 @@ class CompanyPlanService
             ];
         }
 
+        if ($company->parent_company_id) {
+            $parent = Company::find($company->parent_company_id);
+            if ($parent) return self::status($parent);
+        }
+
         $startedAt = $company->getAttribute('plan_started_at')
             ? Carbon::parse($company->getAttribute('plan_started_at'))
             : ($company->created_at ? Carbon::parse($company->created_at) : now());

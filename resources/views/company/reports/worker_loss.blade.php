@@ -2,6 +2,7 @@
 
 @section('content')
 <div class="content-wrapper">
+@include('company.reports.partials.branch_filter')
     <div class="card worker-loss-report">
         <div class="card-header worker-loss-header">
             <div>
@@ -128,7 +129,7 @@
                                         <th>Receive Wt</th>
                                         <th>Bhuko</th>
                                         <th>Loss</th>
-                                    </tr>
+                                    <th>Branch</th></tr>
                                 </thead>
                                 <tbody id="worker_summary_rows">
                                     <tr><td colspan="6" class="text-center">No data available</td></tr>
@@ -571,6 +572,7 @@ $(function () {
             { data: 'receive_wt', name: 'receive_wt', orderable: false, searchable: false },
             { data: 'bhuko', name: 'bhuko', orderable: false, searchable: false },
             { data: 'loss', name: 'loss', orderable: false, searchable: false },
+            { data: 'branch_name', orderable: false, searchable: false, defaultContent: '' },
         ]
     });
 
@@ -609,11 +611,11 @@ $(function () {
     });
 
     $('#export_excel').on('click', function () {
-        window.location.href = "{{ route('company.reports.worker-loss.export.excel', $company->slug) }}?" + queryParams();
+        window.location.href = window.reportBranchUrl("{{ route('company.reports.worker-loss.export.excel', $company->slug) }}?" + queryParams());
     });
 
     $('#export_pdf').on('click', function () {
-        window.location.href = "{{ route('company.reports.worker-loss.export.pdf', $company->slug) }}?" + queryParams();
+        window.location.href = window.reportBranchUrl("{{ route('company.reports.worker-loss.export.pdf', $company->slug) }}?" + queryParams());
     });
 
     $voucherInput.on('input focus blur', function (e) {

@@ -1,10 +1,10 @@
 @extends('layout.admin')
 @section('content')
 
-<div class="content-wrapper">
+<div class="content-wrapper company-list-page">
     <div class="card">
         <div class="card-header d-flex justify-content-between">
-            <h4 class="card-title">Company List</h4>
+            <div><h4 class="card-title">Companies</h4><p class="company-list-intro">Manage company access, branches, users and subscriptions.</p></div>
 
              <a href="{{ route('superadmin.companies.create') }}" class="btn btn-primary float-end">
                     + Add Company
@@ -12,7 +12,7 @@
         </div>
       
         <div class="card-body">
-            <h4 class="card-title">List Of Companies</h4>
+            
 
             <div class="row">
                 <div class="col-12">
@@ -26,9 +26,9 @@
                                     <th>Email</th>
                                     <th>Users</th>
                                     <th>Plan Status</th>
-                                    <th> Reset Password URL</th>
+                                    <th>Login setup</th>
                                     <th>Status</th>
-                                    <th>Action</th>
+                                    <th>Manage company</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -78,6 +78,34 @@
 @endsection
 @push('styles')
 <style>
+    .company-list-page .card {border:1px solid #41435d;border-radius:14px;overflow:hidden}
+    .company-list-page .card-header {padding:24px;align-items:center;gap:16px;flex-wrap:wrap}
+    .company-list-page .card-header .card-title {font-size:25px;color:#fff;margin:0 0 6px}
+    .company-list-intro {color:#bec4d9;margin:0;line-height:1.5}
+    .company-list-page .card-body {padding:24px}
+    .company-list-page .btn {min-height:36px;padding:8px 13px!important;line-height:1.3!important;border-radius:7px;color:#fff!important;font-size:12px;font-weight:600}
+    .company-list-page .btn-primary {background:#5265cf;border:1px solid #7182eb}
+    .company-list-page .btn-info,.company-list-page .btn-secondary {background:#354264;border:1px solid #61729f}
+    .company-list-page .btn-success {background:#215747;border:1px solid #438b73}
+    .company-list-page .btn-danger {background:#522d3b;border:1px solid #a5566e;color:#ffdae4!important}
+    .company-list-page .btn:hover {filter:brightness(1.18)}
+    #companyTable {width:100%!important;border-collapse:separate;border-spacing:0}
+    #companyTable th {background:#303249;color:#d4dcf3;font-size:12px;padding:16px 12px;white-space:nowrap}
+    #companyTable td {padding:20px 12px;vertical-align:middle;border-bottom:1px solid #3c3e56;line-height:1.5}
+    #companyTable tbody tr:hover {background:#2c2e44}
+    #companyTable td:nth-child(3) {min-width:180px;white-space:normal}
+    #companyTable td:nth-child(4) {max-width:230px;white-space:normal;overflow-wrap:anywhere}
+    #companyTable td:last-child {min-width:245px;white-space:normal}
+    #companyTable td:last-child .btn {margin:3px 2px}
+    #companyTable .form-switch {margin-left:0!important;padding-left:2.5em}
+    #companyTable .form-check-input {width:36px;height:20px;cursor:pointer}
+    #companyTable .plan-status-cell small {font-size:11px;font-weight:400}
+    .company-list-page .dataTables_filter input,.company-list-page .dataTables_length select {min-height:38px;border:1px solid #565a7a;border-radius:7px;background:#303149;color:#fff;padding:6px 10px}
+    .company-list-page .dataTables_filter,.company-list-page .dataTables_length {margin-bottom:20px}
+    .company-list-page .dataTables_info,.company-list-page .dataTables_paginate {margin-top:16px}
+    .company-list-page a:focus-visible,.company-list-page button:focus-visible {outline:2px solid #aab8ff;outline-offset:3px}
+    @media(max-width:767px){.company-list-page .card-header,.company-list-page .card-body{padding:16px}}
+
     .plan-status-cell {
         display: flex;
         flex-direction: column;
@@ -190,6 +218,9 @@
     });
 
     $(document).on('change', '.toggleStatus', function() {
+        const control = $(this);
+        const previousStatus = !this.checked;
+        control.prop('disabled', true);
         let companyId = $(this).data('id');
 
         $.ajax({
@@ -199,15 +230,21 @@
                 _token: "{{ csrf_token() }}"
             },
             success: function(res) {
+                control.prop('checked', res.success ? !!res.status : previousStatus);
                 if (res.success) {
                     $('.deleteBtn[data-id="' + companyId + '"]')
                         .data('active', res.status ? 1 : 0)
                         .attr('data-active', res.status ? 1 : 0);
                     toastr.success('Status updated successfully');
+                    $('#companyTable').DataTable().ajax.reload(null, false);
                 }
             },
             error: function() {
+                control.prop('checked', previousStatus);
                 toastr.error('Something went wrong');
+            },
+            complete: function() {
+                control.prop('disabled', false);
             }
         });
     });

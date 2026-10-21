@@ -36,6 +36,11 @@ class Company extends Model
         return $this->hasMany(User::class);
     }
 
+    public function branches()
+    {
+        return $this->hasMany(self::class, 'parent_company_id');
+    }
+
     public function getCompanyLogoUrlAttribute(): ?string
     {
         $defaultLogo = asset('celestial/assets/images/ornasphere-auth-logo.png') . '?v=' . @filemtime(public_path('celestial/assets/images/ornasphere-auth-logo.png'));

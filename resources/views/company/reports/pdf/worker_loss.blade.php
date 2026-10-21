@@ -14,18 +14,20 @@
         .text-end { text-align: right; }
         .text-center { text-align: center; }
         .summary-title { margin: 8px 0 3px; font-size: 10px; font-weight: bold; }
-        .w-sr { width: 5%; }
-        .w-date { width: 13%; }
-        .w-worker { width: 12%; }
+        .w-sr { width: 4%; }
+        .w-date { width: 12%; }
+        .w-worker { width: 11%; }
         .w-voucher { width: 10%; }
-        .w-buch { width: 10%; }
-        .w-stage { width: 14%; }
-        .w-wt { width: 9%; }
+        .w-buch { width: 8%; }
+        .w-stage { width: 12%; }
+        .w-wt { width: 7%; }
+        .w-branch { width: 15%; }
         .total-row td { font-weight: bold; background: #f7f7f7; }
     </style>
 </head>
 <body>
-    <h3>Worker Loss Report - {{ $company->name }}</h3>
+@include('company.reports.partials.pdf_company_scope')
+    <h3>Worker Loss Report - {{ \App\Services\ReportBranches::heading($company) }}</h3>
     <div class="meta">
         <span><strong>From:</strong> {{ $request->input('from_date') ?: '-' }}</span>
         <span><strong>To:</strong> {{ $request->input('to_date') ?: '-' }}</span>
@@ -107,7 +109,7 @@
                 <th class="w-wt">Receive Wt</th>
                 <th class="w-wt">Bhuko</th>
                 <th class="w-wt">Loss</th>
-            </tr>
+            <th class="w-branch">Company / Branch</th></tr>
         </thead>
         <tbody>
             @forelse($rows as $index => $row)
@@ -122,10 +124,10 @@
                 <td class="text-end">{{ number_format((float) ($row->receive_wt ?? 0), 3, '.', '') }}</td>
                 <td class="text-end">{{ number_format((float) ($row->bhuko ?? 0), 3, '.', '') }}</td>
                 <td class="text-end">{{ number_format((float) ($row->loss ?? 0), 3, '.', '') }}</td>
-            </tr>
+            <td>{{ \App\Services\ReportBranches::name(data_get($row, 'company_id')) }}</td></tr>
             @empty
             <tr>
-                <td colspan="10" class="text-center">No data available</td>
+                <td colspan="11" class="text-center">No data available</td>
             </tr>
             @endforelse
 
@@ -135,7 +137,7 @@
                 <td class="text-end">{{ number_format((float) ($totals['receive_wt'] ?? 0), 3, '.', '') }}</td>
                 <td class="text-end">{{ number_format((float) ($totals['bhuko'] ?? 0), 3, '.', '') }}</td>
                 <td class="text-end">{{ number_format((float) ($totals['loss'] ?? 0), 3, '.', '') }}</td>
-            </tr>
+            <td></td></tr>
         </tbody>
     </table>
 </body>
