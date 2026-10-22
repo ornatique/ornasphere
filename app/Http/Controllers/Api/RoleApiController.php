@@ -265,6 +265,7 @@ class RoleApiController extends Controller
         }
 
         $role->setRelation('permissions', $role->permissions
+            ->filter(fn ($permission) => \App\Services\CompanyModules::permissionAllowed(auth()->user()?->company, (string) $permission->name))
             ->reject(fn ($permission) => $this->isDeprecatedPermission((string) $permission->name))
             ->values());
     }
@@ -284,6 +285,7 @@ class RoleApiController extends Controller
         $this->ensureWebPermissions($companyId);
 
         $permissions = Permission::query()
+            ->whereIn('id', \App\Services\CompanyModules::permissionIds(\App\Models\Company::find($companyId)))
             ->where('guard_name', 'web')
             ->where(function ($q) use ($companyId) {
                 $q->whereNull('company_id')

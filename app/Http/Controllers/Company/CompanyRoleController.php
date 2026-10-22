@@ -166,6 +166,7 @@ class CompanyRoleController extends Controller
         $allowedActions = array_keys($actionOrder);
 
         return Permission::query()
+            ->whereIn('id', \App\Services\CompanyModules::permissionIds(\App\Models\Company::find($companyId)))
             ->where('guard_name', 'web')
             ->where(function ($q) use ($companyId) {
                 $q->whereNull('company_id')

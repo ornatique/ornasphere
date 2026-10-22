@@ -18,6 +18,7 @@ class Company extends Model
     }
 
     protected $fillable = [
+        'allowed_modules',
         'name',
         'slug',
         'email',
@@ -36,7 +37,13 @@ class Company extends Model
         'status'
     ];
 
+    public function moduleParent()
+    {
+        return $this->belongsTo(self::class, 'parent_company_id');
+    }
+
     protected $casts = [
+        'allowed_modules' => 'array',
         'plan_started_at' => 'datetime',
         'plan_expires_at' => 'datetime',
         'plan_renewed_at' => 'datetime',

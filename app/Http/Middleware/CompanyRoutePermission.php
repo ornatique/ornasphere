@@ -71,7 +71,7 @@ class CompanyRoutePermission
         abort(403, 'You do not have permission to access this module.');
     }
 
-    private function moduleFromRouteName(string $routeName): ?string
+    public function moduleFromRouteName(string $routeName): ?string
     {
         $map = [
             'company.gst-search.' => 'gst-search',

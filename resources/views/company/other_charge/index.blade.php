@@ -14,7 +14,6 @@
             @endif
         </div>
         <div class="card-body">
-            @include('company_layout.item_management_exports')
             <p class="text-muted">New records are created in {{ $company->name }}. Each existing record is managed in its own branch.</p>
 
             <div class="table-responsive">

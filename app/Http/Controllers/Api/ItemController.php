@@ -12,6 +12,7 @@ class ItemController extends Controller
     // ================= LIST =================
     public function index(Request $request)
     {
+        $request->validate(['jobwork_item_type'=>'nullable|in:raw,finish']);
         return \App\Services\ItemManagementApiBranches::listing($request, fn ($companyId) => $this->listForCompany($request, $companyId), 'Items');
     }
 
@@ -19,6 +20,7 @@ class ItemController extends Controller
     {
 
         $items = Item::where('company_id', $companyId)
+            ->when($request->filled('jobwork_item_type'), fn ($q) => $q->where('jobwork_item_type', $request->input('jobwork_item_type')))
             ->withCount(['itemSets', 'itemLabels'])
             ->when(
                 $request->boolean('label_configured_only') || $request->boolean('has_label_config'),

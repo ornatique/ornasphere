@@ -17,6 +17,8 @@ class EnsureCompanyIsActive
             return $next($request);
         }
 
+        \App\Services\CompanyModules::enforce($request);
+
         $company = $user->company;
         $targetIds = array_map('intval', (array) $request->input('management_branches', []));
         if ($request->filled('company_id')) $targetIds[] = (int) $request->input('company_id');

@@ -17,6 +17,7 @@ class PermissionApiController extends Controller
         $this->ensureWebPermissions($companyId);
 
         $permissions = Permission::query()
+            ->whereIn('id', \App\Services\CompanyModules::permissionIds($request->user()->company))
             ->where('guard_name', 'web')
             ->where(function ($q) use ($companyId) {
                 $q->whereNull('company_id')

@@ -223,6 +223,8 @@ class CompanyController extends Controller
             'plan'      => 'required|string|in:trial,yearly',
             'status'    => 'nullable|boolean',
             'company_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'allowed_modules' => ['nullable', 'array'],
+            'allowed_modules.*' => ['string', 'distinct', \Illuminate\Validation\Rule::in(array_keys(config('company_modules')))],
         ]);
 
         DB::beginTransaction();
@@ -243,6 +245,7 @@ class CompanyController extends Controller
             }
 
             $company = Company::create([
+                'allowed_modules' => $request->input('allowed_modules', []),
                 'name'       => $request->name,
                 'slug'       => $slug,
                 'email'      => $request->email,
@@ -379,6 +382,8 @@ class CompanyController extends Controller
             'plan'       => ['required', \Illuminate\Validation\Rule::in([$company->plan])],
             'status'     => 'nullable|boolean',
             'company_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'allowed_modules' => ['nullable', 'array'],
+            'allowed_modules.*' => ['string', 'distinct', \Illuminate\Validation\Rule::in(array_keys(config('company_modules')))],
             'admin_password' => 'nullable|string|min:6|confirmed',
         ]);
 
@@ -396,6 +401,7 @@ class CompanyController extends Controller
         }
 
         $company->update([
+            'allowed_modules' => $request->has('modules_present') ? $request->input('allowed_modules', []) : $company->allowed_modules,
             'name'       => $request->name,
             'email'      => $request->email,
             'company_logo' => $logoPath,

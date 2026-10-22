@@ -17,6 +17,7 @@ class CompanyPermissionController extends Controller
 
         if ($request->ajax()) {
             $permissions = Permission::where('guard_name', 'web')
+                ->whereIn('id', \App\Services\CompanyModules::permissionIds($company))
                 ->where(function ($q) use ($company) {
                     $q->whereNull('company_id')
                         ->orWhere('company_id', $company->id);

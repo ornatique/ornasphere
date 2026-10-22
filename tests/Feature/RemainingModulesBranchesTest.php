@@ -11,7 +11,7 @@ class RemainingModulesBranchesTest extends TestCase
         parent::setUp();
         $this->assertSame(':memory:', config('database.connections.sqlite.database'));
         DB::statement('CREATE TABLE companies (id integer primary key, name text, slug text, status integer, parent_company_id integer)');
-        DB::statement('CREATE TABLE items (id integer primary key, company_id integer, item_name text, item_code text, metal text, labour_type text, is_active integer, created_at text, updated_at text)');
+        DB::statement('CREATE TABLE items (id integer primary key, company_id integer, item_name text, jobwork_item_type text, item_code text, metal text, labour_type text, is_active integer, created_at text, updated_at text)');
         DB::statement('CREATE TABLE item_labels (id integer primary key, item_id integer, company_id integer)');
         DB::statement('CREATE TABLE label_configs (id integer primary key, item_id integer, company_id integer, prefix text, created_at text)');
         DB::statement('CREATE TABLE item_sets (id integer primary key, company_id integer, item_id integer, serial_no integer, qr_code text, barcode text, HUID text, gross_weight real, other real, net_weight real, sale_labour_formula text, sale_labour_rate real, sale_labour_amount real, sale_other real, is_printed integer, is_final integer, created_at text, updated_at text, printed_at text, image_disk text, image_path text, image_mime text, image_size integer, image_uploaded_at text)');
@@ -27,7 +27,7 @@ class RemainingModulesBranchesTest extends TestCase
             DB::table('category_people')->insert(['id'=>$id,'company_id'=>$id,'category_name'=>'bullion']);
             DB::table('customers')->insert(['id'=>$id,'company_id'=>$id,'category_person_id'=>$id,'name'=>'Person '.$id]);
             DB::table('customer_advance_ledgers')->insert(['id'=>$id,'company_id'=>$id,'customer_id'=>$id,'cash_in'=>$id*100,'cash_out'=>0,'metal_in'=>0,'metal_out'=>0,'entry_date'=>'2026-10-21']);
-            DB::table('items')->insert(['id'=>$id,'company_id'=>$id,'item_name'=>'Item '.$id,'item_code'=>'I'.$id,'created_at'=>now()]);
+            DB::table('items')->insert(['id'=>$id,'company_id'=>$id,'item_name'=>'Item '.$id,'jobwork_item_type'=>'finish','item_code'=>'I'.$id,'created_at'=>now()]);
             DB::table('label_configs')->insert(['id'=>$id,'company_id'=>$id,'item_id'=>$id,'prefix'=>'L'.$id,'created_at'=>now()]);
             DB::table('item_sets')->insert(['id'=>$id,'company_id'=>$id,'item_id'=>$id,'qr_code'=>'L-'.$id,'serial_no'=>1,'is_final'=>1,'is_printed'=>0,'gross_weight'=>10,'other'=>1,'net_weight'=>9,'sale_other'=>0,'created_at'=>now(),'updated_at'=>now()]);
         }
@@ -61,6 +61,32 @@ class RemainingModulesBranchesTest extends TestCase
         $this->assertSame(2,$api['pagination']['total']);
         $this->assertSame('Branch 2',$api['data'][0]['company_name']);
         $this->assertStringContainsString('company_id=2',$api['data'][0]['image_download_url']);
+    }
+    public function test_gallery_excludes_raw_and_unclassified_items(): void
+    {
+        $request=$this->request(['management_branches'=>[1,2]]);
+        DB::table('items')->where('id',2)->update(['jobwork_item_type'=>'raw']);
+        $web=new \App\Http\Controllers\Company\StockGalleryController;
+        $data=$web->data($request,'branch-1')->getData(true);
+        $this->assertSame(1,$data['total']);
+        $this->assertSame('10.000',$data['summary']['total_gross_weight']);
+        $this->assertSame([1],$web->index($request,'branch-1')->getData()['items']->pluck('id')->all());
+        $api=new \App\Http\Controllers\Api\StockGalleryApiController;
+        $this->assertSame(1,$api->index($request)->getData(true)['pagination']['total']);
+        DB::table('items')->where('id',1)->update(['jobwork_item_type'=>null]);
+        $this->assertSame(0,$api->index($request)->getData(true)['pagination']['total']);
+    }
+    public function test_item_type_filter_on_web_and_api(): void
+    {
+        DB::table('items')->where('id',2)->update(['jobwork_item_type'=>'raw']);
+        foreach (['raw'=>2,'finish'=>1] as $type=>$id) {
+            $request=$this->request(['management_branches'=>[1,2],'jobwork_item_type'=>$type]);
+            $web=(new \App\Http\Controllers\Company\ItemController)->data($request,'branch-1')->getData(true);
+            $this->assertSame(1,$web['recordsFiltered']);
+            $this->assertSame($id,$web['data'][0]['id']);
+            $api=(new \App\Http\Controllers\Api\ItemController)->index($request)->getData(true);
+            $this->assertCount(1,$api['data']); $this->assertSame($id,$api['data'][0]['id']);
+        }
     }
     public function test_qr_list_combines_and_branch_mutation_is_denied(): void
     {

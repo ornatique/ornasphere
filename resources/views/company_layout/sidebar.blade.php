@@ -14,6 +14,7 @@
     $isReportRoute = str_starts_with($routeName, 'company.reports.') && !$isVisitingCardsRoute;
 
     $canModule = function (string $module, string $action = 'view') use ($authUser, $isCompanyAdmin) {
+    if (!\App\Services\CompanyModules::permissionAllowed($authUser?->company, $module)) return false;
     if ($isCompanyAdmin) {
     return true;
     }

@@ -101,7 +101,7 @@ class StockGalleryApiController extends Controller
     {
         $company = $this->company($request);
 
-        $itemSet = ItemSet::with('item')
+        $itemSet = ItemSet::with('item')->whereHas('item', fn ($query) => $query->where('jobwork_item_type', 'finish'))
             ->whereIn('company_id', \App\Services\CompanyBranches::apiManagementSelection($request)->keys())
             ->where('id', $id)
             ->firstOrFail();
@@ -135,6 +135,7 @@ class StockGalleryApiController extends Controller
         $query = ItemSet::query()
             ->with('item')
             ->whereIn('item_sets.company_id', \App\Services\CompanyBranches::apiManagementSelection($request)->keys())
+            ->whereHas('item', fn ($query) => $query->where('jobwork_item_type', 'finish'))
             ->where('item_sets.is_final', 1)
             ->whereNotNull('item_sets.qr_code');
 

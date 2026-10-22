@@ -44,7 +44,6 @@
         </div>
 
         <div class="card-body">
-            @include('company_layout.item_management_exports')
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <div>
                     <strong>Total Labels:</strong> <span id="totalLabels">0</span>
