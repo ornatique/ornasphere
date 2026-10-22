@@ -32,7 +32,10 @@ class ApiItemReceiptTest extends TestCase
     private function send(array $body)
     {
         $r = Request::create('/api/sales/advance-ledger/entries','POST',$body);
-        $r->setUserResolver(fn() => (object)['id'=>1,'company_id'=>1]);
+        $user = new \App\Models\User;
+        $user->forceFill(['id'=>1,'company_id'=>1]);
+        $user->setRelation('company', \App\Models\Company::findOrFail(1));
+        $r->setUserResolver(fn() => $user);
         return app(CustomerAdvanceApiController::class)->store($r);
     }
 

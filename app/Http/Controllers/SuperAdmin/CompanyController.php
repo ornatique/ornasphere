@@ -92,7 +92,7 @@ class CompanyController extends Controller
                 ->addColumn('plan_status', function ($row) {
                     $status = CompanyPlanService::status($row);
                     $badgeClass = $status['expired'] ? 'badge-danger' : 'badge-success';
-                    $label = $status['expired'] ? 'Expired' : 'Active';
+                    $label = $row->plan === 'trial' ? ($status['expired'] ? 'Trial Expired' : 'Trial - '.$status['days_remaining'].' days left') : ($status['expired'] ? 'Plan Expired' : 'Paid - Active');
 
                     return '
                         <div class="plan-status-cell">
@@ -220,7 +220,7 @@ class CompanyController extends Controller
             'admin_name' => 'nullable|string|max:255',
             'email'     => 'required|email|unique:users,email',
             'max_users' => 'required|integer|min:1',
-            'plan'      => 'required|string|in:yearly',
+            'plan'      => 'required|string|in:trial,yearly',
             'status'    => 'nullable|boolean',
             'company_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
         ]);
@@ -250,7 +250,7 @@ class CompanyController extends Controller
                 'max_users'  => $request->max_users,
                 'plan'       => $request->plan,
                 'plan_started_at' => now(),
-                'plan_expires_at' => now()->addYear(),
+                'plan_expires_at' => $request->plan === 'trial' ? now()->addDays(10) : now()->addYearNoOverflow(),
 
                 // Address fields
                 'address_1'  => $request->address_1,
@@ -376,7 +376,7 @@ class CompanyController extends Controller
             'admin_name' => 'nullable|string|max:255',
             'email'      => 'required|email|max:255',
             'max_users'  => 'required|integer|min:1',
-            'plan'       => 'required|string|in:yearly',
+            'plan'       => ['required', \Illuminate\Validation\Rule::in([$company->plan])],
             'status'     => 'nullable|boolean',
             'company_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
             'admin_password' => 'nullable|string|min:6|confirmed',
@@ -565,12 +565,13 @@ class CompanyController extends Controller
 
         $planStatus = CompanyPlanService::status($company);
         $oldExpiresAt = $planStatus['expires_at'] ? Carbon::parse($planStatus['expires_at']) : null;
-        $baseDate = ($oldExpiresAt && $oldExpiresAt->isFuture()) ? $oldExpiresAt->copy() : now();
-        $newExpiresAt = $baseDate->copy()->addYear();
+        $baseDate = ($company->plan !== 'trial' && $oldExpiresAt && $oldExpiresAt->isFuture()) ? $oldExpiresAt->copy() : now();
+        $newExpiresAt = $baseDate->copy()->addYearNoOverflow();
 
         DB::transaction(function () use ($company, $planStatus, $oldExpiresAt, $newExpiresAt, $request) {
             $company->update([
-                'plan_started_at' => $company->plan_started_at ?: $planStatus['started_at'],
+                'plan' => 'yearly',
+                'plan_started_at' => $company->plan === 'trial' ? now() : ($company->plan_started_at ?: $planStatus['started_at']),
                 'plan_expires_at' => $newExpiresAt,
                 'plan_renewed_at' => now(),
             ]);

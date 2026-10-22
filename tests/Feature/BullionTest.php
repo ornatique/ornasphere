@@ -13,7 +13,7 @@ class BullionTest extends TestCase
     {
         $this->travelTo(\Carbon\Carbon::parse('2026-10-15 14:35:27', config('app.timezone')));
         $this->assertSame(':memory:', config('database.connections.sqlite.database'));
-        DB::statement('CREATE TABLE companies (id integer primary key, name text, slug text, voucher_prefix text)');
+        DB::statement('CREATE TABLE companies (id integer primary key, name text, slug text, voucher_prefix text, status integer default 1)');
         DB::statement('CREATE TABLE customers (id integer primary key, company_id integer, category_person_id integer)');
         DB::statement('CREATE TABLE category_people (id integer primary key, company_id integer, category_name text)');
         DB::table('category_people')->insert([['id'=>1,'company_id'=>1,'category_name'=>'Bullion'],['id'=>2,'company_id'=>1,'category_name'=>'Customer']]);

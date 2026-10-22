@@ -13,7 +13,11 @@ class LabourFormulaApiController extends Controller
 {
     public function index(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        return \App\Services\JobworkApiBranches::listing($request, fn ($companyId) => $this->indexForCompany($request, $companyId), 'Labour Formula');
+    }
+
+    private function indexForCompany(Request $request, int $companyId)
+    {
 
         $data = LabourFormula::where('company_id', $companyId)
             ->latest()
@@ -31,7 +35,7 @@ class LabourFormulaApiController extends Controller
 
     public function options(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $query = LabourFormula::where('company_id', $companyId)
             ->orderBy('name');
@@ -50,7 +54,7 @@ class LabourFormulaApiController extends Controller
 
     public function show(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $data = LabourFormula::where('company_id', $companyId)
             ->where('id', $id)
@@ -71,7 +75,7 @@ class LabourFormulaApiController extends Controller
 
     public function store(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $validated = $request->validate([
             'name' => [
@@ -98,7 +102,7 @@ class LabourFormulaApiController extends Controller
 
     public function update(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $data = LabourFormula::where('company_id', $companyId)
             ->where('id', $id)
@@ -137,7 +141,7 @@ class LabourFormulaApiController extends Controller
 
     public function destroy(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $data = LabourFormula::where('company_id', $companyId)
             ->where('id', $id)

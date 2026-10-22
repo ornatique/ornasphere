@@ -21,12 +21,12 @@ class StockGalleryController extends Controller
     {
         return $this->mediaSchemaReady ??= \Illuminate\Support\Facades\Schema::hasTable('stock_gallery_media');
     }
-    public function index($slug)
+    public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        $items = Item::where('company_id', $company->id)
+        $items = Item::whereIn('company_id', \App\Services\CompanyBranches::managementSelection($request, $company)->keys())
             ->orderBy('item_name')
-            ->get(['id', 'item_name']);
+            ->get(['id', 'item_name', 'company_id']);
 
         $mediaAvailable = $this->mediaReady();
         return view('company.stock_gallery.index', compact('company', 'items', 'mediaAvailable'));
@@ -67,11 +67,12 @@ class StockGalleryController extends Controller
             })
             ->filter(fn (ItemSet $itemSet) => !empty($itemSet->stock_gallery_image))
             ->values();
+        $branchNames = \App\Services\CompanyBranches::managementSelection($request, $company)->pluck('name')->implode(' / ');
         $emptyMessage = $matchedItemCount > 0
             ? 'Items are available in stock, but image is not uploaded for the selected items.'
             : 'No stock gallery items found.';
 
-        $pdf = Pdf::loadView('company.stock_gallery.pdf', compact('company', 'itemSets', 'emptyMessage'))
+        $pdf = Pdf::loadView('company.stock_gallery.pdf', compact('company', 'itemSets', 'emptyMessage', 'branchNames'))
             ->setPaper('a4', 'portrait');
 
         return $pdf->download('stock-gallery-' . now()->format('Ymd-His') . '.pdf');
@@ -92,7 +93,7 @@ class StockGalleryController extends Controller
                 'label_code' => (string) ($itemSet->qr_code ?: $itemSet->barcode ?: $itemSet->id),
                 'item_name' => optional($itemSet->item)->item_name ?? '-',
                 'download_url' => route('company.stock-gallery.download-image', [
-                    $company->slug,
+                    Company::findOrFail($itemSet->company_id)->slug,
                     Crypt::encryptString((string) $itemSet->id),
                 ]),
             ])
@@ -143,7 +144,7 @@ class StockGalleryController extends Controller
     {
         $query = ItemSet::query()
             ->with($this->mediaReady() ? ['item', 'galleryMedia'] : ['item'])
-            ->where('item_sets.company_id', $company->id)
+            ->whereIn('item_sets.company_id', \App\Services\CompanyBranches::managementSelection($request, $company)->keys())
             ->where('item_sets.is_final', 1)
             ->whereNotNull('item_sets.qr_code');
 
@@ -214,12 +215,16 @@ class StockGalleryController extends Controller
 
     private function payload(ItemSet $itemSet, Company $company): array
     {
+        $company = Company::findOrFail($itemSet->company_id);
         $media = $this->mediaReady() ? $itemSet->galleryMedia : null;
         $ready = $media && $media->matchesSource($itemSet) && $media->status === 'ready';
         $cutoutUrl = $ready && $media->approved
             ? route('company.stock-gallery.media.asset', [$company->slug, Crypt::encryptString((string) $itemSet->id), 'cutout']) . '?v=' . $media->revision
             : null;
         return [
+            'company_id' => (int) $company->id,
+            'company_name' => $company->name,
+            'can_manage' => \App\Services\BranchReadOnly::canWrite(request()->user(), $company->id),
             'media_available' => $this->mediaReady(),
             'try_on_category' => $itemSet->item->try_on_category ?? 'none',
             'try_on_enabled' => $ready && $media->approved && $media->enabled && ($itemSet->item->try_on_category ?? 'none') !== 'none',

@@ -84,6 +84,7 @@ class AuthController extends Controller
         }
 
         $planStatus = $this->companyPlanStatus($user->company);
+        if ($planStatus['expired']) return response()->json(['success'=>false,'code'=>$planStatus['code'],'message'=>$planStatus['alert']['message'],'plan_alert'=>$planStatus['alert']],403);
 
         if ($user->is_active != 1) {
             return response()->json(['message' => 'User inactive'], 403);
@@ -107,6 +108,7 @@ class AuthController extends Controller
                 'plan_expires_at' => $planStatus['expires_at'],
                 'plan_expired' => $planStatus['expired'],
                 'plan_alert' => $planStatus['alert'],
+                'trial_countdown' => $planStatus['trial_countdown'] ?? null,
             ],
         ]);
     }
@@ -215,6 +217,7 @@ class AuthController extends Controller
         ])->save();
 
         $planStatus = $this->companyPlanStatus($user->company);
+        if ($planStatus['expired']) return response()->json(['success'=>false,'code'=>$planStatus['code'],'message'=>$planStatus['alert']['message'],'plan_alert'=>$planStatus['alert']],403);
 
         return response()->json([
             'message' => 'Login successful',
@@ -245,6 +248,7 @@ class AuthController extends Controller
                 'plan_expires_at' => $planStatus['expires_at'],
                 'plan_expired' => $planStatus['expired'],
                 'plan_alert' => $planStatus['alert'],
+                'trial_countdown' => $planStatus['trial_countdown'] ?? null,
             ],
         ]);
     }
@@ -399,6 +403,7 @@ class AuthController extends Controller
                 'plan_expired' => $planStatus['expired'],
                 'plan_days_remaining' => $planStatus['days_remaining'],
                 'plan_alert' => $planStatus['alert'],
+                'trial_countdown' => $planStatus['trial_countdown'] ?? null,
                 'address_1' => $company->address_1,
                 'address_2' => $company->address_2,
                 'city' => $company->city,

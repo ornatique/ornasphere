@@ -35,9 +35,10 @@ class SaleController extends Controller
     {
         // ✅ Get Company
         $company = Company::where('slug', $slug)->firstOrFail();
+        $companies = \App\Services\CompanyBranches::managementSelection($request, $company);
 
         // ✅ AJAX (DataTable)
-        if ($request->ajax()) {
+        if ($request->ajax() || $request->filled('export')) {
 
             $query = Sale::with(['customer', 'creator'])
                 ->withSum('saleItems as sum_qty', 'qty')
@@ -47,7 +48,7 @@ class SaleController extends Controller
                 ->withSum('saleItems as sum_metal_amount', 'metal_amount')
                 ->withSum('saleItems as sum_labour_amount', 'labour_amount')
                 ->withSum('saleItems as sum_other_amount', 'other_amount')
-                ->where('company_id', $company->id)
+                ->whereIn('company_id', $companies->keys())
                 ->whereHas('customer', fn($customer) => $customer->saleParties());
 
             if ($request->filled('customer_id')) {
@@ -81,9 +82,11 @@ class SaleController extends Controller
                 'total_net_wt' => (float) $summaryRows->sum(fn($sale) => (float) ($sale->sum_net_weight ?? 0)),
             ];
 
-            return DataTables::of($query)
+            $table = DataTables::of($query)
 
                 ->addIndexColumn()
+                ->addColumn('company_name', fn ($row) => $companies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
 
                 // ✅ CUSTOMER NAME
                 ->addColumn('customer_name', function ($sale) {
@@ -122,7 +125,8 @@ class SaleController extends Controller
                 ->addColumn('modified_count', fn($sale) => (int) ($sale->modified_count ?? 0))
 
                 // ✅ ACTION BUTTON (VIEW PDF)
-                ->addColumn('action', function ($sale) use ($company) {
+                ->addColumn('action', function ($sale) use ($companies) {
+                    $company = $companies[$sale->company_id];
                     $encryptedId = Crypt::encryptString((string) $sale->id);
 
                     $pdfUrl = route('company.sales.pdf', [
@@ -158,11 +162,12 @@ class SaleController extends Controller
                 ->rawColumns(['action'])
                 ->with('summary', $summary)
 
-                ->make(true);
+                ;
+            return \App\Services\SalesBranchExport::respond($table, $request, $companies, 'sales');
         }
 
         // ✅ NORMAL VIEW
-        $customers = Customer::where('company_id', $company->id)
+        $customers = Customer::whereIn('company_id', $companies->keys())
             ->where('is_active', 1)
             ->saleParties()
             ->orderBy('name')
@@ -173,18 +178,8 @@ class SaleController extends Controller
 
     public function exportListPdf(Request $request, $slug)
     {
-        $company = Company::where('slug', $slug)->firstOrFail();
-        [$fromDate, $toDate] = $this->resolveSaleDateRange($request);
-
-        $rows = $this->saleListQuery($company->id, $request, $fromDate, $toDate)
-            ->get()
-            ->map(fn(Sale $sale) => $this->summarizeSaleListRow($sale))
-            ->values();
-
-        $pdf = Pdf::loadView('company.sales.list_pdf', compact('company', 'rows', 'fromDate', 'toDate'))
-            ->setPaper('a4', 'landscape');
-
-        return $pdf->stream('sales-list-' . now()->format('YmdHis') . '.pdf');
+        $request->merge(['export'=>'pdf']);
+        return $this->index($request, $slug);
     }
 
     private function resolveSaleDateRange(Request $request): array

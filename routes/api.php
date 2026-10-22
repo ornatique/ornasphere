@@ -362,6 +362,7 @@ Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group
     Route::post('/item-sets/bulk-save', [ItemSetController::class, 'bulkSave']);
     Route::post('/item-sets/finalize', [ItemSetController::class, 'finalize']);
     Route::post('/item-sets/upload-image', [ItemSetController::class, 'uploadLabelImage']);
+    Route::post('/item-sets/print/pdf', [\App\Http\Controllers\Api\ItemLabelPrintController::class, 'pdf']);
     Route::get('/item-sets/qr-list', [ItemSetController::class, 'listset_data']);
     Route::get('/item-sets/bulk-list', [ItemSetController::class, 'bulkListsetData']);
     Route::get('/item-sets/{id}/image', [ItemSetController::class, 'showImage'])->whereNumber('id');

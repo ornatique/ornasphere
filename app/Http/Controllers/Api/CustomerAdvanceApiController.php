@@ -134,15 +134,12 @@ class CustomerAdvanceApiController extends Controller
 
     public function vouchers(Request $request)
     {
-        $company = $this->resolveCompany($request);
-        if (!$company) {
-            return response()->json(['success' => false, 'message' => 'Company not found.'], 404);
-        }
+        $companies = \App\Services\CompanyBranches::apiManagementSelection($request);
 
         $perPage = min(200, max(1, (int) $request->query('per_page', 25)));
 
         $query = CustomerAdvanceVoucher::with('customer')
-            ->where('company_id', $company->id)
+            ->whereIn('company_id', $companies->keys())
             ->when($request->filled('from_date'), function ($q) use ($request) {
                 $q->whereDate('voucher_date', '>=', $request->query('from_date'));
             })
@@ -155,7 +152,9 @@ class CustomerAdvanceApiController extends Controller
             ->orderByDesc('voucher_date')
             ->orderByDesc('id');
 
-        $rows = $query->paginate($perPage);
+        $rows = $query->paginate($request->filled('export') ? max(1,(clone $query)->count()) : $perPage, ['*'], 'page', $request->filled('export') ? 1 : null);
+        $data = collect($rows->items())->map(fn ($voucher) => array_merge($this->voucherPayload($voucher), ['company_id'=>(int)$voucher->company_id, 'company_name'=>$companies[$voucher->company_id]->name]))->values();
+        if ($request->filled('export')) return \App\Services\SalesBranchExport::downloadApi($request,$companies,'Receive / Return / Purchase',$data);
 
         return response()->json([
             'success' => true,
@@ -172,7 +171,8 @@ class CustomerAdvanceApiController extends Controller
                 'to_date' => $request->query('to_date'),
                 'customer_id' => (int) $request->query('customer_id', 0),
             ],
-            'data' => collect($rows->items())->map(fn($voucher) => $this->voucherPayload($voucher))->values(),
+            'data' => $data,
+            'selected_company_ids' => $companies->keys()->values(),
         ]);
     }
 
@@ -578,8 +578,8 @@ class CustomerAdvanceApiController extends Controller
             'success' => true,
             'message' => 'Voucher PDF URL generated successfully.',
             'data' => [
-                'url' => url('/api/sales/advance-ledger/vouchers/' . $voucher->id . '/pdf') . '?mode=inline',
-                'download_url' => url('/api/sales/advance-ledger/vouchers/' . $voucher->id . '/pdf') . '?mode=download',
+                'url' => url('/api/sales/advance-ledger/vouchers/pdf/' . $voucher->id) . '?mode=inline&company_id=' . $voucher->company_id,
+                'download_url' => url('/api/sales/advance-ledger/vouchers/pdf/' . $voucher->id) . '?mode=download&company_id=' . $voucher->company_id,
             ],
         ]);
     }
@@ -620,7 +620,7 @@ class CustomerAdvanceApiController extends Controller
             return null;
         }
 
-        return Company::find((int) $user->company_id);
+        return Company::find(\App\Services\CompanyBranches::apiManagementCompanyId($request));
     }
 
     private function getCustomerBalance(int $companyId, ?int $customerId): array
@@ -691,8 +691,8 @@ class CustomerAdvanceApiController extends Controller
             'rate' => (float) ($voucher->rate ?? 0),
             'amount' => (float) ($voucher->amount ?? 0),
             'remarks' => (string) ($voucher->remarks ?? ''),
-            'pdf_url' => url('/api/sales/advance-ledger/vouchers/' . $voucher->id . '/pdf') . '?mode=inline',
-            'pdf_download_url' => url('/api/sales/advance-ledger/vouchers/' . $voucher->id . '/pdf') . '?mode=download',
+            'pdf_url' => url('/api/sales/advance-ledger/vouchers/pdf/' . $voucher->id) . '?mode=inline&company_id=' . $voucher->company_id,
+            'pdf_download_url' => url('/api/sales/advance-ledger/vouchers/pdf/' . $voucher->id) . '?mode=download&company_id=' . $voucher->company_id,
             'created_at' => optional($voucher->created_at)->toDateTimeString(),
         ];
 

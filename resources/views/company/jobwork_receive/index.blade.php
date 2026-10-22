@@ -1,6 +1,9 @@
 @extends('company_layout.admin')
 
 @section('content')
+@if(count((array) request('management_branches', [])) > 1)
+<p class="px-4 pt-3">New records are created in <strong>{{ $company->name }}</strong>. Select one branch and click View to create there.</p>
+@endif
 @php
     $defaultFromDate = request('from_date', '');
     $defaultToDate = request('to_date', '');
@@ -10,9 +13,7 @@
         <div class="card-header d-flex justify-content-between align-items-center">
             <h4 class="card-title">Jobwork Receive Voucher List</h4>
             <div class="d-flex flex-wrap gap-2">
-                <a href="{{ route('company.jobwork-receive.export-pdf', $company->slug) }}" id="exportPdfBtn" class="btn btn-danger">
-                    PDF
-                </a>
+                
                 <a href="{{ route('company.jobwork-receive.direct.create', $company->slug) }}" class="btn btn-success">
                     + Direct Receive
                 </a>
@@ -22,6 +23,7 @@
             </div>
         </div>
         <div class="card-body">
+            @include('company_layout.jobwork_exports')
             <form class="d-flex flex-wrap gap-2 mb-3 align-items-end jobwork-receive-filter">
                 <div class="filter-date-col">
                     <label class="form-label mb-1">From Date</label>
@@ -80,7 +82,7 @@
                             <th>Receive Net Wt</th>
                             <th>Pending Net Wt</th>
                             <th>Status</th>
-                            <th>Action</th>
+                            <th>Company / Branch</th><th>Action</th>
                         </tr>
                     </thead>
                 </table>
@@ -112,7 +114,7 @@
         processing: true,
         serverSide: true,
         ajax: {
-            url: "{{ route('company.jobwork-receive.index', $company->slug) }}",
+            url: "{!! route('company.jobwork-receive.index', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}",
             data: function(d) {
                 d.from_date = $('#from_date').val();
                 d.to_date = $('#to_date').val();
@@ -133,6 +135,7 @@
             { data: 'receive_net_wt_sum', name: 'receive_net_wt_sum', orderable: false, searchable: false },
             { data: 'pending_net_wt', name: 'pending_net_wt', orderable: false, searchable: false },
             { data: 'status', name: 'status', orderable: false, searchable: false },
+            { data: 'company_name', orderable: false, searchable: false },
             { data: 'action', name: 'action', orderable: false, searchable: false }
         ]
     });

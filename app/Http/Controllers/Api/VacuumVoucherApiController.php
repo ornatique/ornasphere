@@ -22,7 +22,12 @@ class VacuumVoucherApiController extends Controller
 {
     public function index(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        return \App\Services\CastingApiBranches::listing($request,
+            fn (int $companyId) => $this->listForCompany($request, $companyId), 'Vacuum Voucher');
+    }
+
+    private function listForCompany(Request $request, int $companyId)
+    {
         $fromDate = $request->input('from_date', now()->toDateString());
         $toDate = $request->input('to_date', now()->toDateString());
 
@@ -56,7 +61,7 @@ class VacuumVoucherApiController extends Controller
 
     public function buchOptions(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $term = trim((string) $request->input('q', ''));
         $currentVoucherId = $request->filled('current_voucher_id')
             ? (int) $request->input('current_voucher_id')
@@ -111,7 +116,7 @@ class VacuumVoucherApiController extends Controller
             ], 404);
         }
 
-        $company = Company::findOrFail((int) $request->user()->company_id);
+        $company = Company::findOrFail(\App\Services\CompanyBranches::apiManagementCompanyId($request));
 
         return Pdf::loadView('company.vacuum_vouchers.pdf.show', compact('company', 'data'))
             ->setPaper('a4', 'portrait')
@@ -192,7 +197,7 @@ class VacuumVoucherApiController extends Controller
             ], 404);
         }
 
-        $company = Company::findOrFail((int) $request->user()->company_id);
+        $company = Company::findOrFail(\App\Services\CompanyBranches::apiManagementCompanyId($request));
         $labels = $data->items
             ->values()
             ->map(function ($item, int $index) {
@@ -210,7 +215,7 @@ class VacuumVoucherApiController extends Controller
 
     public function store(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $unavailableBuchs = $this->submittedUnavailableBuchNumbers($request, $companyId);
         if ($unavailableBuchs !== []) {
             return response()->json([
@@ -259,7 +264,7 @@ class VacuumVoucherApiController extends Controller
 
     public function update(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $voucher = VacuumVoucher::where('company_id', $companyId)->where('id', (int) $id)->first();
 
         if (!$voucher) {
@@ -310,7 +315,7 @@ class VacuumVoucherApiController extends Controller
 
     public function destroy(Request $request, $id)
     {
-        $voucher = VacuumVoucher::where('company_id', (int) $request->user()->company_id)
+        $voucher = VacuumVoucher::where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId($request))
             ->where('id', (int) $id)
             ->first();
 
@@ -380,7 +385,7 @@ class VacuumVoucherApiController extends Controller
 
     private function findVoucher(Request $request, int $id): ?VacuumVoucher
     {
-        return VacuumVoucher::where('company_id', (int) $request->user()->company_id)
+        return VacuumVoucher::where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId($request))
             ->where('id', $id)
             ->with(['process:id,name', 'jobWorker:id,name', 'createdByUser:id,name', 'updatedByUser:id,name', 'items.buch:id,buch_no,size_inch,weight'])
             ->withCount('metalIssueItems')

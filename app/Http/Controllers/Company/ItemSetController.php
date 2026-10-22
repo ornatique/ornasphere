@@ -81,12 +81,13 @@ class ItemSetController extends Controller
     {
 
         $company = Company::whereSlug($slug)->firstOrFail();
+        $companies = \App\Services\CompanyBranches::managementSelection($request, $company);
 
-        if ($request->ajax()) {
+        if ($request->ajax() || $request->filled('export')) {
             if ($request->input('view_mode') === 'bulk') {
                 $data = ItemSet::query()
                     ->join('items', 'items.id', '=', 'item_sets.item_id')
-                    ->where('item_sets.company_id', $company->id)
+                    ->whereIn('item_sets.company_id', $companies->keys())
                     ->where('item_sets.is_final', 1)
                     ->whereNotNull('item_sets.qr_code');
 
@@ -112,6 +113,7 @@ class ItemSetController extends Controller
                 }
 
                 $data->selectRaw('
+                        item_sets.company_id,
                         DATE(item_sets.created_at) as batch_date,
                         item_sets.item_id,
                         items.item_name,
@@ -119,12 +121,14 @@ class ItemSetController extends Controller
                         COALESCE(SUM(item_sets.gross_weight), 0) as total_gross_weight,
                         COALESCE(SUM(item_sets.net_weight), 0) as total_net_weight
                     ')
-                    ->groupBy(DB::raw('DATE(item_sets.created_at)'), 'item_sets.item_id', 'items.item_name')
+                    ->groupBy('item_sets.company_id', DB::raw('DATE(item_sets.created_at)'), 'item_sets.item_id', 'items.item_name')
                     ->orderByDesc(DB::raw('DATE(item_sets.created_at)'))
                     ->orderBy('items.item_name');
 
-                return datatables()->of($data)
+                $table = datatables()->of($data)
                     ->addIndexColumn()
+                    ->addColumn('company_name', fn ($row) => $companies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
                     ->addColumn('date', fn($row) => Carbon::parse($row->batch_date)->format('d-m-Y'))
                     ->addColumn('item_name', fn($row) => $row->item_name ?? '-')
                     ->addColumn('qty_pcs', fn($row) => (int) ($row->total_pcs ?? 0))
@@ -153,11 +157,12 @@ class ItemSetController extends Controller
                         </button>';
                     })
                     ->rawColumns(['action'])
-                    ->make(true);
+                    ;
+                return \App\Services\ItemManagementListExport::respond($table, $request, $companies, 'label-items');
             }
 
             $data = ItemSet::with('item')
-                ->where('company_id', $company->id)
+                ->whereIn('company_id', $companies->keys())
                 ->where('is_final', 1)
                 ->whereNotNull('qr_code')
                 ->latest();
@@ -185,8 +190,10 @@ class ItemSetController extends Controller
                 $data->where('item_id', (int) $request->item_id);
             }
 
-            return datatables()->of($data)
+            $table = datatables()->of($data)
                 ->addIndexColumn()
+                    ->addColumn('company_name', fn ($row) => $companies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
 
                 ->addColumn('item_name', function ($row) {
                     return $row->item->item_name ?? '-';
@@ -247,7 +254,8 @@ class ItemSetController extends Controller
                     });
                 })
 
-                ->addColumn('action', function ($row) use ($company) {
+                ->addColumn('action', function ($row) use ($companies) {
+                    $company = $companies[$row->company_id];
                     $encryptedId = Crypt::encryptString((string) $row->id);
                     $editUrl = route('company.itemsets.edit', [$company->slug, $encryptedId]);
                     $deleteUrl = route('company.itemsets.delete', [$company->slug, $encryptedId]);
@@ -275,12 +283,11 @@ class ItemSetController extends Controller
                 })
 
                 ->rawColumns(['action'])
-                ->make(true);
+                ;
+                return \App\Services\ItemManagementListExport::respond($table, $request, $companies, 'label-items');
         }
 
-        $items = $this->configuredItemsQuery($company->id)
-            ->orderBy('item_name')
-            ->get();
+        $items = $companies->flatMap(fn ($branch) => $this->configuredItemsQuery($branch->id)->orderBy('item_name')->get()->each(fn ($item) => $item->item_name .= ' - '.$branch->name));
 
         return view('company.item_sets.list', compact('company', 'items'));
     }
@@ -608,6 +615,7 @@ class ItemSetController extends Controller
     public function qrList(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $companies = \App\Services\CompanyBranches::managementSelection($request, $company);
 
         $fromDate = $request->input('from_date');
         $toDate = $request->input('to_date');
@@ -623,7 +631,7 @@ class ItemSetController extends Controller
         }
 
         $query = ItemSet::with('item')
-            ->where('company_id', $company->id)
+            ->whereIn('company_id', $companies->keys())
             ->where('is_final', 1)
             ->whereNotNull('qr_code')
             ->orderByRaw('CASE WHEN printed_at IS NULL THEN 0 ELSE 1 END ASC')
@@ -651,8 +659,10 @@ class ItemSetController extends Controller
             ]);
         }
 
-        if ($request->ajax()) {
-            return DataTables::of($query)
+        if ($request->ajax() || $request->filled('export')) {
+            $table = DataTables::of($query)
+                ->addColumn('company_name', fn ($row) => $companies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
                 ->addColumn('select', function ($row) {
                     $isUnprinted = (int) ($row->is_printed ?? 0) === 0;
                     $checked = $isUnprinted ? 'checked' : '';
@@ -691,10 +701,11 @@ class ItemSetController extends Controller
                     });
                 })
                 ->rawColumns(['select'])
-                ->make(true);
+                ;
+                return \App\Services\ItemManagementListExport::respond($table, $request, $companies, 'label-printing');
         }
 
-        $items = Item::where('company_id', $company->id)->orderBy('item_name')->get();
+        $items = Item::whereIn('company_id', $companies->keys())->orderBy('item_name')->get()->each(fn ($item) => $item->item_name .= ' - '.$companies[$item->company_id]->name);
 
         return view(
             'company.item_sets.qr_list',
@@ -724,6 +735,7 @@ class ItemSetController extends Controller
     public function printPdf(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $companies = \App\Services\CompanyBranches::managementSelection($request, $company);
         $labelFormat = $this->resolveLabelFormat($request->input('label_format', 'compact'));
         $startPosition = $this->resolveStartPosition($request->input('start_position', 1));
         $ids = $this->extractSelectedIds($request);
@@ -733,7 +745,7 @@ class ItemSetController extends Controller
         }
 
         $itemSets = ItemSet::with('item')
-            ->where('company_id', $company->id)
+            ->whereIn('company_id', $companies->keys())
             ->whereIn('id', $ids)
             ->where('is_final', 1)
             ->get();
@@ -741,7 +753,7 @@ class ItemSetController extends Controller
         $requestedCount = count($ids);
         $loadedCount = $itemSets->count();
 
-        ItemSet::where('company_id', $company->id)
+        ItemSet::whereIn('company_id', $companies->keys())
             ->whereIn('id', $itemSets->pluck('id'))
             ->whereNull('printed_at')
             ->update([
@@ -797,6 +809,7 @@ class ItemSetController extends Controller
     public function printPreview(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $companies = \App\Services\CompanyBranches::managementSelection($request, $company);
         $labelFormat = $this->resolveLabelFormat($request->input('label_format', 'compact'));
         $startPosition = $this->resolveStartPosition($request->input('start_position', 1));
         $ids = $this->extractSelectedIds($request);
@@ -806,7 +819,7 @@ class ItemSetController extends Controller
         }
 
         $itemSets = ItemSet::with('item')
-            ->where('company_id', $company->id)
+            ->whereIn('company_id', $companies->keys())
             ->whereIn('id', $ids)
             ->where('is_final', 1)
             ->get();
@@ -830,6 +843,7 @@ class ItemSetController extends Controller
     public function printDirect(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $companies = \App\Services\CompanyBranches::managementSelection($request, $company);
         $labelFormat = $this->resolveLabelFormat($request->input('label_format', 'compact'));
         $startPosition = $this->resolveStartPosition($request->input('start_position', 1));
         $ids = $this->extractSelectedIds($request);
@@ -838,14 +852,14 @@ class ItemSetController extends Controller
             return back()->with('error', 'Please select at least one label.');
         }
 
-        ItemSet::where('company_id', $company->id)
+        ItemSet::whereIn('company_id', $companies->keys())
             ->whereIn('id', $ids)
             ->where('is_final', 1)
             ->update([
                 'is_printed' => 1,
             ]);
 
-        ItemSet::where('company_id', $company->id)
+        ItemSet::whereIn('company_id', $companies->keys())
             ->whereIn('id', $ids)
             ->where('is_final', 1)
             ->whereNull('printed_at')
@@ -854,7 +868,7 @@ class ItemSetController extends Controller
             ]);
 
         $itemSets = ItemSet::with('item')
-            ->where('company_id', $company->id)
+            ->whereIn('company_id', $companies->keys())
             ->whereIn('id', $ids)
             ->where('is_final', 1)
             ->get();

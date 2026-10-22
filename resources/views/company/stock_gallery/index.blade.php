@@ -17,7 +17,7 @@
                         <label>Item</label>
                         <select id="itemFilter" class="form-select stock-gallery-search-select" multiple>
                             @foreach($items as $item)
-                                <option value="{{ $item->id }}">{{ $item->item_name }}</option>
+                                <option value="{{ $item->id }}">{{ $item->item_name }} - {{ \App\Models\Company::find($item->company_id)?->name }}</option>
                             @endforeach
                         </select>
                     </div>
@@ -608,6 +608,8 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
 
+        const selection = @json(request('management_branches', []));
+        selection.forEach(id => params.append('management_branches[]', id));
         return params;
     }
 
@@ -663,7 +665,7 @@ document.addEventListener('DOMContentLoaded', function () {
             <div class="stock-gallery-card" data-id="${item.id}">
                 <div class="gallery-image-wrap">${image}</div>
                 <div class="gallery-card-body">
-                    <div class="gallery-title">${escapeHtml(item.item_name)}</div>
+                    <div class="gallery-title">${escapeHtml(item.item_name)}</div><div>${escapeHtml(item.company_name || "")}</div>
                     <div class="gallery-meta">
                         <div><span>Label / QR</span>${escapeHtml(item.label_code)}</div>
                         <div><span>HUID</span>${escapeHtml(item.huid)}</div>
@@ -680,7 +682,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     </div>
                     <div class="gallery-card-actions">
                         {{-- Media / Try-On buttons temporarily hidden; processing and saved settings are preserved. --}}
-                        <button type="button" class="btn btn-sm btn-info gallery-image-btn"
+                        <button type="button" class="btn btn-sm btn-info gallery-image-btn" ${item.can_manage ? '' : 'disabled title="Other branches are read-only"'}
                             data-id="${item.id}"
                             data-encrypted-id="${escapeHtml(item.encrypted_id)}">
                             ${item.has_image ? 'Update Image' : 'Upload Image'}
@@ -1271,6 +1273,8 @@ document.addEventListener('DOMContentLoaded', function () {
             params.set('selected_ids', Array.from(selectedIds).join(','));
         }
 
+        const selection = @json(request('management_branches', []));
+        selection.forEach(id => params.append('management_branches[]', id));
         return params;
     }
 

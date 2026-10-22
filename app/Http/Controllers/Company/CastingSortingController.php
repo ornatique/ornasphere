@@ -21,17 +21,18 @@ class CastingSortingController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $selectedCompanies = \App\Services\CompanyBranches::managementSelection($request, $company);
         $fromDate = $request->get('from_date', now()->subDays(6)->toDateString());
         $toDate = $request->get('to_date', now()->toDateString());
 
-        if ($request->ajax()) {
+        if ($request->ajax() || $request->filled('export')) {
             $rows = VacuumVoucher::query()
-                ->where('company_id', $company->id)
-                ->whereExists(function ($query) use ($company, $fromDate, $toDate) {
+                ->whereIn('company_id', $selectedCompanies->keys())
+                ->whereExists(function ($query) use ($fromDate, $toDate) {
                     $query->selectRaw('1')
                         ->from('tree_cutting_receive_items')
                         ->whereColumn('tree_cutting_receive_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('tree_cutting_receive_items.company_id', $company->id)
+                        ->whereColumn('tree_cutting_receive_items.company_id', 'vacuum_vouchers.company_id')
                         ->where(function ($q) {
                             $q->where('tree_cutting_receive_items.receive_pc_wt', '>', 0)
                                 ->orWhere('tree_cutting_receive_items.receive_tree_bhuko', '>', 0);
@@ -39,17 +40,17 @@ class CastingSortingController extends Controller
                         ->when($fromDate, fn($q) => $q->whereDate(DB::raw('COALESCE(tree_cutting_receive_items.received_at, tree_cutting_receive_items.created_at)'), '>=', $fromDate))
                         ->when($toDate, fn($q) => $q->whereDate(DB::raw('COALESCE(tree_cutting_receive_items.received_at, tree_cutting_receive_items.created_at)'), '<=', $toDate));
                 })
-                ->whereNotExists(function ($query) use ($company) {
+                ->whereNotExists(function ($query) {
                     $query->selectRaw('1')
                         ->from('tree_cutting_issue_items')
                         ->whereColumn('tree_cutting_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('tree_cutting_issue_items.company_id', $company->id)
+                        ->whereColumn('tree_cutting_issue_items.company_id', 'vacuum_vouchers.company_id')
                         ->where('tree_cutting_issue_items.receive_tree_wt', '>', 0)
-                        ->whereNotExists(function ($subQuery) use ($company) {
+                        ->whereNotExists(function ($subQuery) {
                             $subQuery->selectRaw('1')
                                 ->from('tree_cutting_receive_items')
                                 ->whereColumn('tree_cutting_receive_items.tree_cutting_issue_item_id', 'tree_cutting_issue_items.id')
-                                ->where('tree_cutting_receive_items.company_id', $company->id)
+                                ->whereColumn('tree_cutting_receive_items.company_id', 'vacuum_vouchers.company_id')
                                 ->where(function ($q) {
                                     $q->where('tree_cutting_receive_items.receive_pc_wt', '>', 0)
                                         ->orWhere('tree_cutting_receive_items.receive_tree_bhuko', '>', 0);
@@ -58,55 +59,57 @@ class CastingSortingController extends Controller
                 })
                 ->with(['process:id,name', 'jobWorker:id,name'])
                 ->select('vacuum_vouchers.*')
-                ->selectSub(function ($query) use ($company) {
+                ->selectSub(function ($query) {
                     $query->from('tree_cutting_receive_items')
                         ->selectRaw('MAX(COALESCE(tree_cutting_receive_items.received_at, tree_cutting_receive_items.created_at))')
                         ->whereColumn('tree_cutting_receive_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('tree_cutting_receive_items.company_id', $company->id)
+                        ->whereColumn('tree_cutting_receive_items.company_id', 'vacuum_vouchers.company_id')
                         ->where(function ($q) {
                             $q->where('tree_cutting_receive_items.receive_pc_wt', '>', 0)
                                 ->orWhere('tree_cutting_receive_items.receive_tree_bhuko', '>', 0);
                         });
                 }, 'tree_receive_datetime')
-                ->selectSub(function ($query) use ($company) {
+                ->selectSub(function ($query) {
                     $query->from('tree_cutting_receive_items')
                         ->selectRaw('COUNT(*)')
                         ->whereColumn('tree_cutting_receive_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('tree_cutting_receive_items.company_id', $company->id)
+                        ->whereColumn('tree_cutting_receive_items.company_id', 'vacuum_vouchers.company_id')
                         ->where(function ($q) {
                             $q->where('tree_cutting_receive_items.receive_pc_wt', '>', 0)
                                 ->orWhere('tree_cutting_receive_items.receive_tree_bhuko', '>', 0);
                         });
                 }, 'tree_receive_count')
-                ->selectSub(function ($query) use ($company) {
+                ->selectSub(function ($query) {
                     $query->from('casting_sorting_items')
                         ->selectRaw('COUNT(*)')
                         ->whereColumn('casting_sorting_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('casting_sorting_items.company_id', $company->id);
+                        ->whereColumn('casting_sorting_items.company_id', 'vacuum_vouchers.company_id');
                 }, 'sorting_count')
-                ->selectSub(function ($query) use ($company) {
+                ->selectSub(function ($query) {
                     $query->from('casting_sorting_items')
                         ->selectRaw('COALESCE(SUM(casting_sorting_items.weight), 0)')
                         ->whereColumn('casting_sorting_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('casting_sorting_items.company_id', $company->id);
+                        ->whereColumn('casting_sorting_items.company_id', 'vacuum_vouchers.company_id');
                 }, 'sorting_weight_total')
-                ->selectSub(function ($query) use ($company) {
+                ->selectSub(function ($query) {
                     $query->from('casting_sorting_items')
                         ->selectRaw('COALESCE(SUM(casting_sorting_items.quantity), 0)')
                         ->whereColumn('casting_sorting_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('casting_sorting_items.company_id', $company->id);
+                        ->whereColumn('casting_sorting_items.company_id', 'vacuum_vouchers.company_id');
                 }, 'sorting_quantity_total')
-                ->selectSub(function ($query) use ($company) {
+                ->selectSub(function ($query) {
                     $query->from('casting_sorting_items')
                         ->selectRaw('MAX(COALESCE(casting_sorting_items.sorted_at, casting_sorting_items.created_at))')
                         ->whereColumn('casting_sorting_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('casting_sorting_items.company_id', $company->id);
+                        ->whereColumn('casting_sorting_items.company_id', 'vacuum_vouchers.company_id');
                 }, 'sorting_datetime')
                 ->orderByDesc('tree_receive_datetime')
                 ->orderByDesc('id');
 
-            return DataTables::of($rows)
+            $table = DataTables::of($rows)
                 ->addIndexColumn()
+                ->addColumn('company_name', fn ($row) => $selectedCompanies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
                 ->addColumn('voucher_no_view', fn($row) => $row->voucher_no)
                 ->addColumn('date_time_view', fn($row) => $row->sorting_datetime ? \Carbon\Carbon::parse($row->sorting_datetime)->format('d-m-Y / h:i A') : ($row->tree_receive_datetime ? \Carbon\Carbon::parse($row->tree_receive_datetime)->format('d-m-Y / h:i A') : '-'))
                 ->addColumn('process_name', fn($row) => $row->process?->name ?? '-')
@@ -114,7 +117,8 @@ class CastingSortingController extends Controller
                 ->addColumn('total_pcs_view', fn($row) => (int) ($row->tree_receive_count ?? 0))
                 ->addColumn('sorting_weight_view', fn($row) => number_format((float) ($row->sorting_weight_total ?? 0), 3, '.', ''))
                 ->addColumn('sorting_quantity_view', fn($row) => (int) ($row->sorting_quantity_total ?? 0))
-                ->addColumn('action', function ($row) use ($company) {
+                ->addColumn('action', function ($row) use ($selectedCompanies) {
+                    $company = $selectedCompanies[$row->company_id];
                     $id = Crypt::encryptString((string) $row->id);
                     $view = route('company.casting-sorting.show', [$company->slug, $id]);
                     $pdf = \Illuminate\Support\Facades\Route::has('company.casting-sorting.pdf')
@@ -127,7 +131,8 @@ class CastingSortingController extends Controller
                     </div>';
                 })
                 ->rawColumns(['action'])
-                ->make(true);
+                ;
+            return \App\Services\CastingListExport::respond($table, $request, $selectedCompanies, 'casting-sorting');
         }
 
         return view('company.casting_sorting.index', compact('company', 'fromDate', 'toDate'));

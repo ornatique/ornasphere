@@ -24,7 +24,7 @@ class ApprovalApiController extends Controller
 {
     public function customers(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $customers = Customer::where('company_id', $companyId)
             ->saleParties()
@@ -40,7 +40,7 @@ class ApprovalApiController extends Controller
 
     public function items(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $items = Item::where('company_id', $companyId)
             ->orderBy('item_name')
@@ -54,7 +54,12 @@ class ApprovalApiController extends Controller
 
     public function index(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        return \App\Services\SalesApiBranches::listing($request, fn ($companyId) => $this->listForCompany($request, $companyId), 'Sale on Approval');
+    }
+
+    private function listForCompany(Request $request, int $companyId)
+    {
+        
         $pendingItemFilter = function ($q) {
             return $q->where(function ($statusQuery) {
                 $statusQuery->whereNull('status')
@@ -136,7 +141,7 @@ class ApprovalApiController extends Controller
 
     public function getItemSets(Request $request, $itemId)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
         $voucherSessionId = trim((string) $request->input('voucher_session_id'));
 
@@ -158,7 +163,7 @@ class ApprovalApiController extends Controller
 
     public function searchItemSets(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $keyword = trim((string) $request->input('keyword', $request->input('search', '')));
         $limit = max(10, min((int) $request->input('limit', 1000), 2000));
 
@@ -367,7 +372,7 @@ class ApprovalApiController extends Controller
     // Exact QR scanner endpoint for app
     public function scanQr(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $userId = $request->user()->id;
 
         $request->validate([
@@ -510,7 +515,7 @@ class ApprovalApiController extends Controller
 
     public function reserveApprovalCartItem(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $userId = $request->user()->id;
         $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
         $voucherSessionId = trim((string) $request->input('voucher_session_id'));
@@ -670,7 +675,7 @@ class ApprovalApiController extends Controller
 
     public function cartList(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $userId = $request->user()->id;
         $customerId = (int) ($request->input('customer_id') ?? 0);
         $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
@@ -714,7 +719,7 @@ class ApprovalApiController extends Controller
 
     public function removeCartItem(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $userId = $request->user()->id;
 
         $cart = ApprovalCart::where('id', (int) $id)
@@ -739,7 +744,7 @@ class ApprovalApiController extends Controller
 
     public function store(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $userId = $request->user()->id;
         $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
         $voucherSessionId = trim((string) $request->input('voucher_session_id'));
@@ -1004,7 +1009,7 @@ class ApprovalApiController extends Controller
 
     public function update(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $userId = $request->user()->id;
             
         $request->validate([
@@ -1155,7 +1160,7 @@ class ApprovalApiController extends Controller
 
     public function show(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $approval = ApprovalHeader::with('customer', 'items.itemSet.item', 'items.legacyItemSet.item')
             ->where('company_id', $companyId)
@@ -1223,7 +1228,7 @@ class ApprovalApiController extends Controller
 
     public function markSold(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $request->validate([
             'items' => 'required|array|min:1',
             'items.*' => 'required|integer'
@@ -1262,7 +1267,7 @@ class ApprovalApiController extends Controller
 
     public function pendingItemsByCustomer(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $request->validate([
             'customer_id' => 'required|integer',
         ]);
@@ -1354,7 +1359,7 @@ class ApprovalApiController extends Controller
 
     public function returnItems(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $request->validate([
             'approval_id' => 'required|integer',
             'items' => 'required|array|min:1',
@@ -1448,7 +1453,7 @@ class ApprovalApiController extends Controller
 
     public function pdf(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $approval = ApprovalHeader::with('customer', 'items.itemSet.item', 'items.legacyItemSet.item')
             ->where('company_id', $companyId)
@@ -1473,7 +1478,7 @@ class ApprovalApiController extends Controller
         $fromDate = (string) $request->query('from_date', '');
         $toDate = (string) $request->query('to_date', '');
 
-        $query = [];
+        $query = $request->only(['company_id', 'management_branches']);
         if ($customerId > 0) {
             $query['customer_id'] = Crypt::encryptString((string) $customerId);
         }
@@ -1497,111 +1502,9 @@ class ApprovalApiController extends Controller
 
     public function exportListPdf(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
-        $company = Company::findOrFail($companyId);
-        $customerId = $this->resolveEncryptedCustomerFilterId($request, $companyId);
-        $pendingItemFilter = function ($q) {
-            return $q->where(function ($statusQuery) {
-                $statusQuery->whereNull('status')
-                    ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
-            });
-        };
-
-        $query = ApprovalHeader::with([
-            'customer',
-            'creator',
-            'items' => function ($q) use ($pendingItemFilter) {
-                $pendingItemFilter($q)->with(['itemSet.item', 'legacyItemSet.item']);
-            }
-        ])
-            ->withCount([
-                'items as active_items_count' => $pendingItemFilter
-            ])
-            ->withSum([
-                'items as active_gross_weight' => $pendingItemFilter
-            ], 'gross_weight')
-            ->withSum([
-                'items as active_net_weight' => $pendingItemFilter
-            ], 'net_weight')
-            ->withSum([
-                'items as active_fine_weight' => $pendingItemFilter
-            ], 'total_fine_weight')
-            ->withSum([
-                'items as active_metal_amount' => $pendingItemFilter
-            ], 'metal_amount')
-            ->withSum([
-                'items as active_labour_amount' => $pendingItemFilter
-            ], 'labour_amount')
-            ->withSum([
-                'items as active_other_amount' => $pendingItemFilter
-            ], 'other_amount')
-            ->withSum([
-                'items as active_item_amount' => $pendingItemFilter
-            ], 'total_amount')
-            ->where('company_id', $company->id)
-            ->whereHas('items', $pendingItemFilter)
-            ->whereHas('customer', function ($customer) {
-                $customer->saleParties();
-            })
-            ->orderByDesc('approval_date')
-            ->orderByDesc('id');
-
-        if ($customerId !== null) {
-            $query->where('customer_id', $customerId);
-        }
-
-        $fromDate = $request->query('from_date');
-        $toDate = $request->query('to_date');
-        $today = now()->toDateString();
-
-        if (empty($fromDate) && empty($toDate)) {
-            $fromDate = $today;
-            $toDate = $today;
-        } elseif (!empty($fromDate) && empty($toDate)) {
-            $toDate = $fromDate;
-        } elseif (empty($fromDate) && !empty($toDate)) {
-            $fromDate = $toDate;
-        }
-
-        if (!empty($fromDate) && !empty($toDate)) {
-            $query->whereBetween('approval_date', [$fromDate, $toDate]);
-        }
-
-        $rows = $query->get()->map(function ($row) {
-            $names = collect($row->items ?? [])
-                ->map(function ($it) {
-                    $set = $it->itemSet ?? $it->legacyItemSet;
-                    return optional(optional($set)->item)->item_name;
-                })
-                ->filter()
-                ->unique()
-                ->values();
-
-            return [
-                'approval_no' => (string) ($row->approval_no ?? '-'),
-                'approval_date' => $row->approval_date ? \Carbon\Carbon::parse($row->approval_date)->format('d-m-Y') : '-',
-                'customer_name' => optional($row->customer)->name ?? '-',
-                'item_names' => $names->isEmpty() ? '-' : $names->implode(', '),
-                'total_qty' => (int) ($row->active_items_count ?? 0),
-                'gross_wt' => (float) ($row->active_gross_weight ?? 0),
-                'net_wt' => (float) ($row->active_net_weight ?? 0),
-                'fine_wt' => (float) ($row->active_fine_weight ?? 0),
-                'metal_amt' => (float) ($row->active_metal_amount ?? 0),
-                'labour_amt' => (float) ($row->active_labour_amount ?? 0),
-                'other_amt' => (float) ($row->active_other_amount ?? 0),
-                'total_amt' => (float) ($row->active_item_amount ?? 0),
-                'created_by' => optional($row->creator)->name ?? '-',
-            ];
-        })->values();
-
-        $pdf = Pdf::loadView('company.approval.list_pdf', [
-            'company' => $company,
-            'rows' => $rows,
-            'fromDate' => $fromDate,
-            'toDate' => $toDate,
-        ])->setPaper('a4', 'landscape');
-
-        return $pdf->stream('approval-list-' . now()->format('YmdHis') . '.pdf');
+        if ($request->filled('customer_id') && !ctype_digit((string)$request->customer_id)) $request->merge(['customer_id'=>Crypt::decryptString($request->customer_id)]);
+        $request->merge(['export'=>'pdf']);
+        return $this->index($request);
     }
 
     private function resolveEncryptedCustomerFilterId(Request $request, int $companyId): ?int

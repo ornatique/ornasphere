@@ -200,6 +200,7 @@
      </div>
      <div class="navbar-menu-wrapper d-flex align-items-center justify-content-end">
          <ul class="navbar-nav navbar-nav-right">
+             <li class="nav-item d-flex align-items-center">@include('company_layout.trial_countdown')</li>
              <!-- <li class="nav-item d-none d-lg-flex  me-2">
                  <a class="nav-link" href="#">
                      Help

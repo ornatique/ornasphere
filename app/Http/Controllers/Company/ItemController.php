@@ -20,16 +20,19 @@ class ItemController extends Controller
     }
 
     // ================= DATATABLE =================
-    public function data($slug)
+    public function data(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $companies = \App\Services\CompanyBranches::managementSelection($request, $company);
 
-        $items = Item::where('company_id', $company->id)
+        $items = Item::whereIn('company_id', $companies->keys())
             ->select('items.*')
             ->withCount(['itemSets', 'itemLabels']);
 
-        return datatables()->of($items)
+        $table = datatables()->of($items)
             ->addIndexColumn()
+                ->addColumn('company_name', fn ($row) => $companies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
             ->editColumn('labour_type', function ($item) {
                 $map = [
                     'per_netweight' => 'Per Netweight',
@@ -48,7 +51,8 @@ class ItemController extends Controller
                     ? '<span class="badge bg-success">Active</span>'
                     : '<span class="badge bg-danger">Inactive</span>';
             })
-            ->addColumn('action', function ($item) use ($company) {
+            ->addColumn('action', function ($item) use ($companies) {
+                $company = $companies[$item->company_id];
                 $encryptedId = Crypt::encryptString($item->id);
 
                 $editUrl = route('company.items.edit', [$company->slug, $encryptedId]);
@@ -65,7 +69,8 @@ class ItemController extends Controller
             ';
             })
             ->rawColumns(['status', 'action'])
-            ->make(true);
+            ;
+            return \App\Services\ItemManagementListExport::respond($table, $request, $companies, 'items');
     }
 
     // ================= CREATE =================

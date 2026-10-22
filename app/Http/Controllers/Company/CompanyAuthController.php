@@ -72,6 +72,9 @@ class CompanyAuthController extends Controller
             ])->withInput($request->only('email'));
         }
 
+        $plan = \App\Services\CompanyPlanService::status($company);
+        if ($plan['expired']) return back()->withErrors(['email'=>$plan['alert']['message']]);
+
         Auth::login($user);
         $request->session()->regenerate();
         $request->session()->forget('company_2fa_secret');

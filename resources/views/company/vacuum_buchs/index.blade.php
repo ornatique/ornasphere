@@ -1,6 +1,9 @@
 @extends('company_layout.admin')
 
 @section('content')
+@if(count((array) request('management_branches', [])) > 1)
+<p class="px-4 pt-3">New records will be created in <strong>{{ $company->name }}</strong>. Select only another branch and click View to create there.</p>
+@endif
 <div class="content-wrapper">
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
@@ -10,6 +13,7 @@
             </a>
         </div>
         <div class="card-body">
+            @include('company_layout.casting_exports')
             <div class="table-responsive">
                 <table class="table table-bordered table-striped" id="vacuumBuchTable">
                     <thead>
@@ -23,6 +27,7 @@
                             <th>Modified Count</th>
                             <th>Created By</th>
                             <th>Created At</th>
+                            <th>Company / Branch</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -74,7 +79,7 @@
         processing: true,
         serverSide: true,
         ajax: {
-            url: "{{ route('company.vacuum-buchs.index', $company->slug) }}"
+            url: "{!! route('company.vacuum-buchs.index', array_merge(['slug' => $company->slug], request()->only('management_branches'))) !!}"
         },
         columns: [
             { data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false },
@@ -86,6 +91,7 @@
             { data: 'modified_count', name: 'modified_count' },
             { data: 'user_name', name: 'createdByUser.name', orderable: false, searchable: false },
             { data: 'created_at_view', name: 'created_at' },
+            { data: 'company_name', name: 'company_name', orderable: false, searchable: false },
             { data: 'action', name: 'action', orderable: false, searchable: false },
         ]
     });

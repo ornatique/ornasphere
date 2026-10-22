@@ -17,9 +17,10 @@ class QrMakingController extends Controller
     private function record(Company $company, int $id): MarketingQr { return MarketingQr::where('company_id',$company->id)->findOrFail($id); }
     public function index(Request $request, string $slug) {
         $company = $this->company($slug);
-        $rows = MarketingQr::where('company_id',$company->id)->with('creator')
+        $companies = \App\Services\CompanyBranches::managementSelection($request, $company);
+        $rows = MarketingQr::whereIn('company_id',$companies->keys())->with('creator')
             ->latest()->get();
-        return view('company.qr_making.index',compact('company','rows'));
+        return view('company.qr_making.index',compact('company','rows','companies'));
     }
     public function create(string $slug) {
         $company = $this->company($slug); $qr = new MarketingQr(['size'=>250,'type'=>'web']);
@@ -106,11 +107,11 @@ class QrMakingController extends Controller
         return response($this->renderQr($qr)->getString(),200,['Content-Type'=>'image/svg+xml','Cache-Control'=>'private, no-cache']);
     }
     public function pdf(string $slug,int $id) {
-        $qr=$this->record($this->company($slug),$id); $image=$this->renderQr($qr,true)->getDataUri();
+        $company=$this->company($slug); $qr=$this->record($company,$id); $image=$this->renderQr($qr,true)->getDataUri();
         $filename=trim(preg_replace('/[^A-Za-z0-9 ._-]+/', '-', Str::ascii($qr->title)), ' .-');
         $filename=rtrim(substr($filename,0,150), ' .');
         if ($filename==='') $filename='qr-'.$qr->id;
-        return Pdf::loadView('company.qr_making.pdf',compact('qr','image'))->download($filename.'.pdf');
+        return Pdf::loadView('company.qr_making.pdf',compact('qr','image','company'))->download($filename.'.pdf');
     }
     public function destroy(string $slug,int $id) {
         $this->deleteQr($slug,$id);

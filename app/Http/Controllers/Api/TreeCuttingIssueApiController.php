@@ -20,7 +20,12 @@ class TreeCuttingIssueApiController extends Controller
 {
     public function index(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        return \App\Services\CastingApiBranches::listing($request,
+            fn (int $companyId) => $this->listForCompany($request, $companyId), 'Tree Cutting Issue');
+    }
+
+    private function listForCompany(Request $request, int $companyId)
+    {
         $fromDate = $request->input('from_date', now()->toDateString());
         $toDate = $request->input('to_date', now()->toDateString());
 
@@ -184,7 +189,7 @@ class TreeCuttingIssueApiController extends Controller
 
     public function update(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $voucher = VacuumVoucher::where('company_id', $companyId)->find((int) $id);
 
         if (!$voucher) {
@@ -596,7 +601,7 @@ class TreeCuttingIssueApiController extends Controller
         }
 
         [$voucher, $receiveItems, $treeCuttingItems, $customTreeCuttingItems] = $data;
-        $company = Company::findOrFail((int) $request->user()->company_id);
+        $company = Company::findOrFail(\App\Services\CompanyBranches::apiManagementCompanyId($request));
 
         return Pdf::loadView('company.tree_cutting_issue.pdf.show', compact('company', 'voucher', 'receiveItems', 'treeCuttingItems', 'customTreeCuttingItems'))
             ->setPaper('a4', 'portrait')
@@ -605,7 +610,7 @@ class TreeCuttingIssueApiController extends Controller
 
     private function voucherData(Request $request, int $id): ?array
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $voucher = VacuumVoucher::where('company_id', $companyId)
             ->with(['process:id,name', 'jobWorker:id,name', 'items'])
             ->withCount('items')

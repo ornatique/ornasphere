@@ -60,6 +60,7 @@
             </a>
         </div>
         <div class="card-body">
+            @include('company_layout.sales_exports')
 
             <div class="row mb-3">
 
@@ -86,7 +87,7 @@
                 <div class="col-md-3 d-flex align-items-end gap-2">
                     <button class="btn btn-success" id="filterBtn">Show</button>
                     <button class="btn btn-secondary" id="resetBtn">Reset</button>
-                    <a class="btn btn-danger" id="exportPdfBtn" target="_blank">PDF</a>
+                    
                 </div>
 
             </div>
@@ -123,7 +124,7 @@
                         <th>Other Amt</th>
                         <th>Total Amt</th>
                         <th>Created By</th>
-                        <th>Action</th>
+                        <th>Company / Branch</th><th>Action</th>
                     </tr>
                 </thead>
             </table>
@@ -188,7 +189,7 @@
             scrollX: true,
 
             ajax: {
-                url: "{{ route('company.returns.index',$company->slug) }}",
+                url: "{!! route('company.returns.index', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}",
                 data: function(d) {
                     d.from_date = $('#from_date').val();
                     d.to_date = $('#to_date').val();
@@ -273,6 +274,7 @@
                     orderable: false,
                     searchable: false
                 },
+                { data: 'company_name', orderable: false, searchable: false },
                 {
                     data: 'action',
                     orderable: false,

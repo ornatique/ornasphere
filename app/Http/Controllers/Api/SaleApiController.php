@@ -29,8 +29,12 @@ class SaleApiController extends Controller
 {
     public function index(Request $request)
     {
-        $company = $request->user()->company;
-        $companyId = $company->id;
+        return \App\Services\SalesApiBranches::listing($request, fn ($companyId) => $this->listForCompany($request, $companyId), 'Sales Estimate');
+    }
+
+    private function listForCompany(Request $request, int $companyId)
+    {
+        $company = \App\Models\Company::findOrFail($companyId);
 
         $sales = Sale::with(['customer', 'creator', 'payments'])
             ->withSum('saleItems as total_qty', 'qty')
@@ -42,6 +46,9 @@ class SaleApiController extends Controller
             ->withSum('saleItems as total_other_amount', 'other_amount')
             ->where('company_id', $companyId)
             ->whereHas('customer', fn($customer) => $customer->saleParties())
+            ->when($request->filled('from_date'), fn ($q) => $q->whereDate('sale_date','>=',$request->from_date))
+            ->when($request->filled('to_date'), fn ($q) => $q->whereDate('sale_date','<=',$request->to_date))
+            ->when($request->filled('customer_id'), fn ($q) => $q->where('customer_id',$request->customer_id))
             ->latest()
             ->get();
 
@@ -117,23 +124,8 @@ class SaleApiController extends Controller
 
     public function exportListPdf(Request $request)
     {
-        $company = $request->user()->company;
-        [$fromDate, $toDate] = $this->resolveSaleDateRange($request);
-
-        $rows = $this->saleListQuery($company->id, $request, $fromDate, $toDate)
-            ->get()
-            ->map(fn(Sale $sale) => $this->summarizeSaleListRow($sale))
-            ->values();
-
-        $fileName = 'sales-list-' . now()->format('YmdHis') . '.pdf';
-        $pdf = Pdf::loadView('company.sales.list_pdf', compact('company', 'rows', 'fromDate', 'toDate'))
-            ->setPaper('a4', 'landscape');
-
-        if ($request->boolean('download')) {
-            return $pdf->download($fileName);
-        }
-
-        return $pdf->stream($fileName);
+        $request->merge(['export'=>'pdf']);
+        return $this->index($request);
     }
 
     private function resolveSaleDateRange(Request $request): array
@@ -201,7 +193,7 @@ class SaleApiController extends Controller
 
     public function customerlist(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $customers = Customer::where('company_id', $companyId)
             ->where('is_active', 1)
@@ -270,7 +262,7 @@ class SaleApiController extends Controller
     // Search itemsets + direct items for sale create flow (same as web behavior)
     public function searchItemsets(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $search = trim((string) $request->input('search', ''));
         $customerId = (int) $request->input('customer_id', 0);
         $currentSaleId = (int) $request->input('sale_id', 0);
@@ -636,7 +628,7 @@ class SaleApiController extends Controller
                     $q->select(DB::raw(1))
                         ->from('approval_headers')
                         ->whereColumn('approval_headers.id', 'approval_items.approval_id')
-                        ->where('approval_headers.company_id', $user->company_id)
+                        ->where('approval_headers.company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
                         ->where('approval_headers.customer_id', $approvalLookupCustomerId);
                 })
                 ->where(function ($q) {
@@ -659,7 +651,7 @@ class SaleApiController extends Controller
                     $sub->select(DB::raw(1))
                         ->from('sale_items')
                         ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
-                        ->where('sales.company_id', $user->company_id)
+                        ->where('sales.company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
                         ->where(function ($q) {
                             $q->whereColumn('sale_items.approval_item_id', 'approval_items.id')
                                 ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
@@ -670,14 +662,14 @@ class SaleApiController extends Controller
                 ->first();
                  
             if ($approvalItem) {
-                $otherLock = $this->activeSaleCartLockForApprovalItem((int) $user->company_id, (int) $approvalItem->id);
+                $otherLock = $this->activeSaleCartLockForApprovalItem(\App\Services\CompanyBranches::apiManagementCompanyId(request()), (int) $approvalItem->id);
                 if ($otherLock && (int) $otherLock->user_id !== (int) $user->id) {
                     $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
                     return $this->saleCartLockedResponseForApproval($approvalItem, $itemSet, $otherLock);
                 }
 
                 $exists = SaleCart::where('user_id', $user->id)
-                    ->where('company_id', $user->company_id)
+                    ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
                     ->where('approval_item_id', $approvalItem->id)
                     ->first();
 
@@ -709,7 +701,7 @@ class SaleApiController extends Controller
                 $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
                 $cartPayload = [
                     'user_id' => $user->id,
-                    'company_id' => $user->company_id,
+                    'company_id' => \App\Services\CompanyBranches::apiManagementCompanyId(request()),
                     'itemset_id' => optional($itemSet)->id,
                     'approval_item_id' => $approvalItem->id,
                 ];
@@ -741,7 +733,7 @@ class SaleApiController extends Controller
 
         return DB::transaction(function () use ($user, $qrCode, $requestedItemsetId, $customerId, $hasSaleCartCustomerId) {
             $item = ItemSet::with('item')
-                ->where('company_id', $user->company_id)
+                ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
                 ->when($requestedItemsetId > 0, function ($q) use ($requestedItemsetId) {
                     $q->where('id', $requestedItemsetId);
                 })
@@ -763,13 +755,13 @@ class SaleApiController extends Controller
                 ]);
             }
 
-            $existingLock = $this->activeSaleCartLockForItemSet((int) $user->company_id, (int) $item->id);
+            $existingLock = $this->activeSaleCartLockForItemSet(\App\Services\CompanyBranches::apiManagementCompanyId(request()), (int) $item->id);
             if ($existingLock && (int) $existingLock->user_id !== (int) $user->id) {
                 return $this->saleCartLockedResponse($item, $existingLock);
             }
 
             $exists = SaleCart::where('user_id', $user->id)
-                ->where('company_id', $user->company_id)
+                ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
                 ->where('itemset_id', $item->id)
                 ->first();
 
@@ -798,7 +790,7 @@ class SaleApiController extends Controller
 
             $cartPayload = [
                 'user_id'    => $user->id,
-                'company_id' => $user->company_id,
+                'company_id' => \App\Services\CompanyBranches::apiManagementCompanyId(request()),
                 'itemset_id' => $item->id,
             ];
 
@@ -832,7 +824,7 @@ class SaleApiController extends Controller
                 'approvalItem.item',
             ])
             ->where('user_id', $user->id)
-            ->where('company_id', $user->company_id)
+            ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
             ->when($hasSaleCartCustomerId && $customerId > 0, function ($query) use ($customerId) {
                 $query->where('customer_id', $customerId);
             })
@@ -894,7 +886,7 @@ class SaleApiController extends Controller
 
         $cartItem = SaleCart::where('id', $id)
             ->where('user_id', $user->id)
-            ->where('company_id', $user->company_id)
+            ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
             ->first();
 
         if (!$cartItem) {
@@ -919,7 +911,7 @@ class SaleApiController extends Controller
         $includeQrImage = $request->boolean('include_qr_image', true);
 
         $query = ItemSet::with('item:id,item_name')
-            ->where('company_id', $user->company_id)
+            ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
             ->where('is_final', 1)
             ->whereNotNull('qr_code');
 
@@ -1044,7 +1036,7 @@ class SaleApiController extends Controller
         }
 
         $itemSets = ItemSet::with('item:id,item_name')
-            ->where('company_id', $user->company_id)
+            ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
             ->whereIn('id', $ids)
             ->where('is_final', 1)
             ->get();
@@ -1058,7 +1050,7 @@ class SaleApiController extends Controller
             ], 404);
         }
 
-        ItemSet::where('company_id', $user->company_id)
+        ItemSet::where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
             ->whereIn('id', $itemSets->pluck('id'))
             ->whereNull('printed_at')
             ->update([
@@ -1110,7 +1102,7 @@ class SaleApiController extends Controller
         }
 
         $itemSets = ItemSet::with('item:id,item_name')
-            ->where('company_id', $user->company_id)
+            ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
             ->whereIn('id', $ids)
             ->where('is_final', 1)
             ->get();
@@ -1124,7 +1116,7 @@ class SaleApiController extends Controller
             ], 404);
         }
 
-        ItemSet::where('company_id', $user->company_id)
+        ItemSet::where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
             ->whereIn('id', $itemSets->pluck('id'))
             ->whereNull('printed_at')
             ->update([
@@ -1218,7 +1210,7 @@ class SaleApiController extends Controller
 
         try {
             $user = auth()->user();
-            $companyId = (int) $user->company_id;
+            $companyId = \App\Services\CompanyBranches::apiManagementCompanyId(request());
 
             $request->validate([
                 'customer_id' => 'required|integer',
@@ -1230,7 +1222,7 @@ class SaleApiController extends Controller
             'show_previous_bills' => 'sometimes|boolean',
             ]);
 
-            $customerExists = Customer::where('company_id', $user->company_id)
+            $customerExists = Customer::where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
                 ->where('id', (int) $request->customer_id)
                 ->saleParties()
                 ->exists();
@@ -1245,7 +1237,7 @@ class SaleApiController extends Controller
             $customerId = (int) $request->customer_id;
 
             $cartQuery = SaleCart::where('user_id', auth()->id())
-                ->where('company_id', $user->company_id)
+                ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
                 ->when($hasSaleCartCustomerId, function ($query) use ($customerId) {
                     $query->where('customer_id', $customerId);
                 });
@@ -1257,9 +1249,9 @@ class SaleApiController extends Controller
             }
 
             $sale = Sale::create([
-                'company_id'  => $user->company_id,
+                'company_id'  => \App\Services\CompanyBranches::apiManagementCompanyId(request()),
                 'customer_id' => $request->customer_id,
-                'voucher_no'  => \App\Services\VoucherSeries::next((int) $request->user()->company_id, 'SL'),
+                'voucher_no'  => \App\Services\VoucherSeries::next(\App\Services\CompanyBranches::apiManagementCompanyId($request), 'SL'),
                 'sale_date'   => now(),
                 'remarks' => $request->input('remarks', $request->input('remark')),
                 'net_total'   => 0,
@@ -1301,7 +1293,7 @@ class SaleApiController extends Controller
                     $approvalOwnerCustomerId = (int) optional($approvalOwner?->approval)->customer_id;
 
                     $approvalItem = TransactionItemGuard::lockApprovalItemForSale(
-                        $user->company_id,
+                        \App\Services\CompanyBranches::apiManagementCompanyId(request()),
                         (int) $cart->approval_item_id,
                         $approvalOwnerCustomerId > 0 ? $approvalOwnerCustomerId : null
                     )->load(['itemSet.item', 'legacyItemSet.item', 'item']);
@@ -1352,7 +1344,7 @@ class SaleApiController extends Controller
                     continue;
                 }
 
-                $item = TransactionItemGuard::lockItemSetForUse($user->company_id, (int) $cart->itemset_id)->load('item');
+                $item = TransactionItemGuard::lockItemSetForUse(\App\Services\CompanyBranches::apiManagementCompanyId(request()), (int) $cart->itemset_id)->load('item');
 
                 $purity = (float) (optional($item->item)->outward_purity ?? 0);
                 $labourAmount = (float) ($item->sale_labour_amount ?? (($item->net_weight ?? 0) * ($item->sale_labour_rate ?? 0)));
@@ -1392,7 +1384,7 @@ class SaleApiController extends Controller
             );
 
             SaleCart::where('user_id', auth()->id())
-                ->where('company_id', $user->company_id)
+                ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
                 ->when($hasSaleCartCustomerId, function ($query) use ($customerId) {
                     $query->where('customer_id', $customerId);
                 })
@@ -1413,7 +1405,7 @@ class SaleApiController extends Controller
 
     public function getItemByQr(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $code = trim((string) ($request->input('qr_code') ?? $request->input('code') ?? $request->input('barcode') ?? $request->input('label_code') ?? ''));
 
         if ($code === '') {
@@ -1506,7 +1498,7 @@ class SaleApiController extends Controller
     // Add Label From Approval (same as web)
     public function approvalItems(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $currentSaleId = (int) $request->input('sale_id', 0);
         $customerId = (int) (
             $request->input('approval_customer_id')
@@ -1633,7 +1625,7 @@ class SaleApiController extends Controller
 
     public function getItemset(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $query = ItemSet::with('item')
             ->where('company_id', $companyId)
@@ -1690,7 +1682,7 @@ class SaleApiController extends Controller
     public function store(Request $request)
     {
         $user = $request->user();
-        $companyId = $user->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId(request());
         $customerId = (int) (
             $request->input('customer_id')
             ?? $request->input('customer')
@@ -1744,7 +1736,7 @@ class SaleApiController extends Controller
             $sale = Sale::create([
                 'company_id'  => $companyId,
                 'customer_id' => $customerId,
-                'voucher_no'  => \App\Services\VoucherSeries::next((int) $request->user()->company_id, 'SL'),
+                'voucher_no'  => \App\Services\VoucherSeries::next(\App\Services\CompanyBranches::apiManagementCompanyId($request), 'SL'),
                 'sale_date'   => now(),
                 'remarks' => $request->input('remarks', $request->input('remark')),
                 'net_total'   => 0,
@@ -1997,7 +1989,7 @@ class SaleApiController extends Controller
 
     public function show(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $sale = Sale::with('customer', 'saleItems.itemset.item', 'creator', 'payments')
             ->where('company_id', $companyId)
@@ -2019,7 +2011,7 @@ class SaleApiController extends Controller
     public function update(Request $request, $id)
     {
         $user = $request->user();
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $approvalCustomerId = (int) (
             $request->input('approval_customer_id')
             ?? $request->input('approval_person_id')
@@ -2386,7 +2378,7 @@ class SaleApiController extends Controller
 
     public function destroy(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         DB::beginTransaction();
 
@@ -2446,7 +2438,7 @@ class SaleApiController extends Controller
     public function removeSaleItem(Request $request, $saleId, $itemIdentifier)
     {
         $user = $request->user();
-        $companyId = (int) $user->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId(request());
         $saleId = (int) $saleId;
         $itemIdentifier = (int) $itemIdentifier;
 
@@ -2986,7 +2978,7 @@ class SaleApiController extends Controller
 
     public function pdf(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $company = Company::find($companyId);
         $sale = Sale::with(['customer', 'saleItems.itemset.item', 'saleItems.product', 'payments'])

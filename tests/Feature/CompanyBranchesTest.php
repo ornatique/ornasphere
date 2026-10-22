@@ -31,6 +31,126 @@ class CompanyBranchesTest extends TestCase
         }
     }
 
+    public function test_management_branch_access_is_limited_to_children_and_three_controllers(): void
+    {
+        DB::table('companies')->where('id',3)->update(['status'=>0]);
+        foreach ([['company-2', \App\Http\Controllers\Company\CustomerController::class, true],
+                  ['company-2', \App\Http\Controllers\Company\CompanyUserController::class, true],
+                  ['company-2', \App\Http\Controllers\Company\CompanyRoleController::class, true],
+                  ['company-3', \App\Http\Controllers\Company\CustomerController::class, false],
+                  ['company-4', \App\Http\Controllers\Company\CustomerController::class, false],
+                  ['company-2', \App\Http\Controllers\Company\CompanyDashboardController::class, false]] as [$slug, $controller, $allowed]) {
+            $request = Request::create('/company/'.$slug.'/customers');
+            $route = new \Illuminate\Routing\Route('GET', 'company/{slug}/customers', ['uses'=>$controller.'@index', 'controller'=>$controller.'@index']);
+            $route->bind($request);
+            $request->setRouteResolver(fn() => $route);
+            $request->setUserResolver(fn() => $this->user(1));
+            try {
+                $response = (new \App\Http\Middleware\EnsureCompanyIsActive)->handle($request, fn() => response('allowed'));
+                $this->assertTrue($allowed);
+                $this->assertSame('allowed', $response->getContent());
+            } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+                $this->assertFalse($allowed);
+                $this->assertSame(403, $e->getStatusCode());
+            }
+        }
+    }
+
+    public function test_management_multiselect_rejects_unrelated_inactive_and_unprivileged_branches(): void
+    {
+        DB::table('companies')->where('id', 3)->update(['status' => 0]);
+        foreach ([[1, true, [1, 2], true], [1, true, [4], false], [1, true, [3], false],
+                  [2, true, [1, 2], false], [1, false, [2], false], [2, true, [2], true]] as [$company, $admin, $ids, $allowed]) {
+            $request = Request::create('/', 'GET', ['management_branches' => $ids]);
+            $request->setUserResolver(fn () => $this->user($company, $admin));
+            try {
+                $selected = CompanyBranches::managementSelection($request, Company::findOrFail($company));
+                $this->assertTrue($allowed);
+                $this->assertEqualsCanonicalizing($ids, $selected->keys()->all());
+            } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+                $this->assertFalse($allowed);
+                $this->assertSame(403, $e->getStatusCode());
+            }
+        }
+    }
+
+    public function test_management_roles_combines_selected_branches_with_owner_action_urls(): void
+    {
+        DB::statement('CREATE TABLE roles (id integer primary key, company_id integer, name text, guard_name text)');
+        DB::statement('CREATE TABLE model_has_roles (role_id integer, model_id integer, model_type text)');
+        foreach ([1, 2, 3, 4] as $id) DB::table('roles')->insert(['id'=>$id, 'company_id'=>$id, 'name'=>'Role '.$id, 'guard_name'=>'web']);
+        DB::table('users')->insert(['id'=>12, 'company_id'=>2]);
+        DB::table('model_has_roles')->insert(['role_id'=>2, 'model_id'=>12, 'model_type'=>User::class]);
+        $request = Request::create('/company/company-1/roles', 'GET', ['management_branches'=>[1,2]], [], [], ['HTTP_X_REQUESTED_WITH'=>'XMLHttpRequest']);
+        $request->setUserResolver(fn () => $this->user(1));
+        $this->app->instance('request', $request);
+        $request->setUserResolver(fn () => $this->user(1));
+        $response = (new \App\Http\Controllers\Company\CompanyRoleController)->index('company-1', $request);
+        $data = $response->getData(true);
+        $this->assertSame(2, $data['recordsTotal']);
+        $rows = collect($data['data'])->keyBy('company_id');
+        $this->assertEqualsCanonicalizing([1, 2], $rows->keys()->all());
+        $this->assertSame('Company 2', $rows[2]['company_name']);
+        $this->assertSame(1, $rows[2]['users_count']);
+        $this->assertStringContainsString('/company/company-2/', $rows[2]['action']);
+        $this->assertStringNotContainsString('/company/company-1/', $rows[2]['action']);
+        DB::statement('CREATE TABLE permissions (id integer primary key, name text, guard_name text, company_id integer, created_at text, updated_at text)');
+        DB::statement('CREATE TABLE role_has_permissions (role_id integer, permission_id integer)');
+        $api = (new \App\Http\Controllers\Api\RoleApiController)->index($request)->getData(true);
+        $this->assertEqualsCanonicalizing([1,2], $api['selected_company_ids']);
+        $this->assertCount(2, $api['data']);
+        $apiRows = collect($api['data'])->keyBy('company_id');
+        $this->assertSame(1, $apiRows[2]['users_count']);
+        $this->assertSame('Company 2', $apiRows[2]['company_name']);
+    }
+
+    public function test_api_management_lists_default_to_own_company_and_combine_explicit_selection(): void
+    {
+        DB::statement('ALTER TABLE users ADD COLUMN created_at text');
+        DB::statement('ALTER TABLE users ADD COLUMN two_factor_secret text');
+        DB::statement('ALTER TABLE customers ADD COLUMN created_at text');
+        foreach ([1,2,3,4] as $id) {
+            DB::table('users')->insert(['id'=>$id, 'company_id'=>$id, 'two_factor_secret'=>'private']);
+            DB::table('customers')->insert(['id'=>$id, 'company_id'=>$id, 'name'=>'Person '.$id]);
+        }
+        foreach ([\App\Http\Controllers\Api\CompanyUserController::class, \App\Http\Controllers\Api\CustomerApiController::class] as $controller) {
+            foreach ([[[], [1]], [['management_branches'=>[1,2]], [1,2]], [['company_id'=>2], [2]]] as [$input, $ids]) {
+                $request = Request::create('/', 'GET', $input);
+                $request->setUserResolver(fn () => $this->user(1));
+                $data = (new $controller)->index($request)->getData(true);
+                $this->assertEqualsCanonicalizing($ids, array_column($data['data'], 'company_id'));
+                $this->assertEqualsCanonicalizing($ids, $data['selected_company_ids']);
+                foreach ($data['data'] as $row) {
+                    $this->assertSame('Company '.$row['company_id'], $row['company_name']);
+                    $this->assertArrayNotHasKey('two_factor_secret', $row);
+                }
+            }
+        }
+    }
+
+    public function test_api_management_actions_require_one_authorized_company(): void
+    {
+        foreach ([['company_id'=>2], ['management_branches'=>[2]]] as $input) {
+            $request = Request::create('/', 'PUT', $input);
+            $request->setUserResolver(fn () => $this->user(1));
+            $this->assertSame(2, CompanyBranches::apiManagementCompanyId($request));
+        }
+        foreach ([['company_id'=>2, 'management_branches'=>[1]], ['management_branches'=>[1,2]], ['management_branches'=>[]], ['company_id'=>'bad']] as $input) {
+            $request = Request::create('/', 'PUT', $input);
+            $request->setUserResolver(fn () => $this->user(1));
+            try {
+                CompanyBranches::apiManagementCompanyId($request);
+                $this->fail('Ambiguous or invalid selection was accepted');
+            } catch (\Illuminate\Validation\ValidationException $e) {
+                $this->assertNotEmpty($e->errors());
+            }
+        }
+        $request = Request::create('/', 'PUT', ['company_id'=>4]);
+        $request->setUserResolver(fn () => $this->user(1));
+        $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+        CompanyBranches::apiManagementCompanyId($request);
+    }
+
     private function user(int $company, bool $admin = true): User
     {
         $user = \Mockery::mock(User::class)->makePartial();

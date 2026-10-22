@@ -274,7 +274,10 @@ class JobworkRawStockTest extends TestCase
     {
         $this->sync();
         $request = new \Illuminate\Http\Request;
-        $request->setUserResolver(fn() => (object)['company_id'=>1]);
+        $user = new \App\Models\User;
+        $user->forceFill(['company_id'=>1]);
+        $user->setRelation('company', \App\Models\Company::findOrFail(1));
+        $request->setUserResolver(fn() => $user);
         $response = app(\App\Http\Controllers\Api\JobworkIssueApiController::class)->rawStock($request)->getData(true);
         $this->assertSame(1, $response['data'][0]['item_id']);
         $this->assertEquals(400, $response['data'][0]['available_net_wt']);

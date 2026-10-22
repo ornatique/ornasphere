@@ -75,9 +75,9 @@
 #bullion-customer-filter .select2-results__option[aria-selected="true"] { background:#424969; color:#fff; }
 #bullion-customer-filter .select2-results__option--highlighted { background:#306fdd !important; color:#fff !important; }
 </style>
-<form method="GET" id="bullion-customer-filter"><label for="bullion-customer">Bullion</label><select id="bullion-customer" class="form-control" name="customer_id" onchange="this.form.submit()"><option value="">Select bullion</option>
+<form method="GET" id="bullion-customer-filter">@foreach($companies as $branch)<input type="hidden" name="management_branches[]" value="{{ $branch->id }}">@endforeach<label for="bullion-customer">Bullion</label><select id="bullion-customer" class="form-control" name="customer_id" onchange="this.form.submit()"><option value="">Select bullion</option>
 @foreach($customers as $customer)
-<option value="{{ \Illuminate\Support\Facades\Crypt::encryptString((string)$customer->id) }}" @selected($selected?->id === $customer->id)>{{ $customer->name }}</option>
+<option value="{{ \Illuminate\Support\Facades\Crypt::encryptString((string)$customer->id) }}" @selected($selected?->id === $customer->id)>{{ $customer->name }} - {{ $companies[$customer->company_id]->name }}</option>
 @endforeach
 </select></form>
 @if($selected)
@@ -86,7 +86,9 @@
 <div class="col-md-4"><div class="bullion-balance bullion-balance-{{ $key }}"><span>{{ $label }}</span><h3>{{ number_format($balance[$key], $key === 'cash' ? 2 : 3) }}</h3></div></div>
 @endforeach
 </div>
-<form method="POST" id="bullion-form" action="{{ route('company.bullion.store',$company->slug) }}">@csrf
+<p>Company / Branch: <strong>{{ $ledgerCompany->name }}</strong></p>
+@if(\App\Services\BranchReadOnly::canWrite(auth()->user(), $ledgerCompany->id))
+<form method="POST" id="bullion-form" action="{{ route('company.bullion.store',$ledgerCompany->slug) }}">@csrf
 <input type="hidden" name="customer_id" value="{{ $selected->id }}">
 <div class="mb-3"><h2>New bullion entry</h2><div class="mt-2 d-flex flex-wrap" style="gap:10px">
 <button type="button" class="btn btn-info" data-bullion-convert="convert_to_metal">Convert Rupees to Metal</button>
@@ -120,7 +122,8 @@
 <label class="bullion-confirm"><input type="checkbox" name="rate_confirmed" value="1" required> <span id="bullion-confirm-label">I have checked the transaction details.</span></label>
 <div class="bullion-actions"><button class="btn btn-success">Save Bullion Entry</button></div>
 </form>
-<div class="bullion-ledger-heading"><h2>Bullion ledger</h2><a class="btn btn-info" href="{{ route('company.bullion.pdf', ['slug'=>$company->slug, 'customer_id'=>\Illuminate\Support\Facades\Crypt::encryptString((string)$selected->id)]) }}">Download PDF (Cr / Dr)</a></div><div class="bullion-ledger-panel"><table id="bullion-ledger-table" class="table table-bordered" style="width:100%"><thead><tr><th>Date</th><th>Transaction</th><th>Cash in</th><th>Cash out</th><th>Metal</th><th>Fine in</th><th>Fine out</th><th>Rate (INR / pure g)</th><th>Cash balance</th><th>Gold balance</th><th>Silver balance</th><th>Remarks</th></tr></thead><tbody>
+@else <p>Other branches are read-only. Log in to that branch to add an entry.</p> @endif
+<div class="bullion-ledger-heading"><h2>Bullion ledger</h2><a class="btn btn-info" href="{{ route('company.bullion.pdf', ['slug'=>$ledgerCompany->slug, 'customer_id'=>\Illuminate\Support\Facades\Crypt::encryptString((string)$selected->id)]) }}">Download PDF (Cr / Dr)</a></div><div class="bullion-ledger-panel"><table id="bullion-ledger-table" class="table table-bordered" style="width:100%"><thead><tr><th>Date</th><th>Transaction</th><th>Cash in</th><th>Cash out</th><th>Metal</th><th>Fine in</th><th>Fine out</th><th>Rate (INR / pure g)</th><th>Cash balance</th><th>Gold balance</th><th>Silver balance</th><th>Remarks</th></tr></thead><tbody>
 @foreach($entries->reverse() as $entry)
 <tr><td data-order="{{ $entry->entry_date->format('Ymd') }}{{ str_pad((string)$entry->id, 12, '0', STR_PAD_LEFT) }}"><span class="text-nowrap">{{ $entry->entry_date->format('d-m-Y') }}</span><br><small class="text-nowrap" title="Saved time (IST)">{{ $entry->created_at?->timezone('Asia/Kolkata')->format('h:i a') ?? 'Time unavailable' }}</small></td><td>{{ ucwords(str_replace('_',' ',$entry->entry_type)) }}</td><td>{{ number_format($entry->cash_in,2) }}</td><td>{{ number_format($entry->cash_out,2) }}</td><td>{{ $entry->metal_type }}</td><td>{{ number_format($entry->metal_in,3) }}</td><td>{{ number_format($entry->metal_out,3) }}</td><td>{{ number_format($entry->rate,2) }}</td><td>{{ number_format($entry->running['cash'],2) }}</td><td>{{ number_format($entry->running['gold'],3) }}</td><td>{{ number_format($entry->running['silver'],3) }}</td><td>{{ $entry->remarks }}</td></tr>
 @endforeach

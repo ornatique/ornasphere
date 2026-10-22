@@ -24,14 +24,12 @@ class JobworkReceiveController extends Controller
     public function index(Request $request, string $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-
-        if ($request->ajax()) {
+        $companies = \App\Services\CompanyBranches::managementSelection($request,$company);
+        if ($request->ajax() || $request->filled('export')) {
             return $this->receiveListDataTable($company, $request);
         }
-
-        $jobWorkers = $this->jobWorkers($company);
-        $customers = $this->customers($company);
-
+        $jobWorkers = $companies->flatMap(fn ($branch) => $this->jobWorkers($branch)->each(fn ($row) => $row->name .= ' - '.$branch->name))->values();
+        $customers = $companies->flatMap(fn ($branch) => $this->customers($branch)->each(fn ($row) => $row->name .= ' - '.$branch->name))->values();
         return view('company.jobwork_receive.index', compact('company', 'jobWorkers', 'customers'));
     }
 
@@ -261,14 +259,10 @@ class JobworkReceiveController extends Controller
             ->download('jobwork_receive_' . $row->voucher_no . '.pdf');
     }
 
-    public function exportPdf(Request $request, string $slug)
+    public function exportPdf(Request $request, $slug)
     {
-        $company = Company::whereSlug($slug)->firstOrFail();
-        $rows = $this->reportRows($company, $request);
-
-        return Pdf::loadView('company.jobwork_receive.pdf.index', compact('company', 'rows'))
-            ->setPaper('a4', 'landscape')
-            ->download('jobwork_receive_report.pdf');
+        $request->merge(['export'=>'pdf']);
+        return $this->index($request,$slug);
     }
 
     private function baseQuery(Company $company, Request $request)
@@ -378,7 +372,10 @@ class JobworkReceiveController extends Controller
 
     private function receiveListDataTable(Company $company, Request $request)
     {
-        $rows = $this->reportRows($company, $request);
+        $companies = \App\Services\CompanyBranches::managementSelection($request,$company);
+        $rows = $companies->flatMap(fn ($branch) => $this->reportRows($branch,$request)->map(fn ($row) => array_merge($row,
+            ['company_name'=>$branch->name, 'company_id'=>(int)$branch->id])))->sortByDesc('sort_at')->values();
+        if ($request->filled('export')) return \App\Services\JobworkListExport::download($request,$companies,'jobwork-receive',$rows);
         $total = $rows->count();
         $start = max(0, (int) $request->input('start', 0));
         $length = (int) $request->input('length', 10);

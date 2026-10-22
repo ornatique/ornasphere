@@ -19,21 +19,24 @@ class CompanyRoleController extends Controller
     public function index($slug, Request $request)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $selectedCompanies = \App\Services\CompanyBranches::managementSelection($request, $company);
 
         if ($request->ajax()) {
-            $roles = Role::where('company_id', $company->id);
+            $roles = Role::whereIn('company_id', $selectedCompanies->keys());
 
             return DataTables::of($roles)
                 ->addIndexColumn()
-                ->addColumn('users_count', function ($role) use ($company) {
-                    return $this->usersCountForRole((int) $role->id, (int) $company->id);
+                ->addColumn('company_name', fn ($row) => $selectedCompanies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
+                ->addColumn('users_count', function ($role) use ($selectedCompanies) {
+                    return $this->usersCountForRole((int) $role->id, (int) $role->company_id);
                 })
-                ->addColumn('action', function ($role) use ($company) {
+                ->addColumn('action', function ($role) use ($selectedCompanies) {
                     $encryptedId = Crypt::encryptString($role->id);
 
-                    $editUrl = route('company.roles.edit', [$company->slug, $encryptedId]);
-                    $deleteUrl = route('company.roles.delete', [$company->slug, $encryptedId]);
-                    $deleteBtn = $this->usersCountForRole((int) $role->id, (int) $company->id) > 0
+                    $editUrl = route('company.roles.edit', [$selectedCompanies[$role->company_id]->slug, $encryptedId]);
+                    $deleteUrl = route('company.roles.delete', [$selectedCompanies[$role->company_id]->slug, $encryptedId]);
+                    $deleteBtn = $this->usersCountForRole((int) $role->id, (int) $role->company_id) > 0
                         ? '<span class="badge badge-danger">In Use</span>'
                         : '<form method="POST" action="' . $deleteUrl . '" style="display:inline">
                             ' . csrf_field() . method_field('DELETE') . '

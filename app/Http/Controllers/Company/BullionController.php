@@ -19,23 +19,24 @@ class BullionController extends Controller
 
     private function company(Request $request, string $slug): Company
     {
-        $company = $request->user()->company;
-        abort_unless($company && $company->slug === $slug, 403);
+        $company = \App\Services\CompanyBranches::visibleCompanies($request->user())->firstWhere('slug', $slug);
+        abort_unless($company && \App\Services\CompanyBranches::isActive($company), 403);
         return $company;
     }
 
     public function index(Request $request, string $slug)
     {
         $company = $this->company($request, $slug);
-        $customers = $this->customers($company->id)->orderBy('name')->get(['id','name']);
+        $companies = \App\Services\CompanyBranches::managementSelection($request, $company);
+        $customers = $companies->flatMap(fn ($branch) => $this->customers($branch->id)->get(['id','name','company_id']))->sortBy('name');
         $selected = null;
         if ($request->filled('customer_id')) {
             $key = $request->query('customer_id');
             abort_unless(is_string($key), 404);
             // Upgrade existing bookmarked links only after checking ownership/category.
             if (ctype_digit($key)) {
-                $customer = $this->customers($company->id)->findOrFail((int) $key);
-                return redirect()->route('company.bullion.index', ['slug'=>$slug, 'customer_id'=>Crypt::encryptString((string)$customer->id), 'format'=>$request->query('format') === 'pdf' ? 'pdf' : null]);
+                $customer = $customers->firstWhere('id', (int) $key) ?? abort(404);
+                return redirect()->route('company.bullion.index', ['slug'=>$slug, 'customer_id'=>Crypt::encryptString((string)$customer->id), 'management_branches'=>$companies->keys()->all(), 'format'=>$request->query('format') === 'pdf' ? 'pdf' : null]);
             }
             try {
                 $id = Crypt::decryptString($key);
@@ -43,9 +44,10 @@ class BullionController extends Controller
                 abort(404, 'Invalid bullion selection.');
             }
             abort_unless(ctype_digit($id), 404);
-            $selected = $this->customers($company->id)->findOrFail((int) $id);
+            $selected = $customers->firstWhere('id', (int) $id) ?? abort(404);
         }
-        $entries = CustomerAdvanceLedger::where('company_id', $company->id)->where('customer_id', $selected?->id ?? 0)->orderBy('entry_date')->orderBy('id')->get();
+        $ledgerCompany = $selected ? $companies[$selected->company_id] : $company;
+        $entries = CustomerAdvanceLedger::where('company_id', $ledgerCompany->id)->where('customer_id', $selected?->id ?? 0)->orderBy('entry_date')->orderBy('id')->get();
         $balance = ['cash'=>0, 'gold'=>0, 'silver'=>0];
         foreach ($entries as $entry) {
             $balance['cash'] += $entry->cash_in - $entry->cash_out;
@@ -54,16 +56,18 @@ class BullionController extends Controller
         }
         if ($request->query('format') === 'pdf' || $request->routeIs('company.bullion.pdf')) {
             abort_unless($selected, 422, 'Select a bullion to download the ledger.');
+            $company = $ledgerCompany;
             return \Barryvdh\DomPDF\Facade\Pdf::loadView('company.bullion.pdf', compact('company','selected','entries','balance'))
                 ->setPaper('a4', 'landscape')
                 ->download('bullion-ledger-'.$selected->id.'-'.now()->format('Ymd').'.pdf');
         }
-        return view('company.bullion.index', compact('company','customers','selected','entries','balance'));
+        return view('company.bullion.index', compact('company','customers','selected','entries','balance','companies','ledgerCompany'));
     }
 
     public function store(Request $request, string $slug)
     {
         $company = $this->company($request, $slug);
+        if (!\App\Services\BranchReadOnly::canWrite($request->user(), $company->id)) abort(403, \App\Services\BranchReadOnly::MESSAGE);
         $data = $request->validate([
             'customer_id'=>'required|integer', 'entry_date'=>'required|date',
             'entry_type'=>'required|in:receive_amount,receive_metal,return_amount,return_metal,convert_to_metal,convert_to_rupees',

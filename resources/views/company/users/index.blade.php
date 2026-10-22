@@ -1,5 +1,8 @@
 @extends('company_layout.admin')
 @section('content')
+@if(count((array) request('management_branches', [])) > 1)
+<p class="px-4 pt-3">New records will be created in <strong>{{ $company->name }}</strong>. To create in another branch, select only that branch and click View.</p>
+@endif
 <div class="content-wrapper">
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
@@ -19,6 +22,7 @@
                     <tr>
                         <th>#</th>
                         <th>Name</th>
+                        <th>Company / Branch</th>
                         <th>Email</th>
                         <th>Role</th>
                         <th>Status</th>
@@ -42,7 +46,7 @@
         $('#users-table').DataTable({
             processing: true,
             serverSide: true,
-            ajax: "{{ route('company.users.index', $company->slug) }}",
+            ajax: "{!! route('company.users.index', array_merge(['slug' => $company->slug], request()->only('management_branches'))) !!}",
             columns: [{
                     data: 'DT_RowIndex',
                     name: 'DT_RowIndex',
@@ -53,6 +57,7 @@
                     data: 'name',
                     name: 'name'
                 },
+            { data: 'company_name', orderable: false, searchable: false },
                 {
                     data: 'email',
                     name: 'email'

@@ -6,6 +6,9 @@
 @endphp
 
 @section('content')
+@if(count((array) request('management_branches', [])) > 1)
+<p class="px-4 pt-3">New records will be created in <strong>{{ $company->name }}</strong>. Select only another branch and click View to create there.</p>
+@endif
 <div class="content-wrapper">
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
@@ -15,6 +18,7 @@
             </a>
         </div>
         <div class="card-body">
+            @include('company_layout.casting_exports')
             <div class="vacuum-voucher-filters">
                 <div class="filter-field">
                     <label for="fromDate">From Date</label>
@@ -56,6 +60,7 @@
                             <th>Modified Count</th>
                             <th>Created By</th>
                             <th>Created At</th>
+                            <th>Company / Branch</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -158,7 +163,7 @@
         processing: true,
         serverSide: true,
         ajax: {
-            url: "{{ route('company.vacuum-vouchers.index', $company->slug) }}",
+            url: "{!! route('company.vacuum-vouchers.index', array_merge(['slug' => $company->slug], request()->only('management_branches'))) !!}",
             data: function (data) {
                 data.from_date = $('#fromDate').val();
                 data.to_date = $('#toDate').val();
@@ -180,6 +185,7 @@
             { data: 'modified_count', name: 'modified_count' },
             { data: 'user_name', name: 'createdByUser.name', orderable: false, searchable: false },
             { data: 'created_at_view', name: 'created_at' },
+            { data: 'company_name', name: 'company_name', orderable: false, searchable: false },
             { data: 'action', name: 'action', orderable: false, searchable: false },
         ]
     });

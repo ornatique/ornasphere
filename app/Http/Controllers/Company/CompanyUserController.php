@@ -111,6 +111,7 @@ class CompanyUserController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $selectedCompanies = \App\Services\CompanyBranches::managementSelection($request, $company);
         $authUser = $request->user();
         $canCreateUsers = $authUser ? $this->canUserModuleAction($authUser, 'create') : false;
         $canEditUsers = $authUser ? $this->canUserModuleAction($authUser, 'edit') : false;
@@ -118,13 +119,15 @@ class CompanyUserController extends Controller
 
         if ($request->ajax()) {
 
-            $users = User::where('company_id', $company->id)
+            $users = User::whereIn('company_id', $selectedCompanies->keys())
                 ->with('roles')
                 ->select('users.*');
 
             return DataTables::of($users)
 
                 ->addIndexColumn()
+                ->addColumn('company_name', fn ($row) => $selectedCompanies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
 
                 ->addColumn('role', function ($user) {
                     return $user->roles
@@ -150,13 +153,13 @@ class CompanyUserController extends Controller
                     return optional($user->updated_at)->format('d-m-Y h:i A') ?? '-';
                 })
 
-                ->addColumn('action', function ($user) use ($company, $canEditUsers, $canDeleteUsers) {
+                ->addColumn('action', function ($user) use ($selectedCompanies, $canEditUsers, $canDeleteUsers) {
 
                     $encryptedId = Crypt::encryptString($user->id);
 
-                    $editUrl = route('company.users.edit', [$company->slug, $encryptedId]);
-                    $toggleUrl = route('company.users.toggle', [$company->slug, $encryptedId]);
-                    $reset2faUrl = route('company.users.reset-2fa', [$company->slug, $encryptedId]);
+                    $editUrl = route('company.users.edit', [$selectedCompanies[$user->company_id]->slug, $encryptedId]);
+                    $toggleUrl = route('company.users.toggle', [$selectedCompanies[$user->company_id]->slug, $encryptedId]);
+                    $reset2faUrl = route('company.users.reset-2fa', [$selectedCompanies[$user->company_id]->slug, $encryptedId]);
 
                     $statusBtnClass = $user->is_active ? 'btn-success' : 'btn-danger';
                     $statusText = $user->is_active ? 'Active' : 'Inactive';

@@ -14,6 +14,8 @@
             @endif
         </div>
         <div class="card-body">
+            @include('company_layout.item_management_exports')
+            <p class="text-muted">New records are created in {{ $company->name }}. Each existing record is managed in its own branch.</p>
 
             <div class="table-responsive">
                 <table id="otherChargeTable" class="table table-bordered table-striped">
@@ -24,7 +26,7 @@
                             <th>Name</th>
                             <th>Code</th>
                             <th>Default Amount</th>
-                            <th>Action</th>
+                            <th>Company / Branch</th><th>Action</th>
                         </tr>
                     </thead>
 
@@ -43,7 +45,7 @@
         processing: true,
         serverSide: true,
 
-        ajax: "{{ route('company.other-charge.index',$company->slug) }}",
+        ajax: "{!! route('company.other-charge.index', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}",
 
         columns: [{
                 data: 'DT_RowIndex',
@@ -61,7 +63,8 @@
             {
                 data: 'default_amount'
             },
-            {
+            { data: 'company_name', orderable: false, searchable: false },
+                {
                 data: 'action'
             }
         ]

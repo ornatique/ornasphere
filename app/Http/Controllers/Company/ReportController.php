@@ -37,7 +37,7 @@ class ReportController extends Controller
         $selectedDate = $request->input('selected_date');
 
         if ($request->ajax()) {
-            $query = $this->visitingCardsBaseQuery($company->id, $fromDate, $toDate, $selectedDate);
+            $query = $this->visitingCardsBaseQuery($request, $company->id, $fromDate, $toDate, $selectedDate);
             $search = trim((string) data_get($request->input('search'), 'value', ''));
             if ($search !== '') {
                 $query->where(function ($q) use ($search) {
@@ -53,6 +53,7 @@ class ReportController extends Controller
 
             return DataTables::of($query)
                 ->addIndexColumn()
+                ->addColumn('company_name', fn($row) => $row->company?->name ?? '-')
                 ->addColumn('sr_no', fn($row) => null)
                 ->addColumn('created_at_fmt', fn($row) => optional($row->created_at)->format('d-m-Y h:i A') ?? '-')
                 ->addColumn('name_fmt', fn($row) => $row->name ?: '-')
@@ -61,7 +62,9 @@ class ReportController extends Controller
                 ->addColumn('pincode_fmt', fn($row) => $row->pincode ?: '-')
                 ->addColumn('address_fmt', fn($row) => $row->address ?: '-')
                 ->addColumn('email_fmt', fn($row) => $row->email ?: '-')
-                ->addColumn('action', function ($row) use ($company) {
+                ->addColumn('action', function ($row) use ($company, $request) {
+                    if (!\App\Services\BranchReadOnly::canWrite($request->user(), $row->company_id)) return '<button class="btn btn-sm btn-secondary" disabled>Edit</button> <button class="btn btn-sm btn-secondary" disabled>Delete</button>';
+                    $company = $row->company;
                     $showUrl = route('company.reports.visiting-cards.show', [$company->slug, $row->id]);
                     $updateUrl = route('company.reports.visiting-cards.update', [$company->slug, $row->id]);
                     $deleteUrl = route('company.reports.visiting-cards.destroy', [$company->slug, $row->id]);
@@ -86,7 +89,7 @@ class ReportController extends Controller
         }
 
         $summaryRows = VisitingCard::query()
-            ->where('company_id', $company->id)
+            ->whereIn('company_id', \App\Services\CompanyBranches::managementSelection($request, $company)->keys())
             ->whereDate('created_at', '>=', $fromDate)
             ->whereDate('created_at', '<=', $toDate)
             ->orderBy('created_at')
@@ -152,7 +155,7 @@ class ReportController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
         $rows = $this->visitingCardsBaseQuery(
-            (int) $company->id,
+            $request, (int) $company->id,
             $request->input('from_date', now()->format('Y-m-d')),
             $request->input('to_date', now()->format('Y-m-d')),
             $request->input('selected_date')
@@ -160,9 +163,10 @@ class ReportController extends Controller
 
         return response()->streamDownload(function () use ($rows) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Name', 'Mobile', 'Email', 'City', 'Pincode', 'Address', 'Date']);
+            fputcsv($out, ['Company / Branch', 'Name', 'Mobile', 'Email', 'City', 'Pincode', 'Address', 'Date']);
             foreach ($rows as $r) {
                 fputcsv($out, [
+                    $r->company?->name ?? '-',
                     $r->name ?: '-',
                     $r->mobile_no ?: '-',
                     $r->email ?: '-',
@@ -182,7 +186,7 @@ class ReportController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
         $rows = $this->visitingCardsBaseQuery(
-            (int) $company->id,
+            $request, (int) $company->id,
             $request->input('from_date', now()->format('Y-m-d')),
             $request->input('to_date', now()->format('Y-m-d')),
             $request->input('selected_date')
@@ -191,15 +195,22 @@ class ReportController extends Controller
         $fromDate = $request->input('from_date', now()->format('Y-m-d'));
         $toDate = $request->input('to_date', now()->format('Y-m-d'));
 
-        return Pdf::loadView('company.reports.pdf.visiting_cards', compact('company', 'rows', 'fromDate', 'toDate'))
+        $branchNames = \App\Services\CompanyBranches::managementSelection($request, $company)->pluck('name')->implode(' / ');
+        return Pdf::loadView('company.reports.pdf.visiting_cards', compact('company', 'rows', 'fromDate', 'toDate', 'branchNames'))
             ->setPaper('a4', 'landscape')
             ->download('visiting_cards_report.pdf');
     }
 
-    private function visitingCardsBaseQuery(int $companyId, string $fromDate, string $toDate, ?string $selectedDate = null)
+    private function visitingCardsBaseQuery(Request $request, int $companyId, string $fromDate, string $toDate, ?string $selectedDate = null)
     {
         return VisitingCard::query()
-            ->where('company_id', $companyId)
+            ->with('company')->whereIn('company_id', \App\Services\CompanyBranches::managementSelection($request, Company::findOrFail($companyId))->keys())
+            ->when(is_string(request('search')) && trim(request('search')) !== '', function ($query) {
+                $search = trim(request('search'));
+                $query->where(function ($q) use ($search) {
+                    foreach (['name','mobile_no','city','pincode','address','email'] as $field) $q->orWhere($field, 'like', "%{$search}%");
+                });
+            })
             ->whereDate('created_at', '>=', $fromDate)
             ->whereDate('created_at', '<=', $toDate)
             ->when($selectedDate, function ($q) use ($selectedDate) {

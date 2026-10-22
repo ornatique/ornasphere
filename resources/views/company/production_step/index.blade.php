@@ -1,6 +1,9 @@
 @extends('company_layout.admin')
 
 @section('content')
+@if(count((array) request('management_branches', [])) > 1)
+<p class="px-4 pt-3">New records are created in <strong>{{ $company->name }}</strong>. Select one branch and click View to create there.</p>
+@endif
 <div class="content-wrapper">
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
@@ -26,7 +29,7 @@
                             <th>Modified Count</th>
                             <th>Created By</th>
                             <th>Created at</th>
-                            <th>Action</th>
+                            <th>Company / Branch</th><th>Action</th>
                         </tr>
                     </thead>
                 </table>
@@ -41,7 +44,7 @@
     $('#productionStepTable').DataTable({
         processing: true,
         serverSide: true,
-        ajax: "{{ route('company.production-step.index', $company->slug) }}",
+        ajax: "{!! route('company.production-step.index', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}",
         columns: [
             { data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false },
             { data: 'name', name: 'name' },
@@ -54,6 +57,7 @@
             { data: 'modified_count', name: 'modified_count' },
              { data: 'user_name', name: 'createdByUser.name', orderable: false, searchable: false },
             { data: 'created_at_view', name: 'created_at' },
+            { data: 'company_name', orderable: false, searchable: false },
             { data: 'action', name: 'action', orderable: false, searchable: false },
         ]
     });

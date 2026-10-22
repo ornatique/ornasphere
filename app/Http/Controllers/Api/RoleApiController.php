@@ -16,28 +16,34 @@ class RoleApiController extends Controller
 {
     public function index(Request $request)
     {
+        $companies = \App\Services\CompanyBranches::apiManagementSelection($request);
         $companyId = (int) $request->user()->company_id;
 
         $roles = Role::query()
             ->where('guard_name', 'web')
-            ->where('company_id', $companyId)
+            ->whereIn('company_id', $companies->keys())
             ->with('permissions:id,name')
             ->orderByDesc('id')
             ->get();
 
         $roles->each(fn ($role) => $this->removeDeprecatedPermissionsFromRole($role));
-        $roles->each(fn ($role) => $this->attachPermissionGroups($role, $companyId));
-        $this->appendUsersCount($roles, $companyId);
+        $roles->each(fn ($role) => $this->attachPermissionGroups($role, (int) $role->company_id));
+        foreach ($roles->groupBy('company_id') as $ownerId => $ownerRoles) {
+            $this->appendUsersCount($ownerRoles, (int) $ownerId);
+        }
+
+        $roles->each(fn ($row) => $row->setAttribute('company_name', $companies[$row->company_id]->name));
 
         return response()->json([
             'success' => true,
             'data' => $roles,
+            'selected_company_ids' => $companies->keys()->values(),
         ]);
     }
 
     public function store(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $validated = $request->validate([
             'name' => [
@@ -92,7 +98,7 @@ class RoleApiController extends Controller
 
     public function show(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $role = Role::query()
             ->where('guard_name', 'web')
@@ -120,7 +126,7 @@ class RoleApiController extends Controller
 
     public function update(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $role = Role::query()
             ->where('guard_name', 'web')
@@ -186,7 +192,7 @@ class RoleApiController extends Controller
 
     public function destroy(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $role = Role::query()
             ->where('guard_name', 'web')

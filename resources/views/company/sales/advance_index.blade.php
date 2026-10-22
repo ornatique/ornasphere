@@ -11,7 +11,8 @@
         </div>
 
         <div class="card-body">
-            <form method="GET" action="{{ route('company.sales.advance.index', $company->slug) }}" class="row g-3 mb-4 align-items-end" id="advanceVoucherFilterForm">
+            @include('company_layout.sales_exports')
+            <form method="GET" action="{!! route('company.sales.advance.index', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}" class="row g-3 mb-4 align-items-end" id="advanceVoucherFilterForm">
                 <div class="col-md-3">
                     <label>From Date</label>
                     <input type="date" name="from_date" class="form-control" value="{{ request('from_date') }}">
@@ -54,7 +55,7 @@
                             <th>Metal Out</th>
                             <th>Rate</th>
                             <th>Amount</th>
-                            <th>PDF</th>
+                            <th>Company / Branch</th><th>PDF</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -119,7 +120,7 @@ $(function() {
         scrollX: true,
         order: [[2, 'desc']],
         ajax: {
-            url: "{{ route('company.sales.advance.index', $company->slug) }}",
+            url: "{!! route('company.sales.advance.index', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}",
             data: function (d) {
                 d.from_date = $('input[name="from_date"]').val();
                 d.to_date = $('input[name="to_date"]').val();
@@ -140,7 +141,8 @@ $(function() {
             { data: 'metal_out', name: 'metal_out', className: 'text-end' },
             { data: 'rate', name: 'rate', className: 'text-end' },
             { data: 'amount', name: 'amount', className: 'text-end' },
-            { data: 'pdf', orderable: false, searchable: false }
+            { data: 'company_name', orderable: false, searchable: false },
+                { data: 'pdf', orderable: false, searchable: false }
         ]
     });
 

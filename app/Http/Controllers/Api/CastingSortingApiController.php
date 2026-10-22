@@ -18,7 +18,12 @@ class CastingSortingApiController extends Controller
 {
     public function index(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        return \App\Services\CastingApiBranches::listing($request,
+            fn (int $companyId) => $this->listForCompany($request, $companyId), 'Casting Sorting');
+    }
+
+    private function listForCompany(Request $request, int $companyId)
+    {
         $fromDate = $request->input('from_date', now()->toDateString());
         $toDate = $request->input('to_date', now()->toDateString());
 
@@ -106,7 +111,7 @@ class CastingSortingApiController extends Controller
         }
 
         [$voucher] = $data;
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $validated = $request->validate([
             'rows' => ['nullable', 'array'],
@@ -179,7 +184,7 @@ class CastingSortingApiController extends Controller
         }
 
         [$voucher, $sortingItems, $items, $treeReceiveCount] = $data;
-        $company = Company::findOrFail((int) $request->user()->company_id);
+        $company = Company::findOrFail(\App\Services\CompanyBranches::apiManagementCompanyId($request));
 
         return Pdf::loadView('company.casting_sorting.pdf.show', compact('company', 'voucher', 'sortingItems', 'items', 'treeReceiveCount'))
             ->setPaper('a4', 'portrait')
@@ -223,7 +228,7 @@ class CastingSortingApiController extends Controller
 
     private function voucherData(Request $request, int $id): ?array
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $voucher = VacuumVoucher::where('company_id', $companyId)
             ->with(['process:id,name', 'jobWorker:id,name', 'items:id,vacuum_voucher_id,buch_no,item_name,remarks'])
             ->find($id);

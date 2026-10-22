@@ -195,6 +195,9 @@
         <div>
             <form method="POST" action="{{ route('company.item_sets.printPreview.post', $company->slug) }}" style="display:inline-flex;">
                 @csrf
+ @foreach((array) request('management_branches', []) as $branchId)
+ <input type="hidden" name="management_branches[]" value="{{ $branchId }}">
+ @endforeach
                 <input type="hidden" name="label_format" value="{{ $labelFormat }}">
                 <input type="hidden" name="ids_csv" value="{{ implode(',', $ids ?? []) }}">
                 @foreach(($ids ?? []) as $id)
@@ -206,6 +209,9 @@
             </form>
             <form method="POST" action="{{ route('company.item_sets.printDirect.post', $company->slug) }}" target="_blank" style="display:inline-flex;">
                 @csrf
+ @foreach((array) request('management_branches', []) as $branchId)
+ <input type="hidden" name="management_branches[]" value="{{ $branchId }}">
+ @endforeach
                 <input type="hidden" name="label_format" value="{{ $labelFormat }}">
                 <input type="hidden" name="start_position" value="{{ $startPosition ?? 1 }}">
                 <input type="hidden" name="ids_csv" value="{{ implode(',', $ids ?? []) }}">

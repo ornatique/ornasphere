@@ -13,7 +13,7 @@ class PermissionApiController extends Controller
 {
     public function index(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $this->ensureWebPermissions($companyId);
 
         $permissions = Permission::query()

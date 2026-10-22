@@ -61,7 +61,7 @@
                 </div>
                 <div class="renew-plan-info">
                     <span>Renew Duration</span>
-                    <strong>Next 1 Year</strong>
+                    <strong>1 Year</strong><small>Trial: starts today. Active paid plan: extends the current expiry.</small>
                 </div>
                 <div class="form-group mt-3">
                     <label for="renewRemarks">Remarks</label>

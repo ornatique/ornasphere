@@ -91,20 +91,24 @@ class OtherChargeController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $companies = \App\Services\CompanyBranches::managementSelection($request, $company);
         $authUser = $request->user();
         $canCreate = $this->canOtherChargeAction($authUser, 'create');
         $canEdit = $this->canOtherChargeAction($authUser, 'edit');
         $canDelete = $this->canOtherChargeAction($authUser, 'delete');
 
-        if ($request->ajax()) {
+        if ($request->ajax() || $request->filled('export')) {
 
-            $data = OtherCharge::where('company_id', $company->id);
+            $data = OtherCharge::whereIn('company_id', $companies->keys());
 
-            return DataTables::of($data)
+            $table = DataTables::of($data)
 
                 ->addIndexColumn()
+                ->addColumn('company_name', fn ($row) => $companies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
 
-                ->addColumn('action', function ($row) use ($company, $canEdit, $canDelete) {
+                ->addColumn('action', function ($row) use ($companies, $canEdit, $canDelete) {
+                $company = $companies[$row->company_id];
 
                     $id = Crypt::encryptString($row->id);
 
@@ -133,7 +137,8 @@ class OtherChargeController extends Controller
 
 
                 ->rawColumns(['action'])
-                ->make(true);
+                ;
+            return \App\Services\ItemManagementListExport::respond($table, $request, $companies, 'other-charges');
         }
 
         return view('company.other_charge.index', compact('company', 'canCreate'));
@@ -169,7 +174,7 @@ class OtherChargeController extends Controller
 
         $id = Crypt::decryptString($encryptedId);
 
-        $data = OtherCharge::findOrFail($id);
+        $data = OtherCharge::where('company_id', $company->id)->findOrFail($id);
 
         $items = Item::where('company_id', $company->id)->get();
 

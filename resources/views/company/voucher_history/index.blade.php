@@ -8,6 +8,10 @@
         </div>
 
         <div class="card-body">
+            <div class="d-flex flex-wrap mb-3" style="gap:8px">
+                <a class="btn btn-success" href="{{ route('company.voucher-history.index', array_merge(['slug'=>$company->slug, 'export'=>'excel'], request()->only('management_branches'))) }}">Export all selected branches - Excel</a>
+                <a class="btn btn-info" href="{{ route('company.voucher-history.index', array_merge(['slug'=>$company->slug, 'export'=>'pdf'], request()->only('management_branches'))) }}">Export all selected branches - PDF</a>
+            </div>
             <form id="voucher-history-form"
                 class="voucher-history-filter mb-2"
                 data-history-url="{{ route('company.voucher-history.data', [$company->slug, '__VOUCHER_ID__']) }}"
@@ -17,8 +21,8 @@
                     <select name="voucher_id" id="voucher-history-voucher" class="form-control casting-search-select">
                         <option value="">Select Voucher</option>
                         @foreach($vouchers as $row)
-                        <option value="{{ $row->id }}" @selected((int) $selectedVoucherId === (int) $row->id)>
-                            {{ $row->voucher_no }}{{ $row->voucher_date ? ' | ' . $row->voucher_date->format('d-m-Y') : '' }}
+                        <option data-history-url="{{ route('company.voucher-history.data', [$selectedCompanies[$row->company_id]->slug, $row->id]) }}" value="{{ $row->id }}" @selected((int) $selectedVoucherId === (int) $row->id)>
+                            {{ $selectedCompanies[$row->company_id]->name }} | {{ $row->voucher_no }}{{ $row->voucher_date ? ' | ' . $row->voucher_date->format('d-m-Y') : '' }}
                         </option>
                         @endforeach
                     </select>
@@ -36,7 +40,7 @@
                     <input type="text" id="voucher-history-worker" class="form-control" value="{{ $voucher?->jobWorker?->name ?? '' }}" readonly>
                 </div>
                 <button type="submit" id="voucher-history-view-btn" class="btn btn-primary">View</button>
-                <a href="{{ $voucher ? route('company.voucher-history.pdf', [$company->slug, $voucher->id]) : '#' }}"
+                <a href="{{ $voucher ? route('company.voucher-history.pdf', [$selectedCompanies[$voucher->company_id]->slug, $voucher->id]) : '#' }}"
                     id="voucher-history-pdf-btn"
                     class="btn btn-success {{ $voucher ? '' : 'd-none' }}">
                     PDF
@@ -160,7 +164,7 @@
             content.innerHTML = emptyHtml;
             pdfButton.href = '#';
             pdfButton.classList.add('d-none');
-            window.history.replaceState({}, document.title, window.location.pathname);
+            window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
         }
 
         form.addEventListener('submit', function (event) {
@@ -172,7 +176,7 @@
                 return;
             }
 
-            const url = form.dataset.historyUrl.replace('__VOUCHER_ID__', encodeURIComponent(voucherId));
+            const url = voucherSelect.selectedOptions[0].dataset.historyUrl;
             const originalText = viewButton.textContent;
             viewButton.disabled = true;
             viewButton.textContent = 'Loading';
@@ -195,7 +199,7 @@
                     content.innerHTML = payload.html || emptyHtml;
                     pdfButton.href = payload.pdf_url || form.dataset.pdfUrl.replace('__VOUCHER_ID__', encodeURIComponent(voucherId));
                     pdfButton.classList.remove('d-none');
-                    window.history.replaceState({}, document.title, window.location.pathname);
+                    window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
                 })
                 .catch((error) => {
                     content.innerHTML = '<div class="voucher-history-empty">' + error.message + '</div>';

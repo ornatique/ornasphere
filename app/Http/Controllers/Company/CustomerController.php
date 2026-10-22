@@ -24,7 +24,8 @@ class CustomerController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        $categoryPeople = $this->categoryPeopleForCompany((int) $company->id);
+        $selectedCompanies = \App\Services\CompanyBranches::managementSelection($request, $company);
+        $categoryPeople = $selectedCompanies->flatMap(fn ($branch) => $this->categoryPeopleForCompany((int) $branch->id))->values();
 
         if ($request->ajax()) {
             $customers = $this->personQuery($request, (int) $company->id)
@@ -35,6 +36,8 @@ class CustomerController extends Controller
 
             return DataTables::of($customers)
                 ->addIndexColumn()
+                ->addColumn('company_name', fn ($row) => $selectedCompanies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
                 ->addColumn('category_person', function ($customer) {
                     return optional($customer->categoryPerson)->category_name ?: '-';
                 })
@@ -43,10 +46,10 @@ class CustomerController extends Controller
                         ? '<span class="badge bg-success">Active</span>'
                         : '<span class="badge bg-danger">Inactive</span>';
                 })
-                ->addColumn('action', function ($customer) use ($company) {
+                ->addColumn('action', function ($customer) use ($selectedCompanies) {
                     $encryptedId = Crypt::encryptString($customer->id);
-                    $editUrl = route('company.customers.edit', [$company->slug, $encryptedId]);
-                    $deleteUrl = route('company.customers.delete', [$company->slug, $encryptedId]);
+                    $editUrl = route('company.customers.edit', [$selectedCompanies[$customer->company_id]->slug, $encryptedId]);
+                    $deleteUrl = route('company.customers.delete', [$selectedCompanies[$customer->company_id]->slug, $encryptedId]);
 
                     return '<a href="' . $editUrl . '" class="btn btn-sm btn-primary">Edit</a>
                             <button type="button" class="btn btn-sm btn-danger deleteBtn" data-url="' . e($deleteUrl) . '">Delete</button>';
@@ -387,7 +390,7 @@ class CustomerController extends Controller
     {
         return Customer::query()
             ->with('categoryPerson:id,category_name')
-            ->where('company_id', $companyId)
+            ->whereIn('company_id', \App\Services\CompanyBranches::managementSelection($request, Company::findOrFail($companyId))->keys())
             ->when($request->filled('category_person_id'), function ($query) use ($request) {
                 $query->where('category_person_id', $request->integer('category_person_id'));
             });

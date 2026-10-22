@@ -12,6 +12,7 @@
             <h4 class="card-title">Casting Heating Voucher List</h4>
         </div>
         <div class="card-body">
+            @include('company_layout.casting_exports')
             <div class="casting-heating-filters">
                 <div class="filter-field">
                     <label for="fromDate">From Date</label>
@@ -48,6 +49,7 @@
                             <th>Total Pcs</th>
                             <th>In Bhati Pcs</th>
                             <th>Created At</th>
+                            <th>Company / Branch</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -130,7 +132,7 @@
         processing: true,
         serverSide: true,
         ajax: {
-            url: "{{ route('company.casting-heating.index', $company->slug) }}",
+            url: "{!! route('company.casting-heating.index', array_merge(['slug' => $company->slug], request()->only('management_branches'))) !!}",
             data: function (data) {
                 data.from_date = $('#fromDate').val();
                 data.to_date = $('#toDate').val();
@@ -147,6 +149,7 @@
             { data: 'total_pcs', name: 'items_count', searchable: false },
             { data: 'in_bhati_pcs', name: 'in_bhati_count', searchable: false },
             { data: 'created_at_view', name: 'created_at' },
+            { data: 'company_name', name: 'company_name', orderable: false, searchable: false },
             { data: 'action', name: 'action', orderable: false, searchable: false },
         ]
     });

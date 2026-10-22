@@ -230,7 +230,11 @@
       @include('company_layout.sidebar')
       <!-- partial -->
       <div class="main-panel">
-        @yield('content')
+        @include('company_layout.management_branch_selector')
+        @if(data_get($companyPlanStatus ?? [], 'alert.show_popup'))
+<div class="alert alert-warning" role="alert" style="margin:16px 24px">{{ data_get($companyPlanStatus, 'alert.message') }}</div>
+@endif
+@yield('content')
         <!-- content-wrapper ends -->
         <!-- partial:partials/_footer.html -->
         @include('company_layout.footer')
@@ -315,6 +319,29 @@ document.addEventListener('hidden.bs.modal', function () {
 
   <!-- End custom js for this page-->
   @stack('scripts')
+  <script>
+  document.addEventListener('click', function (event) {
+      if (event.target.closest('.branch-read-only')) { event.preventDefault(); event.stopImmediatePropagation(); }
+  }, true);
+  </script>
+  @if(isset($company) && auth()->user() && !\App\Services\BranchReadOnly::canWrite(auth()->user(), (int)$company->id))
+  <script>
+  document.addEventListener('DOMContentLoaded', function () {
+      document.querySelectorAll('form').forEach(function (form) {
+          if ((form.method || 'get').toLowerCase() === 'get') return;
+          form.querySelectorAll('button,input[type=submit]').forEach(function (button) {
+              button.disabled = true; button.title = @json(\App\Services\BranchReadOnly::MESSAGE);
+          });
+      });
+      document.querySelectorAll('a[href]').forEach(function (link) {
+          if (/\/(create|edit)(\/|$|\?)/.test(link.getAttribute('href'))) {
+              link.removeAttribute('href'); link.classList.add('disabled','branch-read-only');
+              link.setAttribute('aria-disabled','true'); link.title = @json(\App\Services\BranchReadOnly::MESSAGE);
+          }
+      });
+  });
+  </script>
+  @endif
 @if(session('success') || session('error') || session('warning') || session('info'))
 <script>
 document.addEventListener("DOMContentLoaded", function () {

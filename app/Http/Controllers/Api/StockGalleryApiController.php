@@ -52,6 +52,7 @@ class StockGalleryApiController extends Controller
             })
             ->filter(fn (ItemSet $itemSet) => !empty($itemSet->stock_gallery_image))
             ->values();
+        $branchNames = \App\Services\CompanyBranches::apiManagementSelection($request)->pluck('name')->implode(' / ');
         $emptyMessage = $matchedItemCount > 0
             ? 'Items are available in stock, but image is not uploaded for the selected items.'
             : 'No stock gallery items found.';
@@ -66,7 +67,7 @@ class StockGalleryApiController extends Controller
             ]);
         }
 
-        return Pdf::loadView('company.stock_gallery.pdf', compact('company', 'itemSets', 'emptyMessage'))
+        return Pdf::loadView('company.stock_gallery.pdf', compact('company', 'itemSets', 'emptyMessage', 'branchNames'))
             ->setPaper('a4', 'portrait')
             ->download('stock-gallery-' . now()->format('Ymd-His') . '.pdf');
     }
@@ -85,7 +86,7 @@ class StockGalleryApiController extends Controller
                 'id' => (int) $itemSet->id,
                 'label_code' => (string) ($itemSet->qr_code ?: $itemSet->barcode ?: $itemSet->id),
                 'image_url' => $this->itemImageUrl($itemSet),
-                'download_url' => url('/api/stock-gallery/' . $itemSet->id . '/download-image'),
+                'download_url' => url('/api/stock-gallery/' . $itemSet->id . '/download-image') . '?company_id=' . $itemSet->company_id,
             ])
             ->values();
 
@@ -101,7 +102,7 @@ class StockGalleryApiController extends Controller
         $company = $this->company($request);
 
         $itemSet = ItemSet::with('item')
-            ->where('company_id', $company->id)
+            ->whereIn('company_id', \App\Services\CompanyBranches::apiManagementSelection($request)->keys())
             ->where('id', $id)
             ->firstOrFail();
 
@@ -133,7 +134,7 @@ class StockGalleryApiController extends Controller
     {
         $query = ItemSet::query()
             ->with('item')
-            ->where('item_sets.company_id', $company->id)
+            ->whereIn('item_sets.company_id', \App\Services\CompanyBranches::apiManagementSelection($request)->keys())
             ->where('item_sets.is_final', 1)
             ->whereNotNull('item_sets.qr_code');
 
@@ -166,6 +167,9 @@ class StockGalleryApiController extends Controller
     {
         return [
             'id' => (int) $itemSet->id,
+            'company_id' => (int) $itemSet->company_id,
+            'company_name' => Company::find($itemSet->company_id)?->name,
+            'can_manage' => \App\Services\BranchReadOnly::canWrite(request()->user(), $itemSet->company_id),
             'item_name' => optional($itemSet->item)->item_name ?? '-',
             'label_code' => $itemSet->qr_code ?: $itemSet->barcode ?: '-',
             'qr_code' => $itemSet->qr_code,
@@ -178,7 +182,7 @@ class StockGalleryApiController extends Controller
             'is_sold' => (int) $itemSet->is_sold,
             'image_url' => $this->itemImageUrl($itemSet),
             'has_image' => !empty($itemSet->image_path),
-            'image_download_url' => url('/api/stock-gallery/' . $itemSet->id . '/download-image'),
+            'image_download_url' => url('/api/stock-gallery/' . $itemSet->id . '/download-image') . '?company_id=' . $itemSet->company_id,
         ];
     }
 
@@ -204,7 +208,7 @@ class StockGalleryApiController extends Controller
 
     private function company(Request $request): Company
     {
-        return Company::findOrFail($request->user()->company_id);
+        return \App\Services\CompanyBranches::apiManagementSelection($request)->first();
     }
 
     private function itemImageDisk(): string
@@ -250,6 +254,8 @@ class StockGalleryApiController extends Controller
     private function pdfUrl(Request $request, array $selectedIds): string
     {
         $query = [
+            'management_branches' => $request->input('management_branches'),
+            'company_id' => $request->input('company_id'),
             'direct' => 1,
             'scope' => $request->input('scope', $selectedIds ? 'selected' : 'filtered'),
             'item_id' => $request->input('item_id'),

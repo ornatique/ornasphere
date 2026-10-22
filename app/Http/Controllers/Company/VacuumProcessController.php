@@ -16,19 +16,23 @@ class VacuumProcessController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $selectedCompanies = \App\Services\CompanyBranches::managementSelection($request, $company);
 
-        if ($request->ajax()) {
+        if ($request->ajax() || $request->filled('export')) {
             $rows = VacuumProcess::query()
-                ->where('company_id', $company->id)
+                ->whereIn('company_id', $selectedCompanies->keys())
                 ->with(['createdByUser:id,name'])
                 ->select('vacuum_processes.*');
 
-            return DataTables::of($rows)
+            $table = DataTables::of($rows)
                 ->addIndexColumn()
+                ->addColumn('company_name', fn ($row) => $selectedCompanies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
                 ->addColumn('user_name', fn($row) => $row->createdByUser?->name ?? '-')
                 ->addColumn('modified_at_view', fn($row) => optional($row->updated_at)->format('d-m-Y h:i A') ?? '-')
                 ->addColumn('created_at_view', fn($row) => optional($row->created_at)->format('d-m-Y h:i A') ?? '-')
-                ->addColumn('action', function ($row) use ($company) {
+                ->addColumn('action', function ($row) use ($selectedCompanies) {
+                    $company = $selectedCompanies[$row->company_id];
                     $encryptedId = Crypt::encryptString((string) $row->id);
                     $edit = route('company.vacuum-processes.edit', [$company->slug, $encryptedId]);
                     $delete = route('company.vacuum-processes.destroy', [$company->slug, $encryptedId]);
@@ -42,7 +46,8 @@ class VacuumProcessController extends Controller
                     ';
                 })
                 ->rawColumns(['action'])
-                ->make(true);
+                ;
+            return \App\Services\CastingListExport::respond($table, $request, $selectedCompanies, 'vacuum-processes');
         }
 
         return view('company.vacuum_processes.index', compact('company'));

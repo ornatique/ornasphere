@@ -10,7 +10,10 @@
         </div>
 
         <div class="card-body border-bottom">
-            <form id="labelFilterForm" method="GET" action="{{ route('company.item_sets.qrList', $company->slug) }}" class="row g-3 align-items-end">
+            @foreach((array) request('management_branches', []) as $branchId)
+            <input form="labelFilterForm" type="hidden" name="management_branches[]" value="{{ $branchId }}">
+            @endforeach
+            <form id="labelFilterForm" method="GET" action="{!! route('company.item_sets.qrList', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}" class="row g-3 align-items-end">
                 <div class="col-md-3">
                     <label>From Date</label>
                     <input type="date" name="from_date" id="from_date" value="{{ $fromDate ?? request('from_date') }}" class="form-control">
@@ -35,12 +38,13 @@
 
                 <div class="col-md-3 d-flex gap-2">
                     <button type="button" id="btnShow" class="btn btn-primary w-50">Show</button>
-                    <a href="{{ route('company.item_sets.qrList', $company->slug) }}" class="btn btn-secondary w-50">Reset</a>
+                    <a href="{!! route('company.item_sets.qrList', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}" class="btn btn-secondary w-50">Reset</a>
                 </div>
             </form>
         </div>
 
         <div class="card-body">
+            @include('company_layout.item_management_exports')
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <div>
                     <strong>Total Labels:</strong> <span id="totalLabels">0</span>
@@ -76,7 +80,7 @@
                             <th>Other Wt</th>
                             <th>Net Wt</th>
                             <th>Sale Other</th>
-                            <th>Printed Date Time</th>
+                            <th>Printed Date Time</th><th>Company / Branch</th>
                         </tr>
                     </thead>
 
@@ -141,7 +145,7 @@ function getCurrentFilters() {
     };
 }
 function fetchAllFilteredIds(onlyUnprinted = false) {
-    return $.get("{{ route('company.item_sets.qrList', $company->slug) }}", {
+    return $.get("{!! route('company.item_sets.qrList', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}", {
         ...getCurrentFilters(),
         only_ids: 1,
         only_unprinted: onlyUnprinted ? 1 : 0
@@ -152,7 +156,7 @@ const table = $('#labelListTable').DataTable({
     processing: true,
     serverSide: true,
     ajax: {
-        url: "{{ route('company.item_sets.qrList', $company->slug) }}",
+        url: "{!! route('company.item_sets.qrList', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}",
         data: function (d) {
             Object.assign(d, getCurrentFilters());
         }
@@ -165,7 +169,8 @@ const table = $('#labelListTable').DataTable({
         { data: 'other_weight', name: 'other' },
         { data: 'net_weight', name: 'net_weight' },
         { data: 'sale_other', name: 'sale_other' },
-        { data: 'date_time', name: 'printed_at' }
+        { data: 'date_time', name: 'printed_at' },
+        { data: 'company_name', orderable: false, searchable: false }
     ],
     order: [[7, 'desc']],
     drawCallback: function(settings) {
@@ -265,6 +270,9 @@ function printSelected() {
         target: '_blank'
     });
 
+    @foreach((array) request('management_branches', []) as $branchId)
+    form.append($('<input>', {type:'hidden', name:'management_branches[]', value: @json($branchId)}));
+    @endforeach
     form.append($('<input>', {
         type: 'hidden',
         name: '_token',

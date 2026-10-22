@@ -17,6 +17,13 @@ class VisitingCardApiController extends Controller
     private ?array $visionDebug = null;
     private ?array $translateDebug = null;
 
+    private function selectedCompanyId(Request $request): int
+    {
+        $id = \App\Services\CompanyBranches::apiManagementCompanyId($request);
+        if (!$request->isMethod('GET') && !\App\Services\BranchReadOnly::canWrite($request->user(), $id)) abort(403, \App\Services\BranchReadOnly::MESSAGE);
+        return $id;
+    }
+
     public function extract(Request $request)
     {
         $validated = $request->validate([
@@ -25,7 +32,7 @@ class VisitingCardApiController extends Controller
             'original_language' => 'nullable|string|max:50',
         ]);
 
-        $companyId = (int) $request->user()->company_id;
+        $companyId = $this->selectedCompanyId($request);
         $imagePath = $request->file('card_image')->store("visiting-cards/{$companyId}", 'public');
 
         $originalText = trim((string) ($validated['ocr_text'] ?? ''));
@@ -67,7 +74,7 @@ class VisitingCardApiController extends Controller
             'original_language' => 'nullable|string|max:50',
         ]);
 
-        $companyId = (int) $request->user()->company_id;
+        $companyId = $this->selectedCompanyId($request);
         $requestedLanguage = $validated['original_language'] ?? null;
         $results = [];
 
@@ -129,7 +136,7 @@ class VisitingCardApiController extends Controller
 
     public function store(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = $this->selectedCompanyId($request);
         $validated = $request->validate([
             'image_path' => 'nullable|string|max:500',
             'name' => 'nullable|string|max:255',
@@ -168,7 +175,7 @@ class VisitingCardApiController extends Controller
 
     public function bulkSave(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = $this->selectedCompanyId($request);
         $validated = $request->validate([
             'records' => 'required|array|min:1|max:200',
             'records.*.image_path' => 'nullable|string|max:500',
@@ -235,9 +242,9 @@ class VisitingCardApiController extends Controller
 
     public function index(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companies = \App\Services\CompanyBranches::apiManagementSelection($request);
         $rows = VisitingCard::query()
-            ->where('company_id', $companyId)
+            ->with('company')->whereIn('company_id', $companies->keys())
             ->when($request->filled('search'), function ($q) use ($request) {
                 $search = trim((string) $request->search);
                 $q->where(function ($q2) use ($search) {
@@ -257,6 +264,9 @@ class VisitingCardApiController extends Controller
             ->paginate((int) $request->get('per_page', 20));
 
         $rows->getCollection()->transform(function ($row) {
+            $row->company_name = $row->company?->name;
+            $row->can_manage = \App\Services\BranchReadOnly::canWrite(request()->user(), $row->company_id);
+            $row->unsetRelation('company');
             $row->image_url = $row->image_path ? Storage::disk('public')->url($row->image_path) : null;
             return $row;
         });
@@ -269,7 +279,7 @@ class VisitingCardApiController extends Controller
 
     public function show(Request $request, int $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = $this->selectedCompanyId($request);
         $card = VisitingCard::where('company_id', $companyId)->findOrFail($id);
         $card->image_url = $card->image_path ? Storage::disk('public')->url($card->image_path) : null;
 
@@ -281,7 +291,7 @@ class VisitingCardApiController extends Controller
 
     public function update(Request $request, int $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = $this->selectedCompanyId($request);
         $card = VisitingCard::where('company_id', $companyId)->findOrFail($id);
 
         $validated = $request->validate([
@@ -325,7 +335,7 @@ class VisitingCardApiController extends Controller
 
     public function destroy(Request $request, int $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = $this->selectedCompanyId($request);
         $card = VisitingCard::where('company_id', $companyId)->findOrFail($id);
         $card->delete();
 
@@ -337,18 +347,21 @@ class VisitingCardApiController extends Controller
 
     public function dateWiseReport(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companies = \App\Services\CompanyBranches::apiManagementSelection($request);
         $fromDate = $request->input('from_date', Carbon::now()->startOfMonth()->format('Y-m-d'));
         $toDate = $request->input('to_date', Carbon::now()->format('Y-m-d'));
 
         $rows = VisitingCard::query()
-            ->where('company_id', $companyId)
+            ->with('company')->whereIn('company_id', $companies->keys())
             ->whereDate('created_at', '>=', $fromDate)
             ->whereDate('created_at', '<=', $toDate)
             ->orderBy('created_at')
             ->get();
 
         $rows->transform(function ($row) {
+            $row->company_name = $row->company?->name;
+            $row->can_manage = \App\Services\BranchReadOnly::canWrite(request()->user(), $row->company_id);
+            $row->unsetRelation('company');
             $row->image_url = $row->image_path ? Storage::disk('public')->url($row->image_path) : null;
             return $row;
         });
@@ -380,10 +393,11 @@ class VisitingCardApiController extends Controller
 
         return response()->streamDownload(function () use ($rows) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Name', 'Mobile', 'Email', 'City', 'Pincode', 'Address', 'Date']);
+            fputcsv($out, ['Company / Branch', 'Name', 'Mobile', 'Email', 'City', 'Pincode', 'Address', 'Date']);
 
             foreach ($rows as $row) {
                 fputcsv($out, [
+                    $row->company?->name ?? '-',
                     $row->name ?: '-',
                     $row->mobile_no ?: '-',
                     $row->email ?: '-',
@@ -409,21 +423,22 @@ class VisitingCardApiController extends Controller
             ->latest('id')
             ->get();
 
-        return Pdf::loadView('company.reports.pdf.visiting_cards', compact('company', 'rows', 'fromDate', 'toDate'))
+        $branchNames = \App\Services\CompanyBranches::apiManagementSelection($request)->pluck('name')->implode(' / ');
+        return Pdf::loadView('company.reports.pdf.visiting_cards', compact('company', 'rows', 'fromDate', 'toDate', 'branchNames'))
             ->setPaper('a4', 'landscape')
             ->download('visiting_cards_report.pdf');
     }
 
     private function visitingCardsReportQuery(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companies = \App\Services\CompanyBranches::apiManagementSelection($request);
         $fromDate = $request->input('from_date', now()->format('Y-m-d'));
         $toDate = $request->input('to_date', now()->format('Y-m-d'));
         $selectedDate = $request->input('selected_date');
         $search = trim((string) $request->input('search', ''));
 
         return VisitingCard::query()
-            ->where('company_id', $companyId)
+            ->with('company')->whereIn('company_id', $companies->keys())
             ->whereDate('created_at', '>=', $fromDate)
             ->whereDate('created_at', '<=', $toDate)
             ->when($selectedDate, function ($q) use ($selectedDate) {

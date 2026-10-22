@@ -1,6 +1,9 @@
 @extends('company_layout.admin')
 
 @section('content')
+@if(count((array) request('management_branches', [])) > 1)
+<p class="px-4 pt-3">New records are created in <strong>{{ $company->name }}</strong>. Select one branch and click View to create there.</p>
+@endif
 <div class="content-wrapper">
     <style>
         .jobwork-page-header {
@@ -69,6 +72,7 @@
             </div>
         </div>
         <div class="card-body">
+            @include('company_layout.jobwork_exports')
             <form class="jobwork-filter-panel">
                 <div class="row g-3 align-items-end">
                 <div class="col-lg-3 col-md-6">
@@ -101,8 +105,8 @@
                     <div class="jobwork-filter-actions">
                         <button type="button" id="filterBtn" class="btn btn-info jobwork-action-btn">Apply Filter</button>
                         <button type="button" id="resetBtn" class="btn btn-secondary jobwork-action-btn">Reset</button>
-                        <a href="#" id="exportExcelBtn" class="btn btn-success jobwork-action-btn">Export Excel</a>
-                        <a href="#" id="exportPdfBtn" class="btn btn-danger jobwork-action-btn">Export PDF</a>
+                        
+                        
                     </div>
                 </div>
                 </div>
@@ -125,7 +129,7 @@
                             <th>Modified Count</th>
                             <th>Created By</th>
                             <th>Created at</th>
-                            <th>Action</th>
+                            <th>Company / Branch</th><th>Action</th>
                         </tr>
                     </thead>
                 </table>
@@ -183,7 +187,7 @@
         processing: true,
         serverSide: true,
         ajax: {
-            url: "{{ route('company.jobwork-issue.index', $company->slug) }}",
+            url: "{!! route('company.jobwork-issue.index', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}",
             data: function(d) {
                 d.from_date = $('#from_date').val();
                 d.to_date = $('#to_date').val();
@@ -253,6 +257,7 @@
                 data: 'created_at_view',
                 name: 'created_at'
             },
+            { data: 'company_name', orderable: false, searchable: false },
             {
                 data: 'action',
                 name: 'action',
