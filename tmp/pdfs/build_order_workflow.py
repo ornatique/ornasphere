@@ -1,0 +1,72 @@
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_LEFT
+from reportlab.lib.pagesizes import A4
+from pathlib import Path
+from xml.sax.saxutils import escape
+out=Path('output/pdf/ornasphere-order-cad-rpt-workflow.pdf')
+styles=getSampleStyleSheet()
+styles.add(ParagraphStyle(name='TitleX',fontName='Helvetica-Bold',fontSize=23,leading=28,textColor=colors.HexColor('#18334b'),spaceAfter=14))
+styles.add(ParagraphStyle(name='SectionX',fontName='Helvetica-Bold',fontSize=15,leading=19,textColor=colors.HexColor('#18334b'),spaceAfter=10))
+styles.add(ParagraphStyle(name='BodyX',fontName='Helvetica',fontSize=10,leading=14,spaceAfter=9))
+styles.add(ParagraphStyle(name='CellX',fontName='Helvetica',fontSize=9,leading=12))
+styles.add(ParagraphStyle(name='HeadX',fontName='Helvetica-Bold',fontSize=9,leading=12,textColor=colors.white))
+story=[]
+def p(t,style='BodyX'): return Paragraph(t,styles[style])
+def add(t): story.append(p(t))
+def title(t): story.append(p(t,'SectionX'))
+def table(rows):
+ data=[[p('Field','HeadX'),p('Purpose','HeadX')]]+[[p(escape(a),'CellX'),p(escape(b),'CellX')] for a,b in rows]
+ t=Table(data,colWidths=[180,327],repeatRows=1,hAlign='LEFT')
+ t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#18334b')),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.HexColor('#f1f5f8'),colors.white]),('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),9),('RIGHTPADDING',(0,0),(-1,-1),9),('TOPPADDING',(0,0),(-1,-1),7),('BOTTOMPADDING',(0,0),(-1,-1),7),('LINEBELOW',(0,0),(-1,-1),.3,colors.HexColor('#d4dfe7'))]))
+ story.append(t);story.append(Spacer(1,13))
+def page(): story.append(PageBreak())
+story.append(p('Customer Order, CAD Design<br/>and RPT Pattern','TitleX'))
+add('<b>Ornasphere | Proposed module fields and interconnected workflow</b>')
+add('One customer order connects its item rows to CAD designs and RPT production batches. Each stage selects records from the preceding stage, avoiding repeated entry of customer, item and design details.')
+add('<b>Customer Order &gt; CAD Design &amp; Approval &gt; RPT Production &gt; Ready for Casting</b>')
+title('1. Customer Order')
+add('One order can contain multiple jewellery items.')
+table([('Order number','Automatically generated'),('Order date','Date received'),('Customer','Select existing customer'),('Expected delivery date','Customer\'s required date'),('Customer reference','Optional external order/reference number'),('Remarks','General instructions')])
+title('Order item rows')
+table([('Item name','Select existing item'),('Metal','Gold, silver, or other'),('Required purity','Customer\'s specification'),('Ordered pieces','Total required quantity'),('Expected total net weight','Estimated finished jewellery weight'),('Size / length','Ring size, chain length, etc.'),('Design instructions','Stones, finish, custom details'),('Reference images','Customer\'s sample photos')])
+page()
+title('Customer Order: progress tracking')
+add('<b>Draft &gt; Confirmed &gt; In Design &gt; In RPT &gt; Ready for Casting</b>')
+add('Also allow <b>On Hold</b> and <b>Cancelled</b>. For mixed orders, show progress separately for every item row.')
+title('2. CAD Design')
+add('Create a CAD record against a <b>specific order item</b>, not just the customer.')
+table([('CAD number','Automatically generated'),('Order / order item','Links to the requested jewellery'),('Customer, item, metal, purity, size','Display inherited specifications'),('Assigned designer','Person responsible'),('Design due date','Internal deadline'),('Version / revision number','Tracks design changes'),('CAD source file','Original editable design file'),('Print file','STL or another format supported by your printer'),('Preview images','Easy review without opening CAD software'),('Estimated finished weight per piece','Designer\'s estimate, with its metal/purity basis'),('Design notes','Production instructions'),('Approval status','Pending, revision requested, approved'),('Approved by / date / remarks','Records approval')])
+add('<b>Flow:</b> Assigned &gt; Designing &gt; Submitted &gt; Revision Requested or Approved')
+add('<b>Revision rule:</b> Preserve older versions. RPT must reference the exact approved CAD revision. If a design changes after printing starts, existing RPT records must continue to show the version they actually used.')
+page()
+title('3. RPT Pattern')
+add('Create an RPT batch from an <b>approved CAD revision</b>. Allow multiple batches for partial printing or reprints.')
+table([('RPT batch number','Automatically generated'),('Order item + CAD revision','Traceability to the customer\'s approved design'),('Operator','Person handling printing'),('Printer / machine','Machine used'),('Pattern material','Resin, wax, or another configured material'),('Planned pieces','Quantity intended for this batch'),('Start / completion date','Production timing'),('Printed pieces','Actual output'),('Accepted pieces','Pieces passing inspection'),('Rejected pieces','Failed or damaged patterns'),('Rejection reason','Reason for reprinting'),('Actual pattern weight','Resin/wax weight, separately recorded'),('Inspection notes / photo','Quality evidence'),('Casting handover quantity/date','Pieces transferred to casting later')])
+add('<b>Flow:</b> Planned &gt; Printing &gt; Printed &gt; Quality Check &gt; Ready for Casting')
+add('<b>Weight rule:</b> Pattern weight and finished metal weight must remain separate. A resin pattern\'s weight is not the jewellery\'s metal weight.')
+page()
+title('4. How the modules connect')
+add('<b>Example:</b> A customer orders 10 rings with an expected finished total weight of 50 g.')
+for n,t in enumerate(['Order <b>ORD-001</b>, line 1: 10 rings.','CAD <b>CAD-001, revision 2</b> is approved for that order line.','RPT <b>RPT-001</b> prints 6 pieces: 5 accepted and 1 rejected.','RPT <b>RPT-002</b> prints 5 pieces: all 5 accepted.','Order progress shows <b>10 required, 10 accepted and 1 rejected</b> across batches.','Casting can receive those <b>10 accepted patterns</b>, with references back to both RPT batches.'],1):
+ add(f'<b>{n}.</b> {t}')
+title('Quantity controls')
+add('Rejected pieces do not count toward fulfilment. Reprinting must not increase the customer\'s ordered quantity. Casting handover must not exceed accepted pieces remaining.')
+story.append(Spacer(1,12))
+title('5. Advance money or metal')
+add('Keep <b>Receive Advance</b> on the customer order.')
+add('<b>Order &gt; Receive money/metal &gt; Existing Receive / Return / Purchase voucher</b>')
+add('Each receipt links to the order and customer. CAD and RPT display the order reference but do not create additional financial entries. Later, billing applies the advance once.')
+story.append(Spacer(1,12))
+title('Recommended first scope')
+add('Build these three linked modules, approval history, partial RPT batches and an order progress screen. Casting integration can then consume accepted RPT pieces through a controlled handover.')
+add('<b>Document status:</b> Proposed functionality for review. This document does not indicate that these modules have been implemented.')
+def footer(c,d):
+ c.setStrokeColor(colors.HexColor('#d4dfe7'));c.line(44,39,A4[0]-44,39)
+ c.setFont('Helvetica',8);c.setFillColor(colors.HexColor('#536b7c'));c.drawString(44,26,'ORNASPHERE  |  Order - CAD - RPT workflow');c.drawRightString(A4[0]-44,26,str(d.page))
+doc=SimpleDocTemplate(str(out),pagesize=A4,rightMargin=44,leftMargin=44,topMargin=40,bottomMargin=53,title='Ornasphere - Customer Order, CAD Design and RPT Pattern',author='Ornasphere')
+doc.build(story,onFirstPage=footer,onLaterPages=footer)
+from pypdf import PdfReader
+r=PdfReader(out);print('Pages:',len(r.pages));print('PDF:',out.resolve())
+for i,pg in enumerate(r.pages):print(i+1,len(pg.extract_text()))

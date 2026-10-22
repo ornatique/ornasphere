@@ -12,6 +12,7 @@
     </style>
 </head>
 <body>
+@include('company.reports.partials.pdf_company_scope')
     @php
         $visibleColumns = $visibleColumns ?? [
             'voucher_no' => ['label' => 'Voucher No'],
@@ -35,11 +36,18 @@
         ];
     @endphp
 
-    <h3>Sales Summary Report - {{ $company->name }}</h3>
+    <h3>Sales Summary Report - {{ \App\Services\ReportBranches::heading($company) }}</h3>
     @if(isset($selectedCustomer))
         <div style="margin-bottom:8px;font-size:11px;"><strong>Customer:</strong> {{ $selectedCustomer->name }}</div>
         @php unset($visibleColumns['customer']); @endphp
     @endif
+    @php
+        if (isset($visibleColumns['branch'])) {
+            $branchColumn = $visibleColumns['branch'];
+            unset($visibleColumns['branch']);
+            $visibleColumns['branch'] = $branchColumn;
+        }
+    @endphp
     <table>
         <thead>
             <tr>
@@ -53,6 +61,7 @@
                 <tr>
                     @foreach($visibleColumns as $key => $column)
                         @switch($key)
+                            @case('branch')<td>{{ \App\Services\ReportBranches::name($r->company_id) }}</td>@break
                             @case('voucher_no')
                                 <td>{{ $r->voucher_no }}</td>
                                 @break

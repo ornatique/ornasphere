@@ -9,7 +9,52 @@
         </div>
     </div>
 
+    @if($canManageBranches ?? false)
+    <form method="GET" class="card card-body mb-3">
+        <label for="dashboard-branch">Dashboard branch</label>
+        <div class="d-flex flex-wrap" style="gap:12px">
+        <select id="dashboard-branch" name="branch" class="form-control" style="max-width:420px">
+            <option value="all" @selected($dashboardBranch === 'all')>All branches (including main company)</option>
+            @foreach($dashboardBranches as $branch)<option value="{{ $branch->slug }}" @selected($dashboardBranch === $branch->slug)>{{ $branch->name }}{{ $branch->parent_company_id ? '' : ' (Main)' }}</option>@endforeach
+        </select>
+        <button class="btn btn-primary">View dashboard</button>
+        <a class="btn btn-secondary" href="{{ route('company.profile.show', auth()->user()->company->slug) }}#branch-management">Manage branches</a>
+        </div>
+        <small class="mt-2">This selector changes dashboard totals only. Transactions remain in their own branch workspace.</small>
+    </form>
+    @endif
     @if($canViewDashboardData ?? true)
+    @php
+        $openingCompany = auth()->user()->company;
+    @endphp
+    @if($openingCompany && !$openingCompany->parent_company_id && auth()->user()->hasRole('company_admin') && in_array($dashboardBranch ?? $openingCompany->slug, ['all', $openingCompany->slug], true))
+    <section class="card mb-4" aria-label="Company opening balances">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap">
+            <h4 class="mb-0">Main company opening balances</h4>
+            <a href="{{ route('company.profile.show', $openingCompany->slug) }}">Edit in company profile</a>
+        </div>
+        <div class="card-body">
+            <p class="text-muted">{{ $openingCompany->name }}
+                @if($openingCompany->opening_balance_date)
+                &middot; Opening date: {{ \Carbon\Carbon::parse($openingCompany->opening_balance_date)->format('d-m-Y') }}
+                @else
+                &middot; Opening balances not yet configured
+                @endif
+            </p>
+            <div class="row">
+                @foreach(['opening_cash'=>['Cash in hand (INR)',2], 'opening_bank'=>['Bank balance (INR)',2], 'opening_gold_fine'=>['Gold (fine g)',3], 'opening_silver_fine'=>['Silver (fine g)',3]] as $field=>$details)
+                <div class="col-lg-3 col-sm-6 mb-3">
+                    <div class="border rounded p-3 h-100">
+                        <div class="text-muted mb-2">{{ $details[0] }}</div>
+                        <div style="font-size:26px;font-weight:700;font-variant-numeric:tabular-nums">{{ number_format((float)($openingCompany->$field ?? 0), $details[1]) }}</div>
+                    </div>
+                </div>
+                @endforeach
+            </div>
+            <small class="text-muted">Saved opening values, not current balances. These amounts are separate from stock and transaction totals.</small>
+        </div>
+    </section>
+    @endif
     @php
         $spotSymbols = ['GOLD', 'SILVER', 'USD INR'];
         $allMetalRates = collect($metalRates['rates'] ?? []);
@@ -282,7 +327,7 @@
                                     <tr>
                                         <td>{{ $row['type'] }}</td>
                                         <td>{{ $row['number'] ?? '-' }}</td>
-                                        <td>{{ $row['customer'] ?? '-' }}</td>
+                                        <td>{{ $row['customer'] ?? '-' }}<small class="d-block text-muted">{{ $row['branch'] ?? '' }}</small></td>
                                         <td>{{ !empty($row['date']) ? \Carbon\Carbon::parse($row['date'])->format('d-m-Y') : '-' }}</td>
                                         <td class="text-end">{{ number_format((float) ($row['amount'] ?? 0), 2) }}</td>
                                     </tr>

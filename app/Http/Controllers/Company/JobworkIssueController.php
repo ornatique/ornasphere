@@ -24,15 +24,18 @@ class JobworkIssueController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $selectedCompanies = \App\Services\CompanyBranches::managementSelection($request, $company);
 
-        if ($request->ajax()) {
+        if ($request->ajax() || $request->filled('export')) {
             $rows = $this->baseQuery($company, $request);
 
-            return DataTables::of($rows)
+            $table = DataTables::of($rows)
                 ->filter(function ($query) use ($request) {
                     $this->applySearchFilter($query, trim((string) data_get($request->input('search'), 'value', '')));
                 })
                 ->addIndexColumn()
+                ->addColumn('company_name', fn ($row) => $selectedCompanies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
                 ->addColumn('jobworker_name', fn($row) => $row->jobWorker?->name ?? '-')
                 ->addColumn('production_step_name', fn($row) => $row->productionStep?->name ?? '-')
                 ->addColumn('jobwork_date_view', fn($row) => optional($row->jobwork_date)->format('d-m-Y') ?? '-')
@@ -43,7 +46,8 @@ class JobworkIssueController extends Controller
                 ->addColumn('user_name', fn($row) => $row->createdByUser?->name ?? '-')
                 ->addColumn('modified_at_view', fn($row) => optional($row->updated_at)->format('d-m-Y h:i A') ?? '-')
                 ->addColumn('created_at_view', fn($row) => optional($row->created_at)->format('d-m-Y h:i A') ?? '-')
-                ->addColumn('action', function ($row) use ($company) {
+                ->addColumn('action', function ($row) use ($selectedCompanies) {
+                    $company = $selectedCompanies[$row->company_id];
                     $id = Crypt::encryptString((string) $row->id);
                     $editUrl = route('company.jobwork-issue.edit', [$company->slug, $id]);
                     $viewUrl = route('company.jobwork-issue.show', [$company->slug, $id]);
@@ -56,14 +60,15 @@ class JobworkIssueController extends Controller
                             </div>';
                 })
                 ->rawColumns(['action'])
-                ->make(true);
+                ;
+            return \App\Services\JobworkListExport::respond($table, $request, $selectedCompanies, 'jobwork-issue');
         }
 
-        $jobWorkers = WorkerPersonService::activeWorkers((int) $company->id);
-        $productionSteps = ProductionStep::where('company_id', $company->id)
+        $jobWorkers = $selectedCompanies->flatMap(fn ($branch) => WorkerPersonService::activeWorkers((int)$branch->id)->each(fn ($worker) => $worker->name .= ' - '.$branch->name))->values();
+        $productionSteps = ProductionStep::whereIn('company_id', $selectedCompanies->keys())
             ->where('status', true)
             ->orderBy('name')
-            ->get(['id', 'name']);
+            ->get(['id', 'name', 'company_id'])->each(fn ($step) => $step->name .= ' - '.$selectedCompanies[$step->company_id]->name);
 
         return view('company.jobwork_issue.index', compact('company', 'jobWorkers', 'productionSteps'));
     }
@@ -209,7 +214,7 @@ class JobworkIssueController extends Controller
 
         DB::transaction(function () use ($issue, $validated) {
             app(JobworkRawStock::class)->lock((int) $issue->company_id);
-            app(JobworkRawStock::class)->guardIssueEdit($issue);
+            $existingIds = app(JobworkRawStock::class)->guardIssueUpdate($issue, $validated);
             $issue->update([
                 'jobwork_date' => $validated['jobwork_date'],
                 'job_worker_id' => $validated['job_worker_id'],
@@ -220,7 +225,7 @@ class JobworkIssueController extends Controller
             ]);
 
             $this->syncIssueItems($issue, $validated['items']);
-            app(JobworkRawStock::class)->syncIssue($issue, true);
+            app(JobworkRawStock::class)->syncIssue($issue, true, $existingIds);
         });
 
         return redirect()
@@ -252,50 +257,16 @@ class JobworkIssueController extends Controller
             ->with('success', 'Jobwork Issue deleted successfully');
     }
 
-    public function exportExcel(Request $request, $slug): StreamedResponse
+    public function exportExcel(Request $request, $slug)
     {
-        $company = Company::whereSlug($slug)->firstOrFail();
-        $rows = $this->baseQuery($company, $request)
-            ->latest('created_at')
-            ->latest('id')
-            ->get();
-
-        return response()->streamDownload(function () use ($rows) {
-            $out = fopen('php://output', 'w');
-            fputcsv($out, ['Voucher No', 'Voucher Date', 'Jobworker', 'Production Step', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Total Amt', 'Created By', 'Modified', 'Created']);
-
-            foreach ($rows as $r) {
-                fputcsv($out, [
-                    $r->voucher_no,
-                    $this->excelText(optional($r->jobwork_date)?->format('d-m-Y')),
-                    $r->jobWorker?->name ?? '-',
-                    $r->productionStep?->name ?? '-',
-                    number_format((float) ($r->gross_wt_sum ?? 0), 3, '.', ''),
-                    number_format((float) ($r->net_wt_sum ?? 0), 3, '.', ''),
-                    number_format((float) ($r->fine_wt_sum ?? 0), 3, '.', ''),
-                    number_format((float) ($r->total_amt_sum ?? 0), 2, '.', ''),
-                    $r->createdByUser?->name ?? '-',
-                    $this->excelText(optional($r->updated_at)?->format('d-m-Y h:i A')),
-                    $this->excelText(optional($r->created_at)?->format('d-m-Y h:i A')),
-                ]);
-            }
-            fclose($out);
-        }, 'jobwork_issue_report.csv', [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-        ]);
+        $request->merge(['export'=>'excel']);
+        return $this->index($request,$slug);
     }
 
     public function exportPdf(Request $request, $slug)
     {
-        $company = Company::whereSlug($slug)->firstOrFail();
-        $rows = $this->baseQuery($company, $request)
-            ->latest('created_at')
-            ->latest('id')
-            ->get();
-
-        return Pdf::loadView('company.jobwork_issue.pdf.index', compact('company', 'rows'))
-            ->setPaper('a4', 'landscape')
-            ->download('jobwork_issue_report.pdf');
+        $request->merge(['export'=>'pdf']);
+        return $this->index($request,$slug);
     }
 
     public function exportSingleExcel($slug, $encryptedId): StreamedResponse
@@ -358,7 +329,7 @@ class JobworkIssueController extends Controller
     private function baseQuery(Company $company, Request $request)
     {
         return JobworkIssue::query()
-            ->where('company_id', $company->id)
+            ->whereIn('company_id', \App\Services\CompanyBranches::managementSelection($request, $company)->keys())
             ->select('jobwork_issues.*')
             ->with(['jobWorker:id,name', 'productionStep:id,name', 'createdByUser:id,name', 'updatedByUser:id,name'])
             ->withSum('items as gross_wt_sum', 'gross_wt')

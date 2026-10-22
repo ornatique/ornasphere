@@ -52,6 +52,8 @@
 
         {{-- TABLE --}}
         <div class="card-body">
+            @include('company_layout.item_management_exports')
+            <p class="text-muted">New records are created in {{ $company->name }}. Each existing record is managed in its own branch.</p>
 
             <div class="itemset-view-actions d-flex justify-content-end gap-2 mb-3">
                 <button type="button" class="btn btn-primary" id="defaultViewBtn">Default List</button>
@@ -72,7 +74,7 @@
                             <th>Net Wt</th>
                             <th>Qty Pcs</th>
                             <th>Print Date Time</th>
-                            <th>Action</th>
+                            <th>Company / Branch</th><th>Action</th>
                         </tr>
                     </thead>
                 </table>
@@ -88,7 +90,7 @@
                             <th>Total Pcs</th>
                             <th>Total Gross Wt</th>
                             <th>Total Net Wt</th>
-                            <th>Action</th>
+                            <th>Company / Branch</th><th>Action</th>
                         </tr>
                     </thead>
                 </table>
@@ -379,7 +381,7 @@
         serverSide: true,
         autoWidth: false,
         ajax: {
-            url: "{{ route('company.list_itemset', $company->slug) }}",
+            url: "{!! route('company.list_itemset', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}",
             data: function(d) {
                 d.item_id = $('#item_id').val();
                 d.from_date = $('#from_date').val();
@@ -439,7 +441,8 @@
                 name: 'printed_at',
                 searchable: false
             },
-            {
+            { data: 'company_name', orderable: false, searchable: false },
+                {
                 data: 'action',
                 name: 'action',
                 orderable: false,
@@ -455,7 +458,7 @@
         serverSide: true,
         autoWidth: false,
         ajax: {
-            url: "{{ route('company.list_itemset', $company->slug) }}",
+            url: "{!! route('company.list_itemset', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}",
             data: function(d) {
                 d.item_id = $('#item_id').val();
                 d.from_date = $('#from_date').val();
@@ -495,7 +498,8 @@
                 name: 'total_net_weight',
                 searchable: true
             },
-            {
+            { data: 'company_name', orderable: false, searchable: false },
+                {
                 data: 'action',
                 name: 'action',
                 orderable: false,
@@ -608,6 +612,7 @@
 
         $.get(url, function(data) {
 
+            $('#updateBtn').data('url', url.replace(/\/edit$/, '/update'));
             $('#edit_id').val(data.id);
             $('#edit_encrypted_id').val(data.encrypted_id);
             $('#gross_weight').val(data.gross_weight);
@@ -634,7 +639,7 @@
 
         let encryptedId = $('#edit_encrypted_id').val();
 
-        $.post("{{ url('company/'.$company->slug.'/itemsets') }}/" + encryptedId + "/update", {
+        $.post($('#updateBtn').data('url'), {
             _token: "{{ csrf_token() }}",
             gross_weight: $('#gross_weight').val(),
             other: $('#other').val(),

@@ -25,14 +25,15 @@ class ApprovalController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $companies = \App\Services\CompanyBranches::managementSelection($request, $company);
 
-        $customers = Customer::where('company_id', $company->id)
+        $customers = Customer::whereIn('company_id', $companies->keys())
             ->saleParties()
             ->where('is_active', 1)
             ->orderBy('name')
             ->get();
 
-        if ($request->ajax()) {
+        if ($request->ajax() || $request->filled('export')) {
             $fromDate = $request->input('from_date');
             $toDate = $request->input('to_date');
             $today = now()->toDateString();
@@ -88,7 +89,7 @@ class ApprovalController extends Controller
                     ->withSum([
                         'items as active_item_amount' => $pendingItemFilter,
                     ], 'total_amount')
-                    ->where('company_id', $company->id)
+                    ->whereIn('company_id', $companies->keys())
                     ->whereHas('items', $pendingItemFilter)
                     ->whereHas('customer', function ($customer) {
                         $customer->saleParties();
@@ -112,7 +113,7 @@ class ApprovalController extends Controller
                     'total_net_wt' => (float) $summaryRows->sum(fn($row) => (float) ($row->active_net_weight ?? 0)),
                 ];
 
-                return datatables()->of($query)
+                $table = datatables()->of($query)
                     ->filter(function ($q) use ($request) {
                         $searchValue = trim((string) data_get($request->input('search'), 'value', ''));
                         if ($searchValue === '') {
@@ -152,6 +153,8 @@ class ApprovalController extends Controller
                         });
                     })
                     ->addIndexColumn()
+                ->addColumn('company_name', fn ($row) => $companies[($row->company_id ?? $row->approval->company_id)]->name)
+                ->addColumn('company_id', fn ($row) => ($row->company_id ?? $row->approval->company_id))
                     ->addColumn('approval_no', fn($row) => $row->approval_no ?? '-')
                     ->addColumn('customer_name', fn($row) => optional($row->customer)->name ?? '-')
                     ->addColumn('approval_date', fn($row) => $row->approval_date ? Carbon::parse($row->approval_date)->format('d-m-Y') : '-')
@@ -182,7 +185,8 @@ class ApprovalController extends Controller
                     ->addColumn('modified_at', fn($row) => $row->updated_at ? Carbon::parse($row->updated_at)->format('d-m-Y h:i A') : '-')
                     ->addColumn('modified_count', fn($row) => (int) ($row->modified_count ?? 0))
                     ->addColumn('status', fn($row) => $row->status_badge)
-                    ->addColumn('action', function ($row) use ($slug) {
+                    ->addColumn('action', function ($row) use ($companies) {
+                    $slug = $companies[$row->company_id ?? $row->approval->company_id]->slug;
                         $encryptedId = Crypt::encryptString((string) $row->id);
                         $url = route('company.approval.view', [$slug, $encryptedId]);
                         $pdfUrl = route('company.approval.pdf', [$slug, $encryptedId]);
@@ -197,7 +201,8 @@ class ApprovalController extends Controller
                     })
                     ->rawColumns(['status', 'action'])
                     ->with('summary', $summary)
-                    ->make(true);
+                    ;
+            return \App\Services\SalesBranchExport::respond($table, $request, $companies, 'approval');
             }
 
             $query = ApprovalItem::with([
@@ -208,7 +213,7 @@ class ApprovalController extends Controller
                 'legacyItemSet.item',
             ])
                 ->join('approval_headers', 'approval_headers.id', '=', 'approval_items.approval_id')
-                ->where('approval_headers.company_id', $company->id)
+                ->whereIn('approval_headers.company_id', $companies->keys())
                 ->where(function ($statusQuery) {
                     $statusQuery->whereNull('approval_items.status')
                         ->orWhereRaw('LOWER(TRIM(approval_items.status)) = ?', ['pending']);
@@ -236,7 +241,7 @@ class ApprovalController extends Controller
                 'total_net_wt' => (float) $summaryRows->sum(fn($row) => (float) ($row->net_weight ?? 0)),
             ];
 
-            return datatables()->of($query)
+            $table = datatables()->of($query)
                 ->filter(function ($q) use ($request) {
                     $searchValue = trim((string) data_get($request->input('search'), 'value', ''));
                     if ($searchValue === '') {
@@ -274,6 +279,8 @@ class ApprovalController extends Controller
                     });
                 })
                 ->addIndexColumn()
+                ->addColumn('company_name', fn ($row) => $companies[($row->company_id ?? $row->approval->company_id)]->name)
+                ->addColumn('company_id', fn ($row) => ($row->company_id ?? $row->approval->company_id))
                 ->addColumn('approval_no', fn($row) => optional($row->approval)->approval_no ?? '-')
                 ->addColumn('customer_name', fn($row) => optional(optional($row->approval)->customer)->name ?? '-')
                 ->addColumn('approval_date', function ($row) {
@@ -307,7 +314,8 @@ class ApprovalController extends Controller
                 })
                 ->addColumn('modified_count', fn($row) => (int) (optional($row->approval)->modified_count ?? 0))
                 ->addColumn('status', fn() => '<span class="badge bg-warning">Pending</span>')
-                ->addColumn('action', function ($row) use ($slug) {
+                ->addColumn('action', function ($row) use ($companies) {
+                    $slug = $companies[$row->company_id ?? $row->approval->company_id]->slug;
                     $approval = $row->approval;
                     if (!$approval) {
                         return '-';
@@ -326,7 +334,8 @@ class ApprovalController extends Controller
                 })
                 ->rawColumns(['status', 'action'])
                 ->with('summary', $summary)
-                ->make(true);
+                ;
+            return \App\Services\SalesBranchExport::respond($table, $request, $companies, 'approval');
         }
 
         return view('company.approval.index', compact('company', 'customers'));
@@ -334,182 +343,8 @@ class ApprovalController extends Controller
 
     public function exportListPdf(Request $request, $slug)
     {
-        $company = Company::whereSlug($slug)->firstOrFail();
-        $fromDate = $request->input('from_date');
-        $toDate = $request->input('to_date');
-        $customerId = $this->resolveEncryptedCustomerFilterId($request, $company->id);
-        $today = now()->toDateString();
-        if (empty($fromDate) && empty($toDate)) {
-            $fromDate = $today;
-            $toDate = $today;
-        } elseif (!empty($fromDate) && empty($toDate)) {
-            $toDate = $fromDate;
-        } elseif (empty($fromDate) && !empty($toDate)) {
-            $fromDate = $toDate;
-        }
-
-        $viewType = $request->input('view_type') === 'item' ? 'item' : 'voucher';
-
-        if ($viewType === 'voucher') {
-            $pendingItemFilter = function ($q) {
-                return $q->where(function ($statusQuery) {
-                    $statusQuery->whereNull('status')
-                        ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
-                });
-            };
-
-            $query = ApprovalHeader::with([
-                'customer',
-                'creator',
-                'items' => function ($q) use ($pendingItemFilter) {
-                    $pendingItemFilter($q)->with(['item', 'itemSet.item', 'legacyItemSet.item']);
-                },
-            ])
-                ->withCount([
-                    'items as active_items_count' => $pendingItemFilter,
-                ])
-                ->withSum([
-                    'items as active_gross_weight' => $pendingItemFilter,
-                ], 'gross_weight')
-                ->withSum(['items as active_other_weight' => $pendingItemFilter], 'other_weight')
-                ->withSum([
-                    'items as active_net_weight' => $pendingItemFilter,
-                ], 'net_weight')
-                ->withSum([
-                    'items as active_fine_weight' => $pendingItemFilter,
-                ], 'total_fine_weight')
-                ->withSum([
-                    'items as active_metal_amount' => $pendingItemFilter,
-                ], 'metal_amount')
-                ->withSum([
-                    'items as active_labour_amount' => $pendingItemFilter,
-                ], 'labour_amount')
-                ->withSum([
-                    'items as active_other_amount' => $pendingItemFilter,
-                ], 'other_amount')
-                ->withSum([
-                    'items as active_item_amount' => $pendingItemFilter,
-                ], 'total_amount')
-                ->where('company_id', $company->id)
-                ->whereHas('items', $pendingItemFilter)
-                ->whereHas('customer', function ($customer) {
-                    $customer->saleParties();
-                })
-                ->orderByDesc('approval_date')
-                ->orderByDesc('id');
-
-            if ($customerId !== null) {
-                $query->where('customer_id', $customerId);
-            }
-
-            if (!empty($fromDate) && !empty($toDate)) {
-                $query->whereBetween('approval_date', [$fromDate, $toDate]);
-            }
-
-            $rows = $query->get()->map(function ($row) {
-                $names = collect($row->items ?? [])
-                    ->map(function ($it) {
-                        $set = $it->itemSet ?? $it->legacyItemSet;
-                        return optional(optional($set)->item)->item_name
-                            ?? optional($it->item)->item_name;
-                    })
-                    ->filter()
-                    ->unique()
-                    ->values();
-
-                return [
-                    'approval_no' => (string) ($row->approval_no ?? '-'),
-                    'approval_date' => $row->approval_date ? Carbon::parse($row->approval_date)->format('d-m-Y') : '-',
-                    'customer_name' => optional($row->customer)->name ?? '-',
-                    'item_names' => $names->isEmpty() ? '-' : $names->implode(', '),
-                    'qr_code' => '-',
-                    'total_qty' => (int) ($row->active_items_count ?? 0),
-                    'gross_wt' => (float) ($row->active_gross_weight ?? 0),
-                    'other_wt' => (float) ($row->active_other_weight ?? 0),
-                    'net_wt' => (float) ($row->active_net_weight ?? 0),
-                    'fine_wt' => (float) ($row->active_fine_weight ?? 0),
-                    'metal_amt' => (float) ($row->active_metal_amount ?? 0),
-                    'labour_amt' => (float) ($row->active_labour_amount ?? 0),
-                    'other_amt' => (float) ($row->active_other_amount ?? 0),
-                    'total_amt' => (float) ($row->active_item_amount ?? 0),
-                    'created_by' => optional($row->creator)->name ?? '-',
-                ];
-            })->values();
-
-            $pdf = Pdf::loadView('company.approval.list_pdf', [
-                'company' => $company,
-                'rows' => $rows,
-                'fromDate' => $fromDate,
-                'toDate' => $toDate,
-                'viewType' => $viewType,
-            ])->setPaper([0, 0, 841.89, 595.28]);
-
-            return $pdf->stream('approval-list-' . now()->format('YmdHis') . '.pdf');
-        }
-
-        $query = ApprovalItem::with([
-            'approval.customer',
-            'approval.creator',
-            'item',
-            'itemSet.item',
-            'legacyItemSet.item',
-        ])
-            ->join('approval_headers', 'approval_headers.id', '=', 'approval_items.approval_id')
-            ->where('approval_headers.company_id', $company->id)
-            ->where(function ($statusQuery) {
-                $statusQuery->whereNull('approval_items.status')
-                    ->orWhereRaw('LOWER(TRIM(approval_items.status)) = ?', ['pending']);
-            })
-            ->whereHas('approval.customer', function ($customer) {
-                $customer->saleParties();
-            })
-            ->select('approval_items.*')
-            ->orderByDesc('approval_headers.approval_date')
-            ->orderByDesc('approval_items.id');
-
-        if ($customerId !== null) {
-            $query->where('approval_headers.customer_id', $customerId);
-        }
-
-        if (!empty($fromDate) && !empty($toDate)) {
-            $query->whereBetween('approval_headers.approval_date', [$fromDate, $toDate]);
-        }
-
-        $rows = $query->get()->map(function ($row) {
-            $approval = $row->approval;
-            $set = $row->itemSet ?? $row->legacyItemSet;
-            $itemName = optional(optional($set)->item)->item_name
-                ?? optional($row->item)->item_name
-                ?? '-';
-
-            return [
-                'approval_no' => (string) (optional($approval)->approval_no ?? '-'),
-                'approval_date' => $approval && $approval->approval_date ? Carbon::parse($approval->approval_date)->format('d-m-Y') : '-',
-                'customer_name' => optional(optional($approval)->customer)->name ?? '-',
-                'item_names' => $itemName,
-                'qr_code' => $row->qr_code ?: '-',
-                'total_qty' => 1,
-                'gross_wt' => (float) ($row->gross_weight ?? 0),
-                'other_wt' => (float) ($row->other_weight ?? 0),
-                'net_wt' => (float) ($row->net_weight ?? 0),
-                'fine_wt' => (float) ($row->total_fine_weight ?? 0),
-                'metal_amt' => (float) ($row->metal_amount ?? 0),
-                'labour_amt' => (float) ($row->labour_amount ?? 0),
-                'other_amt' => (float) ($row->other_amount ?? 0),
-                'total_amt' => (float) ($row->total_amount ?? 0),
-                'created_by' => optional(optional($approval)->creator)->name ?? '-',
-            ];
-        })->values();
-
-        $pdf = Pdf::loadView('company.approval.list_pdf', [
-            'company' => $company,
-            'rows' => $rows,
-            'fromDate' => $fromDate,
-            'toDate' => $toDate,
-            'viewType' => $viewType,
-        ])->setPaper([0, 0, 841.89, 595.28]);
-
-        return $pdf->stream('approval-list-' . now()->format('YmdHis') . '.pdf');
+        $request->merge(['export'=>'pdf']);
+        return $this->index($request, $slug);
     }
 
     private function resolveEncryptedCustomerFilterId(Request $request, int $companyId): ?int

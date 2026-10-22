@@ -12,6 +12,7 @@
             <h4 class="card-title">Tree Cutting Receive Voucher List</h4>
         </div>
         <div class="card-body">
+            @include('company_layout.casting_exports')
             <div class="tree-cutting-receive-filters">
                 <div class="filter-field">
                     <label for="fromDate">From Date</label>
@@ -52,6 +53,7 @@
                             <th>Receive Pc Wt</th>
                             <th>Receive Tree Bhuko</th>
                             <th>Loss</th>
+                            <th>Company / Branch</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -117,7 +119,7 @@
         processing: true,
         serverSide: true,
         ajax: {
-            url: "{{ route('company.tree-cutting-receive.index', $company->slug) }}",
+            url: "{!! route('company.tree-cutting-receive.index', array_merge(['slug' => $company->slug], request()->only('management_branches'))) !!}",
             data: function (data) {
                 data.from_date = $('#fromDate').val();
                 data.to_date = $('#toDate').val();
@@ -138,6 +140,7 @@
             { data: 'receive_pc_wt_view', name: 'receive_pc_wt_total', orderable: false, searchable: false },
             { data: 'receive_tree_bhuko_view', name: 'receive_tree_bhuko_total', orderable: false, searchable: false },
             { data: 'loss_view', name: 'loss_total', orderable: false, searchable: false },
+            { data: 'company_name', name: 'company_name', orderable: false, searchable: false },
             { data: 'action', name: 'action', orderable: false, searchable: false },
         ]
     });

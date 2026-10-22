@@ -6,6 +6,17 @@ use Illuminate\Database\Eloquent\Model;
 
 class Company extends Model
 {
+    protected static function booted(): void
+    {
+        static::updated(function (Company $company) {
+            if ($company->wasChanged('status') && !(bool) $company->status) {
+                \App\Services\CompanyDeactivation::resetUsers($company);
+            } elseif ($company->wasChanged('status') && (bool) $company->status) {
+                \App\Services\CompanyDeactivation::activateUsers($company);
+            }
+        });
+    }
+
     protected $fillable = [
         'name',
         'slug',
@@ -34,6 +45,11 @@ class Company extends Model
     public function users()
     {
         return $this->hasMany(User::class);
+    }
+
+    public function branches()
+    {
+        return $this->hasMany(self::class, 'parent_company_id');
     }
 
     public function getCompanyLogoUrlAttribute(): ?string

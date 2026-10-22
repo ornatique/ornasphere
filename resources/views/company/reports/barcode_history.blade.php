@@ -2,6 +2,7 @@
 
 @section('content')
 <div class="content-wrapper">
+@include('company.reports.partials.branch_filter')
     <div class="card">
         <div class="card-header">
             <h4 class="card-title mb-0">Barcode History Report</h4>
@@ -38,7 +39,7 @@
                             <th>Sale History</th>
                             <th>Return History</th>
                             <th>Status</th>
-                        </tr>
+                        <th>Branch</th></tr>
                     </thead>
                 </table>
             </div>
@@ -152,6 +153,7 @@ $(function () {
             { data: 'sale_history_html', orderable: false, searchable: false },
             { data: 'return_history_html', orderable: false, searchable: false },
             { data: 'current_status', orderable: false, searchable: false },
+            { data: 'branch_name', orderable: false, searchable: false, defaultContent: '' },
         ]
     });
 
@@ -258,11 +260,11 @@ $(function () {
     }
 
     $('#export_excel').on('click', function () {
-        window.location.href = "{{ route('company.reports.barcode-history.export.excel', $company->slug) }}?" + queryParams();
+        window.location.href = window.reportBranchUrl("{{ route('company.reports.barcode-history.export.excel', $company->slug) }}?" + queryParams());
     });
 
     $('#export_pdf').on('click', function () {
-        window.location.href = "{{ route('company.reports.barcode-history.export.pdf', $company->slug) }}?" + queryParams();
+        window.location.href = window.reportBranchUrl("{{ route('company.reports.barcode-history.export.pdf', $company->slug) }}?" + queryParams());
     });
 });
 </script>

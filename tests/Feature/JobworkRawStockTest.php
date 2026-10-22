@@ -33,6 +33,25 @@ class JobworkRawStockTest extends TestCase
         DB::table('jobwork_issue_items')->insert(['id'=>1,'jobwork_issue_id'=>1,'item_id'=>1,'net_wt'=>100]);
     }
 
+    public function test_additional_material_after_receipt_preserves_allocations_and_receipts(): void
+    {
+        $this->sync();
+        $this->receive(50);
+        $service = new JobworkRawStock;
+        $data = ['jobwork_date'=>'2026-10-10','job_worker_id'=>'','production_step_id'=>'',
+            'items'=>[['id'=>1,'item_id'=>1,'net_wt'=>100],['item_id'=>1,'net_wt'=>25]]];
+        $ids = $service->guardIssueUpdate(JobworkIssue::find(1), $data);
+        $allocation = DB::table('jobwork_raw_stock_allocations')->first()->id;
+        DB::table('jobwork_issue_items')->insert(['id'=>2,'jobwork_issue_id'=>1,'item_id'=>1,'net_wt'=>25]);
+        $service->syncIssue(JobworkIssue::find(1), true, $ids);
+        $this->assertEquals(425, $service->available(1)[1]);
+        $this->assertTrue(DB::table('jobwork_raw_stock_allocations')->where('id',$allocation)->exists());
+        $this->assertSame(1, DB::table('jobwork_receive_items')->count());
+        $data['items'][0]['net_wt'] = 99;
+        $this->expectException(ValidationException::class);
+        $service->guardIssueUpdate(JobworkIssue::find(1), $data);
+    }
+
     private function sync(int $id = 1): void
     {
         DB::transaction(function () use ($id) {
@@ -179,9 +198,14 @@ class JobworkRawStockTest extends TestCase
 
     public function test_web_and_api_stock_reports_show_remaining_receipt_weight(): void
     {
+        DB::statement('ALTER TABLE companies ADD COLUMN name text');
+        DB::statement('CREATE TABLE category_people (id integer primary key, company_id integer, category_name text)');
+        DB::statement('CREATE TABLE customer_advance_ledgers (id integer primary key, customer_id integer, company_id integer, cash_in real, cash_out real, metal_type text, metal_in real, metal_out real)');
         DB::statement('CREATE TABLE customers (id integer primary key, company_id integer, name text)');
+        DB::statement('ALTER TABLE customers ADD COLUMN category_person_id integer');
+        DB::statement('ALTER TABLE customer_advance_vouchers ADD COLUMN voucher_no text');
         DB::table('customers')->insert(['id'=>9,'company_id'=>1,'name'=>'Source party']);
-        DB::statement('CREATE TABLE item_sets (id integer primary key, item_id integer, company_id integer, is_final integer, is_sold integer, supplier_person text, gross_weight real, other real, net_weight real, sale_labour_amount real, sale_other real, created_at text)');
+        DB::statement('CREATE TABLE item_sets (id integer primary key, item_id integer, company_id integer, is_final integer, is_sold integer, supplier_person text, gross_weight real, other real, net_weight real, sale_labour_amount real, sale_other real, created_at text, image_path text, qr_code text, barcode text, HUID text, size text)');
         DB::statement('CREATE TABLE casting_sorting_items (id integer primary key, item_id integer, company_id integer, stock_type text, quantity real, weight real, created_at text)');
         foreach (['item_name text','labour_amount real','other_amount real','created_at text'] as $column) {
             DB::statement('ALTER TABLE customer_advance_voucher_items ADD COLUMN '.$column);
@@ -189,6 +213,9 @@ class JobworkRawStockTest extends TestCase
         $this->sync(); $this->receive(50);
         $request = new \Illuminate\Http\Request(['customer_id'=>9]);
         $company = \App\Models\Company::findOrFail(1);
+        $company->slug = 'main';
+        $this->actingAs((new \App\Models\User)->forceFill(['id'=>1, 'company_id'=>1]));
+        request()->setUserResolver(fn () => auth()->user());
         foreach ([\App\Http\Controllers\Company\ReportController::class, \App\Http\Controllers\Api\ReportApiController::class] as $class) {
             $controller = app($class);
             $method = new \ReflectionMethod($class, 'stockPositionBaseQuery');
@@ -198,13 +225,59 @@ class JobworkRawStockTest extends TestCase
             $this->assertEquals(450, $row->gross_weight);
             $this->assertEquals(9, $row->customer_id);
         }
+
+        foreach ([1=>'photo.webp',2=>null,3=>''] as $id=>$path) {
+            DB::table('item_sets')->insert(['id'=>$id,'company_id'=>1,'item_id'=>1,'supplier_person'=>'Source party','is_final'=>1,'is_sold'=>0,'image_path'=>$path,'net_weight'=>10,'gross_weight'=>10]);
+        }
+        $controller = app(\App\Http\Controllers\Company\ReportController::class);
+        $base = new \ReflectionMethod($controller, 'stockPositionBaseQuery');
+        $label = $base->invoke($controller, $company, $request)->where('stock_type','finished_item')->first();
+        $this->assertEquals(3, $label->qty_pcs);
+        $this->assertEquals(1, $label->with_image);
+        DB::table('casting_sorting_items')->insert(['id'=>1,'company_id'=>1,'item_id'=>1,'stock_type'=>'raw_material','quantity'=>2,'weight'=>25]);
+        foreach (['raw_material'=>2, 'finished_item'=>3] as $type=>$quantity) {
+            $filtered = new \Illuminate\Http\Request(['stock_type'=>$type]);
+            $result = $base->invoke($controller, $company, $filtered)->get();
+            $this->assertCount(1, $result);
+            $this->assertSame($type, $result->first()->stock_type);
+            $this->assertEquals($quantity, $result->sum('qty_pcs'));
+            $filtered->setUserResolver(fn () => (object)['company_id'=>1]);
+            $api = app(\App\Http\Controllers\Api\ReportApiController::class)->stockPosition($filtered)->getData(true);
+            $this->assertCount(1, $api['data']);
+            $this->assertSame($type, $api['data'][0]['stock_type']);
+            $this->assertEquals($quantity, $api['summary']['qty_pcs']);
+            $this->assertEquals($type === 'finished_item' ? 1 : 0, $api['summary']['with_image']);
+        }
+        $detail = new \ReflectionMethod($controller, 'stockPositionDetailRows');
+        foreach (['label_code text','huid text','remarks text'] as $column) {
+            DB::statement('ALTER TABLE customer_advance_voucher_items ADD COLUMN '.$column);
+        }
+        DB::statement('ALTER TABLE casting_sorting_items ADD COLUMN vacuum_voucher_id integer');
+        DB::statement('ALTER TABLE casting_sorting_items ADD COLUMN sorted_at text');
+        DB::statement('CREATE TABLE vacuum_vouchers (id integer primary key, voucher_no text)');
+        $allRequest = new \Illuminate\Http\Request(['item_id'=>1,'stock_type'=>'all']);
+        $allRows = $detail->invoke($controller, $company, $allRequest);
+        $this->assertCount(5, $allRows);
+        $this->assertEquals(505, $allRows->sum('net_weight'));
+        $this->assertCount(3, $allRows->pluck('stock_type_name')->unique());
+        $allRequest->merge(['customer_id'=>9]);
+        $this->assertCount(4, $detail->invoke($controller, $company, $allRequest));
+        foreach (['all'=>3,'with'=>1,'without'=>2] as $filter=>$expected) {
+            $request->merge(['item_id'=>1,'stock_type'=>'finished_item','image_status'=>$filter]);
+            $rows = $detail->invoke($controller, $company, $request);
+            $this->assertCount($expected, $rows);
+            $this->assertSame(['with_image'=>1,'without_image'=>2], $request->attributes->get('stock_image_counts'));
+        }
     }
 
     public function test_api_stock_endpoint_returns_grams_for_authenticated_company(): void
     {
         $this->sync();
         $request = new \Illuminate\Http\Request;
-        $request->setUserResolver(fn() => (object)['company_id'=>1]);
+        $user = new \App\Models\User;
+        $user->forceFill(['company_id'=>1]);
+        $user->setRelation('company', \App\Models\Company::findOrFail(1));
+        $request->setUserResolver(fn() => $user);
         $response = app(\App\Http\Controllers\Api\JobworkIssueApiController::class)->rawStock($request)->getData(true);
         $this->assertSame(1, $response['data'][0]['item_id']);
         $this->assertEquals(400, $response['data'][0]['available_net_wt']);

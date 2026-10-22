@@ -13,7 +13,8 @@
     </style>
 </head>
 <body>
-    <h3>Barcode History Report - {{ $company->company_name ?? $company->name ?? 'Company' }}</h3>
+@include('company.reports.partials.pdf_company_scope')
+    <h3>Barcode History Report - {{ \App\Services\ReportBranches::heading($company) }}</h3>
     <table>
         <thead>
             <tr>
@@ -26,7 +27,7 @@
                 <th>Sale History</th>
                 <th>Return History</th>
                 <th>Status</th>
-            </tr>
+            <th>Company / Branch</th></tr>
         </thead>
         <tbody>
             @forelse($rows as $i => $r)
@@ -40,7 +41,7 @@
                     <td>{{ !empty($r['sale_history']) ? implode(' | ', \Illuminate\Support\Arr::pluck((array) $r['sale_history'], 'label')) : '-' }}</td>
                     <td>{{ !empty($r['return_history']) ? implode(' | ', \Illuminate\Support\Arr::pluck((array) $r['return_history'], 'label')) : '-' }}</td>
                     <td>{{ $r['current_status'] ?? '-' }}</td>
-                </tr>
+                <td>{{ \App\Services\ReportBranches::name(data_get($r, 'company_id')) }}</td></tr>
             @empty
                 <tr>
                     <td colspan="9" class="muted">No data found.</td>

@@ -16,6 +16,7 @@
     </style>
 </head>
 <body>
+@include('company.reports.partials.pdf_company_scope')
     @php
         $selectedPartyName = optional($selectedCustomer ?? null)->name;
         $selectedPartyCity = optional($selectedCustomer ?? null)->city;
@@ -24,7 +25,7 @@
         $totalLabelColspan = 4 + ($showPartyColumn ? 1 : 0) + ($showCityColumn ? 1 : 0);
         $emptyColspan = 14 + ($showPartyColumn ? 1 : 0) + ($showCityColumn ? 1 : 0);
     @endphp
-    <div class="title">{{ $company->company_name ?? $company->name ?? 'Company' }}</div>
+    <div class="title">{{ \App\Services\ReportBranches::heading($company) }}</div>
     <div class="subtitle">Outstanding Amount Ledger Report</div>
     @if(filled($selectedPartyName))
         <div class="filter-line">
@@ -58,7 +59,7 @@
                 <th class="text-right" style="width: 7%;">Metal Amt</th>
                 <th class="text-right" style="width: 7%;">Labour Amt</th>
                 <th class="text-right" style="width: 6%;">Metal Dr</th>
-            </tr>
+            <th>Company / Branch</th></tr>
         </thead>
         <tbody>
             @forelse($rows as $i => $row)
@@ -91,9 +92,9 @@
                     <td class="text-right">{{ number_format((float) ($row->sum_metal_amount ?? 0), 2) }}</td>
                     <td class="text-right">{{ number_format((float) ($row->sum_labour_amount ?? 0), 2) }}</td>
                     <td class="text-right">{{ number_format($metalDebit, 3) }}</td>
-                </tr>
+                <td>{{ \App\Services\ReportBranches::name($row->company_id ?? null) }}</td></tr>
             @empty
-                <tr><td colspan="{{ $emptyColspan }}" class="text-center">No records found</td></tr>
+                <tr><td colspan="{{ $emptyColspan + 1 }}" class="text-center">No records found</td></tr>
             @endforelse
         </tbody>
         <tfoot>
@@ -109,7 +110,7 @@
                 <th class="text-right">{{ number_format((float) ($summary['metal_amount'] ?? 0), 2) }}</th>
                 <th class="text-right">{{ number_format((float) ($summary['labour_amount'] ?? 0), 2) }}</th>
                 <th class="text-right">{{ number_format((float) ($summary['metal_debit'] ?? 0), 3) }}</th>
-            </tr>
+            <td></td></tr>
         </tfoot>
     </table>
 </body>

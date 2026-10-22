@@ -12,6 +12,7 @@
             <h4 class="card-title">Casting Metal Issue Voucher List</h4>
         </div>
         <div class="card-body">
+            @include('company_layout.casting_exports')
             <div class="casting-metal-filters">
                 <div class="filter-field">
                     <label for="fromDate">From Date</label>
@@ -63,6 +64,7 @@
                             <th>Metal Total Wt</th>
                             <th>Issue Silver Wt</th>
                             <th>Pending</th>
+                            <th>Company / Branch</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -327,7 +329,7 @@
         processing: true,
         serverSide: true,
         ajax: {
-            url: "{{ route('company.casting-metal-issue.index', $company->slug) }}",
+            url: "{!! route('company.casting-metal-issue.index', array_merge(['slug' => $company->slug], request()->only('management_branches'))) !!}",
             data: function (data) {
                 data.from_date = $('#fromDate').val();
                 data.to_date = $('#toDate').val();
@@ -345,6 +347,7 @@
             { data: 'metal_weight_total_view', name: 'metal_weight_total', orderable: false, searchable: false },
             { data: 'issue_silver_wt_total_view', name: 'issue_silver_wt_total', orderable: false, searchable: false },
             { data: 'pending_metal_view', name: 'pending_metal_count', orderable: false, searchable: false },
+            { data: 'company_name', name: 'company_name', orderable: false, searchable: false },
             { data: 'action', name: 'action', orderable: false, searchable: false },
         ]
     });

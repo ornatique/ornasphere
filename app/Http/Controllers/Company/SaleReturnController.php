@@ -31,8 +31,9 @@ class SaleReturnController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::where('slug', $slug)->firstOrFail();
+        $companies = \App\Services\CompanyBranches::managementSelection($request, $company);
 
-        if ($request->ajax()) {
+        if ($request->ajax() || $request->filled('export')) {
 
             $returns = SaleReturn::with([
                 'creator',
@@ -47,7 +48,7 @@ class SaleReturnController extends Controller
                 'items.approvalItem.item',
                 'items.itemSet.item',
             ])
-                ->where('company_id', $company->id)
+                ->whereIn('company_id', $companies->keys())
                 ->where('source_type', 'approval');
 
             if ($request->filled('customer_id')) {
@@ -66,7 +67,7 @@ class SaleReturnController extends Controller
 
             $returns = $returns->latest()
                 ->get()
-                ->map(fn(SaleReturn $return) => $this->summarizeApprovalReturn($return));
+                ->map(fn(SaleReturn $return) => array_merge($this->summarizeApprovalReturn($return), ['company_id'=>(int)$return->company_id]));
 
             $summary = [
                 'total_qty' => (int) $returns->sum(fn($row) => (int) ($row['qty'] ?? 0)),
@@ -74,11 +75,14 @@ class SaleReturnController extends Controller
                 'total_net_wt' => (float) $returns->sum(fn($row) => (float) ($row['net_wt'] ?? 0)),
             ];
 
-            return DataTables::of($returns)
+            $table = DataTables::of($returns)
 
                 ->addIndexColumn()
+                ->addColumn('company_name', fn ($row) => $companies[$row['company_id']]->name)
+                ->addColumn('company_id', fn ($row) => $row['company_id'])
 
-                ->addColumn('action', function ($return) use ($company) {
+                ->addColumn('action', function ($return) use ($companies) {
+                    $company = $companies[$return['company_id']];
                     $encryptedReturnId = Crypt::encryptString((string) $return['return_id']);
 
                     $viewUrl = route('company.returns.show', [
@@ -115,10 +119,11 @@ class SaleReturnController extends Controller
 
                 ->rawColumns(['action'])
                 ->with('summary', $summary)
-                ->make(true);
+                ;
+            return \App\Services\SalesBranchExport::respond($table, $request, $companies, 'approval-returns');
         }
 
-        $customers = Customer::where('company_id', $company->id)
+        $customers = Customer::whereIn('company_id', $companies->keys())
             ->saleParties()
             ->where('is_active', 1)
             ->orderBy('name')
@@ -129,46 +134,8 @@ class SaleReturnController extends Controller
 
     public function exportListPdf(Request $request, $slug)
     {
-        $company = Company::where('slug', $slug)->firstOrFail();
-        [$fromDate, $toDate] = $this->resolveReturnDateRange($request);
-
-        $query = SaleReturn::with([
-            'creator',
-            'approval.customer',
-            'approval.creator',
-            'approval.items.itemSet.item',
-            'approval.items.item',
-            'items.approvalItem.approval.customer',
-            'items.approvalItem.approval.creator',
-            'items.approvalItem.itemSet.item',
-            'items.approvalItem.legacyItemSet.item',
-            'items.approvalItem.item',
-            'items.itemSet.item',
-        ])
-            ->where('company_id', $company->id)
-            ->where('source_type', 'approval')
-            ->whereBetween('return_date', [$fromDate, $toDate])
-            ->latest('return_date')
-            ->latest('id');
-
-        if ($request->filled('customer_id')) {
-            $customerId = (int) $request->customer_id;
-            $query->where(function ($returnQuery) use ($customerId) {
-                $returnQuery->whereHas('approval', function ($approvalQuery) use ($customerId) {
-                    $approvalQuery->where('customer_id', $customerId);
-                })->orWhereHas('items.approvalItem.approval', function ($approvalQuery) use ($customerId) {
-                    $approvalQuery->where('customer_id', $customerId);
-                });
-            });
-        }
-
-        $rows = $query->get()
-            ->map(fn(SaleReturn $return) => $this->summarizeApprovalReturn($return))
-            ->values();
-
-        return Pdf::loadView('company.returns.list_pdf', compact('company', 'rows', 'fromDate', 'toDate'))
-            ->setPaper('a4', 'landscape')
-            ->stream('approval-return-list-' . now()->format('YmdHis') . '.pdf');
+        $request->merge(['export'=>'pdf']);
+        return $this->index($request, $slug);
     }
 
     private function resolveReturnDateRange(Request $request): array

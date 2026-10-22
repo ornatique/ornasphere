@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\DB;
 
 class WorkerMetalLedger
 {
-    public function report(int $companyId, Request $request): array
+    public function report(int|array $companyId, Request $request): array
     {
         $filters = $request->validate([
             'from_date' => ['nullable', 'date_format:Y-m-d'],
@@ -18,24 +18,24 @@ class WorkerMetalLedger
         $issues = DB::table('jobwork_issue_items as line')
             ->join('jobwork_issues as header', 'header.id', '=', 'line.jobwork_issue_id')
             ->leftJoin('items as item', 'item.id', '=', 'line.item_id')
-            ->where('header.company_id', $companyId)
+            ->whereIn('header.company_id', (array) $companyId)
             ->selectRaw("line.id, header.job_worker_id as worker_id, header.jobwork_date as date, header.voucher_no as voucher, item.item_name as item, COALESCE(item.metal, 'Unspecified') as metal, line.net_wt as debit, 0 as credit, 'Issue' as type");
         $receipts = DB::table('jobwork_receive_items as line')
             ->join('jobwork_receives as header', 'header.id', '=', 'line.jobwork_receive_id')
             ->leftJoin('jobwork_issues as issue', function ($join) use ($companyId) {
-                $join->on('issue.id', '=', 'header.jobwork_issue_id')->where('issue.company_id', $companyId);
+                $join->on('issue.id', '=', 'header.jobwork_issue_id')->whereIn('issue.company_id', (array) $companyId);
             })
             ->leftJoin('jobwork_issue_items as issued', 'issued.id', '=', 'line.jobwork_issue_item_id')
             ->leftJoin('items as item', 'item.id', '=', DB::raw('COALESCE(line.item_id, issued.item_id)'))
-            ->where('header.company_id', $companyId)
+            ->whereIn('header.company_id', (array) $companyId)
             ->selectRaw("line.id, COALESCE(header.job_worker_id, issue.job_worker_id) as worker_id, header.receive_date as date, COALESCE(header.receive_no, issue.voucher_no) as voucher, item.item_name as item, COALESCE(item.metal, 'Unspecified') as metal, 0 as debit, line.receive_net_wt as credit, 'Receive' as type");
         $entries = $issues->unionAll($receipts);
         $cashOpenings = [];
         if (\Illuminate\Support\Facades\Schema::hasTable('customer_advance_ledgers') && \Illuminate\Support\Facades\Schema::hasColumn('job_workers', 'person_id')) {
             $openingQuery = DB::table('customer_advance_ledgers as opening')
                 ->join('job_workers as ow', function ($join) use ($companyId) {
-                    $join->on('ow.person_id', '=', 'opening.customer_id')->where('ow.company_id', $companyId);
-                })->where('opening.company_id', $companyId)->where('opening.reference_type', 'person_opening');
+                    $join->on('ow.person_id', '=', 'opening.customer_id')->whereIn('ow.company_id', (array) $companyId);
+                })->whereIn('opening.company_id', (array) $companyId)->where('opening.reference_type', 'person_opening');
             $entries->unionAll((clone $openingQuery)->whereNotNull('opening.metal_type')->selectRaw("opening.id, ow.id as worker_id, opening.entry_date as date, 'Opening' as voucher, 'Opening balance' as item, opening.metal_type as metal, opening.metal_out as debit, opening.metal_in as credit, 'Opening' as type"));
             $cashOpenings = (clone $openingQuery)->whereNull('opening.metal_type')
                 ->when($filters['worker_id'] ?? null, fn($q,$id) => $q->where('ow.id',$id))
@@ -44,8 +44,8 @@ class WorkerMetalLedger
         }
         $query = DB::query()->fromSub($entries, 'entries')
             ->join('job_workers as worker', 'worker.id', '=', 'entries.worker_id')
-            ->where('worker.company_id', $companyId)
-            ->select('entries.*', 'worker.name as worker_name')
+            ->whereIn('worker.company_id', (array) $companyId)
+            ->select('entries.*', 'worker.name as worker_name', 'worker.company_id')
             ->when($filters['worker_id'] ?? null, fn ($q, $id) => $q->where('worker_id', $id))
             ->when($filters['to_date'] ?? null, fn ($q, $date) => $q->whereDate('date', '<=', $date))
             ->orderBy('date')->orderBy('type')->orderBy('id');
@@ -87,7 +87,7 @@ class WorkerMetalLedger
             $e['metal'] = \Illuminate\Support\Str::title(\Illuminate\Support\Str::lower(trim($metal))) ?: 'Unspecified';
             $key = $e['worker_id'].'|'.$e['metal'];
             if (!isset($groups[$key])) {
-                $groups[$key] = ['worker_id' => $e['worker_id'], 'worker_name' => $e['worker_name'], 'metal' => $e['metal'],
+                $groups[$key] = ['company_id' => $e['company_id'] ?? null, 'worker_id' => $e['worker_id'], 'worker_name' => $e['worker_name'], 'metal' => $e['metal'],
                     'opening' => 0, 'debit' => 0, 'credit' => 0, 'closing' => 0,
                     'rows' => []];
             }
@@ -121,7 +121,7 @@ class WorkerMetalLedger
             }
             fputcsv($out, ['From', !empty($ledger['filters']['from_date']) ? \Carbon\Carbon::parse($ledger['filters']['from_date'])->format('d-m-Y') : 'Beginning', 'To', !empty($ledger['filters']['to_date']) ? \Carbon\Carbon::parse($ledger['filters']['to_date'])->format('d-m-Y') : 'Latest']);
             foreach ($ledger['groups'] as $g) {
-                fputcsv($out, [$safe($g['worker_name']), $safe($g['metal'])]);
+                fputcsv($out, [$safe($g['worker_name']), $safe($g['metal']), 'Branch', $safe(ReportBranches::name($g['company_id'] ?? null))]);
                 if (($ledger['filters']['format'] ?? 'detailed') === 'daily') {
                     fputcsv($out, ['Date', 'Particulars', 'Debit - Issued', 'Credit - Received', 'Net Balance (+Dr/-Cr)']);
                     fputcsv($out, ['', 'Opening balance', '', '', $g['opening']]);

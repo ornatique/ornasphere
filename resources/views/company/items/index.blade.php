@@ -17,6 +17,8 @@
                 </div>
 
                 <div class="card-body">
+            @include('company_layout.item_management_exports')
+            <p class="text-muted">New records are created in {{ $company->name }}. Each existing record is managed in its own branch.</p>
                     <div class="table-responsive">
                         <table class="table table-bordered table-striped"
                             id="itemTable">
@@ -29,7 +31,7 @@
                                     <th>Labour Type</th>
                                     <!-- <th>Tax Type</th> -->
                                     <!-- <th>Status</th> -->
-                                    <th width="150">Action</th>
+                                    <th>Company / Branch</th><th width="150">Action</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -55,7 +57,7 @@
         let table = $('#itemTable').DataTable({
             processing: true,
             serverSide: true,
-            ajax: "{{ route('company.items.data', $company->slug) }}",
+            ajax: "{!! route('company.items.data', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}",
             columns: [{
                     data: 'DT_RowIndex',
                     name: 'DT_RowIndex',
@@ -88,6 +90,7 @@
                 //     orderable: false,
                 //     searchable: false
                 // },
+                { data: 'company_name', orderable: false, searchable: false },
                 {
                     data: 'action',
                     name: 'action',

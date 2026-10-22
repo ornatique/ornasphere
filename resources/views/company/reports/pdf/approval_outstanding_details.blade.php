@@ -14,7 +14,8 @@
     </style>
 </head>
 <body>
-    <h3>Approval Outstanding Details - {{ $company->name }}</h3>
+@include('company.reports.partials.pdf_company_scope')
+    <h3>Approval Outstanding Details - {{ $approval['branch_name'] ?? \App\Services\ReportBranches::heading($company) }}</h3>
 
     <table class="meta">
         <tr>

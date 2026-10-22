@@ -15,7 +15,7 @@
 <body>
     <div class="title">Visiting Cards Report</div>
     <div class="meta">
-        <strong>Company:</strong> {{ $company->name ?? 'Company' }}<br>
+        <strong>Company:</strong> {{ $branchNames ?? $company->name ?? 'Company' }}<br>
         <strong>From:</strong> {{ \Carbon\Carbon::parse($fromDate)->format('d-m-Y') }}
         &nbsp;&nbsp;
         <strong>To:</strong> {{ \Carbon\Carbon::parse($toDate)->format('d-m-Y') }}
@@ -24,7 +24,7 @@
     <table>
         <thead>
             <tr>
-                <th>Name</th>
+                <th>Company / Branch</th><th>Name</th>
                 <th>Mobile</th>
                 <th>Email</th>
                 <th>City</th>
@@ -36,7 +36,7 @@
         <tbody>
             @forelse($rows as $r)
             <tr>
-                <td>{{ $r->name ?: '-' }}</td>
+                <td>{{ $r->company?->name ?? '-' }}</td><td>{{ $r->name ?: '-' }}</td>
                 <td>{{ $r->mobile_no ?: '-' }}</td>
                 <td>{{ $r->email ?: '-' }}</td>
                 <td>{{ $r->city ?: '-' }}</td>
@@ -46,7 +46,7 @@
             </tr>
             @empty
             <tr>
-                <td colspan="7" style="text-align:center;">No data found</td>
+                <td colspan="8" style="text-align:center;">No data found</td>
             </tr>
             @endforelse
         </tbody>

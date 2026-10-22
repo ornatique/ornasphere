@@ -6,6 +6,14 @@ use Illuminate\Database\Eloquent\Model;
 
 class CastingReleaseItem extends Model
 {
+    public function scopeForVoucherHistory($query, int $companyId, int $voucherId, array $itemIds)
+    {
+        return $query->where('company_id', $companyId)->where('vacuum_voucher_id', $voucherId)
+            ->when($itemIds !== [], fn ($q) => $q->where(fn ($rows) =>
+                $rows->where('is_custom', true)->orWhereIn('vacuum_voucher_item_id', $itemIds)
+            ));
+    }
+
     protected $fillable = [
         'company_id',
         'vacuum_voucher_id',

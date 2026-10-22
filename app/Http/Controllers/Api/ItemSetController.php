@@ -39,9 +39,9 @@ class ItemSetController extends Controller
             'image_mime' => $itemSet->image_mime,
             'image_size' => $itemSet->image_size,
             'image_uploaded_at' => $itemSet->image_uploaded_at?->format('d-m-Y h:i A'),
-            'image_show_url' => url('/api/item-sets/' . $itemSet->id . '/image'),
-            'image_upload_url' => url('/api/item-sets/' . $itemSet->id . '/image'),
-            'image_delete_url' => url('/api/item-sets/' . $itemSet->id . '/image'),
+            'image_show_url' => url('/api/item-sets/' . $itemSet->id . '/image?company_id=' . $itemSet->company_id),
+            'image_upload_url' => url('/api/item-sets/' . $itemSet->id . '/image?company_id=' . $itemSet->company_id),
+            'image_delete_url' => url('/api/item-sets/' . $itemSet->id . '/image?company_id=' . $itemSet->company_id),
         ];
     }
 
@@ -50,9 +50,9 @@ class ItemSetController extends Controller
         return array_merge($itemSet->toArray(), [
             'image_url' => $this->itemImageUrl($itemSet),
             'image_uploaded_at_formatted' => $itemSet->image_uploaded_at?->format('d-m-Y h:i A'),
-            'image_show_url' => url('/api/item-sets/' . $itemSet->id . '/image'),
-            'image_upload_url' => url('/api/item-sets/' . $itemSet->id . '/image'),
-            'image_delete_url' => url('/api/item-sets/' . $itemSet->id . '/image'),
+            'image_show_url' => url('/api/item-sets/' . $itemSet->id . '/image?company_id=' . $itemSet->company_id),
+            'image_upload_url' => url('/api/item-sets/' . $itemSet->id . '/image?company_id=' . $itemSet->company_id),
+            'image_delete_url' => url('/api/item-sets/' . $itemSet->id . '/image?company_id=' . $itemSet->company_id),
         ]);
     }
 
@@ -201,7 +201,7 @@ class ItemSetController extends Controller
     // ================= DEFAULT LOAD GRID =================
     public function index(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $userId = optional($request->user())->id;
 
         $itemId = $request->item_id;
@@ -234,7 +234,7 @@ class ItemSetController extends Controller
     // ================= AUTO SAVE CELL =================
     public function saveCell(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $userId = optional($request->user())->id;
         $toNumber = function ($value): float {
             if ($value === null || $value === '') {
@@ -326,7 +326,7 @@ class ItemSetController extends Controller
 
 public function bulkSave(Request $request)
 {
-    $companyId = $request->user()->company_id;
+    $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
     $userId = optional($request->user())->id;
 
     $request->validate([
@@ -470,7 +470,7 @@ public function bulkSave(Request $request)
     // ================= FINAL SAVE =================
     public function finalize(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $userId = optional($request->user())->id;
 
         $item = $this->configuredItem($companyId, $request->item_id);
@@ -574,7 +574,7 @@ public function bulkSave(Request $request)
     
     public function listset_data(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companies = \App\Services\CompanyBranches::apiManagementSelection($request);
         $perPage = max(1, min((int) $request->input('per_page', 100), 1000));
 
         if ($request->input('view_mode') === 'bulk') {
@@ -582,7 +582,7 @@ public function bulkSave(Request $request)
         }
 
         $query = ItemSet::with('item')
-            ->where('company_id', $companyId)
+            ->whereIn('company_id', $companies->keys())
             ->where('is_final', 1)
             ->whereNotNull('qr_code');
 
@@ -637,9 +637,10 @@ public function bulkSave(Request $request)
             ->orderByDesc(DB::raw('COALESCE(printed_at, created_at)'))
             ->orderByDesc('serial_no')
             ->orderByDesc('id')
-            ->paginate($perPage);
+            ->paginate($request->filled('export') ? max(1, (clone $query)->count()) : $perPage, ['*'], 'page', $request->filled('export') ? 1 : null);
 
-        $rows = $data->getCollection()->map(function ($row) {
+        $rows = $data->getCollection()->map(function ($row) use ($companies) {
+            $row->company_name = $companies[$row->company_id]->name;
             $row->is_printed = (int) ($row->is_printed ?? 0);
             $row->print_date_time = $row->printed_at
                 ? \Carbon\Carbon::parse($row->printed_at)->format('d-m-Y h:i A')
@@ -647,8 +648,10 @@ public function bulkSave(Request $request)
             return $this->itemSetApiPayload($row);
         })->values();
 
+        if ($request->filled('export')) return \App\Services\ItemManagementListExport::downloadApi($request, $companies, 'Label Items', $rows);
         return response()->json([
             'status' => true,
+            'selected_company_ids' => $companies->keys()->values(),
             'data' => $rows,
             'pagination' => [
                 'current_page' => $data->currentPage(),
@@ -662,11 +665,11 @@ public function bulkSave(Request $request)
 
     public function bulkListsetData(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companies = \App\Services\CompanyBranches::apiManagementSelection($request);
 
         $query = ItemSet::query()
             ->join('items', 'items.id', '=', 'item_sets.item_id')
-            ->where('item_sets.company_id', $companyId)
+            ->whereIn('item_sets.company_id', $companies->keys())
             ->where('item_sets.is_final', 1)
             ->whereNotNull('item_sets.qr_code');
 
@@ -688,6 +691,7 @@ public function bulkSave(Request $request)
         }
 
         $data = $query->selectRaw('
+                item_sets.company_id,
                 DATE(item_sets.created_at) as batch_date,
                 item_sets.item_id,
                 items.item_name,
@@ -698,12 +702,14 @@ public function bulkSave(Request $request)
                 COALESCE(SUM(item_sets.net_weight), 0) as total_net_weight,
                 COALESCE(SUM(item_sets.sale_other), 0) as total_other_charges
             ')
-            ->groupBy(DB::raw('DATE(item_sets.created_at)'), 'item_sets.item_id', 'items.item_name', 'items.item_code')
+            ->groupBy('item_sets.company_id', DB::raw('DATE(item_sets.created_at)'), 'item_sets.item_id', 'items.item_name', 'items.item_code')
             ->orderByDesc(DB::raw('DATE(item_sets.created_at)'))
             ->orderBy('items.item_name')
             ->get()
-            ->map(function ($row) {
+            ->map(function ($row) use ($companies) {
                 return [
+                    'company_id' => (int) $row->company_id,
+                    'company_name' => $companies[$row->company_id]->name,
                     'date' => $row->batch_date,
                     'date_formatted' => \Carbon\Carbon::parse($row->batch_date)->format('d-m-Y'),
                     'item_id' => (int) $row->item_id,
@@ -715,6 +721,7 @@ public function bulkSave(Request $request)
                     'total_net_weight' => number_format((float) $row->total_net_weight, 3, '.', ''),
                     'total_other_charges' => number_format((float) $row->total_other_charges, 2, '.', ''),
                     'details_params' => [
+                        'company_id' => (int) $row->company_id,
                         'item_id' => (int) $row->item_id,
                         'from_date' => $row->batch_date,
                         'to_date' => $row->batch_date,
@@ -723,8 +730,10 @@ public function bulkSave(Request $request)
             })
             ->values();
 
+        if ($request->filled('export')) return \App\Services\ItemManagementListExport::downloadApi($request, $companies, 'Label Item Batches', $data);
         return response()->json([
             'status' => true,
+            'selected_company_ids' => $companies->keys()->values(),
             'message' => 'Bulk item sets fetched successfully',
             'data' => $data,
         ]);
@@ -733,7 +742,7 @@ public function bulkSave(Request $request)
     // ✅ SINGLE (EDIT)
     public function show(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $item = ItemSet::with('item')
             ->where('company_id', $companyId)
@@ -747,7 +756,7 @@ public function bulkSave(Request $request)
 
     public function showImage(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $itemSet = ItemSet::with('item')
             ->where('company_id', $companyId)
@@ -762,7 +771,7 @@ public function bulkSave(Request $request)
 
     public function uploadImage(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $itemSet = ItemSet::with('item')
             ->where('company_id', $companyId)
@@ -786,7 +795,7 @@ public function bulkSave(Request $request)
 
     public function uploadLabelImage(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $userId = optional($request->user())->id;
 
         $validated = $request->validate([
@@ -868,7 +877,7 @@ public function bulkSave(Request $request)
 
     public function removeImage(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $itemSet = ItemSet::with('item')
             ->where('company_id', $companyId)
@@ -910,7 +919,7 @@ public function bulkSave(Request $request)
     // ✅ UPDATE
     public function update(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $userId = optional($request->user())->id;
 
         DB::beginTransaction();
@@ -973,7 +982,7 @@ public function bulkSave(Request $request)
     // ✅ DELETE
     public function destroy(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         DB::beginTransaction();
 
         try {

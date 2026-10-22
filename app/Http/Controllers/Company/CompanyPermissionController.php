@@ -195,6 +195,8 @@ class CompanyPermissionController extends Controller
             'item',
             'item-set',
             'stock-gallery',
+            'bullion',
+            'gst-search',
             'qr-making',
             // Temporarily disabled: 'customer-order',
             // Temporarily disabled: 'cad-design',
@@ -225,6 +227,7 @@ class CompanyPermissionController extends Controller
             'report-purchase-receiver-summary',
             'report-stock-position',
             'report-approval-outstanding',
+            'report-approval-summary',
             'report-outstanding-amount',
             'report-barcode-history',
             'report-worker-loss',
@@ -284,6 +287,9 @@ class CompanyPermissionController extends Controller
 
     private function actionsForModule(string $module): array
     {
+        if ($module === 'bullion') return ['view', 'create'];
+        if ($module === 'report-approval-summary') return ['view'];
+        if ($module === 'gst-search') return ['view'];
         return in_array($module, ['dashboard', 'notification', 'vacuum-live-dashboard'], true)
             ? ['view']
             : ['view', 'create', 'edit', 'delete', 'manage'];
@@ -316,6 +322,8 @@ class CompanyPermissionController extends Controller
             'jobwork-issue' => 'Jobwork',
             'office-access' => 'Office Access',
             'stock-gallery' => 'Stock Gallery',
+            'bullion' => 'Bullion Management',
+            'gst-search' => 'GST Search',
             'qr-making' => 'QR Making',
             // Temporarily disabled: 'customer-order' => 'Customer Orders',
             // Temporarily disabled: 'cad-design' => 'CAD Designs',

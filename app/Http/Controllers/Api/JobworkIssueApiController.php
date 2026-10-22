@@ -19,7 +19,7 @@ class JobworkIssueApiController extends Controller
 {
     public function rawStock(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $available = app(JobworkRawStock::class)->available($companyId);
         $items = \App\Models\Item::where('company_id', $companyId)
             ->whereRaw("LOWER(jobwork_item_type) = 'raw'")->orderBy('item_name')->get(['id', 'item_name']);
@@ -31,7 +31,7 @@ class JobworkIssueApiController extends Controller
 
     public function otherCharges(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $query = OtherCharge::query()
             ->where('company_id', $companyId)
@@ -63,7 +63,11 @@ class JobworkIssueApiController extends Controller
 
     public function index(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        return \App\Services\JobworkApiBranches::listing($request, fn ($companyId) => $this->indexForCompany($request, $companyId), 'Jobwork Issue');
+    }
+
+    private function indexForCompany(Request $request, int $companyId)
+    {
 
         $rows = $this->baseQuery($request, $companyId)
             ->get();
@@ -76,51 +80,21 @@ class JobworkIssueApiController extends Controller
         ]);
     }
 
-    public function exportExcel(Request $request): StreamedResponse
+    public function exportExcel(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
-        $rows = $this->baseQuery($request, $companyId)
-            ->get();
-
-        return response()->streamDownload(function () use ($rows) {
-            $out = fopen('php://output', 'w');
-            fputcsv($out, ['Voucher No', 'Voucher Date', 'Jobworker', 'Production Step', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Total Amt', 'Modified', 'Created']);
-
-            foreach ($rows as $r) {
-                fputcsv($out, [
-                    $r->voucher_no,
-                    $this->excelText(optional($r->jobwork_date)?->format('d-m-Y')),
-                    $r->jobWorker?->name ?? '-',
-                    $r->productionStep?->name ?? '-',
-                    number_format((float) ($r->gross_wt_sum ?? 0), 3, '.', ''),
-                    number_format((float) ($r->net_wt_sum ?? 0), 3, '.', ''),
-                    number_format((float) ($r->fine_wt_sum ?? 0), 3, '.', ''),
-                    number_format((float) ($r->total_amt_sum ?? 0), 2, '.', ''),
-                    $this->excelText(optional($r->updated_at)?->format('d-m-Y h:i A')),
-                    $this->excelText(optional($r->created_at)?->format('d-m-Y h:i A')),
-                ]);
-            }
-            fclose($out);
-        }, 'jobwork_issue_report.csv', [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-        ]);
+        $request->merge(['export' => 'excel']);
+        return $this->index($request);
     }
 
     public function exportPdf(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
-        $company = Company::select('id', 'name')->findOrFail($companyId);
-        $rows = $this->baseQuery($request, $companyId)
-            ->get();
-
-        return Pdf::loadView('company.jobwork_issue.pdf.index', compact('company', 'rows'))
-            ->setPaper('a4', 'landscape')
-            ->download('jobwork_issue_report.pdf');
+        $request->merge(['export' => 'pdf']);
+        return $this->index($request);
     }
 
     public function show(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $row = JobworkIssue::where('company_id', $companyId)
             ->with(['jobWorker:id,name', 'productionStep:id,name', 'createdByUser:id,name', 'updatedByUser:id,name'])
             ->with('items.item:id,item_name')
@@ -140,7 +114,7 @@ class JobworkIssueApiController extends Controller
 
     public function store(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $this->sanitizeOtherChargeSelections($request, $companyId);
         $validated = $this->validatePayload($request, $companyId);
 
@@ -185,7 +159,7 @@ class JobworkIssueApiController extends Controller
 
     public function update(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $issue = JobworkIssue::where('company_id', $companyId)->find($id);
 
         if (!$issue) {
@@ -197,7 +171,7 @@ class JobworkIssueApiController extends Controller
 
         $row = DB::transaction(function () use ($issue, $validated, $request) {
             app(JobworkRawStock::class)->lock((int) $issue->company_id);
-            app(JobworkRawStock::class)->guardIssueEdit($issue);
+            $existingIds = app(JobworkRawStock::class)->guardIssueUpdate($issue, $validated);
             $issue->update([
                 'jobwork_date' => $validated['jobwork_date'],
                 'job_worker_id' => $validated['job_worker_id'],
@@ -208,7 +182,7 @@ class JobworkIssueApiController extends Controller
             ]);
 
             $this->syncIssueItems($issue, $validated['items']);
-            $issue->setAttribute('raw_stock_shortages', app(JobworkRawStock::class)->syncIssue($issue, true));
+            $issue->setAttribute('raw_stock_shortages', app(JobworkRawStock::class)->syncIssue($issue, true, $existingIds));
 
             return $issue->load('items.item:id,item_name', 'jobWorker:id,name', 'productionStep:id,name');
         });
@@ -218,7 +192,7 @@ class JobworkIssueApiController extends Controller
 
     public function destroy(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $issue = JobworkIssue::where('company_id', $companyId)->find($id);
 
         if (!$issue) {
@@ -235,7 +209,7 @@ class JobworkIssueApiController extends Controller
 
     public function destroyItem(Request $request, $id, $itemId)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $issue = JobworkIssue::where('company_id', $companyId)->find($id);
 
         if (!$issue) {
@@ -277,7 +251,7 @@ class JobworkIssueApiController extends Controller
 
     public function exportSingleExcel(Request $request, $id): StreamedResponse
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $row = JobworkIssue::query()
             ->where('company_id', $companyId)
             ->with(['jobWorker:id,name', 'productionStep:id,name', 'items.item:id,item_name', 'items.otherCharge:id,other_charge'])
@@ -313,7 +287,7 @@ class JobworkIssueApiController extends Controller
 
     public function exportSinglePdf(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $company = Company::select('id', 'name')->findOrFail($companyId);
         $row = JobworkIssue::query()
             ->where('company_id', $companyId)
@@ -568,27 +542,27 @@ class JobworkIssueApiController extends Controller
         $data['actions'] = [
             'view' => [
                 'method' => 'GET',
-                'url' => url("/api/jobwork-issues/{$id}"),
+                'url' => url("/api/jobwork-issues/{$id}?company_id={$row->company_id}"),
             ],
             'edit' => [
                 // Use this URL to submit updated payload.
                 'method' => 'PUT',
-                'url' => url("/api/jobwork-issues/{$id}"),
+                'url' => url("/api/jobwork-issues/{$id}?company_id={$row->company_id}"),
                 // Use view URL to load existing data before edit.
-                'load_url' => url("/api/jobwork-issues/{$id}"),
+                'load_url' => url("/api/jobwork-issues/{$id}?company_id={$row->company_id}"),
             ],
             'delete' => [
                 'method' => 'DELETE',
-                'url' => url("/api/jobwork-issues/{$id}"),
+                'url' => url("/api/jobwork-issues/{$id}?company_id={$row->company_id}"),
             ],
             // Backward-compatible aliases used in this project.
             'legacy_edit' => [
                 'method' => 'POST',
-                'url' => url("/api/update-jobwork-issues/{$id}"),
+                'url' => url("/api/update-jobwork-issues/{$id}?company_id={$row->company_id}"),
             ],
             'legacy_delete' => [
                 'method' => 'DELETE',
-                'url' => url("/api/delete-jobwork-issues/{$id}"),
+                'url' => url("/api/delete-jobwork-issues/{$id}?company_id={$row->company_id}"),
             ],
         ];
 

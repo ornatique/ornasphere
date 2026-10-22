@@ -12,7 +12,8 @@ class QrMakingApiController extends Controller
     {
         $user=$request->user();
         abort_unless($user && $user->company_id,403);
-        $company=Company::findOrFail($user->company_id);
+        $companies=\App\Services\CompanyBranches::apiManagementSelection($request);
+        $company=$companies->first();
         $operation=$request->route('operation');
         $action=match($operation) {
             'store'=>'create', 'update'=>'edit', 'destroy'=>'delete',
@@ -24,12 +25,14 @@ class QrMakingApiController extends Controller
         $id=(int)$request->route('id');
         if ($operation==='index') {
             $request->validate(['search'=>'nullable|string|max:255','per_page'=>'nullable|integer|min:1|max:100']);
-            $rows=MarketingQr::where('company_id',$company->id)->with('creator:id,name')
+            $rows=MarketingQr::whereIn('company_id',$companies->keys())->with('creator:id,name')
                 ->when($request->filled('search'),fn($q)=>$q->where('title','like','%'.$request->input('search').'%'))
                 ->latest()->paginate($request->integer('per_page',10));
             $rows->through(fn($qr)=>$this->data($qr));
             return response()->json(['success'=>true,'data'=>$rows]);
         }
+        $company=Company::findOrFail(\App\Services\CompanyBranches::apiManagementCompanyId($request));
+        if ($action !== 'view' && !\App\Services\BranchReadOnly::canWrite($user, $company->id)) return \App\Services\BranchReadOnly::denied();
         if ($operation==='preview') return $web->preview($request,$company->slug);
         if ($operation==='store' || $operation==='update') {
             $qr=$web->persist($request,$company->slug,$operation==='update' ? $id : null);
@@ -47,14 +50,16 @@ class QrMakingApiController extends Controller
     private function data(MarketingQr $qr): array
     {
         return [
+            'company_id'=>$qr->company_id,'company_name'=>Company::find($qr->company_id)?->name,
+            'can_manage'=>\App\Services\BranchReadOnly::canWrite(request()->user(), $qr->company_id),
             'id'=>$qr->id,'title'=>$qr->title,'type'=>$qr->type,'size'=>(int)$qr->size,
             'web_url'=>$qr->web_url,'android_url'=>$qr->android_url,'ios_url'=>$qr->ios_url,
             'with_logo'=>(bool)$qr->logo_path,'created_by'=>$qr->created_by,
             'creator_name'=>$qr->creator?->name,'created_at'=>$qr->created_at,'updated_at'=>$qr->updated_at,
             'qr_url'=>$qr->type==='web' ? $qr->web_url : route('qr.open',$qr->token),
-            'image_url'=>url('api/qr-making/'.$qr->id.'/image'),
-            'svg_url'=>url('api/qr-making/'.$qr->id.'/svg'),
-            'pdf_url'=>url('api/qr-making/'.$qr->id.'/pdf'),
+            'image_url'=>url('api/qr-making/'.$qr->id.'/image').'?company_id='.$qr->company_id,
+            'svg_url'=>url('api/qr-making/'.$qr->id.'/svg').'?company_id='.$qr->company_id,
+            'pdf_url'=>url('api/qr-making/'.$qr->id.'/pdf').'?company_id='.$qr->company_id,
         ];
     }
 }

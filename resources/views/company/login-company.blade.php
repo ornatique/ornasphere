@@ -104,6 +104,9 @@
                         <h4 class="company-auth-title">Company Login</h4>
                         <h6 class="fw-light company-auth-subtitle">Sign in to your ERP dashboard</h6>
 
+                        @if($companyInactive ?? false)
+                            <div class="alert alert-warning mt-3" role="alert">Your company has been deactivated. Please contact the administrator.</div>
+                        @endif
                         <form method="POST" action="{{ route('company.login', $company->slug) }}">
                             @csrf
 
@@ -131,7 +134,7 @@
                             @endif
 
                             <div class="mt-4 d-grid gap-2">
-                                <button type="submit"
+                                <button type="submit" @disabled($companyInactive ?? false)
                                         class="btn btn-primary btn-lg fw-medium auth-form-btn">
                                     LOGIN
                                 </button>

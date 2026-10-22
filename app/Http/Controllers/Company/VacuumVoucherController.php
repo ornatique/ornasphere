@@ -28,13 +28,14 @@ class VacuumVoucherController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $selectedCompanies = \App\Services\CompanyBranches::managementSelection($request, $company);
         $fromDate = $request->get('from_date', now()->subDays(6)->toDateString());
         $toDate = $request->get('to_date', now()->toDateString());
         $workerId = $request->get('worker_id');
 
-        if ($request->ajax()) {
+        if ($request->ajax() || $request->filled('export')) {
             $rows = VacuumVoucher::query()
-                ->where('company_id', $company->id)
+                ->whereIn('company_id', $selectedCompanies->keys())
                 ->when($fromDate, fn($q) => $q->whereDate('voucher_date', '>=', $fromDate))
                 ->when($toDate, fn($q) => $q->whereDate('voucher_date', '<=', $toDate))
                 ->when($workerId, fn($q) => $q->where('job_worker_id', $workerId))
@@ -44,8 +45,10 @@ class VacuumVoucherController extends Controller
                 ->orderByDesc('created_at')
                 ->orderByDesc('id');
 
-            return DataTables::of($rows)
+            $table = DataTables::of($rows)
                 ->addIndexColumn()
+                ->addColumn('company_name', fn ($row) => $selectedCompanies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
                 ->addColumn('voucher_date_view', fn($row) => optional($row->created_at)->format('d-m-Y  / h:i A') ?? '-')
                 ->addColumn('process_name', fn($row) => $row->process?->name ?? '-')
                 ->addColumn('worker_name', fn($row) => $row->jobWorker?->name ?? '-')
@@ -56,7 +59,8 @@ class VacuumVoucherController extends Controller
                 ->addColumn('user_name', fn($row) => $row->createdByUser?->name ?? '-')
                 ->addColumn('modified_at_view', fn($row) => optional($row->updated_at)->format('d-m-Y h:i A') ?? '-')
                 ->addColumn('created_at_view', fn($row) => optional($row->created_at)->format('d-m-Y h:i A') ?? '-')
-                ->addColumn('action', function ($row) use ($company) {
+                ->addColumn('action', function ($row) use ($selectedCompanies) {
+                    $company = $selectedCompanies[$row->company_id];
                     $encryptedId = Crypt::encryptString((string) $row->id);
                     $view = route('company.vacuum-vouchers.show', [$company->slug, $encryptedId]);
                     $pdf = route('company.vacuum-vouchers.pdf', [$company->slug, $encryptedId]);
@@ -78,10 +82,11 @@ class VacuumVoucherController extends Controller
                     </div>';
                 })
                 ->rawColumns(['action'])
-                ->make(true);
+                ;
+            return \App\Services\CastingListExport::respond($table, $request, $selectedCompanies, 'vacuum-vouchers');
         }
 
-        $jobWorkers = WorkerPersonService::activeWorkers((int) $company->id);
+        $jobWorkers = $selectedCompanies->flatMap(fn ($branch) => WorkerPersonService::activeWorkers((int) $branch->id)->each(fn ($worker) => $worker->name .= ' - '.$branch->name))->values();
 
         return view('company.vacuum_vouchers.index', compact('company', 'fromDate', 'toDate', 'jobWorkers'));
     }

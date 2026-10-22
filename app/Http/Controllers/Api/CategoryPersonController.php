@@ -16,7 +16,7 @@ class CategoryPersonController extends Controller
      */
     public function index(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         CategoryPerson::ensureCompanyDefaults($companyId);
 
         $categories = CategoryPerson::where('company_id', $companyId)

@@ -74,6 +74,7 @@
                                         <label>Plan <span class="text-danger">*</span></label>
                                         <select name="plan" class="form-select @error('plan') is-invalid @enderror">
                                             <option value="">Select Plan</option>
+                                            @if($company->plan === 'trial')<option value="trial" selected>10-day Trial (use Renew Plan to activate one year)</option>@endif
                                             <option value="yearly" {{ old('plan', $company->plan) == 'yearly' ? 'selected' : '' }}>Yearly</option>
                                         </select>
                                         @error('plan')

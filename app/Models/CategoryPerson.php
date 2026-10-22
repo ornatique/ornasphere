@@ -3,11 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 class CategoryPerson extends Model
 {
     public const DEFAULT_CUSTOMER = 'Customer';
     public const DEFAULT_WORKER = 'Worker';
+    public const DEFAULT_SUPPLIER = 'Bullion';
 
     protected $fillable = [
         'company_id',
@@ -35,6 +37,7 @@ class CategoryPerson extends Model
         return [
             self::DEFAULT_CUSTOMER,
             self::DEFAULT_WORKER,
+            self::DEFAULT_SUPPLIER,
         ];
     }
 
@@ -42,7 +45,7 @@ class CategoryPerson extends Model
     {
         foreach (self::systemDefaultNames() as $categoryName) {
             $category = self::where('company_id', $companyId)
-                ->whereRaw('LOWER(TRIM(category_name)) = ?', [strtolower($categoryName)])
+                ->whereIn(DB::raw('LOWER(TRIM(category_name))'), $categoryName === self::DEFAULT_SUPPLIER ? ['bullion', 'supplier'] : [strtolower($categoryName)])
                 ->first();
 
             if ($category) {

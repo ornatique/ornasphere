@@ -12,7 +12,11 @@ class ItemController extends Controller
     // ================= LIST =================
     public function index(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        return \App\Services\ItemManagementApiBranches::listing($request, fn ($companyId) => $this->listForCompany($request, $companyId), 'Items');
+    }
+
+    private function listForCompany(Request $request, int $companyId)
+    {
 
         $items = Item::where('company_id', $companyId)
             ->withCount(['itemSets', 'itemLabels'])
@@ -50,7 +54,7 @@ class ItemController extends Controller
     // ================= SHOW =================
     public function show(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $item = Item::where('company_id', $companyId)
             ->withCount(['itemSets', 'itemLabels'])
@@ -76,7 +80,7 @@ class ItemController extends Controller
     // ================= STORE =================
     public function store(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $payload = $this->itemPayload($request, $companyId);
 
@@ -117,7 +121,7 @@ class ItemController extends Controller
     // ================= UPDATE =================
     public function update(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $item = Item::where('company_id', $companyId)
             ->where('id', $id)
@@ -171,7 +175,7 @@ class ItemController extends Controller
     // ================= DELETE =================
     public function destroy(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $item = Item::where('company_id', $companyId)
             ->where('id', $id)

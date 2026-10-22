@@ -1,0 +1,59 @@
+Bullion, QR Making and Stock Gallery: branch selection
+
+Implemented locally; not deployed.
+Uses existing CompanyBranches and BranchReadOnly services from the earlier branch rollout.
+No new routes or database migrations.
+
+WEB
+Searchable multiple company/branch selection is available to the main-company admin.
+QR Making and Stock Gallery combine selected branches and label each record with its owner.
+Bullion lists people from selected branches; selecting a person displays only that person's ledger and balance.
+Other branches are read-only. Edit/delete and gallery image changes are disabled; server-side checks reject foreign writes.
+QR and Bullion PDFs show the owning company. Gallery PDFs show selected branches and each item's branch.
+
+API
+Send either company_id for one company OR management_branches for multiple companies, never both.
+Omitting both preserves the logged-in company's scope. Only authorized active branches may be selected.
+Examples (replace example IDs with actual company IDs):
+
+GET /api/qr-making?management_branches[]=1&management_branches[]=2
+GET /api/qr-making/10/pdf?company_id=2
+GET /api/stock-gallery?management_branches[]=1&management_branches[]=2&per_page=24
+GET /api/stock-gallery/pdf?management_branches[]=1&management_branches[]=2&direct=1
+GET /api/bullion/persons?management_branches[]=1&management_branches[]=2
+GET /api/bullion/balance?company_id=2&person_id=191
+GET /api/bullion/entries?company_id=2&person_id=191
+GET /api/bullion/pdf?company_id=2&person_id=191
+
+Stock Gallery PDF also accepts POST JSON:
+{"management_branches":[1,2],"scope":"filtered","direct":1}
+
+List records expose company_id, company_name and can_manage. Preserve existing pagination response shapes.
+Use company_id from the chosen record for QR detail/download requests.
+Bullion balances/entries/PDF require person_id and remain per person, even when multiple branches are selected.
+POST /api/bullion/entries and QR create/update/delete remain restricted to the logged-in company.
+
+UPLOAD FILES (in addition to dependencies from earlier branch rollout)
+app/Http/Controllers/Company/BullionController.php
+app/Http/Controllers/Company/QrMakingController.php
+app/Http/Controllers/Company/StockGalleryController.php
+app/Http/Controllers/Company/StockGalleryMediaController.php
+app/Http/Controllers/Api/BullionApiController.php
+app/Http/Controllers/Api/QrMakingApiController.php
+app/Http/Controllers/Api/StockGalleryApiController.php
+app/Http/Middleware/EnsureCompanyIsActive.php
+app/Services/BranchReadOnly.php
+resources/views/company_layout/management_branch_selector.blade.php
+resources/views/company/bullion/index.blade.php
+resources/views/company/qr_making/index.blade.php
+resources/views/company/qr_making/pdf.blade.php
+resources/views/company/stock_gallery/index.blade.php
+resources/views/company/stock_gallery/pdf.blade.php
+
+TEST FILES (development only)
+tests/Feature/RemainingModulesBranchesTest.php
+tests/Feature/BullionTest.php
+tests/Feature/QrMakingTest.php
+
+Validation: 22 targeted tests, 138 assertions passed. Blade compilation passed.
+Browser layout and live-server deployment have not been verified.

@@ -2,6 +2,8 @@
 
 @section('content')
 <div class="content-wrapper">
+@php($reportCompanyIds = \App\Services\ReportBranches::ids($company))
+@include('company.reports.partials.branch_filter')
     <div class="card">
         <div class="card-header">
             <h4 class="card-title mb-0">Stock Position Report</h4>
@@ -22,21 +24,32 @@
                     <select id="customer_id" class="form-select">
                         <option value="">All Parties</option>
                         @foreach($customers as $customer)
-                            <option value="{{ $customer->id }}">{{ $customer->name }}</option>
+                            <option value="{{ $customer->id }}">{{ $customer->name }}{{ count($reportCompanyIds) > 1 ? ' â€” '.\App\Services\ReportBranches::name($customer->company_id) : '' }}</option>
                         @endforeach
                     </select>
                 </div>
-                <div class="col-md-3 d-flex align-items-end">
+                <div class="col-md-2">
+                    <label for="stock_type">Stock Type</label>
+                    <select id="stock_type" class="form-select">
+                        @foreach([''=>'All Stock Types', 'raw_material'=>'Raw Material', 'finished_item'=>'Finished Item', 'customer_received'=>'Customer Received', 'scrap'=>'Scrap', 'repair'=>'Repair'] as $value=>$label)
+                        <option value="{{ $value }}" @selected(request('stock_type', '') === $value)>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
                     <button id="filter" class="btn btn-success me-2">Filter</button>
                     <button id="reset" class="btn btn-secondary">Reset</button>
                 </div>
-                <div class="col-md-3 d-flex align-items-end justify-content-end mt-2 mt-md-0">
+                <div class="col-md-2 d-flex align-items-end justify-content-end mt-2 mt-md-0">
                     <button id="export_excel" class="btn btn-info me-2">Excel</button>
                     <button id="export_pdf" class="btn btn-primary">PDF</button>
                 </div>
             </div>
 
             <div class="row g-3 mb-3" id="stockSummary">
+@foreach(['with_image'=>'With image','without_image'=>'Without image'] as $key=>$label)
+<div class="col-md-2 col-sm-6"><div class="border rounded p-3 h-100"><div class="text-muted small">{{ $label }}</div><div class="fw-bold" data-summary="{{ $key }}">0</div></div></div>
+@endforeach
                 <div class="col-md-2 col-sm-6">
                     <div class="border rounded p-3 h-100">
                         <div class="text-muted small">Total Qty Pcs</div>
@@ -63,6 +76,20 @@
                 </div>
             </div>
 
+            <section class="border rounded p-3 mb-4">
+                <h4>Supplier metal balances</h4>
+                <label for="supplier_balance_id">Supplier</label>
+                <select id="supplier_balance_id" class="form-control mb-3"><option value="">All suppliers</option>
+                @foreach(\App\Models\Customer::whereIn('company_id', $reportCompanyIds)->whereHas('categoryPerson', fn($q) => $q->whereRaw('LOWER(TRIM(category_name)) = ?', ['bullion']))->orderBy('name')->get() as $supplier)
+                <option value="{{ $supplier->id }}">{{ $supplier->name }}</option>
+                @endforeach
+                </select>
+                <p>Account balances only; excluded from physical stock totals. Branch and Supplier filters apply separately from the stock filters.</p>
+                <div class="table-responsive"><table class="table table-bordered mb-0">
+                    <thead><tr><th>Supplier</th><th>Branch</th><th>Cash balance (INR)</th><th>Gold fine (g)</th><th>Silver fine (g)</th></tr></thead>
+                    <tbody id="supplier-balances"><tr><td colspan="5">Loading supplier balances…</td></tr></tbody>
+                </table></div>
+            </section>
             <table class="table table-bordered" id="stockTable">
                 <thead>
                     <tr>
@@ -77,7 +104,7 @@
                         <th>Fine Wt</th>
                         <th>Labour Amt</th>
                         <th>Other Amt</th>
-                    </tr>
+                    <th>With image</th><th>Without image</th><th>Branch</th></tr>
                 </thead>
             </table>
         </div>
@@ -112,6 +139,8 @@ $(function () {
             data: function (d) {
                 d.item_id = $('#item_id').val();
                 d.customer_id = $('#customer_id').val();
+                d.stock_type = $('#stock_type').val();
+                d.supplier_id = $('#supplier_balance_id').val();
             }
         },
         columns: [
@@ -126,10 +155,29 @@ $(function () {
             { data: 'fine_weight', orderable: false, searchable: false },
             { data: 'labour_amount', orderable: false, searchable: false },
             { data: 'other_amount', orderable: false, searchable: false },
+            { data: 'with_image', orderable: false, searchable: false, className: 'text-center' },
+            { data: 'without_image', orderable: false, searchable: false, className: 'text-center' },
+            { data: 'branch_name', orderable: false, searchable: false, defaultContent: '' },
         ]
     });
 
     table.on('xhr.dt', function (e, settings, json) {
+        const balances = document.getElementById('supplier-balances');
+        balances.replaceChildren();
+        const supplierRows = (json && json.supplier_balances) || [];
+        const missingBalances = !json || !Array.isArray(json.supplier_balances);
+        supplierRows.forEach(function (row) {
+            const tr = document.createElement('tr');
+            [row.supplier_name, row.branch_name, Number(row.cash_balance).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2}), Number(row.gold_balance).toFixed(3), Number(row.silver_balance).toFixed(3)].forEach(function (value) {
+                const td = document.createElement('td'); td.textContent = value; tr.appendChild(td);
+            });
+            balances.appendChild(tr);
+        });
+        if (!supplierRows.length) {
+            const tr = document.createElement('tr'), td = document.createElement('td');
+            td.colSpan = 5; td.textContent = missingBalances ? 'Supplier balances were not returned. Update the report controller and SupplierMetalBalances service on the server.' : 'No supplier balances for the selected supplier and branches.';
+            tr.appendChild(td); balances.appendChild(tr);
+        }
         const summary = (json && json.summary) ? json.summary : {};
         $('#stockSummary [data-summary]').each(function () {
             const key = $(this).data('summary');
@@ -137,26 +185,29 @@ $(function () {
         });
     });
 
+    $('#supplier_balance_id').on('change', function () { table.draw(); });
     $('#filter').on('click', function () { table.draw(); });
     $('#reset').on('click', function () {
         $('#item_id').val('').trigger('change.select2');
         $('#customer_id').val('').trigger('change.select2');
+        $('#stock_type').val('');
         table.draw();
     });
 
     function queryParams() {
         return $.param({
             item_id: $('#item_id').val(),
-            customer_id: $('#customer_id').val()
+            customer_id: $('#customer_id').val(),
+            stock_type: $('#stock_type').val()
         });
     }
 
     $('#export_excel').on('click', function () {
-        window.location.href = "{{ route('company.reports.stock-position.export.excel', $company->slug) }}?" + queryParams();
+        window.location.href = window.reportBranchUrl("{{ route('company.reports.stock-position.export.excel', $company->slug) }}?" + queryParams());
     });
 
     $('#export_pdf').on('click', function () {
-        window.location.href = "{{ route('company.reports.stock-position.export.pdf', $company->slug) }}?" + queryParams();
+        window.location.href = window.reportBranchUrl("{{ route('company.reports.stock-position.export.pdf', $company->slug) }}?" + queryParams());
     });
 });
 </script>

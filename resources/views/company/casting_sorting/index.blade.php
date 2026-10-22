@@ -12,6 +12,7 @@
             <h4 class="card-title">Casting Sorting Voucher List</h4>
         </div>
         <div class="card-body">
+            @include('company_layout.casting_exports')
             <div class="casting-sorting-filters">
                 <div class="filter-field">
                     <label for="fromDate">From Date</label>
@@ -39,6 +40,7 @@
                             <th>Total Pcs</th>
                             <th>Sorting Wt</th>
                             <th>Quantity</th>
+                            <th>Company / Branch</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -81,7 +83,7 @@
         processing: true,
         serverSide: true,
         ajax: {
-            url: "{{ route('company.casting-sorting.index', $company->slug) }}",
+            url: "{!! route('company.casting-sorting.index', array_merge(['slug' => $company->slug], request()->only('management_branches'))) !!}",
             data: function (data) {
                 data.from_date = $('#fromDate').val();
                 data.to_date = $('#toDate').val();
@@ -97,6 +99,7 @@
             { data: 'total_pcs_view', name: 'tree_receive_count', orderable: false, searchable: false },
             { data: 'sorting_weight_view', name: 'sorting_weight_total', orderable: false, searchable: false },
             { data: 'sorting_quantity_view', name: 'sorting_quantity_total', orderable: false, searchable: false },
+            { data: 'company_name', name: 'company_name', orderable: false, searchable: false },
             { data: 'action', name: 'action', orderable: false, searchable: false },
         ]
     });

@@ -1,6 +1,9 @@
 @extends('company_layout.admin')
 
 @section('content')
+@if(count((array) request('management_branches', [])) > 1)
+<p class="px-4 pt-3">New records are created in <strong>{{ $company->name }}</strong>. Select one branch and click View to create there.</p>
+@endif
 <div class="content-wrapper">
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
@@ -18,7 +21,7 @@
                             <th>#</th>
                             <th>Name</th>
                             <th>Status</th>
-                            <th>Action</th>
+                            <th>Company / Branch</th><th>Action</th>
                         </tr>
                     </thead>
                 </table>
@@ -33,7 +36,7 @@
     $('#labourFormulaTable').DataTable({
         processing: true,
         serverSide: true,
-        ajax: "{{ route('company.labour-formula.index', $company->slug) }}",
+        ajax: "{!! route('company.labour-formula.index', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}",
         columns: [
             {
                 data: 'DT_RowIndex',
@@ -51,6 +54,7 @@
                 orderable: false,
                 searchable: false
             },
+            { data: 'company_name', orderable: false, searchable: false },
             {
                 data: 'action',
                 name: 'action',

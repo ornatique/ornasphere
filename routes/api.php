@@ -46,6 +46,23 @@ Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
 Route::get('/live-metal-rates', [MetalRateApiController::class, 'index']);
 
 Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group(function () {
+    Route::get('/bullion/persons', [\App\Http\Controllers\Api\BullionApiController::class, 'persons']);
+    Route::get('/bullion/balance', [\App\Http\Controllers\Api\BullionApiController::class, 'balance']);
+    Route::get('/bullion/entries', [\App\Http\Controllers\Api\BullionApiController::class, 'entries']);
+    Route::post('/bullion/preview', [\App\Http\Controllers\Api\BullionApiController::class, 'preview']);
+    Route::post('/bullion/entries', [\App\Http\Controllers\Api\BullionApiController::class, 'store']);
+    Route::get('/bullion/pdf', [\App\Http\Controllers\Api\BullionApiController::class, 'pdf']);
+    Route::get('/company/branches', [\App\Http\Controllers\Api\CompanyBranchApiController::class, 'index']);
+    Route::post('/company/branches', [\App\Http\Controllers\Api\CompanyBranchApiController::class, 'store']);
+    Route::put('/company/branches/{branch}', [\App\Http\Controllers\Api\CompanyBranchApiController::class, 'update'])->whereNumber('branch');
+    Route::patch('/company/branches/{branch}/status', [\App\Http\Controllers\Api\CompanyBranchApiController::class, 'status'])->whereNumber('branch');
+    Route::get('/company/branch-dashboard', [\App\Http\Controllers\Api\CompanyBranchApiController::class, 'dashboard']);
+    Route::get('/company/branch-report-customers', [\App\Http\Controllers\Api\CompanyBranchApiController::class, 'customers']);
+    Route::get('/company/branch-reports/{report}', [\App\Http\Controllers\Api\BranchReportApiController::class, 'show']);
+    Route::get('/reports/approval-return-register', [\App\Http\Controllers\Api\BranchReportApiController::class, 'ownRegister']);
+    Route::get('/reports/approval-summary', [\App\Http\Controllers\Api\BranchReportApiController::class, 'ownSummary']);
+    Route::get('/reports/approval-return-register/{type}/{id}/details', [\App\Http\Controllers\Api\BranchReportApiController::class, 'ownRegisterDetails'])->whereIn('type', ['approval','return','sale'])->whereNumber('id');
+    Route::get('/company/branch-report-details/{type}/{id}', [\App\Http\Controllers\Api\BranchReportApiController::class, 'details'])->whereIn('type', ['approval','return','sale'])->whereNumber('id');
     Route::get('/company/voucher-series', [\App\Http\Controllers\Company\VoucherSeriesController::class,'show']);
     Route::put('/company/voucher-series', [\App\Http\Controllers\Company\VoucherSeriesController::class,'update']);
     Route::prefix('qr-making')->group(function () {
@@ -62,6 +79,8 @@ Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group
     Route::post('/company/logout', [AuthController::class, 'logout']);
     Route::get('/company/me', [AuthController::class, 'me']);
     Route::get('/company/profile', [AuthController::class, 'profile']);
+    Route::get('/company/opening-balances', [\App\Http\Controllers\Api\CompanyOpeningBalanceController::class, 'show']);
+    Route::put('/company/opening-balances', [\App\Http\Controllers\Api\CompanyOpeningBalanceController::class, 'update']);
 
     Route::get('/office-access/status', [OfficeAccessController::class, 'status']);
     Route::post('/office-access/register-device', [OfficeAccessController::class, 'registerDevice']);
@@ -122,6 +141,8 @@ Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group
     Route::delete('/permissions/{id}', [PermissionApiController::class, 'destroy']);
 
     Route::get('/customers', [CustomerApiController::class, 'index']);
+    Route::post('/gst-search', [\App\Http\Controllers\Api\GstinApiController::class, 'lookup'])->middleware('throttle:10,1');
+    Route::post('/gst-search/customers', [\App\Http\Controllers\Api\GstinApiController::class, 'storeCustomer'])->middleware('throttle:10,1');
     Route::post('/customers', [CustomerApiController::class, 'store']);
     Route::get('/customers/{id}', [CustomerApiController::class, 'show']);
     Route::put('/customers/{id}', [CustomerApiController::class, 'update']);
@@ -341,6 +362,7 @@ Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group
     Route::post('/item-sets/bulk-save', [ItemSetController::class, 'bulkSave']);
     Route::post('/item-sets/finalize', [ItemSetController::class, 'finalize']);
     Route::post('/item-sets/upload-image', [ItemSetController::class, 'uploadLabelImage']);
+    Route::post('/item-sets/print/pdf', [\App\Http\Controllers\Api\ItemLabelPrintController::class, 'pdf']);
     Route::get('/item-sets/qr-list', [ItemSetController::class, 'listset_data']);
     Route::get('/item-sets/bulk-list', [ItemSetController::class, 'bulkListsetData']);
     Route::get('/item-sets/{id}/image', [ItemSetController::class, 'showImage'])->whereNumber('id');
@@ -486,6 +508,11 @@ Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group
     Route::get('/reports/purchase-receiver-summary/export/excel', [ReportApiController::class, 'purchaseReceiverSummaryExcel']);
     Route::get('/reports/purchase-receiver-summary/export/pdf', [ReportApiController::class, 'purchaseReceiverSummaryPdf']);
     Route::get('/reports/stock-position', [ReportApiController::class, 'stockPosition']);
+    Route::get('/reports/stock-position/details', [ReportApiController::class, 'stockPositionDetails']);
+    Route::get('/reports/stock-position/details/pdf', [ReportApiController::class, 'stockPositionDetails'])->defaults('format', 'pdf');
+    Route::get('/reports/stock-position/details/excel', [ReportApiController::class, 'stockPositionDetails'])->defaults('format', 'excel');
+    Route::get('/reports/stock-position/details/export/pdf', [ReportApiController::class, 'stockPositionDetails'])->defaults('format', 'pdf');
+    Route::get('/reports/stock-position/details/export/excel', [ReportApiController::class, 'stockPositionDetails'])->defaults('format', 'excel');
     Route::get('/reports/stock-position/export/excel', [ReportApiController::class, 'stockPositionExcel']);
     Route::get('/reports/stock-position/export/pdf', [ReportApiController::class, 'stockPositionPdf']);
     Route::get('/reports/worker-loss/suggest', [ReportApiController::class, 'workerLossSuggest']);
@@ -496,6 +523,8 @@ Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group
     Route::get('/reports/approval-outstanding/{approval}/details', [ReportApiController::class, 'approvalOutstandingDetails'])->whereNumber('approval');
     Route::get('/reports/approval-outstanding/{approval}/details/export/excel', [ReportApiController::class, 'approvalOutstandingDetailsExcel'])->whereNumber('approval');
     Route::get('/reports/approval-outstanding/{approval}/details/export/pdf', [ReportApiController::class, 'approvalOutstandingDetailsPdf'])->whereNumber('approval');
+    Route::get('/reports/approval-outstanding/{approval}/details/pdf', [ReportApiController::class, 'approvalOutstandingDetailsPdf'])->whereNumber('approval');
+    Route::get('/reports/approval-outstanding/{approval}/details/excel', [ReportApiController::class, 'approvalOutstandingDetailsExcel'])->whereNumber('approval');
     Route::get('/reports/approval-outstanding/export/excel', [ReportApiController::class, 'approvalOutstandingExcel']);
     Route::get('/reports/approval-outstanding/export/pdf', [ReportApiController::class, 'approvalOutstandingPdf']);
     Route::get('/reports/outstanding-amount', [ReportApiController::class, 'outstandingAmount']);
@@ -508,6 +537,8 @@ Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group
     Route::get('/reports/sales-summary/{sale}/details', [ReportApiController::class, 'salesSummaryDetails'])->whereNumber('sale');
     Route::get('/reports/sales-summary/{sale}/details/export/excel', [ReportApiController::class, 'salesSummaryDetailsExcel'])->whereNumber('sale');
     Route::get('/reports/sales-summary/{sale}/details/export/pdf', [ReportApiController::class, 'salesSummaryDetailsPdf'])->whereNumber('sale');
+    Route::get('/reports/sales-summary/{sale}/details/pdf', [ReportApiController::class, 'salesSummaryDetailsPdf'])->whereNumber('sale');
+    Route::get('/reports/sales-summary/{sale}/details/excel', [ReportApiController::class, 'salesSummaryDetailsExcel'])->whereNumber('sale');
     Route::get('/reports/sales-summary/export/excel', [ReportApiController::class, 'salesSummaryExcel']);
     Route::get('/reports/sales-summary/export/pdf', [ReportApiController::class, 'salesSummaryPdf']);
     Route::get('/reports/barcode-history/export/excel', [ReportApiController::class, 'barcodeHistoryExcel']);

@@ -24,6 +24,11 @@ class SaleReturnApiController extends Controller
 {
     public function list_of_return(Request $request)
     {
+        return \App\Services\SalesApiBranches::listing($request, fn ($companyId) => $this->listForCompany($request, $companyId), 'Approval Return');
+    }
+
+    private function listForCompany(Request $request, int $companyId)
+    {
         $user = auth()->user();
 
         $returns = SaleReturn::with([
@@ -32,7 +37,10 @@ class SaleReturnApiController extends Controller
             'approval.customer',
             'items.saleItem.sale.customer',
         ])
-            ->where('company_id', $user->company_id)
+            ->where('company_id', $companyId)
+            ->when($request->filled('from_date'), fn ($q) => $q->whereDate('return_date','>=',$request->from_date))
+            ->when($request->filled('to_date'), fn ($q) => $q->whereDate('return_date','<=',$request->to_date))
+            ->when($request->filled('source_type'), fn ($q) => $q->where('source_type',$request->source_type))
             ->latest()
             ->get()
             ->map(function ($return) {
@@ -77,7 +85,7 @@ class SaleReturnApiController extends Controller
         $user = auth()->user();
 
         $sales = Sale::with(['customer', 'saleItems.itemset'])
-            ->where('company_id', $user->company_id);
+            ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()));
 
         if ($request->customer_id) {
             $sales->where('customer_id', $request->customer_id);
@@ -125,7 +133,7 @@ class SaleReturnApiController extends Controller
         $user = auth()->user();
 
         $sale = Sale::with('saleItems.itemset.item', 'customer')
-            ->where('company_id', $user->company_id)
+            ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
             ->findOrFail($saleId);
 
         return response()->json([
@@ -149,7 +157,7 @@ class SaleReturnApiController extends Controller
             'items.approvalItem.legacyItemSet.item',
             'items.approvalItem.item',
         ])
-            ->where('company_id', $user->company_id)
+            ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
             ->findOrFail((int) $id);
 
         $approvalItemFallbacks = collect();
@@ -280,7 +288,7 @@ class SaleReturnApiController extends Controller
 
     public function destroy(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         DB::beginTransaction();
 
@@ -365,11 +373,11 @@ class SaleReturnApiController extends Controller
         $customerId = (int) $request->customer_id;
 
         $saleItem = SaleItem::whereHas('itemset', function ($q) use ($qr, $user) {
-            $q->where('company_id', $user->company_id)
+            $q->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
                 ->where('qr_code', $qr);
         })
             ->whereHas('sale', function ($q) use ($customerId, $user) {
-                $q->where('company_id', $user->company_id)
+                $q->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
                     ->where('customer_id', $customerId);
             })
             ->whereNotExists(function ($sub) {
@@ -389,7 +397,7 @@ class SaleReturnApiController extends Controller
 
         $exists = ReturnCart::where('sale_item_id', $saleItem->id)
             ->where('user_id', $user->id)
-            ->where('company_id', $user->company_id)
+            ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
             ->exists();
 
         if ($exists) {
@@ -401,7 +409,7 @@ class SaleReturnApiController extends Controller
 
         $payload = [
             'user_id' => $user->id,
-            'company_id' => $user->company_id,
+            'company_id' => \App\Services\CompanyBranches::apiManagementCompanyId(request()),
             'sale_item_id' => $saleItem->id
         ];
 
@@ -435,7 +443,7 @@ class SaleReturnApiController extends Controller
 
         $approvalItem = ApprovalItem::with(['approval.customer', 'itemSet.item', 'legacyItemSet.item', 'item'])
             ->whereHas('approval', function ($q) use ($user, $customerId) {
-                $q->where('company_id', $user->company_id)
+                $q->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
                     ->where('customer_id', $customerId);
             })
             ->where(function ($q) {
@@ -445,11 +453,11 @@ class SaleReturnApiController extends Controller
             ->where(function ($q) use ($qrCode, $user) {
                 $q->where('qr_code', $qrCode)
                     ->orWhereHas('itemSet', function ($itemSetQuery) use ($qrCode, $user) {
-                        $itemSetQuery->where('company_id', $user->company_id)
+                        $itemSetQuery->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
                             ->where('qr_code', $qrCode);
                     })
                     ->orWhereHas('legacyItemSet', function ($itemSetQuery) use ($qrCode, $user) {
-                        $itemSetQuery->where('company_id', $user->company_id)
+                        $itemSetQuery->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
                             ->where('qr_code', $qrCode);
                     });
             })
@@ -541,7 +549,7 @@ class SaleReturnApiController extends Controller
                 'approvalItem.item',
             ])
             ->where('user_id', $user->id)
-            ->where('company_id', $user->company_id);
+            ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()));
 
         if ($deviceId !== '') {
             $cartQuery->where('device_id', $deviceId);
@@ -662,7 +670,7 @@ class SaleReturnApiController extends Controller
 
         $cart = ReturnCart::where('id', $id)
             ->where('user_id', $user->id)
-            ->where('company_id', $user->company_id)
+            ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
             ->first();
 
         if (!$cart) {
@@ -694,7 +702,7 @@ class SaleReturnApiController extends Controller
 
         $cartItems = ReturnCart::with('saleItem.itemset')
             ->where('user_id', $user->id)
-            ->where('company_id', $user->company_id)
+            ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
             ->get();
 
         if ($cartItems->isEmpty()) {
@@ -709,7 +717,7 @@ class SaleReturnApiController extends Controller
         try {
             $saleId = (int) $request->sale_id;
 
-            $sale = Sale::where('company_id', $user->company_id)->findOrFail($saleId);
+            $sale = Sale::where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))->findOrFail($saleId);
             $cartSaleIds = $cartItems
                 ->pluck('saleItem.sale_id')
                 ->filter()
@@ -721,10 +729,10 @@ class SaleReturnApiController extends Controller
             }
 
             $return = SaleReturn::create([
-                'company_id' => $user->company_id,
+                'company_id' => \App\Services\CompanyBranches::apiManagementCompanyId(request()),
                 'created_by' => $user->id,
                 'sale_id' => $saleId,
-                'return_voucher_no' => \App\Services\VoucherSeries::next($user->company_id, 'SR'),
+                'return_voucher_no' => \App\Services\VoucherSeries::next(\App\Services\CompanyBranches::apiManagementCompanyId(request()), 'SR'),
                 'return_date' => now(),
                 'remarks' => $request->input('remarks', $request->input('remark')),
                 'return_total' => 0,
@@ -767,7 +775,7 @@ class SaleReturnApiController extends Controller
             $sale->increment('paid_amount', (float) ($return->refund_paid_amount ?? 0));
 
             ReturnCart::where('user_id', $user->id)
-                ->where('company_id', $user->company_id)
+                ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
                 ->delete();
 
             DB::commit();
@@ -789,7 +797,7 @@ class SaleReturnApiController extends Controller
 
     public function store(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $userId = $request->user()->id;
         $customerId = (int) ($request->input('customer_id') ?? 0);
         $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
@@ -1025,7 +1033,7 @@ class SaleReturnApiController extends Controller
             'items.approvalItem.item',
             'items.itemSet.item',
         ])
-            ->where('company_id', $user->company_id)
+            ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
             ->findOrFail($returnId);
 
         $pdf = Pdf::loadView('company.returns.return_pdf', compact('return'))
@@ -1036,43 +1044,8 @@ class SaleReturnApiController extends Controller
 
     public function exportListPdf(Request $request)
     {
-        $user = $request->user();
-        $company = Company::findOrFail($user->company_id);
-        [$fromDate, $toDate] = $this->resolveReturnDateRange($request);
-
-        $query = SaleReturn::with([
-            'creator',
-            'approval.customer',
-            'approval.creator',
-            'approval.items.itemSet.item',
-            'approval.items.item',
-            'items.itemSet.item',
-        ])
-            ->where('company_id', $company->id)
-            ->where('source_type', 'approval')
-            ->whereBetween('return_date', [$fromDate, $toDate])
-            ->latest('return_date')
-            ->latest('id');
-
-        if ($request->filled('customer_id')) {
-            $query->whereHas('approval', function ($approvalQuery) use ($request) {
-                $approvalQuery->where('customer_id', (int) $request->customer_id);
-            });
-        }
-
-        $rows = $query->get()
-            ->map(fn(SaleReturn $return) => $this->summarizeApprovalReturn($return))
-            ->values();
-
-        $fileName = 'approval-return-list-' . now()->format('YmdHis') . '.pdf';
-        $pdf = Pdf::loadView('company.returns.list_pdf', compact('company', 'rows', 'fromDate', 'toDate'))
-            ->setPaper('a4', 'landscape');
-
-        if ($request->boolean('download')) {
-            return $pdf->download($fileName);
-        }
-
-        return $pdf->stream($fileName);
+        $request->merge(['export'=>'pdf']);
+        return $this->list_of_return($request);
     }
 
     private function resolveReturnDateRange(Request $request): array
@@ -1163,7 +1136,7 @@ class SaleReturnApiController extends Controller
     public function approvalReturnItems(Request $request)
     {
     
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $customerId = (int) $request->input('customer_id', 0);
         $qrCode = trim((string) $request->input('qr_code', ''));
         $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
@@ -1451,7 +1424,7 @@ class SaleReturnApiController extends Controller
 
     public function reserveApprovalReturnItem(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $userId = $request->user()->id;
         $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
         $voucherSessionId = trim((string) $request->input('voucher_session_id'));
@@ -1617,7 +1590,7 @@ class SaleReturnApiController extends Controller
     // Process mixed return: sale items + approval items in one voucher
     public function processSelected(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
         $voucherSessionId = trim((string) $request->input('voucher_session_id'));
 
@@ -2039,7 +2012,7 @@ class SaleReturnApiController extends Controller
 
     public function returnsearchItemSets(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $customerId = (int) ($request->input('customer_id') ?? 0);
         $keyword = trim((string) $request->keyword);
 

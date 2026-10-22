@@ -17,19 +17,23 @@ class ProductionCostController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $selectedCompanies = \App\Services\CompanyBranches::managementSelection($request, $company);
 
-        if ($request->ajax()) {
-            $rows = ProductionCost::where('company_id', $company->id)
+        if ($request->ajax() || $request->filled('export')) {
+            $rows = ProductionCost::whereIn('company_id', $selectedCompanies->keys())
                 ->select('production_costs.*');
 
-            return DataTables::of($rows)
+            $table = DataTables::of($rows)
                 ->addIndexColumn()
+                ->addColumn('company_name', fn ($row) => $selectedCompanies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
                 ->addColumn('status_badge', function ($row) {
                     return (int) $row->status === 1
                         ? '<span class="badge bg-success">Active</span>'
                         : '<span class="badge bg-danger">Inactive</span>';
                 })
-                ->addColumn('action', function ($row) use ($company) {
+                ->addColumn('action', function ($row) use ($selectedCompanies) {
+                    $company = $selectedCompanies[$row->company_id];
                     $encryptedId = Crypt::encryptString((string) $row->id);
 
                     $edit = route('company.production-cost.edit', [$company->slug, $encryptedId]);
@@ -44,7 +48,8 @@ class ProductionCostController extends Controller
                     ';
                 })
                 ->rawColumns(['status_badge', 'action'])
-                ->make(true);
+                ;
+            return \App\Services\JobworkListExport::respond($table, $request, $selectedCompanies, 'production-cost');
         }
 
         return view('company.production_cost.index', compact('company'));

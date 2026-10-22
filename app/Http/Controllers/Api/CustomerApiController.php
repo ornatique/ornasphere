@@ -16,10 +16,11 @@ class CustomerApiController extends Controller
 {
     public function index(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companies = \App\Services\CompanyBranches::apiManagementSelection($request);
+        $companyId = (int) $request->user()->company_id;
 
         $customers = Customer::with('categoryPerson:id,category_name')
-            ->where('company_id', $companyId)
+            ->whereIn('company_id', $companies->keys())
             ->when($request->filled('search'), function ($q) use ($request) {
                 $search = trim((string) $request->search);
                 $q->where(function ($q2) use ($search) {
@@ -35,15 +36,18 @@ class CustomerApiController extends Controller
             ->latest()
             ->get();
 
+        $customers->each(fn ($row) => $row->setAttribute('company_name', $companies[$row->company_id]->name));
+
         return response()->json([
             'success' => true,
             'data' => $customers,
+            'selected_company_ids' => $companies->keys()->values(),
         ]);
     }
 
     public function show(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $customer = Customer::with('categoryPerson:id,category_name')
             ->where('company_id', $companyId)
@@ -66,7 +70,7 @@ class CustomerApiController extends Controller
 
     public function store(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $openingService = app(\App\Services\PersonOpeningBalance::class);
         $opening = $openingService->validate($request);
@@ -95,7 +99,7 @@ class CustomerApiController extends Controller
 
     public function update(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $customer = Customer::where('company_id', $companyId)
             ->where('id', $id)
@@ -137,7 +141,7 @@ class CustomerApiController extends Controller
 
     public function destroy(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $customer = Customer::where('company_id', $companyId)
             ->where('id', $id)
             ->first();

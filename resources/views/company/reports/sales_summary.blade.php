@@ -2,6 +2,8 @@
 
 @section('content')
 <div class="content-wrapper">
+@php($reportCompanyIds = \App\Services\ReportBranches::ids($company))
+@include('company.reports.partials.branch_filter')
     <div class="card">
         <div class="card-header">
             <h4 class="card-title mb-0">Sales Summary Report</h4>
@@ -21,7 +23,7 @@
                     <select id="customer_id" class="form-select">
                         <option value="">All Persons</option>
                         @foreach($customers as $customer)
-                            <option value="{{ $customer->id }}">{{ $customer->name }}</option>
+                            <option value="{{ $customer->id }}">{{ $customer->name }}{{ count($reportCompanyIds) > 1 ? ' — '.\App\Services\ReportBranches::name($customer->company_id) : '' }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -84,7 +86,7 @@
                             <th>Total</th>
                             <th>Remarks</th>
                             <th>Created By</th>
-                        </tr>
+                        <th>Branch</th></tr>
                     </thead>
                     <tfoot>
                         <tr>
@@ -107,7 +109,7 @@
                             <th id="t_net_total">0.00</th>
                             <th></th>
                             <th></th>
-                        </tr>
+                        <th></th></tr>
                     </tfoot>
                 </table>
             </div>
@@ -439,6 +441,7 @@ $(function () {
             { data: 'net_total' },
             { data: 'remarks', orderable: false, searchable: false },
             { data: 'created_by', orderable: false, searchable: false },
+            { data: 'branch_name', orderable: false, searchable: false, defaultContent: '' },
         ]
     });
 
@@ -596,7 +599,7 @@ $(function () {
             return;
         }
 
-        window.location.href = "{{ route('company.reports.sales-summary.export.excel', $company->slug) }}?" + queryParams();
+        window.location.href = window.reportBranchUrl("{{ route('company.reports.sales-summary.export.excel', $company->slug) }}?" + queryParams());
     });
 
     $('#export_pdf').on('click', function () {
@@ -604,7 +607,7 @@ $(function () {
             return;
         }
 
-        window.location.href = "{{ route('company.reports.sales-summary.export.pdf', $company->slug) }}?" + queryParams();
+        window.location.href = window.reportBranchUrl("{{ route('company.reports.sales-summary.export.pdf', $company->slug) }}?" + queryParams());
     });
 
     $('#salesSummaryTable').on('click', '.sale-detail-link', function (e) {
@@ -654,13 +657,13 @@ $(function () {
     $('#modal_export_excel').on('click', function () {
         if (!activeSaleId) return;
         const url = "{{ route('company.reports.sales-summary.details.excel', [$company->slug, ':id']) }}".replace(':id', activeSaleId);
-        window.location.href = url + '?' + $.param({ columns: selectedReportColumns().join(',') });
+        window.location.href = window.reportBranchUrl(url + '?' + $.param({ columns: selectedReportColumns().join(',') }));
     });
 
     $('#modal_export_pdf').on('click', function () {
         if (!activeSaleId) return;
         const url = "{{ route('company.reports.sales-summary.details.pdf', [$company->slug, ':id']) }}".replace(':id', activeSaleId);
-        window.location.href = url + '?' + $.param({ columns: selectedReportColumns().join(',') });
+        window.location.href = window.reportBranchUrl(url + '?' + $.param({ columns: selectedReportColumns().join(',') }));
     });
 });
 </script>

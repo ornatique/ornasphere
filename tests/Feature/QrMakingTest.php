@@ -58,12 +58,12 @@ class QrMakingTest extends TestCase
     }
     public function test_api_crud_downloads_and_company_scope(): void {
         Schema::create('users',function(Blueprint $t){$t->id();$t->string('name');});
-        $user=new class {
-            public $id=7; public $company_id=1; public $allowed=true;
-            public function hasRole($role){return false;}
-            public function hasAnyPermission($permissions){return $this->allowed;}
-        };
+        $user=\Mockery::mock(\App\Models\User::class)->makePartial();
+        $user->forceFill(['id'=>7,'company_id'=>1,'allowed'=>true]);
+        $user->shouldReceive('hasRole')->andReturn(false);
+        $user->shouldReceive('hasAnyPermission')->andReturnUsing(fn ()=>$user->allowed);
         $call=function($operation,$id=null,$data=[]) use($user) {
+            $user->setRelation('company', \App\Models\Company::findOrFail($user->company_id));
             $r=Request::create('/api/qr-making','POST',$data);
             $r->setUserResolver(fn()=>$user);
             $route=new \Illuminate\Routing\Route('POST','api/qr-making',fn()=>null);

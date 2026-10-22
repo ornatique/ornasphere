@@ -13,7 +13,8 @@
     </style>
 </head>
 <body>
-    <h3>Purchase / Receiver Summary Report - {{ $company->name }}</h3>
+@include('company.reports.partials.pdf_company_scope')
+    <h3>Purchase / Receiver Summary Report - {{ \App\Services\ReportBranches::heading($company) }}</h3>
     <table>
         <thead>
             <tr>
@@ -31,7 +32,7 @@
                 <th>Total</th>
                 <th>Remarks</th>
                 <th>Created By</th>
-            </tr>
+            <th>Company / Branch</th></tr>
         </thead>
         <tbody>
             @foreach($rows as $r)
@@ -50,7 +51,7 @@
                 <td>{{ number_format((float) ($r->return_total ?? 0), 2, '.', '') }}</td>
                 <td>{{ $r->remarks ?? '-' }}</td>
                 <td>{{ $r->created_by ?? '-' }}</td>
-            </tr>
+            <td>{{ \App\Services\ReportBranches::name(data_get($r, 'company_id')) }}</td></tr>
             @endforeach
             <tr>
                 <td colspan="4" class="text-end"><strong>Total</strong></td>
@@ -64,7 +65,7 @@
                 <td><strong>{{ number_format((float) ($totals['return_total'] ?? 0), 2, '.', '') }}</strong></td>
                 <td></td>
                 <td></td>
-            </tr>
+            <td></td></tr>
         </tbody>
     </table>
 </body>

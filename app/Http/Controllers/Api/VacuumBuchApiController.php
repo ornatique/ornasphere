@@ -14,7 +14,12 @@ class VacuumBuchApiController extends Controller
 {
     public function index(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        return \App\Services\CastingApiBranches::listing($request,
+            fn (int $companyId) => $this->listForCompany($request, $companyId), 'Vacuum Buch');
+    }
+
+    private function listForCompany(Request $request, int $companyId)
+    {
 
         $rows = VacuumBuch::query()
             ->where('company_id', $companyId)
@@ -41,7 +46,7 @@ class VacuumBuchApiController extends Controller
 
     public function options(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $rows = VacuumBuch::where('company_id', $companyId)
             ->orderBy('buch_no')
@@ -66,7 +71,7 @@ class VacuumBuchApiController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $this->formatRow($data->loadCount('weightHistories'), (int) $request->user()->company_id),
+            'data' => $this->formatRow($data->loadCount('weightHistories'), \App\Services\CompanyBranches::apiManagementCompanyId($request)),
         ]);
     }
 
@@ -108,7 +113,7 @@ class VacuumBuchApiController extends Controller
 
     public function store(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $userId = (int) $request->user()->id;
         $payload = $this->requestPayload($request);
 
@@ -223,7 +228,7 @@ class VacuumBuchApiController extends Controller
             ], 404);
         }
 
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $validated = $this->validatePayload($request, $companyId, (int) $data->id);
 
         $oldWeight = $this->normalizeWeight($data->weight);
@@ -270,7 +275,7 @@ class VacuumBuchApiController extends Controller
             ], 404);
         }
 
-        if ($this->isInUse((int) $request->user()->company_id, (int) $data->id)) {
+        if ($this->isInUse(\App\Services\CompanyBranches::apiManagementCompanyId($request), (int) $data->id)) {
             return response()->json([
                 'success' => false,
                 'message' => 'This Buch No is already used in a voucher and cannot be deleted.',
@@ -314,7 +319,7 @@ class VacuumBuchApiController extends Controller
 
     private function findForCompany(Request $request, int $id): ?VacuumBuch
     {
-        return VacuumBuch::where('company_id', (int) $request->user()->company_id)
+        return VacuumBuch::where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId($request))
             ->where('id', $id)
             ->first();
     }

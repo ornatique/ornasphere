@@ -62,13 +62,12 @@ class CustomerAdvanceController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::where('slug', $slug)->firstOrFail();
+        $companies = \App\Services\CompanyBranches::managementSelection($request, $company);
 
-        $customers = $this->partyCustomersQuery($company->id)
-            ->orderBy('name')
-            ->get(['id', 'name']);
+        $customers = $companies->flatMap(fn ($branch) => $this->partyCustomersQuery($branch->id)->orderBy('name')->get(['id','name'])->each(fn ($row) => $row->name .= ' - '.$branch->name));
 
         $vouchersQuery = CustomerAdvanceVoucher::with('customer')
-            ->where('company_id', $company->id)
+            ->whereIn('company_id', $companies->keys())
             ->latest('voucher_date')
             ->latest('id');
 
@@ -84,9 +83,11 @@ class CustomerAdvanceController extends Controller
             $vouchersQuery->where('customer_id', (int) $request->input('customer_id'));
         }
 
-        if ($request->ajax()) {
-            return DataTables::of($vouchersQuery)
+        if ($request->ajax() || $request->filled('export')) {
+            $table = DataTables::of($vouchersQuery)
                 ->addIndexColumn()
+                ->addColumn('company_name', fn ($row) => $companies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
                 ->editColumn('voucher_date', function ($voucher) {
                     return $voucher->voucher_date
                         ? Carbon::parse($voucher->voucher_date)->format('d-m-Y')
@@ -112,13 +113,15 @@ class CustomerAdvanceController extends Controller
                 ->editColumn('metal_out', fn($voucher) => number_format((float) $voucher->metal_out, 3))
                 ->editColumn('rate', fn($voucher) => number_format((float) $voucher->rate, 2))
                 ->editColumn('amount', fn($voucher) => number_format((float) $voucher->amount, 2))
-                ->addColumn('pdf', function ($voucher) use ($company) {
+                ->addColumn('pdf', function ($voucher) use ($companies) {
+                    $company = $companies[$voucher->company_id];
                     return '<a class="btn btn-danger btn-sm" target="_blank" href="'
                         . route('company.sales.advance.voucher.pdf', [$company->slug, Crypt::encryptString((string) $voucher->id)])
                         . '">PDF</a>';
                 })
                 ->rawColumns(['pdf'])
-                ->make(true);
+                ;
+            return \App\Services\SalesBranchExport::respond($table, $request, $companies, 'receive-purchase');
         }
 
         return view('company.sales.advance_index', compact('company', 'customers'));

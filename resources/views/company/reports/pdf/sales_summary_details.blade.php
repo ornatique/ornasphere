@@ -14,7 +14,8 @@
     </style>
 </head>
 <body>
-    <h3>Sale Details - {{ $company->name }}</h3>
+@include('company.reports.partials.pdf_company_scope')
+    <h3>Sale Details - {{ $sale['branch_name'] ?? \App\Services\ReportBranches::heading($company) }}</h3>
 
     <table class="meta">
         <tr>

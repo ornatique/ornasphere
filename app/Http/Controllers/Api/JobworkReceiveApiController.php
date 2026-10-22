@@ -20,7 +20,11 @@ class JobworkReceiveApiController extends Controller
 {
     public function index(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        return \App\Services\JobworkApiBranches::listing($request, fn ($companyId) => $this->indexForCompany($request, $companyId), 'Jobwork Receive');
+    }
+
+    private function indexForCompany(Request $request, int $companyId)
+    {
         $rows = $this->listRows($request, $companyId);
 
         return response()->json(['success' => true, 'data' => $rows]);
@@ -28,7 +32,7 @@ class JobworkReceiveApiController extends Controller
 
     public function show(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $issue = $this->findIssue($companyId, (int) $id);
 
         if (!$issue) {
@@ -45,7 +49,7 @@ class JobworkReceiveApiController extends Controller
 
     public function update(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $issue = $this->findIssue($companyId, (int) $id);
 
         if (!$issue) {
@@ -99,7 +103,7 @@ class JobworkReceiveApiController extends Controller
 
     public function destroyItem(Request $request, $id, $itemId)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $issue = $this->findIssue($companyId, (int) $id);
 
         if (!$issue) {
@@ -143,7 +147,7 @@ class JobworkReceiveApiController extends Controller
 
     public function pdf(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $company = Company::findOrFail($companyId);
         $row = $this->findIssue($companyId, (int) $id);
 
@@ -165,7 +169,7 @@ class JobworkReceiveApiController extends Controller
 
     public function otherCharges(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         return response()->json([
             'success' => true,
@@ -175,7 +179,11 @@ class JobworkReceiveApiController extends Controller
 
     public function directIndex(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        return \App\Services\JobworkApiBranches::listing($request, fn ($companyId) => $this->directIndexForCompany($request, $companyId), 'Jobwork Receive');
+    }
+
+    private function directIndexForCompany(Request $request, int $companyId)
+    {
 
         $rows = $this->directBaseQuery($request, $companyId)
             ->orderByDesc('receive_date')
@@ -189,7 +197,7 @@ class JobworkReceiveApiController extends Controller
 
     public function directOptions(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         return response()->json([
             'success' => true,
@@ -222,7 +230,7 @@ class JobworkReceiveApiController extends Controller
 
     public function directStore(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $validated = $this->validateDirectReceiveData($request, $companyId);
 
         $receive = DB::transaction(function () use ($request, $validated, $companyId) {
@@ -255,7 +263,7 @@ class JobworkReceiveApiController extends Controller
 
     public function directShow(Request $request, $id)
     {
-        $receive = $this->findDirectReceive((int) $request->user()->company_id, (int) $id);
+        $receive = $this->findDirectReceive(\App\Services\CompanyBranches::apiManagementCompanyId($request), (int) $id);
 
         if (!$receive) {
             return response()->json(['success' => false, 'message' => 'Direct Jobwork Receive voucher not found.'], 404);
@@ -269,7 +277,7 @@ class JobworkReceiveApiController extends Controller
 
     public function directUpdate(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $receive = $this->findDirectReceive($companyId, (int) $id);
 
         if (!$receive) {
@@ -303,7 +311,7 @@ class JobworkReceiveApiController extends Controller
 
     public function directDestroyItem(Request $request, $id, $itemId)
     {
-        $receive = $this->findDirectReceive((int) $request->user()->company_id, (int) $id);
+        $receive = $this->findDirectReceive(\App\Services\CompanyBranches::apiManagementCompanyId($request), (int) $id);
 
         if (!$receive) {
             return response()->json(['success' => false, 'message' => 'Direct Jobwork Receive voucher not found.'], 404);
@@ -337,7 +345,7 @@ class JobworkReceiveApiController extends Controller
 
     public function directDestroy(Request $request, $id)
     {
-        $receive = $this->findDirectReceive((int) $request->user()->company_id, (int) $id);
+        $receive = $this->findDirectReceive(\App\Services\CompanyBranches::apiManagementCompanyId($request), (int) $id);
 
         if (!$receive) {
             return response()->json(['success' => false, 'message' => 'Direct Jobwork Receive voucher not found.'], 404);
@@ -356,7 +364,7 @@ class JobworkReceiveApiController extends Controller
 
     public function directPdf(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $company = Company::findOrFail($companyId);
         $receive = $this->findDirectReceive($companyId, (int) $id);
 
@@ -478,7 +486,7 @@ class JobworkReceiveApiController extends Controller
     {
         return JobworkReceive::firstOrCreate(
             [
-                'company_id' => (int) $request->user()->company_id,
+                'company_id' => \App\Services\CompanyBranches::apiManagementCompanyId($request),
                 'jobwork_issue_id' => $issue->id,
             ],
             [

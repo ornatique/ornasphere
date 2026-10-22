@@ -154,7 +154,7 @@
                     <button class="btn btn-secondary" id="clearBtn">
                         Clear
                     </button>
-                    <a class="btn btn-danger" id="exportPdfBtn" target="_blank">PDF</a>
+                    
                 </div>
 
             </div>
@@ -162,6 +162,7 @@
 
         {{-- TABLE --}}
         <div class="card-body">
+            @include('company_layout.sales_exports')
             <div class="approval-summary-grid">
                 <div class="approval-summary-box">
                     <span>Total Qty</span>
@@ -204,7 +205,7 @@
                             <th>Modified At</th>
                             <th>Modified Count</th>
                             <th>Status</th>
-                            <th>Action</th>
+                            <th>Company / Branch</th><th>Action</th>
                         </tr>
                     </thead>
                 </table>
@@ -261,7 +262,7 @@
         scrollCollapse: true,
 
         ajax: {
-            url: "{{ route('company.approval.index', $company->slug) }}",
+            url: "{!! route('company.approval.index', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}",
             data: function(d) {
                 d.customer_id = $('#customer_id').val();
                 d.from_date = $('#from_date').val();
@@ -356,7 +357,8 @@
                 orderable: false,
                 searchable: false
             },
-            {
+            { data: 'company_name', orderable: false, searchable: false },
+                {
                 data: 'action',
                 orderable: false,
                 searchable: false

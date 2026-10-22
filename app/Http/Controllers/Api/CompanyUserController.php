@@ -70,19 +70,29 @@ class CompanyUserController extends Controller
     {
         $user = $request->user(); // logged in user
     
-        $companyId = $user->company_id;
+        $companies = \App\Services\CompanyBranches::apiManagementSelection($request);
+        $companyId = (int) $request->user()->company_id;
         $company = Company::find($companyId);
     
-        $users = User::where('company_id', $companyId)
+        $users = User::whereIn('company_id', $companies->keys())
             ->latest()
             ->get();
     
+        $users->makeHidden(['two_factor_secret', 'two_factor_recovery_codes', 'password_set_url', 'active_web_session_id', 'active_api_token_id']);
+        $users->each(fn ($row) => $row->setAttribute('company_name', $companies[$row->company_id]->name));
+
         return response()->json([
             'success' => true,
             'data' => $users,
+            'selected_company_ids' => $companies->keys()->values(),
+            'seats' => $companies->map(fn ($branch) => [
+                'company_id' => $branch->id, 'company_name' => $branch->name,
+                'max_users' => (int) $branch->max_users,
+                'current_users' => $users->where('company_id', $branch->id)->count(),
+            ])->values(),
             'seat' => [
                 'max_users' => (int) optional($company)->max_users,
-                'current_users' => (int) $users->count(),
+                'current_users' => User::where('company_id', $companyId)->count(),
             ],
         ]);
     }
@@ -91,7 +101,7 @@ class CompanyUserController extends Controller
 public function store(Request $request)
 {
     $authUser = $request->user(); // logged in user
-    $companyId = $authUser->company_id;
+    $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
     $company = Company::find($companyId);
     if (!$company) {
         return response()->json([
@@ -240,7 +250,7 @@ public function store(Request $request)
 public function update(Request $request, $id)
     {
         $authUser = $request->user();
-        $companyId = $authUser->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $this->normalizeIdentityFields($request);
 
         // 🔐 Company wise security
@@ -283,6 +293,14 @@ public function update(Request $request, $id)
             ], 422);
         }
 
+        $roleModel = Role::where('company_id', $companyId)
+            ->where('guard_name', 'web')->where('name', $validated['role'])->first();
+        if (!$roleModel) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'role' => 'Select a role belonging to the selected company.',
+            ]);
+        }
+
         // 🖼 Update Image
         if ($request->hasFile('profile_image')) {
             $this->deleteProfileImageIfExists($user->profile_image);
@@ -322,7 +340,7 @@ public function update(Request $request, $id)
         ]);
 
         // 🔁 Sync Spatie Role
-        $user->syncRoles([$validated['role']]);
+        $user->syncRoles([$roleModel->id]);
 
         return response()->json([
             'success' => true,
@@ -336,7 +354,7 @@ public function update(Request $request, $id)
     public function reset2fa(Request $request, $id)
     {
         $authUser = $request->user();
-        $companyId = $authUser->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $user = User::where('company_id', $companyId)
             ->where('id', $id)
@@ -367,7 +385,7 @@ public function update(Request $request, $id)
     {
        
         $authUser = $request->user();
-        $companyId = $authUser->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
        
         $user = User::where('company_id', $companyId)
             ->where('id', $id)
@@ -417,7 +435,7 @@ public function update(Request $request, $id)
     public function destroy(Request $request, $id)
     {
     $authUser = $request->user();
-    $companyId = $authUser->company_id;
+    $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
     // 🔐 Company-wise security
     $user = User::where('company_id', $companyId)

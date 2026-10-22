@@ -21,6 +21,7 @@
         </div>
 
         <div class="card-body">
+            @include('company_layout.sales_exports')
             <style>
                 .sales-list-grid-wrap {
                     overflow: auto;
@@ -147,7 +148,7 @@
                         <th>Created By</th>
                         <th>Modified At</th>
                         <th>Modified Count</th>
-                        <th>Action</th>
+                        <th>Company / Branch</th><th>Action</th>
                     </tr>
                 </thead>
 
@@ -200,7 +201,7 @@ $(document).ready(function() {
         serverSide: true,
 
         ajax: {
-            url: "{{ route('company.sales.index',$company->slug) }}",
+            url: "{!! route('company.sales.index', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}",
             data: function (d) {
                 d.from_date = $('#from_date').val();
                 d.to_date   = $('#to_date').val();
@@ -243,7 +244,8 @@ $(document).ready(function() {
 
             { data: 'modified_count', name: 'modified_count', orderable: false, searchable: false },
 
-            { data: 'action', orderable: false, searchable: false }
+            { data: 'company_name', orderable: false, searchable: false },
+                { data: 'action', orderable: false, searchable: false }
 
         ]
 
@@ -273,6 +275,9 @@ $(document).ready(function() {
             customer_id: $('#customer_id').val()
         });
 
+        @foreach((array) request('management_branches', []) as $branchId)
+        params.append('management_branches[]', @json($branchId));
+        @endforeach
         window.open("{{ route('company.sales.export.pdf', $company->slug) }}?" + params.toString(), '_blank');
     });
 

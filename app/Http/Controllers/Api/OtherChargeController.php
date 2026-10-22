@@ -15,7 +15,11 @@ class OtherChargeController extends Controller
     // LIST
     public function index(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        return \App\Services\ItemManagementApiBranches::listing($request, fn ($companyId) => $this->listForCompany($request, $companyId), 'Other Charges');
+    }
+
+    private function listForCompany(Request $request, int $companyId)
+    {
 
         $data = OtherCharge::where('company_id', $companyId)
             ->latest()
@@ -32,7 +36,7 @@ class OtherChargeController extends Controller
     // SHOW SINGLE
     public function show(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $data = OtherCharge::where('company_id', $companyId)
             ->where('id', $id)
@@ -55,12 +59,12 @@ class OtherChargeController extends Controller
     // STORE
     public function store(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $payload = $this->buildPayload($request);
         $validator = Validator::make($payload, [
             'other_charge' => 'required|string|max:255',
-            'item_id' => 'nullable|integer|exists:items,id',
+            'item_id' => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('items', 'id')->where('company_id', $companyId)],
             'default_amount' => 'nullable|numeric',
             'default_weight' => 'nullable|numeric',
             'quantity_pcs' => 'nullable|numeric',
@@ -95,7 +99,7 @@ class OtherChargeController extends Controller
     // UPDATE
     public function update(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $data = OtherCharge::where('company_id', $companyId)
             ->where('id', $id)
@@ -111,7 +115,7 @@ class OtherChargeController extends Controller
         $payload = $this->buildPayload($request, $data);
         $validator = Validator::make($payload, [
             'other_charge' => 'required|string|max:255',
-            'item_id' => 'nullable|integer|exists:items,id',
+            'item_id' => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('items', 'id')->where('company_id', $companyId)],
             'default_amount' => 'nullable|numeric',
             'default_weight' => 'nullable|numeric',
             'quantity_pcs' => 'nullable|numeric',
@@ -249,7 +253,7 @@ class OtherChargeController extends Controller
     // DELETE
     public function destroy(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $data = OtherCharge::where('company_id', $companyId)
             ->where('id', $id)
@@ -345,7 +349,7 @@ class OtherChargeController extends Controller
     // POPUP OPTIONS (same as web flow)
     public function options(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $query = OtherCharge::query()
             ->where('company_id', $companyId)

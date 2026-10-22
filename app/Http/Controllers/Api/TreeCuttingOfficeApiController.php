@@ -19,7 +19,12 @@ class TreeCuttingOfficeApiController extends Controller
 {
     public function index(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        return \App\Services\CastingApiBranches::listing($request,
+            fn (int $companyId) => $this->listForCompany($request, $companyId), 'Tree Cutting Office');
+    }
+
+    private function listForCompany(Request $request, int $companyId)
+    {
         $fromDate = $request->input('from_date', now()->subDays(6)->toDateString());
         $toDate = $request->input('to_date', now()->toDateString());
 
@@ -173,7 +178,7 @@ class TreeCuttingOfficeApiController extends Controller
 
     public function update(Request $request, int $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $voucher = VacuumVoucher::where('company_id', $companyId)->find($id);
 
         if (!$voucher) {
@@ -330,7 +335,7 @@ class TreeCuttingOfficeApiController extends Controller
         }
 
         [$voucher, $releaseItems, $officeItems] = $data;
-        $company = Company::findOrFail((int) $request->user()->company_id);
+        $company = Company::findOrFail(\App\Services\CompanyBranches::apiManagementCompanyId($request));
 
         return Pdf::loadView('company.tree_cutting_office.pdf.show', compact('company', 'voucher', 'releaseItems', 'officeItems'))
             ->setPaper('a4', 'portrait')
@@ -339,7 +344,7 @@ class TreeCuttingOfficeApiController extends Controller
 
     private function voucherData(Request $request, int $id): ?array
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $voucher = VacuumVoucher::where('company_id', $companyId)
             ->with(['process:id,name', 'jobWorker:id,name', 'items'])
             ->withCount('items')

@@ -65,6 +65,7 @@
                                         <label>Plan <span class="text-danger">*</span></label>
                                         <select name="plan" class="form-select @error('plan') is-invalid @enderror">
                                             <option value="">Select Plan</option>
+                                            <option value="trial" {{ old('plan', 'trial') == 'trial' ? 'selected' : '' }}>10-day Trial</option>
                                             <option value="yearly" {{ old('plan') == 'yearly' ? 'selected' : '' }}>Yearly</option>
                                         </select>
                                         @error('plan')

@@ -20,57 +20,67 @@ class VoucherHistoryApiController extends Controller
 {
     public function index(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
-        $selectedVoucherId = $request->integer('voucher_id') ?: null;
-
-        $vouchers = $this->voucherOptionsQuery($request, $companyId)
-            ->limit($this->limit($request))
-            ->get()
-            ->map(fn($voucher) => $this->voucherOption($voucher))
-            ->values();
-
+        $companies = \App\Services\CompanyBranches::apiManagementSelection($request);
+        $vouchers = collect();
         $voucher = null;
         $history = null;
-
-        if ($selectedVoucherId) {
-            $selectedVoucher = $this->findVoucher($companyId, $selectedVoucherId);
-
-            if ($selectedVoucher) {
-                $voucher = $this->voucherPayload($selectedVoucher);
-                $history = $this->historyForVoucher($companyId, $selectedVoucher);
+        $exportRows = [];
+        $selectedVoucherId = $request->integer('voucher_id') ?: null;
+        if ($request->filled('export')) $request->validate(['export'=>'required|in:pdf,excel']);
+        foreach ($companies as $company) {
+            $query = $this->voucherOptionsQuery($request, (int) $company->id);
+            if (!$request->filled('export')) $query->limit($this->limit($request));
+            foreach ($query->get() as $option) {
+                $identity = ['company_id'=>(int)$company->id, 'company_name'=>$company->name];
+                $vouchers->push($identity + $this->voucherOption($option));
+                if ($request->filled('export')) {
+                    $record = $this->findVoucher((int)$company->id, (int)$option->id);
+                    $recordHistory = $this->historyForVoucher((int)$company->id, $record);
+                    $base = $identity + ['voucher_no'=>$option->voucher_no];
+                    $exportRows[] = $base + ['stage'=>'Summary', 'details'=>$this->exportDetails($recordHistory['summary'])];
+                    foreach ($recordHistory as $stage=>$section) {
+                        foreach (($section['rows'] ?? []) as $row) $exportRows[] = $base + [
+                            'stage'=>ucwords(str_replace('_',' ',$stage)), 'details'=>$this->exportDetails($row),
+                        ];
+                    }
+                }
+            }
+            if ($selectedVoucherId) {
+                $selected = $this->findVoucher((int)$company->id, $selectedVoucherId);
+                if ($selected) {
+                    $voucher = ['company_id'=>(int)$company->id, 'company_name'=>$company->name] + $this->voucherPayload($selected);
+                    $history = $this->historyForVoucher((int)$company->id, $selected);
+                }
             }
         }
-
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'vouchers' => $vouchers,
-                'selected_voucher_id' => $selectedVoucherId,
-                'voucher' => $voucher,
-                'history' => $history,
-            ],
-        ]);
+        if ($request->filled('export')) {
+            return \App\Services\CastingListExport::download($request, $companies, 'Voucher Process History',
+                ['company_name'=>'Company / Branch','voucher_no'=>'Voucher No','stage'=>'Stage','details'=>'Details'], $exportRows);
+        }
+        return response()->json(['success'=>true, 'selected_company_ids'=>$companies->keys()->values(), 'data'=>[
+            'vouchers'=>$vouchers->sortByDesc('id')->take($this->limit($request))->values(),
+            'selected_voucher_id'=>$selectedVoucherId, 'voucher'=>$voucher, 'history'=>$history,
+        ]]);
     }
 
     public function vouchers(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companies = \App\Services\CompanyBranches::apiManagementSelection($request);
+        $rows = $companies->flatMap(fn ($company) => $this->voucherOptionsQuery($request,(int)$company->id)
+            ->limit($this->limit($request))->get()->map(fn ($row) => [
+                'company_id'=>(int)$company->id, 'company_name'=>$company->name,
+            ] + $this->voucherOption($row)))->sortByDesc('id')->take($this->limit($request))->values();
+        return response()->json(['success'=>true,'data'=>$rows,'selected_company_ids'=>$companies->keys()->values()]);
+    }
 
-        $vouchers = $this->voucherOptionsQuery($request, $companyId)
-            ->limit($this->limit($request))
-            ->get()
-            ->map(fn($voucher) => $this->voucherOption($voucher))
-            ->values();
-
-        return response()->json([
-            'success' => true,
-            'data' => $vouchers,
-        ]);
+    private function exportDetails($row): string
+    {
+        return collect($row)->map(fn ($value,$key) => ucwords(str_replace('_',' ',$key)).': '.(is_scalar($value) ? $value : ''))->implode('; ');
     }
 
     public function show(Request $request, int $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $voucher = $this->findVoucher($companyId, $id);
 
         if (!$voucher) {
@@ -91,7 +101,7 @@ class VoucherHistoryApiController extends Controller
 
     public function pdf(Request $request, int $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $company = Company::findOrFail($companyId);
         $voucher = $this->findVoucher($companyId, $id);
 
@@ -111,7 +121,7 @@ class VoucherHistoryApiController extends Controller
 
     public function excel(Request $request, int $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $company = Company::findOrFail($companyId);
         $voucher = $this->findVoucher($companyId, $id);
 
@@ -238,9 +248,7 @@ class VoucherHistoryApiController extends Controller
             ->orderBy('id')
             ->get();
 
-        $releaseItems = CastingReleaseItem::where('company_id', $companyId)
-            ->where('vacuum_voucher_id', $voucher->id)
-            ->when($validItemIds !== [], fn($query) => $query->whereIn('vacuum_voucher_item_id', $validItemIds))
+        $releaseItems = CastingReleaseItem::forVoucherHistory($companyId, $voucher->id, $validItemIds)
             ->with('voucherItem:id,buch_no,item_name,remarks')
             ->orderBy('id')
             ->get();
@@ -341,7 +349,7 @@ class VoucherHistoryApiController extends Controller
                 'rows' => $releaseItems->map(fn($item) => [
                     'id' => (int) $item->id,
                     'vacuum_voucher_item_id' => (int) $item->vacuum_voucher_item_id,
-                    'buch_no' => $item->voucherItem?->buch_no ?? '-',
+                    'buch_no' => $this->buchNo($item),
                     'item_name' => $item->voucherItem?->item_name,
                     'voucher_remarks' => $item->voucherItem?->remarks,
                     'release_tree_wt' => $this->decimal($item->release_tree_wt),

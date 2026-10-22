@@ -63,6 +63,9 @@ class WorkerMetalLedgerTest extends TestCase
         $this->assertStringNotContainsString('Voucher / Reference', $dailyHtml);
         $company = new \App\Models\Company;
         $company->id = 1;
+        $company->slug = 'main';
+        $this->actingAs((new \App\Models\User)->forceFill(['id'=>1, 'company_id'=>1]));
+        request()->setUserResolver(fn () => auth()->user());
         $controller = app(\App\Http\Controllers\Company\ReportController::class);
         $method = new \ReflectionMethod($controller, 'workerMetalLedger');
         $method->setAccessible(true);

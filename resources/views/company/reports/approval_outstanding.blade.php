@@ -2,6 +2,8 @@
 
 @section('content')
 <div class="content-wrapper">
+@php($reportCompanyIds = \App\Services\ReportBranches::ids($company))
+@include('company.reports.partials.branch_filter')
     <div class="card">
         <div class="card-header">
             <h4 class="card-title mb-0">Approval Outstanding Report</h4>
@@ -21,7 +23,7 @@
                     <select id="customer_id" class="form-select">
                         <option value="">All Persons</option>
                         @foreach($customers as $customer)
-                            <option value="{{ $customer->id }}">{{ $customer->name }}</option>
+                            <option value="{{ $customer->id }}">{{ $customer->name }}{{ count($reportCompanyIds) > 1 ? ' — '.\App\Services\ReportBranches::name($customer->company_id) : '' }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -94,7 +96,7 @@
                             <th>Pending Amount</th>
                             <th>Remarks</th>
                             <th>Created By</th>
-                        </tr>
+                        <th>Branch</th></tr>
                     </thead>
                 </table>
             </div>
@@ -408,6 +410,7 @@ $(function () {
             { data: 'pending_total_amount_fmt', orderable: false, searchable: false },
             { data: 'remarks', orderable: false, searchable: false },
             { data: 'created_by', orderable: false, searchable: false },
+            { data: 'branch_name', orderable: false, searchable: false, defaultContent: '' },
         ]
     });
 
@@ -552,7 +555,7 @@ $(function () {
             return;
         }
 
-        window.location.href = "{{ route('company.reports.approval-outstanding.export.excel', $company->slug) }}?" + queryParams();
+        window.location.href = window.reportBranchUrl("{{ route('company.reports.approval-outstanding.export.excel', $company->slug) }}?" + queryParams());
     });
 
     $('#export_pdf').on('click', function () {
@@ -560,7 +563,7 @@ $(function () {
             return;
         }
 
-        window.location.href = "{{ route('company.reports.approval-outstanding.export.pdf', $company->slug) }}?" + queryParams();
+        window.location.href = window.reportBranchUrl("{{ route('company.reports.approval-outstanding.export.pdf', $company->slug) }}?" + queryParams());
     });
 
     function escapeHtml(value) {
@@ -615,13 +618,13 @@ $(function () {
     $('#modal_export_excel').on('click', function () {
         if (!activeApprovalId) return;
         const url = "{{ route('company.reports.approval-outstanding.details.excel', [$company->slug, ':id']) }}".replace(':id', activeApprovalId);
-        window.location.href = url + '?' + $.param({ columns: selectedReportColumns().join(',') });
+        window.location.href = window.reportBranchUrl(url + '?' + $.param({ columns: selectedReportColumns().join(',') }));
     });
 
     $('#modal_export_pdf').on('click', function () {
         if (!activeApprovalId) return;
         const url = "{{ route('company.reports.approval-outstanding.details.pdf', [$company->slug, ':id']) }}".replace(':id', activeApprovalId);
-        window.location.href = url + '?' + $.param({ columns: selectedReportColumns().join(',') });
+        window.location.href = window.reportBranchUrl(url + '?' + $.param({ columns: selectedReportColumns().join(',') }));
     });
 });
 </script>

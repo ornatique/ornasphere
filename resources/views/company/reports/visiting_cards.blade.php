@@ -45,7 +45,7 @@
                     <thead>
                         <tr>
                             <th>Sr No</th>
-                            <th>Name</th>
+                            <th>Company / Branch</th><th>Name</th>
                             <th>Mobile</th>
                             <th>Email</th>
                             <th>City</th>
@@ -144,12 +144,14 @@ $(function () {
         ajax: {
             url: "{{ route('company.reports.visiting-cards.index', $company->slug) }}",
             data: function (d) {
+                d.management_branches = @json(request('management_branches', [$company->id]));
                 d.from_date = $('#from_date').val();
                 d.to_date = $('#to_date').val();
             }
         },
         columns: [
             { data: 'DT_RowIndex', name: 'DT_RowIndex', searchable: false },
+            { data: 'company_name', name: 'company_name', searchable: false },
             { data: 'name_fmt', name: 'name' },
             { data: 'mobile_fmt', name: 'mobile_no' },
             { data: 'email_fmt', name: 'email' },
@@ -171,6 +173,8 @@ $(function () {
 
     function queryParams() {
         return $.param({
+            management_branches: @json(request('management_branches', [$company->id])),
+            search: table.search(),
             from_date: $('#from_date').val(),
             to_date: $('#to_date').val()
         });

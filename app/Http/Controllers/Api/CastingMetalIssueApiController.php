@@ -16,7 +16,12 @@ class CastingMetalIssueApiController extends Controller
 {
     public function index(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        return \App\Services\CastingApiBranches::listing($request,
+            fn (int $companyId) => $this->listForCompany($request, $companyId), 'Casting Metal Issue');
+    }
+
+    private function listForCompany(Request $request, int $companyId)
+    {
         $fromDate = $request->input('from_date', now()->toDateString());
         $toDate = $request->input('to_date', now()->toDateString());
 
@@ -139,7 +144,7 @@ class CastingMetalIssueApiController extends Controller
 
     public function update(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $voucher = VacuumVoucher::where('company_id', $companyId)
             ->with(['items' => fn($query) => $this->inBhatiVoucherItemsQuery($query, $companyId)
                 ->select('id', 'vacuum_voucher_id', 'silver_wt')])
@@ -255,7 +260,7 @@ class CastingMetalIssueApiController extends Controller
             ], 404);
         }
 
-        $company = Company::findOrFail((int) $request->user()->company_id);
+        $company = Company::findOrFail(\App\Services\CompanyBranches::apiManagementCompanyId($request));
         $heatingItems = $voucher->heatingItems->keyBy('vacuum_voucher_item_id');
         $issueItems = $voucher->metalIssueItems->keyBy('vacuum_voucher_item_id');
 
@@ -266,12 +271,12 @@ class CastingMetalIssueApiController extends Controller
 
     private function findVoucher(Request $request, int $id): ?VacuumVoucher
     {
-        return VacuumVoucher::where('company_id', (int) $request->user()->company_id)
+        return VacuumVoucher::where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId($request))
             ->where('id', $id)
             ->with([
                 'process:id,name',
                 'jobWorker:id,name',
-                'items' => fn($query) => $this->inBhatiVoucherItemsQuery($query, (int) $request->user()->company_id),
+                'items' => fn($query) => $this->inBhatiVoucherItemsQuery($query, \App\Services\CompanyBranches::apiManagementCompanyId($request)),
                 'heatingItems',
                 'metalIssueItems',
             ])

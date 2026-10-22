@@ -13,7 +13,11 @@ class LabelConfigController extends Controller
     // ================= LIST =================
     public function index(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        return \App\Services\ItemManagementApiBranches::listing($request, fn ($companyId) => $this->listForCompany($request, $companyId), 'Label Config');
+    }
+
+    private function listForCompany(Request $request, int $companyId)
+    {
     
         $configs = LabelConfig::with('item')
                     ->where('company_id', $companyId)
@@ -37,7 +41,7 @@ class LabelConfigController extends Controller
     // ================= SHOW =================
     public function show(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $config = LabelConfig::with('item')
                     ->where('company_id', $companyId)
@@ -61,7 +65,7 @@ class LabelConfigController extends Controller
     // ================= STORE =================
     public function store(Request $request)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $validated = $request->validate([
             'item_id' => 'required|exists:items,id',
@@ -125,7 +129,7 @@ class LabelConfigController extends Controller
     // ================= UPDATE =================
     public function update(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $config = LabelConfig::where('company_id', $companyId)
                     ->where('id', $id)
@@ -217,7 +221,7 @@ class LabelConfigController extends Controller
     // ================= DELETE =================
     public function destroy(Request $request, $id)
     {
-        $companyId = $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $config = LabelConfig::where('company_id', $companyId)
                     ->where('id', $id)

@@ -2,6 +2,7 @@
 
 @section('content')
 <div class="content-wrapper">
+@include('company.reports.partials.branch_filter')
     <div class="card">
         <div class="card-header">
             <h4 class="card-title mb-0">Outstanding Amount Report</h4>
@@ -382,7 +383,7 @@
                             <th>Amount In</th>
                             <th>Amount Out</th>
                             <th>Pending</th>
-                        </tr>
+                        <th>Branch</th></tr>
                     </thead>
                 </table>
             </div>
@@ -496,6 +497,7 @@ $(function () {
             { data: 'amount_in_fmt', orderable: false, searchable: false },
             { data: 'amount_out_fmt', orderable: false, searchable: false },
             { data: 'pending_amount_fmt', orderable: false, searchable: false },
+            { data: 'branch_name', orderable: false, searchable: false, defaultContent: '' },
         ]
     });
 
@@ -548,15 +550,15 @@ $(function () {
     syncFilterInputs();
 
     $('#excel').on('click', function () {
-        window.location.href = "{{ route('company.reports.outstanding-amount.export.excel', $company->slug) }}?" + $.param(queryParams());
+        window.location.href = window.reportBranchUrl("{{ route('company.reports.outstanding-amount.export.excel', $company->slug) }}?" + $.param(queryParams()));
     });
 
     $('#pdf').on('click', function () {
-        window.location.href = "{{ route('company.reports.outstanding-amount.export.pdf', $company->slug) }}?" + $.param(queryParams());
+        window.location.href = window.reportBranchUrl("{{ route('company.reports.outstanding-amount.export.pdf', $company->slug) }}?" + $.param(queryParams()));
     });
 
     $('#ledger_print').on('click', function () {
-        window.location.href = "{{ route('company.reports.outstanding-amount.export.ledger-pdf', $company->slug) }}?" + $.param(queryParams());
+        window.location.href = window.reportBranchUrl("{{ route('company.reports.outstanding-amount.export.ledger-pdf', $company->slug) }}?" + $.param(queryParams()));
     });
 });
 </script>

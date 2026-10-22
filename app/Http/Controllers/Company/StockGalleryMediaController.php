@@ -24,7 +24,7 @@ class StockGalleryMediaController extends Controller
     private function item(Request $request, string $slug, string $encryptedId): ItemSet
     {
         $company = Company::whereSlug($slug)->firstOrFail();
-        abort_unless((int) $request->user()->company_id === (int) $company->id, 403);
+        abort_unless(\App\Services\BranchReadOnly::canWrite($request->user(), $company->id) || ($request->isMethod('GET') && \App\Services\CompanyBranches::isActive($company) && \App\Services\CompanyBranches::visibleCompanies($request->user())->contains('id', $company->id)), 403);
         try { $id = Crypt::decryptString($encryptedId); }
         catch (\Throwable) { abort(404); }
         return ItemSet::with('item')->where('company_id', $company->id)->where('is_final', 1)->findOrFail($id);

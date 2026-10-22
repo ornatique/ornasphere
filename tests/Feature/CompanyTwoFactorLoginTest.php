@@ -33,6 +33,17 @@ class CompanyTwoFactorLoginTest extends TestCase
         $this->app['session']->start();
     }
 
+    public function test_inactive_company_keeps_its_login_page_and_blocks_login(): void
+    {
+        view()->share('errors', new \Illuminate\Support\ViewErrorBag);
+        Company::whereKey(1)->update(['status'=>0]);
+        $response = (new CompanyAuthController)->show('test-company');
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue($response->original->getData()['companyInactive']);
+        $this->assertSame(route('company.login', 'test-company'), $this->login()->getTargetUrl());
+        $this->assertFalse(Auth::check());
+    }
+
     private function request(array $data=[]): Request
     {
         $request=Request::create('/company/test-company/login','POST',$data);
@@ -156,3 +167,4 @@ class CompanyTwoFactorLoginTest extends TestCase
         $this->assertSame('TWO_FACTOR_SETUP_REQUIRED',$response->getData(true)['code']);
     }
 }
+

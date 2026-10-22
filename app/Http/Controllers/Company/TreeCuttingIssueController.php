@@ -23,18 +23,19 @@ class TreeCuttingIssueController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $selectedCompanies = \App\Services\CompanyBranches::managementSelection($request, $company);
         $fromDate = $request->get('from_date', now()->subDays(6)->toDateString());
         $toDate = $request->get('to_date', now()->toDateString());
         $workerId = $request->get('worker_id');
 
-        if ($request->ajax()) {
+        if ($request->ajax() || $request->filled('export')) {
             $rows = VacuumVoucher::query()
-                ->where('company_id', $company->id)
-                ->whereExists(function ($query) use ($company, $fromDate, $toDate) {
+                ->whereIn('company_id', $selectedCompanies->keys())
+                ->whereExists(function ($query) use ($fromDate, $toDate) {
                     $query->selectRaw('1')
                         ->from('casting_release_items')
                         ->whereColumn('casting_release_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('casting_release_items.company_id', $company->id)
+                        ->whereColumn('casting_release_items.company_id', 'vacuum_vouchers.company_id')
                         ->where(function ($q) {
                             $q->where('casting_release_items.is_custom', false)
                                 ->orWhereNull('casting_release_items.is_custom');
@@ -46,39 +47,39 @@ class TreeCuttingIssueController extends Controller
                         ->when($fromDate, fn($q) => $q->whereDate(DB::raw('COALESCE(casting_release_items.released_at, casting_release_items.created_at)'), '>=', $fromDate))
                         ->when($toDate, fn($q) => $q->whereDate(DB::raw('COALESCE(casting_release_items.released_at, casting_release_items.created_at)'), '<=', $toDate));
                 })
-                ->when($workerId, function ($q) use ($company, $workerId) {
-                    $q->where(function ($workerQuery) use ($company, $workerId) {
+                ->when($workerId, function ($q) use ($workerId) {
+                    $q->where(function ($workerQuery) use ($workerId) {
                         $workerQuery->where('job_worker_id', $workerId)
-                            ->orWhereExists(function ($query) use ($company, $workerId) {
+                            ->orWhereExists(function ($query) use ($workerId) {
                                 $query->selectRaw('1')
                                     ->from('tree_cutting_issue_items')
                                     ->whereColumn('tree_cutting_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                                    ->where('tree_cutting_issue_items.company_id', $company->id)
+                                    ->whereColumn('tree_cutting_issue_items.company_id', 'vacuum_vouchers.company_id')
                                     ->where('tree_cutting_issue_items.job_worker_id', $workerId);
                             });
                     });
                 })
                 ->with(['process:id,name', 'jobWorker:id,name'])
                 ->select('vacuum_vouchers.*')
-                ->selectSub(function ($query) use ($company) {
+                ->selectSub(function ($query) {
                     $query->from('casting_release_items')
                         ->selectRaw('MAX(COALESCE(casting_release_items.released_at, casting_release_items.created_at))')
                         ->whereColumn('casting_release_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('casting_release_items.company_id', $company->id)
+                        ->whereColumn('casting_release_items.company_id', 'vacuum_vouchers.company_id')
                         ->where(function ($q) {
                             $q->where('casting_release_items.is_custom', false)
                                 ->orWhereNull('casting_release_items.is_custom');
                         });
                 }, 'casting_receive_datetime')
-                ->selectSub(function ($query) use ($company) {
+                ->selectSub(function ($query) {
                     $query->from('casting_release_items')
-                        ->leftJoin('tree_cutting_office_items', function ($join) use ($company) {
+                        ->leftJoin('tree_cutting_office_items', function ($join) {
                             $join->on('tree_cutting_office_items.vacuum_voucher_item_id', '=', 'casting_release_items.vacuum_voucher_item_id')
-                                ->where('tree_cutting_office_items.company_id', $company->id);
+                                ->whereColumn('tree_cutting_office_items.company_id', 'vacuum_vouchers.company_id');
                         })
                         ->selectRaw('COUNT(*)')
                         ->whereColumn('casting_release_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('casting_release_items.company_id', $company->id)
+                        ->whereColumn('casting_release_items.company_id', 'vacuum_vouchers.company_id')
                         ->where(function ($q) {
                             $q->where('casting_release_items.is_custom', false)
                                 ->orWhereNull('casting_release_items.is_custom');
@@ -89,50 +90,52 @@ class TreeCuttingIssueController extends Controller
                         })
                         ->whereRaw('GREATEST(COALESCE(casting_release_items.release_tree_wt, 0) - COALESCE(tree_cutting_office_items.office_cut_wt, 0), 0) > 0');
                 }, 'received_count')
-                ->selectSub(function ($query) use ($company) {
+                ->selectSub(function ($query) {
                     $query->from('tree_cutting_issue_items')
                         ->selectRaw('COUNT(*)')
                         ->whereColumn('tree_cutting_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('tree_cutting_issue_items.company_id', $company->id)
+                        ->whereColumn('tree_cutting_issue_items.company_id', 'vacuum_vouchers.company_id')
                         ->whereNotNull('tree_cutting_issue_items.job_worker_id')
                         ->where('tree_cutting_issue_items.receive_tree_wt', '>', 0);
                 }, 'tree_cutting_count')
-                ->selectSub(function ($query) use ($company) {
+                ->selectSub(function ($query) {
                     $query->from('tree_cutting_issue_items')
                         ->selectRaw('COALESCE(SUM(tree_cutting_issue_items.receive_tree_wt), 0)')
                         ->whereColumn('tree_cutting_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('tree_cutting_issue_items.company_id', $company->id)
+                        ->whereColumn('tree_cutting_issue_items.company_id', 'vacuum_vouchers.company_id')
                         ->whereNotNull('tree_cutting_issue_items.job_worker_id')
                         ->where('tree_cutting_issue_items.receive_tree_wt', '>', 0);
                 }, 'receive_tree_wt_total')
-                ->selectSub(function ($query) use ($company) {
+                ->selectSub(function ($query) {
                     $query->from('tree_cutting_office_items')
                         ->selectRaw('COALESCE(SUM(tree_cutting_office_items.office_cut_wt), 0)')
                         ->whereColumn('tree_cutting_office_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('tree_cutting_office_items.company_id', $company->id);
+                        ->whereColumn('tree_cutting_office_items.company_id', 'vacuum_vouchers.company_id');
                 }, 'office_cut_wt_total')
-                ->selectSub(function ($query) use ($company) {
+                ->selectSub(function ($query) {
                     $query->from('tree_cutting_issue_items')
                         ->leftJoin('job_workers', 'job_workers.id', '=', 'tree_cutting_issue_items.job_worker_id')
                         ->selectRaw("GROUP_CONCAT(DISTINCT job_workers.name ORDER BY job_workers.name SEPARATOR ', ')")
                         ->whereColumn('tree_cutting_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('tree_cutting_issue_items.company_id', $company->id)
+                        ->whereColumn('tree_cutting_issue_items.company_id', 'vacuum_vouchers.company_id')
                         ->whereNotNull('tree_cutting_issue_items.job_worker_id')
                         ->where('tree_cutting_issue_items.receive_tree_wt', '>', 0);
                 }, 'tree_cutting_worker_names')
-                ->selectSub(function ($query) use ($company) {
+                ->selectSub(function ($query) {
                     $query->from('tree_cutting_issue_items')
                         ->selectRaw('MAX(COALESCE(tree_cutting_issue_items.issued_at, tree_cutting_issue_items.created_at))')
                         ->whereColumn('tree_cutting_issue_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('tree_cutting_issue_items.company_id', $company->id)
+                        ->whereColumn('tree_cutting_issue_items.company_id', 'vacuum_vouchers.company_id')
                         ->whereNotNull('tree_cutting_issue_items.job_worker_id')
                         ->where('tree_cutting_issue_items.receive_tree_wt', '>', 0);
                 }, 'tree_cutting_issue_datetime')
                 ->orderByDesc('casting_receive_datetime')
                 ->orderByDesc('id');
 
-            return DataTables::of($rows)
+            $table = DataTables::of($rows)
                 ->addIndexColumn()
+                ->addColumn('company_name', fn ($row) => $selectedCompanies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
                 ->addColumn('voucher_no_view', fn($row) => $row->voucher_no)
                 ->addColumn('date_time_view', fn($row) => $row->tree_cutting_issue_datetime ? \Carbon\Carbon::parse($row->tree_cutting_issue_datetime)->format('d-m-Y / h:i A') : ($row->casting_receive_datetime ? \Carbon\Carbon::parse($row->casting_receive_datetime)->format('d-m-Y / h:i A') : '-'))
                 ->addColumn('process_name', fn($row) => $row->process?->name ?? '-')
@@ -149,7 +152,8 @@ class TreeCuttingIssueController extends Controller
 
                     return '<span class="count-badge ' . ($pending > 0 ? 'count-pending' : 'count-complete') . '">' . $pending . '</span>';
                 })
-                ->addColumn('action', function ($row) use ($company) {
+                ->addColumn('action', function ($row) use ($selectedCompanies) {
+                    $company = $selectedCompanies[$row->company_id];
                     $id = Crypt::encryptString((string) $row->id);
                     $view = route('company.tree-cutting-issue.show', [$company->slug, $id]);
                     $pdf = route('company.tree-cutting-issue.pdf', [$company->slug, $id]);
@@ -160,10 +164,11 @@ class TreeCuttingIssueController extends Controller
                     </div>';
                 })
                 ->rawColumns(['assigned_tree_cutting_view', 'pending_tree_cutting_view', 'action'])
-                ->make(true);
+                ;
+            return \App\Services\CastingListExport::respond($table, $request, $selectedCompanies, 'tree-cutting-issue');
         }
 
-        $jobWorkers = WorkerPersonService::activeWorkers((int) $company->id);
+        $jobWorkers = $selectedCompanies->flatMap(fn ($branch) => WorkerPersonService::activeWorkers((int) $branch->id)->each(fn ($worker) => $worker->name .= ' - '.$branch->name))->values();
 
         return view('company.tree_cutting_issue.index', compact('company', 'fromDate', 'toDate', 'jobWorkers'));
     }

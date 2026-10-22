@@ -13,7 +13,11 @@ class ProductionStepApiController extends Controller
 {
     public function index(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        return \App\Services\JobworkApiBranches::listing($request, fn ($companyId) => $this->indexForCompany($request, $companyId), 'Production Step');
+    }
+
+    private function indexForCompany(Request $request, int $companyId)
+    {
 
         $data = ProductionStep::where('company_id', $companyId)
             ->with(['labourFormula:id,name', 'productionCost:id,name'])
@@ -33,7 +37,7 @@ class ProductionStepApiController extends Controller
 
     public function options(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $rows = ProductionStep::where('company_id', $companyId)
             ->when($request->boolean('active_only', true), fn($q) => $q->where('status', true))
@@ -48,7 +52,7 @@ class ProductionStepApiController extends Controller
 
     public function show(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $data = ProductionStep::where('company_id', $companyId)
             ->with(['labourFormula:id,name', 'productionCost:id,name'])
@@ -72,7 +76,7 @@ class ProductionStepApiController extends Controller
     public function store(Request $request)
     {
         $userId = (int) $request->user()->id;
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $validated = $this->validateData($request, $companyId);
 
         $data = ProductionStep::create([
@@ -101,7 +105,7 @@ class ProductionStepApiController extends Controller
     public function update(Request $request, $id)
     {
         $userId = (int) $request->user()->id;
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $data = ProductionStep::where('company_id', $companyId)->where('id', $id)->first();
         if (!$data) {
@@ -136,7 +140,7 @@ class ProductionStepApiController extends Controller
 
     public function destroy(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $data = ProductionStep::where('company_id', $companyId)->where('id', $id)->first();
 
         if (!$data) {

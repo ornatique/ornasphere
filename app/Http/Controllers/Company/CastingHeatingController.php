@@ -19,23 +19,24 @@ class CastingHeatingController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $selectedCompanies = \App\Services\CompanyBranches::managementSelection($request, $company);
         $fromDate = $request->get('from_date', now()->subDays(6)->toDateString());
         $toDate = $request->get('to_date', now()->toDateString());
         $workerId = $request->get('worker_id');
 
-        if ($request->ajax()) {
+        if ($request->ajax() || $request->filled('export')) {
             $rows = VacuumVoucher::query()
-                ->where('company_id', $company->id)
+                ->whereIn('company_id', $selectedCompanies->keys())
                 ->when($fromDate, fn($q) => $q->whereDate('voucher_date', '>=', $fromDate))
                 ->when($toDate, fn($q) => $q->whereDate('voucher_date', '<=', $toDate))
                 ->when($workerId, fn($q) => $q->where('job_worker_id', $workerId))
                 ->with(['process:id,name', 'jobWorker:id,name'])
                 ->select('vacuum_vouchers.*')
-                ->selectSub(function ($query) use ($company) {
+                ->selectSub(function ($query) {
                     $query->from('casting_heating_items')
                         ->selectRaw('MAX(COALESCE(casting_heating_items.checked_at, casting_heating_items.created_at))')
                         ->whereColumn('casting_heating_items.vacuum_voucher_id', 'vacuum_vouchers.id')
-                        ->where('casting_heating_items.company_id', $company->id)
+                        ->whereColumn('casting_heating_items.company_id', 'vacuum_vouchers.company_id')
                         ->whereExists(function ($exists) {
                             $exists->selectRaw('1')
                                 ->from('vacuum_voucher_items')
@@ -56,8 +57,10 @@ class CastingHeatingController extends Controller
                         }),
                 ]);
 
-            return DataTables::of($rows)
+            $table = DataTables::of($rows)
                 ->addIndexColumn()
+                ->addColumn('company_name', fn ($row) => $selectedCompanies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
                 ->addColumn('voucher_no_view', fn($row) => $row->voucher_no)
                 ->addColumn('date_time_view', fn($row) => $row->heating_datetime ? \Carbon\Carbon::parse($row->heating_datetime)->format('d-m-Y / h:i A') : (optional($row->created_at)->format('d-m-Y / h:i A') ?? '-'))
                 ->addColumn('process_name', fn($row) => $row->process?->name ?? '-')
@@ -65,17 +68,19 @@ class CastingHeatingController extends Controller
                 ->addColumn('total_pcs', fn($row) => (int) ($row->items_count ?? 0))
                 ->addColumn('in_bhati_pcs', fn($row) => (int) ($row->in_bhati_count ?? 0))
                 ->addColumn('created_at_view', fn($row) => optional($row->created_at)->format('d-m-Y / h:i A') ?? '-')
-                ->addColumn('action', function ($row) use ($company) {
+                ->addColumn('action', function ($row) use ($selectedCompanies) {
+                    $company = $selectedCompanies[$row->company_id];
                     $id = Crypt::encryptString((string) $row->id);
                     $view = route('company.casting-heating.show', [$company->slug, $id]);
 
                     return '<a href="' . $view . '" class="btn btn-sm btn-info">View</a>';
                 })
                 ->rawColumns(['action'])
-                ->make(true);
+                ;
+            return \App\Services\CastingListExport::respond($table, $request, $selectedCompanies, 'casting-heating');
         }
 
-        $jobWorkers = WorkerPersonService::activeWorkers((int) $company->id);
+        $jobWorkers = $selectedCompanies->flatMap(fn ($branch) => WorkerPersonService::activeWorkers((int) $branch->id)->each(fn ($worker) => $worker->name .= ' - '.$branch->name))->values();
 
         return view('company.casting_heating.index', compact('company', 'fromDate', 'toDate', 'jobWorkers'));
     }

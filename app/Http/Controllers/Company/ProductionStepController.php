@@ -19,16 +19,17 @@ class ProductionStepController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $selectedCompanies = \App\Services\CompanyBranches::managementSelection($request, $company);
 
-        if ($request->ajax()) {
+        if ($request->ajax() || $request->filled('export')) {
             $rows = ProductionStep::query()
-                ->where('company_id', $company->id)
+                ->whereIn('company_id', $selectedCompanies->keys())
                 ->select('production_steps.*')
                 ->selectSub(function ($q) use ($company) {
                     $q->from('jobwork_issues')
                         ->selectRaw('COUNT(DISTINCT job_worker_id)')
                         ->whereColumn('jobwork_issues.production_step_id', 'production_steps.id')
-                        ->where('jobwork_issues.company_id', $company->id);
+                        ->whereColumn('jobwork_issues.company_id', 'production_steps.company_id');
                 }, 'assigned_jobworkers_count')
                 ->with([
                     'labourFormula:id,name',
@@ -37,8 +38,10 @@ class ProductionStepController extends Controller
                     'updatedByUser:id,name',
                 ]);
 
-            return DataTables::of($rows)
+            $table = DataTables::of($rows)
                 ->addIndexColumn()
+                ->addColumn('company_name', fn ($row) => $selectedCompanies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
                 ->addColumn('labour_formula_name', fn($row) => $row->labourFormula?->name ?? '-')
                 ->addColumn('production_cost_name', fn($row) => $row->productionCost?->name ?? '-')
                  ->addColumn('user_name', fn($row) => $row->createdByUser?->name ?? $row->updatedByUser?->name ?? '-')
@@ -50,7 +53,8 @@ class ProductionStepController extends Controller
                 })
                 ->addColumn('modified_at_view', fn($row) => optional($row->updated_at)->format('d-m-Y h:i A') ?? '-')
                 ->addColumn('created_at_view', fn($row) => optional($row->created_at)->format('d-m-Y h:i A') ?? '-')
-                ->addColumn('action', function ($row) use ($company) {
+                ->addColumn('action', function ($row) use ($selectedCompanies) {
+                    $company = $selectedCompanies[$row->company_id];
                     $encryptedId = Crypt::encryptString((string) $row->id);
                     $edit = route('company.production-step.edit', [$company->slug, $encryptedId]);
                     $delete = route('company.production-step.destroy', [$company->slug, $encryptedId]);
@@ -64,7 +68,8 @@ class ProductionStepController extends Controller
                     ';
                 })
                 ->rawColumns(['receivable_loss_badge', 'action'])
-                ->make(true);
+                ;
+            return \App\Services\JobworkListExport::respond($table, $request, $selectedCompanies, 'production-step');
         }
 
         return view('company.production_step.index', compact('company'));

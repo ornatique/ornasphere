@@ -18,7 +18,12 @@ class CastingReceiveApiController extends Controller
 {
     public function index(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        return \App\Services\CastingApiBranches::listing($request,
+            fn (int $companyId) => $this->listForCompany($request, $companyId), 'Casting Receive');
+    }
+
+    private function listForCompany(Request $request, int $companyId)
+    {
         $fromDate = $request->input('from_date', now()->toDateString());
         $toDate = $request->input('to_date', now()->toDateString());
 
@@ -164,7 +169,7 @@ class CastingReceiveApiController extends Controller
 
     public function update(Request $request, $id)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $voucher = VacuumVoucher::where('company_id', $companyId)
             ->with(['items:id,vacuum_voucher_id', 'metalIssueItems'])
             ->find((int) $id);
@@ -387,7 +392,7 @@ class CastingReceiveApiController extends Controller
             ], 404);
         }
 
-        $company = Company::findOrFail((int) $request->user()->company_id);
+        $company = Company::findOrFail(\App\Services\CompanyBranches::apiManagementCompanyId($request));
         $issueItems = $voucher->metalIssueItems->keyBy('vacuum_voucher_item_id');
         $releaseItems = $voucher->releaseItems
             ->filter(fn($item) => !((bool) $item->is_custom))
@@ -403,7 +408,7 @@ class CastingReceiveApiController extends Controller
 
     private function findVoucher(Request $request, int $id): ?VacuumVoucher
     {
-        return VacuumVoucher::where('company_id', (int) $request->user()->company_id)
+        return VacuumVoucher::where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId($request))
             ->where('id', $id)
             ->with([
                 'process:id,name',

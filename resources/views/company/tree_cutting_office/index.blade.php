@@ -12,6 +12,7 @@
             <h4 class="card-title">Tree Cutting Issue Office Voucher List</h4>
         </div>
         <div class="card-body">
+            @include('company_layout.casting_exports')
             
 
             <div class="tree-office-filters">
@@ -51,6 +52,7 @@
                             <th>Tree Wt</th>
                             <th>Office Cut Wt</th>
                             <th>Remaining Tree Wt</th>
+                            <th>Company / Branch</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -116,7 +118,7 @@
         processing: true,
         serverSide: true,
         ajax: {
-            url: "{{ route('company.tree-cutting-office.index', $company->slug) }}",
+            url: "{!! route('company.tree-cutting-office.index', array_merge(['slug' => $company->slug], request()->only('management_branches'))) !!}",
             data: function (data) {
                 data.from_date = $('#fromDate').val();
                 data.to_date = $('#toDate').val();
@@ -134,6 +136,7 @@
             { data: 'tree_wt_view', name: 'tree_wt_total', orderable: false, searchable: false },
             { data: 'office_cut_wt_view', name: 'office_cut_wt_total', orderable: false, searchable: false },
             { data: 'remaining_tree_wt_view', name: 'remaining_tree_wt_total', orderable: false, searchable: false },
+            { data: 'company_name', name: 'company_name', orderable: false, searchable: false },
             { data: 'action', name: 'action', orderable: false, searchable: false },
         ]
     });

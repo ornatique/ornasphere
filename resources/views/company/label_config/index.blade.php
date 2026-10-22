@@ -14,6 +14,8 @@
         </div>
 
         <div class="card-body">
+            @include('company_layout.item_management_exports')
+            <p class="text-muted">New records are created in {{ $company->name }}. Each existing record is managed in its own branch.</p>
 
             <div class="table-responsive">
 
@@ -27,7 +29,7 @@
 
                             <th>Prefix</th>
 
-                            <th width="150">Action</th>
+                            <th>Company / Branch</th><th width="150">Action</th>
                         </tr>
                     </thead>
 
@@ -49,7 +51,7 @@
             processing: true,
             serverSide: true,
 
-            ajax: "{{ route('company.label_config.index', $company->slug) }}",
+            ajax: "{!! route('company.label_config.index', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}",
 
             columns: [{
                     data: 'DT_RowIndex',
@@ -72,6 +74,7 @@
                     data: 'prefix',
                     name: 'prefix'
                 },
+                { data: 'company_name', orderable: false, searchable: false },
                 {
                     data: 'action',
                     name: 'action',

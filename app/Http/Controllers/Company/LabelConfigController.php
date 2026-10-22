@@ -18,20 +18,24 @@ class LabelConfigController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $companies = \App\Services\CompanyBranches::managementSelection($request, $company);
 
-        if ($request->ajax()) {
+        if ($request->ajax() || $request->filled('export')) {
 
             $data = LabelConfig::with('item')
-                ->where('company_id', $company->id)
+                ->whereIn('company_id', $companies->keys())
                 ->latest();
 
-            return DataTables::of($data)
+            $table = DataTables::of($data)
                  ->addIndexColumn()
+                ->addColumn('company_name', fn ($row) => $companies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
                 ->addColumn('item_name', function ($row) {
                     return $row->item->item_name ?? '';
                 })
 
-                ->addColumn('action', function ($row) use ($company) {
+                ->addColumn('action', function ($row) use ($companies) {
+                $company = $companies[$row->company_id];
 
                     $encryptedId = Crypt::encryptString($row->id);
                     $isLocked = $this->hasGeneratedLabelItems((int) $company->id, (int) $row->item_id);
@@ -72,7 +76,8 @@ class LabelConfigController extends Controller
                 })
 
                 ->rawColumns(['action'])
-                ->make(true);
+                ;
+            return \App\Services\ItemManagementListExport::respond($table, $request, $companies, 'label-config');
         }
 
         return view(

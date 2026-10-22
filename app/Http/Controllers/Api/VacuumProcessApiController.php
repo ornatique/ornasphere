@@ -12,7 +12,12 @@ class VacuumProcessApiController extends Controller
 {
     public function index(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        return \App\Services\CastingApiBranches::listing($request,
+            fn (int $companyId) => $this->listForCompany($request, $companyId), 'Vacuum Process');
+    }
+
+    private function listForCompany(Request $request, int $companyId)
+    {
 
         $rows = VacuumProcess::query()
             ->where('company_id', $companyId)
@@ -34,7 +39,7 @@ class VacuumProcessApiController extends Controller
 
     public function options(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $rows = VacuumProcess::where('company_id', $companyId)
             ->orderBy('name')
@@ -59,13 +64,13 @@ class VacuumProcessApiController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $this->formatRow($data, (int) $request->user()->company_id),
+            'data' => $this->formatRow($data, \App\Services\CompanyBranches::apiManagementCompanyId($request)),
         ]);
     }
 
     public function store(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $userId = (int) $request->user()->id;
 
         $validated = $this->validatePayload($request, $companyId);
@@ -96,7 +101,7 @@ class VacuumProcessApiController extends Controller
             ], 404);
         }
 
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $validated = $this->validatePayload($request, $companyId, (int) $data->id);
 
         $data->update([
@@ -123,7 +128,7 @@ class VacuumProcessApiController extends Controller
             ], 404);
         }
 
-        if ($this->isInUse((int) $request->user()->company_id, (int) $data->id)) {
+        if ($this->isInUse(\App\Services\CompanyBranches::apiManagementCompanyId($request), (int) $data->id)) {
             return response()->json([
                 'success' => false,
                 'message' => 'This process is already used in a voucher and cannot be deleted.',
@@ -163,7 +168,7 @@ class VacuumProcessApiController extends Controller
 
     private function findForCompany(Request $request, int $id): ?VacuumProcess
     {
-        return VacuumProcess::where('company_id', (int) $request->user()->company_id)
+        return VacuumProcess::where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId($request))
             ->where('id', $id)
             ->first();
     }

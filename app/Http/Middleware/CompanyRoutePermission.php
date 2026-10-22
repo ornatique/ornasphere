@@ -74,6 +74,9 @@ class CompanyRoutePermission
     private function moduleFromRouteName(string $routeName): ?string
     {
         $map = [
+            'company.gst-search.' => 'gst-search',
+            'company.customers.gst-search.' => 'gst-search',
+            'company.bullion.' => 'bullion',
             'company.qr-making.' => 'qr-making',
             'company.orders.' => 'customer-order',
             'company.cad.' => 'cad-design',
@@ -126,7 +129,7 @@ class CompanyRoutePermission
             'company.reports.purchase-receiver-summary.' => 'report-purchase-receiver-summary',
             'company.reports.stock-position.' => 'report-stock-position',
             'company.reports.approval-return-register.' => 'report-approval-outstanding',
-            'company.reports.approval-summary.' => 'report-approval-outstanding',
+            'company.reports.approval-summary.' => 'report-approval-summary',
             'company.reports.approval-outstanding.' => 'report-approval-outstanding',
             'company.reports.outstanding-amount.' => 'report-outstanding-amount',
             'company.reports.barcode-history.' => 'report-barcode-history',
@@ -154,6 +157,7 @@ class CompanyRoutePermission
 
     private function actionFromRouteName(string $routeName, Request $request): string
     {
+        if (Str::startsWith($routeName, ['company.gst-search.', 'company.customers.gst-search.'])) return 'view';
         $lastSegment = Str::afterLast($routeName, '.');
         $verb = strtoupper($request->method());
 

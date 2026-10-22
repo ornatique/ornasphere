@@ -92,7 +92,7 @@
 </head>
 <body>
     <div class="header">
-        <div class="company-name">{{ $company->company_name ?? $company->name ?? 'Company' }}</div>
+        <div class="company-name">{{ $branchNames ?? $company->company_name ?? $company->name ?? 'Company' }}</div>
         <div class="title">Stock Gallery</div>
         <div class="meta">
             <span>Generated: {{ now()->format('d-m-Y h:i A') }}</span>
@@ -114,7 +114,7 @@
                             @endphp
                             <td class="gallery-cell">
                                 <div class="card">
-                                    <div class="item-name">{{ $payload['item_name'] }}</div>
+                                    <div style="text-align:center">{{ $itemSet->stock_gallery_payload['company_name'] ?? '' }}</div><div class="item-name">{{ $payload['item_name'] }}</div>
                                     <div class="image-box">
                                         @if($image)
                                             <img src="{{ $image }}" alt="{{ $payload['label_code'] }}">

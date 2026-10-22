@@ -20,27 +20,47 @@ class VoucherHistoryController extends Controller
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $selectedCompanies = \App\Services\CompanyBranches::managementSelection($request, $company);
+        if ($request->filled('export')) {
+            $request->validate(['export' => 'required|in:pdf,excel']);
+            $records = [];
+            $exportVouchers = VacuumVoucher::whereIn('company_id', $selectedCompanies->keys())
+                ->with(['items'])->orderBy('company_id')->orderBy('id');
+            foreach ($exportVouchers->cursor() as $exportVoucher) {
+                $history = $this->historyForVoucher((int) $exportVoucher->company_id, $exportVoucher);
+                $base = ['company_name'=>$selectedCompanies[$exportVoucher->company_id]->name, 'voucher_no'=>$exportVoucher->voucher_no];
+                $records[] = $base + ['stage'=>'Summary', 'details'=>collect($history['summary'])->map(fn ($value, $key) => ucwords(str_replace('_', ' ', $key)).': '.$value)->implode('; ')];
+                foreach ($history as $stage => $section) {
+                    foreach (($section['rows'] ?? []) as $item) {
+                        $records[] = $base + ['stage'=>ucwords(str_replace('_', ' ', $stage)),
+                            'details'=>collect($item)->map(fn ($value, $key) => ucwords(str_replace('_', ' ', $key)).': '.(is_scalar($value) ? $value : ''))->implode('; ')];
+                    }
+                }
+            }
+            return \App\Services\CastingListExport::download($request, $selectedCompanies, 'Voucher Process History',
+                ['company_name'=>'Company / Branch', 'voucher_no'=>'Voucher No', 'stage'=>'Stage', 'details'=>'Details'], $records);
+        }
         $selectedVoucherId = $request->integer('voucher_id') ?: null;
 
-        $vouchers = VacuumVoucher::where('company_id', $company->id)
+        $vouchers = VacuumVoucher::whereIn('company_id', $selectedCompanies->keys())
             ->latest('id')
             ->limit(300)
-            ->get(['id', 'voucher_no', 'voucher_date']);
+            ->get(['id', 'company_id', 'voucher_no', 'voucher_date']);
 
         $voucher = null;
         $history = null;
 
         if ($selectedVoucherId) {
-            $voucher = VacuumVoucher::where('company_id', $company->id)
+            $voucher = VacuumVoucher::whereIn('company_id', $selectedCompanies->keys())
                 ->with(['process:id,name', 'jobWorker:id,name', 'items'])
                 ->find($selectedVoucherId);
 
             if ($voucher) {
-                $history = $this->historyForVoucher($company->id, $voucher);
+                $history = $this->historyForVoucher((int) $voucher->company_id, $voucher);
             }
         }
 
-        return view('company.voucher_history.index', compact('company', 'vouchers', 'voucher', 'history', 'selectedVoucherId'));
+        return view('company.voucher_history.index', compact('company', 'selectedCompanies', 'vouchers', 'voucher', 'history', 'selectedVoucherId'));
     }
 
     public function data($slug, $voucherId)
@@ -103,9 +123,7 @@ class VoucherHistoryController extends Controller
             ->orderBy('id')
             ->get();
 
-        $releaseItems = CastingReleaseItem::where('company_id', $companyId)
-            ->where('vacuum_voucher_id', $voucher->id)
-            ->when($validItemIds !== [], fn($query) => $query->whereIn('vacuum_voucher_item_id', $validItemIds))
+        $releaseItems = CastingReleaseItem::forVoucherHistory($companyId, $voucher->id, $validItemIds)
             ->with('voucherItem:id,buch_no,item_name,remarks')
             ->orderBy('id')
             ->get();
@@ -192,7 +210,7 @@ class VoucherHistoryController extends Controller
                     'loss' => $this->decimal($releaseItems->sum(fn($item) => (float) ($item->loss ?? 0))),
                 ],
                 'rows' => $releaseItems->map(fn($item) => [
-                    'buch_no' => $item->voucherItem?->buch_no ?? '-',
+                    'buch_no' => $this->buchNo($item),
                     'item_name' => $item->voucherItem?->item_name ?? '-',
                     'voucher_remarks' => $item->voucherItem?->remarks ?? '-',
                     'release_tree_wt' => $this->decimal($item->release_tree_wt),

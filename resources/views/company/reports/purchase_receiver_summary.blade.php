@@ -2,6 +2,8 @@
 
 @section('content')
 <div class="content-wrapper">
+@php($reportCompanyIds = \App\Services\ReportBranches::ids($company))
+@include('company.reports.partials.branch_filter')
     <div class="card">
         <div class="card-header">
             <h4 class="card-title mb-0">Purchase / Receiver Summary Report</h4>
@@ -21,7 +23,7 @@
                     <select id="customer_id" class="form-select">
                         <option value="">All Persons</option>
                         @foreach($customers as $customer)
-                            <option value="{{ $customer->id }}">{{ $customer->name }}</option>
+                            <option value="{{ $customer->id }}">{{ $customer->name }}{{ count($reportCompanyIds) > 1 ? ' — '.\App\Services\ReportBranches::name($customer->company_id) : '' }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -51,7 +53,7 @@
                         <th>Total</th>
                         <th>Remarks</th>
                         <th>Created By</th>
-                    </tr>
+                    <th>Branch</th></tr>
                 </thead>
                 <tfoot>
                     <tr>
@@ -66,7 +68,7 @@
                         <th id="t_return_total">0.00</th>
                         <th></th>
                         <th></th>
-                    </tr>
+                    <th></th></tr>
                 </tfoot>
             </table>
         </div>
@@ -131,6 +133,7 @@ $(function () {
             { data: 'return_total' },
             { data: 'remarks', orderable: false, searchable: false },
             { data: 'created_by', orderable: false, searchable: false },
+            { data: 'branch_name', orderable: false, searchable: false, defaultContent: '' },
         ]
     });
 
@@ -151,11 +154,11 @@ $(function () {
     }
 
     $('#export_excel').on('click', function () {
-        window.location.href = "{{ route('company.reports.purchase-receiver-summary.export.excel', $company->slug) }}?" + queryParams();
+        window.location.href = window.reportBranchUrl("{{ route('company.reports.purchase-receiver-summary.export.excel', $company->slug) }}?" + queryParams());
     });
 
     $('#export_pdf').on('click', function () {
-        window.location.href = "{{ route('company.reports.purchase-receiver-summary.export.pdf', $company->slug) }}?" + queryParams();
+        window.location.href = window.reportBranchUrl("{{ route('company.reports.purchase-receiver-summary.export.pdf', $company->slug) }}?" + queryParams());
     });
 });
 </script>

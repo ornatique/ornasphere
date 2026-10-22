@@ -19,21 +19,24 @@ class CompanyRoleController extends Controller
     public function index($slug, Request $request)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
+        $selectedCompanies = \App\Services\CompanyBranches::managementSelection($request, $company);
 
         if ($request->ajax()) {
-            $roles = Role::where('company_id', $company->id);
+            $roles = Role::whereIn('company_id', $selectedCompanies->keys());
 
             return DataTables::of($roles)
                 ->addIndexColumn()
-                ->addColumn('users_count', function ($role) use ($company) {
-                    return $this->usersCountForRole((int) $role->id, (int) $company->id);
+                ->addColumn('company_name', fn ($row) => $selectedCompanies[$row->company_id]->name)
+                ->addColumn('company_id', fn ($row) => $row->company_id)
+                ->addColumn('users_count', function ($role) use ($selectedCompanies) {
+                    return $this->usersCountForRole((int) $role->id, (int) $role->company_id);
                 })
-                ->addColumn('action', function ($role) use ($company) {
+                ->addColumn('action', function ($role) use ($selectedCompanies) {
                     $encryptedId = Crypt::encryptString($role->id);
 
-                    $editUrl = route('company.roles.edit', [$company->slug, $encryptedId]);
-                    $deleteUrl = route('company.roles.delete', [$company->slug, $encryptedId]);
-                    $deleteBtn = $this->usersCountForRole((int) $role->id, (int) $company->id) > 0
+                    $editUrl = route('company.roles.edit', [$selectedCompanies[$role->company_id]->slug, $encryptedId]);
+                    $deleteUrl = route('company.roles.delete', [$selectedCompanies[$role->company_id]->slug, $encryptedId]);
+                    $deleteBtn = $this->usersCountForRole((int) $role->id, (int) $role->company_id) > 0
                         ? '<span class="badge badge-danger">In Use</span>'
                         : '<form method="POST" action="' . $deleteUrl . '" style="display:inline">
                             ' . csrf_field() . method_field('DELETE') . '
@@ -244,6 +247,8 @@ class CompanyRoleController extends Controller
             'label-print',
             'other-charge',
             'stock-gallery',
+            'bullion',
+            'gst-search',
             'qr-making',
             // Temporarily disabled: 'customer-order',
             // Temporarily disabled: 'cad-design',
@@ -256,6 +261,7 @@ class CompanyRoleController extends Controller
             'report-purchase-receiver-summary',
             'report-stock-position',
             'report-approval-outstanding',
+            'report-approval-summary',
             'report-outstanding-amount',
             'report-barcode-history',
             'report-worker-loss',
@@ -298,6 +304,8 @@ class CompanyRoleController extends Controller
             'label-print' => 'Label Printing',
             'other-charge' => 'Other Charges',
             'stock-gallery' => 'Stock Gallery',
+            'bullion' => 'Bullion Management',
+            'gst-search' => 'GST Search',
             'qr-making' => 'QR Making',
             // Temporarily disabled: 'customer-order' => 'Customer Orders',
             // Temporarily disabled: 'cad-design' => 'CAD Designs',
@@ -309,6 +317,7 @@ class CompanyRoleController extends Controller
             'report-sales-summary' => 'Sales Summary',
             'report-purchase-receiver-summary' => 'Purchase / Receiver Summary',
             'report-stock-position' => 'Stock Position',
+            'report-approval-summary' => 'Approval Summary',
             'report-approval-outstanding' => 'Approval Outstanding',
             'report-outstanding-amount' => 'Outstanding Amount',
             'report-barcode-history' => 'Barcode History',
@@ -352,6 +361,8 @@ class CompanyRoleController extends Controller
             'label-print' => 'Item Management',
             'other-charge' => 'Item Management',
             'stock-gallery' => 'Stock Gallery',
+            'bullion' => 'Bullion Management',
+            'gst-search' => 'GST Search',
             'qr-making' => 'QR Making',
             // Temporarily disabled: 'customer-order' => 'Customer Orders',
             // Temporarily disabled: 'cad-design' => 'CAD Designs',
@@ -363,6 +374,7 @@ class CompanyRoleController extends Controller
             'report-sales-summary' => 'Reports',
             'report-purchase-receiver-summary' => 'Reports',
             'report-stock-position' => 'Reports',
+            'report-approval-summary' => 'Approval Summary',
             'report-approval-outstanding' => 'Reports',
             'report-outstanding-amount' => 'Reports',
             'report-barcode-history' => 'Reports',
@@ -404,6 +416,8 @@ class CompanyRoleController extends Controller
             'item',
             'item-set',
             'stock-gallery',
+            'bullion',
+            'gst-search',
             'qr-making',
             // Temporarily disabled: 'customer-order',
             // Temporarily disabled: 'cad-design',
@@ -434,6 +448,7 @@ class CompanyRoleController extends Controller
             'report-purchase-receiver-summary',
             'report-stock-position',
             'report-approval-outstanding',
+            'report-approval-summary',
             'report-outstanding-amount',
             'report-barcode-history',
             'report-worker-loss',
@@ -493,6 +508,9 @@ class CompanyRoleController extends Controller
 
     private function actionsForModule(string $module): array
     {
+        if ($module === 'bullion') return ['view', 'create'];
+        if ($module === 'report-approval-summary') return ['view'];
+        if ($module === 'gst-search') return ['view'];
         return in_array($module, ['dashboard', 'notification', 'vacuum-live-dashboard'], true)
             ? ['view']
             : ['view', 'create', 'edit', 'delete', 'manage'];

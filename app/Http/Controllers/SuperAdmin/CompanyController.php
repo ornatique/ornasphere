@@ -33,6 +33,10 @@ class CompanyController extends Controller
         if ($request->ajax()) {
 
             $companies = Company::query()
+                ->when(\App\Services\CompanyBranches::ready(), function ($query) {
+                    $query->whereNull('parent_company_id')
+                        ->with(['branches' => fn ($branches) => $branches->withCount('users')->orderBy('name')]);
+                })
                 ->withCount('users')
                 ->withCount(['planRenewals as plan_renewals_count'])
                 ->with(['users' => function ($query) {
@@ -49,6 +53,12 @@ class CompanyController extends Controller
             return DataTables::of($companies)
 
                 ->addIndexColumn()
+                ->editColumn('name', function ($row) {
+                    return view('superadmin.auth.company.branch-list', [
+                        'company' => $row,
+                        'parentActive' => $this->companyEffectiveStatus($row),
+                    ])->render();
+                })
                 ->addColumn('password_set_url', function ($row) {
 
                     $adminUser = $row->users->first();
@@ -82,7 +92,7 @@ class CompanyController extends Controller
                 ->addColumn('plan_status', function ($row) {
                     $status = CompanyPlanService::status($row);
                     $badgeClass = $status['expired'] ? 'badge-danger' : 'badge-success';
-                    $label = $status['expired'] ? 'Expired' : 'Active';
+                    $label = $row->plan === 'trial' ? ($status['expired'] ? 'Trial Expired' : 'Trial - '.$status['days_remaining'].' days left') : ($status['expired'] ? 'Plan Expired' : 'Paid - Active');
 
                     return '
                         <div class="plan-status-cell">
@@ -155,7 +165,7 @@ class CompanyController extends Controller
 
 
 
-                ->rawColumns(['password_set_url', 'logo', 'plan_status', 'action', 'status'])
+                ->rawColumns(['name', 'password_set_url', 'logo', 'plan_status', 'action', 'status'])
                 ->make(true);
         }
 
@@ -164,13 +174,8 @@ class CompanyController extends Controller
 
     private function companyEffectiveStatus(Company $company): bool
     {
-        $adminUser = $company->users->first();
-
-        if (!$adminUser) {
-            return (bool) $company->status;
-        }
-
-        return (bool) $company->status && (bool) $adminUser->is_active;
+        // Company access and individual user access are independent settings.
+        return (bool) $company->status;
     }
 
     private function companyAdminUsersQuery(Company $company)
@@ -215,7 +220,7 @@ class CompanyController extends Controller
             'admin_name' => 'nullable|string|max:255',
             'email'     => 'required|email|unique:users,email',
             'max_users' => 'required|integer|min:1',
-            'plan'      => 'required|string|in:yearly',
+            'plan'      => 'required|string|in:trial,yearly',
             'status'    => 'nullable|boolean',
             'company_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
         ]);
@@ -245,7 +250,7 @@ class CompanyController extends Controller
                 'max_users'  => $request->max_users,
                 'plan'       => $request->plan,
                 'plan_started_at' => now(),
-                'plan_expires_at' => now()->addYear(),
+                'plan_expires_at' => $request->plan === 'trial' ? now()->addDays(10) : now()->addYearNoOverflow(),
 
                 // Address fields
                 'address_1'  => $request->address_1,
@@ -371,7 +376,7 @@ class CompanyController extends Controller
             'admin_name' => 'nullable|string|max:255',
             'email'      => 'required|email|max:255',
             'max_users'  => 'required|integer|min:1',
-            'plan'       => 'required|string|in:yearly',
+            'plan'       => ['required', \Illuminate\Validation\Rule::in([$company->plan])],
             'status'     => 'nullable|boolean',
             'company_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
             'admin_password' => 'nullable|string|min:6|confirmed',
@@ -521,20 +526,21 @@ class CompanyController extends Controller
                 });
         }]);
 
-        $newStatus = !$this->companyEffectiveStatus($company);
+        $newStatus = !(bool) $company->status;
 
         $company->update([
             'status' => $newStatus
         ]);
 
-        $this->companyAdminUsersQuery($company)->update([
-            'is_active' => $newStatus
-        ]);
-
         if (!$newStatus) {
-            $company->users()->update([
-                'active_web_session_id' => (string) Str::uuid(),
-            ]);
+            $ids = [$company->id];
+            if (\App\Services\CompanyBranches::ready()) {
+                $ids = array_merge($ids, Company::where('parent_company_id', $company->id)->pluck('id')->all());
+            }
+            foreach (User::whereIn('company_id', $ids)->get() as $user) {
+                $user->forceFill(['active_web_session_id' => (string) Str::uuid(), 'remember_token' => null])->save();
+                \App\Services\InactiveTokenResponse::revoke($user);
+            }
         }
 
         AuditLog::logEvent(
@@ -552,18 +558,20 @@ class CompanyController extends Controller
 
     public function renewPlan(Request $request, Company $company)
     {
+        abort_if($company->parent_company_id, 422, 'Renew the main company plan. Branches inherit its expiry date.');
         $request->validate([
             'remarks' => 'nullable|string|max:1000',
         ]);
 
         $planStatus = CompanyPlanService::status($company);
         $oldExpiresAt = $planStatus['expires_at'] ? Carbon::parse($planStatus['expires_at']) : null;
-        $baseDate = ($oldExpiresAt && $oldExpiresAt->isFuture()) ? $oldExpiresAt->copy() : now();
-        $newExpiresAt = $baseDate->copy()->addYear();
+        $baseDate = ($company->plan !== 'trial' && $oldExpiresAt && $oldExpiresAt->isFuture()) ? $oldExpiresAt->copy() : now();
+        $newExpiresAt = $baseDate->copy()->addYearNoOverflow();
 
         DB::transaction(function () use ($company, $planStatus, $oldExpiresAt, $newExpiresAt, $request) {
             $company->update([
-                'plan_started_at' => $company->plan_started_at ?: $planStatus['started_at'],
+                'plan' => 'yearly',
+                'plan_started_at' => $company->plan === 'trial' ? now() : ($company->plan_started_at ?: $planStatus['started_at']),
                 'plan_expires_at' => $newExpiresAt,
                 'plan_renewed_at' => now(),
             ]);

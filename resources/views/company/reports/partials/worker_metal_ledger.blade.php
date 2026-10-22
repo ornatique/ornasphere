@@ -13,8 +13,9 @@
 @endif
 @forelse($ledger['groups'] as $group)
 <div class="ledger-group">
-    <h4>{{ $group['worker_name'] }} — {{ $group['metal'] }}</h4>
-    <p>Net pending: <strong>{{ $balance($group['closing']) }} g</strong></p>
+    <div class="ledger-group-header"><div><h4>{{ $group['worker_name'] }} — {{ $group['metal'] }}</h4>
+    @if(!empty($group['company_id']))<p>Branch: {{ \App\Services\ReportBranches::name($group['company_id']) }}</p>@endif
+    </div><div class="ledger-pending"><span>Net pending (g)</span><strong>{{ $balance($group['closing']) }}</strong></div></div>
     @if(($ledger['filters']['format'] ?? 'detailed') === 'daily')
         @include('company.reports.partials.worker_metal_daily')
     @else

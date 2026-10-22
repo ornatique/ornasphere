@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class VisitingCard extends Model
 {
+    public function company() { return $this->belongsTo(Company::class); }
+
     protected $fillable = [
         'company_id',
         'uploaded_by',

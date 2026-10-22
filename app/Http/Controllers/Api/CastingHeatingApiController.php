@@ -15,7 +15,12 @@ class CastingHeatingApiController extends Controller
 {
     public function index(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
+        return \App\Services\CastingApiBranches::listing($request,
+            fn (int $companyId) => $this->listForCompany($request, $companyId), 'Casting Heating');
+    }
+
+    private function listForCompany(Request $request, int $companyId)
+    {
         $fromDate = $request->input('from_date', now()->toDateString());
         $toDate = $request->input('to_date', now()->toDateString());
 
@@ -102,7 +107,7 @@ class CastingHeatingApiController extends Controller
 
     public function update(Request $request, $id)
     {
-        $voucher = VacuumVoucher::where('company_id', (int) $request->user()->company_id)
+        $voucher = VacuumVoucher::where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId($request))
             ->with('items:id,vacuum_voucher_id')
             ->find((int) $id);
 
@@ -125,9 +130,9 @@ class CastingHeatingApiController extends Controller
         ])->validate();
 
         DB::transaction(function () use ($request, $voucher, $validItemIds, $checkedIds) {
-            $this->pruneStaleHeatingItems($voucher, (int) $request->user()->company_id);
+            $this->pruneStaleHeatingItems($voucher, \App\Services\CompanyBranches::apiManagementCompanyId($request));
 
-            $existingRows = CastingHeatingItem::where('company_id', (int) $request->user()->company_id)
+            $existingRows = CastingHeatingItem::where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId($request))
                 ->where('vacuum_voucher_id', $voucher->id)
                 ->whereIn('vacuum_voucher_item_id', $validItemIds)
                 ->get()
@@ -141,7 +146,7 @@ class CastingHeatingApiController extends Controller
 
                 CastingHeatingItem::updateOrCreate(
                     [
-                        'company_id' => (int) $request->user()->company_id,
+                        'company_id' => \App\Services\CompanyBranches::apiManagementCompanyId($request),
                         'vacuum_voucher_item_id' => $itemId,
                     ],
                     [
@@ -172,8 +177,8 @@ class CastingHeatingApiController extends Controller
             ], 404);
         }
 
-        $company = Company::findOrFail((int) $request->user()->company_id);
-        $heatingItems = $this->currentHeatingItems($voucher, (int) $request->user()->company_id);
+        $company = Company::findOrFail(\App\Services\CompanyBranches::apiManagementCompanyId($request));
+        $heatingItems = $this->currentHeatingItems($voucher, \App\Services\CompanyBranches::apiManagementCompanyId($request));
         $inBhatiCount = $heatingItems->filter(fn($item) => (bool) $item->in_bhati)->count();
 
         return Pdf::loadView('company.casting_heating.pdf.show', compact('company', 'voucher', 'heatingItems', 'inBhatiCount'))
@@ -183,7 +188,7 @@ class CastingHeatingApiController extends Controller
 
     private function findVoucher(Request $request, int $id): ?VacuumVoucher
     {
-        $companyId = (int) $request->user()->company_id;
+        $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $voucher = VacuumVoucher::where('company_id', $companyId)
             ->where('id', $id)
             ->with(['process:id,name', 'jobWorker:id,name', 'items', 'heatingItems'])
