@@ -25,7 +25,9 @@ class ItemController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
         $companies = \App\Services\CompanyBranches::managementSelection($request, $company);
 
+        $request->validate(['jobwork_item_type'=>'nullable|in:raw,finish']);
         $items = Item::whereIn('company_id', $companies->keys())
+            ->when($request->filled('jobwork_item_type'), fn ($q) => $q->where('jobwork_item_type', $request->input('jobwork_item_type')))
             ->select('items.*')
             ->withCount(['itemSets', 'itemLabels']);
 

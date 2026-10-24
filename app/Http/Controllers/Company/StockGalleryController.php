@@ -25,6 +25,7 @@ class StockGalleryController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
         $items = Item::whereIn('company_id', \App\Services\CompanyBranches::managementSelection($request, $company)->keys())
+            ->where('jobwork_item_type', 'finish')
             ->orderBy('item_name')
             ->get(['id', 'item_name', 'company_id']);
 
@@ -111,7 +112,7 @@ class StockGalleryController extends Controller
         $company = Company::whereSlug($slug)->firstOrFail();
         $id = (int) Crypt::decryptString($encryptedId);
 
-        $itemSet = ItemSet::with('item')
+        $itemSet = ItemSet::with('item')->whereHas('item', fn ($query) => $query->where('jobwork_item_type', 'finish'))
             ->where('company_id', $company->id)
             ->where('id', $id)
             ->firstOrFail();
@@ -145,6 +146,7 @@ class StockGalleryController extends Controller
         $query = ItemSet::query()
             ->with($this->mediaReady() ? ['item', 'galleryMedia'] : ['item'])
             ->whereIn('item_sets.company_id', \App\Services\CompanyBranches::managementSelection($request, $company)->keys())
+            ->whereHas('item', fn ($query) => $query->where('jobwork_item_type', 'finish'))
             ->where('item_sets.is_final', 1)
             ->whereNotNull('item_sets.qr_code');
 

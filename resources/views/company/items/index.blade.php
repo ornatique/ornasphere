@@ -17,6 +17,14 @@
                 </div>
 
                 <div class="card-body">
+            <div class="mb-3" style="max-width:280px">
+                <label for="jobwork-item-type-filter">Jobwork Item Type</label>
+                <select id="jobwork-item-type-filter" class="form-control">
+                    <option value="">All Items</option>
+                    <option value="raw">Raw</option>
+                    <option value="finish">Finish</option>
+                </select>
+            </div>
             @include('company_layout.item_management_exports')
             <p class="text-muted">New records are created in {{ $company->name }}. Each existing record is managed in its own branch.</p>
                     <div class="table-responsive">
@@ -57,7 +65,7 @@
         let table = $('#itemTable').DataTable({
             processing: true,
             serverSide: true,
-            ajax: "{!! route('company.items.data', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}",
+            ajax: { url: "{!! route('company.items.data', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}", data: function(d) { d.jobwork_item_type = $('#jobwork-item-type-filter').val(); } },
             columns: [{
                     data: 'DT_RowIndex',
                     name: 'DT_RowIndex',
@@ -100,6 +108,8 @@
             ]
         });
 
+
+        $('#jobwork-item-type-filter').on('change', function () { table.ajax.reload(); });
 
         // ================= DELETE ITEM =================
         $(document).on('click', '.deleteItem', function() {

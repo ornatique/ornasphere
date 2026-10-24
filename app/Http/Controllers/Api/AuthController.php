@@ -109,6 +109,7 @@ class AuthController extends Controller
                 'plan_expired' => $planStatus['expired'],
                 'plan_alert' => $planStatus['alert'],
                 'trial_countdown' => $planStatus['trial_countdown'] ?? null,
+                'allowed_modules' => \App\Services\CompanyModules::allowed($user->company),
             ],
         ]);
     }
@@ -249,6 +250,7 @@ class AuthController extends Controller
                 'plan_expired' => $planStatus['expired'],
                 'plan_alert' => $planStatus['alert'],
                 'trial_countdown' => $planStatus['trial_countdown'] ?? null,
+                'allowed_modules' => \App\Services\CompanyModules::allowed($user->company),
             ],
         ]);
     }
@@ -294,6 +296,7 @@ class AuthController extends Controller
             ];
         })->unique()->values();
         $expandedPermissions = $expandedPermissions
+            ->filter(fn ($name) => \App\Services\CompanyModules::permissionAllowed($user->company, (string) $name))
             ->reject(fn ($permissionName) => $this->isDeprecatedPermission((string) $permissionName))
             ->values();
 
@@ -334,6 +337,7 @@ class AuthController extends Controller
             ];
         })->unique()->values();
         $expandedPermissions = $expandedPermissions
+            ->filter(fn ($name) => \App\Services\CompanyModules::permissionAllowed($user->company, (string) $name))
             ->reject(fn ($permissionName) => $this->isDeprecatedPermission((string) $permissionName))
             ->values();
 
@@ -404,6 +408,7 @@ class AuthController extends Controller
                 'plan_days_remaining' => $planStatus['days_remaining'],
                 'plan_alert' => $planStatus['alert'],
                 'trial_countdown' => $planStatus['trial_countdown'] ?? null,
+                'allowed_modules' => \App\Services\CompanyModules::allowed($user->company),
                 'address_1' => $company->address_1,
                 'address_2' => $company->address_2,
                 'city' => $company->city,

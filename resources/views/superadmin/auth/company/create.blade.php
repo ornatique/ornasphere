@@ -208,6 +208,7 @@
                         </div>
                     </div>
 
+                    @include('superadmin.auth.company.allowed_modules')
                     <div class="card-footer d-flex justify-content-end gap-2">
                         <a href="{{ route('superadmin.companies.index') }}" class="btn btn-info">Back</a>
                         <button type="submit" class="btn btn-primary">Save Company</button>
