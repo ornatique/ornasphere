@@ -234,6 +234,11 @@
         @if(data_get($companyPlanStatus ?? [], 'alert.show_popup'))
 <div class="alert alert-warning" role="alert" style="margin:16px 24px">{{ data_get($companyPlanStatus, 'alert.message') }}</div>
 @endif
+{{-- @if(request()->attributes->get('company_archive_read_only'))
+<div class="alert alert-info" role="status" style="margin:16px 24px">
+    <strong>Archive mode — view only.</strong> You can open lists and reports. Adding, editing and deleting are disabled until the archive is restored or cancelled. Removed records will remain absent until restore.
+</div>
+@endif --}}
 @yield('content')
         <!-- content-wrapper ends -->
         <!-- partial:partials/_footer.html -->
@@ -439,6 +444,9 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 });
 </script>
+@endif
+@if(request()->attributes->get('company_archive_read_only'))
+<script src="{{ asset('js/company-archive-readonly.js') }}?v={{ @filemtime(public_path('js/company-archive-readonly.js')) }}"></script>
 @endif
 </body>
 

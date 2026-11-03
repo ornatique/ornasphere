@@ -93,6 +93,7 @@ class WorkerPersonService
 
     public static function syncExistingWorkersToPersons(int $companyId): void
     {
+        if (CompanyArchiveGate::readOnlyRequest()) return;
         if (!Schema::hasTable('job_workers') || !Schema::hasTable('customers') || !Schema::hasTable('category_people')) {
             return;
         }

@@ -13,6 +13,8 @@ class CompanyPurgeService
 {
     public function purge(Company $company): array
     {
+        $archiveState = CompanyArchiveGate::state((int)$company->id);
+        CompanyArchiveGate::check(!$archiveState || $archiveState->status === 'active', 'Restore or cancel this company archive before deleting its account.');
         $companyId = (int) $company->id;
         $files = $this->companyFiles($company);
         $stats = [];

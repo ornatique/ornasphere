@@ -42,6 +42,7 @@
         @if($canManageBranches ?? false)<a href="#branch-management">Branches</a>@endif
         @if(!$company->parent_company_id && $user->hasRole('company_admin'))<a href="#opening-balances">Opening balances</a>@endif
         @if($user->hasRole('company_admin'))<a href="#voucher-settings">Voucher settings</a>@endif
+        @if($user->hasRole('company_admin'))<a href="#company-archive">Data Backup</a>@endif
     </nav>
     @include('company.profile.branches')
     @if(!$company->parent_company_id && $user->hasRole('company_admin'))
@@ -156,6 +157,7 @@
             </div>
         </div>
     </div>
+    @include('company.profile.archive')
 </div>
 <button type="button" id="profile-back-top" aria-label="Back to top" title="Back to top" hidden>
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 12 6-6 6 6M12 6v13"/></svg>

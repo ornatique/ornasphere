@@ -10,8 +10,9 @@
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h4 class="mb-0">Item List</h4>
 
-                    <a href="{{ route('company.items.create', $company->slug) }}"
-                        class="btn btn-primary">
+                    <a href="{{ request()->attributes->get('company_archive_read_only') ? '#' : route('company.items.create', $company->slug) }}"
+                        class="btn btn-primary {{ request()->attributes->get('company_archive_read_only') ? 'disabled' : '' }}"
+                        @if(request()->attributes->get('company_archive_read_only')) aria-disabled="true" tabindex="-1" data-company-archive-locked="1" @endif>
                         + Create Item
                     </a>
                 </div>
@@ -26,7 +27,7 @@
                 </select>
             </div>
             @include('company_layout.item_management_exports')
-            <p class="text-muted">New records are created in {{ $company->name }}. Each existing record is managed in its own branch.</p>
+            <p class="text-muted">@if(request()->attributes->get('company_archive_read_only'))Archive mode: items can be viewed, but no records can be added, edited or deleted.@else New records are created in {{ $company->name }}. Each existing record is managed in its own branch.@endif</p>
                     <div class="table-responsive">
                         <table class="table table-bordered table-striped"
                             id="itemTable">

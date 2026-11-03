@@ -179,6 +179,7 @@ class CompanyPermissionController extends Controller
 
     private function ensureWebPermissions(int $companyId): void
     {
+        if (\App\Services\CompanyArchiveGate::readOnlyRequest()) return;
         $this->normalizeLegacyPermissionNames();
 
         $defaultModules = [
