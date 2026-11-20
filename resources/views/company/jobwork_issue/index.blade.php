@@ -189,8 +189,10 @@
         ajax: {
             url: "{!! route('company.jobwork-issue.index', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}",
             data: function(d) {
-                d.from_date = $('#from_date').val();
-                d.to_date = $('#to_date').val();
+                const scannedVoucherId = @json(request('voucher_id'));
+                if (scannedVoucherId) d.voucher_id = scannedVoucherId;
+                d.from_date = d.voucher_id ? '' : $('#from_date').val();
+                d.to_date = d.voucher_id ? '' : $('#to_date').val();
                 d.job_worker_id = $('#job_worker_id').val();
                 d.production_step_id = $('#production_step_id').val();
             }

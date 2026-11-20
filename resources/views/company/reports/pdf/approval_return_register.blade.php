@@ -39,7 +39,7 @@ th { background: #eee; } thead { display: table-header-group; } tr { page-break-
 @endif
 
 
-<div class="note">Approvals use issue dates; returns use return dates; sales use sale dates. Weights are in grams. Quantity counts item rows. All matching entries are included.
+<div class="note">Approvals use issue dates; returns use return dates; sales use sale dates. Weights are in grams. Quantity is measured in pieces. All matching entries are included.
 </div>
 
 <table>
@@ -139,7 +139,7 @@ th { background: #eee; } thead { display: table-header-group; } tr { page-break-
 <td>{{ \App\Services\ReportBranches::name($row->company_id) }}
 </td>
 @endif
-<td class="number">{{ $row->entry_type === 'Approval' ? $pendingItems->where('voucher_id', $row->voucher_id)->count() : '-' }}</td>
+<td class="number">{{ $row->entry_type === 'Approval' ? $pendingItems->where('voucher_id', $row->voucher_id)->sum(fn ($item) => max(1, (int) ($item->qty ?? 1))) : '-' }}</td>
 
 </tr>
 

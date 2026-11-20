@@ -139,7 +139,11 @@
 
 <div class="sheet">
     <div class="company-head">
-        <div class="company-name">{{ $companyName }}</div>
+        <table style="width:100%;border-collapse:collapse"><tr>
+            <td style="width:40px"></td>
+            <td class="company-name" style="text-align:center">{{ $companyName }}</td>
+            <td style="width:40px;text-align:right"><img src="{{ \App\Services\VoucherQr::dataUri('sale', $sale->id) }}" width="40" height="40" alt="Sale voucher QR"></td>
+        </tr></table>
     </div>
     <div class="sheet-title">Estimate</div>
 
@@ -196,15 +200,16 @@
                 <th style="width:18%; text-align:left;">Item</th>
                 <th style="width:6%;">Purity</th>
                 <th style="width:4%;">Qty</th>
-                <th style="width:7%;">Gross Wt</th>
+                <th style="width:6%;">Gross Wt</th>
                 <th style="width:6%;">Less Wt</th>
-                <th style="width:7%;">Net Wt</th>
-                <th style="width:7%;">Waste %</th>
-                <th style="width:7%;">Fine Wt</th>
-                <th style="width:7%;">Metal Rt</th>
+                <th style="width:6%;">Net Wt</th>
+                <th style="width:6%;">Waste %</th>
+                <th style="width:6%;">Fine Wt</th>
+                <th style="width:6%;">Metal Rt</th>
                 <th style="width:7%;">Labour Rt</th>
-                <th style="width:8%;">Other</th>
-                <th style="width:12%;">Total Amt</th>
+                <th style="width:7%;">Other</th>
+                <th style="width:8%;">Sale Price</th>
+                <th style="width:10%;">Total Amt</th>
             </tr>
         </thead>
         <tbody>
@@ -249,6 +254,7 @@
                     <td class="text-right">{{ number_format($rate, 2) }}</td>
                     <td class="text-right">{{ number_format($labourRate, 2) }}</td>
                     <td class="text-right">{{ number_format($other, 2) }}</td>
+                    <td class="text-right">{{ $row->sale_price ? number_format($row->sale_price, 2) : "-" }}</td>
                     <td class="text-right amount-cell">Rs&nbsp;{{ number_format($total, 2) }}</td>
                 </tr>
             @endforeach
@@ -265,6 +271,7 @@
                 <th></th>
                 <th></th>
                 <th class="text-right amount-cell">{{ number_format($sumOther, 2) }}<span class="total-unit">Rs</span></th>
+                <th></th>
                 <th class="text-right amount-cell">{{ number_format($sumTotal, 2) }}<span class="total-unit">Rs</span></th>
             </tr>
         </tfoot>

@@ -6,9 +6,12 @@
         <div class="card-header d-flex justify-content-between">
             <div><h4 class="card-title">Companies</h4><p class="company-list-intro">Manage company access, branches, users and subscriptions.</p></div>
 
-             <a href="{{ route('superadmin.companies.create') }}" class="btn btn-primary float-end">
+             <div class="d-flex flex-wrap gap-2">
+                <a href="{{ route('superadmin.companies.validity-report') }}" class="btn btn-info">Company Validity Report</a>
+                <a href="{{ route('superadmin.companies.create') }}" class="btn btn-primary float-end">
                     + Add Company
                 </a>
+             </div>
         </div>
       
         <div class="card-body">
@@ -59,9 +62,31 @@
                     <span>Current Expire Date & Time</span>
                     <strong id="renewCurrentExpiry">-</strong>
                 </div>
-                <div class="renew-plan-info">
-                    <span>Renew Duration</span>
-                    <strong>1 Year</strong><small>Trial: starts today. Active paid plan: extends the current expiry.</small>
+                <div class="form-group mt-3">
+                    <label for="renewPlan">Plan <span class="text-danger">*</span></label>
+                    <select class="form-control" id="renewPlan" name="plan" required>
+                        <option value="trial">10-day Trial</option>
+                        <option value="yearly" selected>Yearly</option>
+                        @foreach([2, 3, 4, 5] as $years)
+                            <option value="{{ $years }}_years">{{ $years }} Years</option>
+                        @endforeach
+                        <option value="custom">Custom Dates</option>
+                    </select>
+                    <small class="text-muted" id="renewPlanHint">For an active paid plan, selected duration is added to the current expiry date.</small>
+                </div>
+                <div class="row mt-3" id="renewCustomPlanDates" style="display:none">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="renewPlanStartDate">Plan From Date</label>
+                            <input type="date" class="form-control" id="renewPlanStartDate" name="plan_start_date">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="renewPlanEndDate">Plan To Date</label>
+                            <input type="date" class="form-control" id="renewPlanEndDate" name="plan_end_date">
+                        </div>
+                    </div>
                 </div>
                 <div class="form-group mt-3">
                     <label for="renewRemarks">Remarks</label>
@@ -95,11 +120,16 @@
     #companyTable tbody tr:hover {background:#2c2e44}
     #companyTable td:nth-child(3) {min-width:180px;white-space:normal}
     #companyTable td:nth-child(4) {max-width:230px;white-space:normal;overflow-wrap:anywhere}
+    #companyTable td:nth-child(7) {min-width:165px}
     #companyTable td:last-child {min-width:245px;white-space:normal}
     #companyTable td:last-child .btn {margin:3px 2px}
     #companyTable .form-switch {margin-left:0!important;padding-left:2.5em}
     #companyTable .form-check-input {width:36px;height:20px;cursor:pointer}
     #companyTable .plan-status-cell small {font-size:11px;font-weight:400}
+    .login-setup-actions {display:flex;flex-direction:column;gap:6px;width:150px;max-width:100%}
+    .login-setup-actions form {display:block;width:100%;margin:0}
+    .login-setup-actions .btn {display:block;width:100%;min-height:36px;margin:0!important;white-space:nowrap}
+    .setup-link-expiry {font-size:10px;color:#c8c9d5;line-height:1.3}
     .company-list-page .dataTables_filter input,.company-list-page .dataTables_length select {min-height:38px;border:1px solid #565a7a;border-radius:7px;background:#303149;color:#fff;padding:6px 10px}
     .company-list-page .dataTables_filter,.company-list-page .dataTables_length {margin-bottom:20px}
     .company-list-page .dataTables_info,.company-list-page .dataTables_paginate {margin-top:16px}
@@ -214,8 +244,24 @@
         $('#renewCompanyName').text($(this).data('name') || '-');
         $('#renewCurrentExpiry').text($(this).data('expiry') || '-');
         $('#renewRemarks').val('');
+        $('#renewPlan').val('yearly');
+        $('#renewPlanStartDate, #renewPlanEndDate').val('');
+        syncRenewPlanFields();
         $('#renewPlanModal').modal('show');
     });
+
+    function syncRenewPlanFields() {
+        const isCustom = $('#renewPlan').val() === 'custom';
+        $('#renewCustomPlanDates').toggle(isCustom);
+        $('#renewPlanStartDate, #renewPlanEndDate').prop('required', isCustom);
+        $('#renewPlanHint').text(isCustom
+            ? 'The selected From and To dates will be used exactly; the To date includes the full day.'
+            : ($('#renewPlan').val() === 'trial'
+                ? 'The trial starts today and expires after 10 days.'
+                : 'For an active paid plan, selected duration is added to the current expiry date. If expired or on trial, it starts today.'));
+    }
+
+    $(document).on('change', '#renewPlan', syncRenewPlanFields);
 
     $(document).on('change', '.toggleStatus', function() {
         const control = $(this);
@@ -256,7 +302,7 @@
 
         const deactivatePrompt = {
             title: 'Deactivate company first?',
-            html: '<strong>' + companyName + '</strong> is active. First click will only deactivate this company.<br><br>After it is inactive, click Delete again for permanent delete.',
+            text: companyName + ' is active. This step only deactivates the company. Click Delete again after deactivation to permanently remove it.',
             icon: 'warning',
             showCancelButton: true,
             confirmButtonText: 'Deactivate Company',
@@ -266,7 +312,7 @@
 
         const deletePrompt = {
             title: 'Delete company permanently?',
-            html: 'This will permanently delete <strong>' + companyName + '</strong> and all related data from all tables.<br><br>Type the company name to confirm.',
+            text: 'This permanently deletes the company and its related data. Type the company name to confirm.',
             input: 'text',
             inputPlaceholder: companyName,
             icon: 'warning',
@@ -280,7 +326,9 @@
                     return false;
                 }
 
-                return true;
+                // Preserve the entered company name as SweetAlert's result.value;
+                // returning true here replaces the text input value with a boolean.
+                return value;
             }
         };
 
@@ -289,25 +337,36 @@
                 return;
             }
 
-            const form = $('<form>', {
-                method: 'POST',
-                action: url
+            Swal.fire({
+                title: isActive ? 'Deactivating company…' : 'Deleting company…',
+                text: isActive ? 'Please wait while access is disabled.' : 'Please wait while company data is removed.',
+                allowOutsideClick: false,
+                allowEscapeKey: false,
+                didOpen: function() { Swal.showLoading(); }
             });
 
-            form.append($('<input>', {
-                type: 'hidden',
-                name: '_token',
-                value: "{{ csrf_token() }}"
-            }));
-
-            form.append($('<input>', {
-                type: 'hidden',
-                name: '_method',
-                value: 'DELETE'
-            }));
-
-            $('body').append(form);
-            form.trigger('submit');
+            $.ajax({
+                url: url,
+                method: 'POST',
+                dataType: 'json',
+                headers: { 'Accept': 'application/json' },
+                data: {
+                    _token: "{{ csrf_token() }}",
+                    _method: 'DELETE',
+                    confirm_name: isActive ? '' : result.value
+                }
+            }).done(function(response) {
+                $('#companyTable').DataTable().ajax.reload(null, false);
+                Swal.fire({
+                    icon: 'success',
+                    title: response.action === 'deactivated' ? 'Company deactivated' : 'Company deleted',
+                    text: response.message || 'The action completed successfully.',
+                    confirmButtonText: 'OK'
+                });
+            }).fail(function(xhr) {
+                const message = xhr.responseJSON?.message || 'The request failed. Please try again.';
+                Swal.fire({ icon: 'error', title: 'Action failed', text: message });
+            });
         });
     });
 </script>

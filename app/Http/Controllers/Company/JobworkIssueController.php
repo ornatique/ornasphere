@@ -21,6 +21,15 @@ use Yajra\DataTables\Facades\DataTables;
 
 class JobworkIssueController extends Controller
 {
+    public function scanActions($slug, $encryptedId)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $row = JobworkIssue::where('company_id', $company->id)->findOrFail((int) Crypt::decryptString($encryptedId));
+        $menu = \App\Services\JobworkIssueScanActions::menu(auth()->user(), ['voucher_id'=>$row->id, 'company_id'=>$company->id, 'url'=>'', 'filters'=>[]]);
+        $receiveEnabled = $menu['actions'][2]['enabled'];
+        return view('company.jobwork_issue.scan_actions', compact('company', 'row', 'encryptedId', 'receiveEnabled'));
+    }
+
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
@@ -328,7 +337,9 @@ class JobworkIssueController extends Controller
 
     private function baseQuery(Company $company, Request $request)
     {
+        $request->validate(['voucher_id' => 'sometimes|required|integer|min:1']);
         return JobworkIssue::query()
+            ->when($request->filled('voucher_id'), fn ($q) => $q->whereKey($request->integer('voucher_id')))
             ->whereIn('company_id', \App\Services\CompanyBranches::managementSelection($request, $company)->keys())
             ->select('jobwork_issues.*')
             ->with(['jobWorker:id,name', 'productionStep:id,name', 'createdByUser:id,name', 'updatedByUser:id,name'])

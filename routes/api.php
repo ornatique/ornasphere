@@ -43,9 +43,12 @@ use App\Http\Controllers\Api\OfficeAccessController;
 
 Route::post('/company/login', [AuthController::class, 'login']);
 Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
-Route::get('/live-metal-rates', [MetalRateApiController::class, 'index']);
+Route::get('/live-metal-rates', [MetalRateApiController::class, 'index'])
+    ->middleware(['auth:sanctum', 'single.api.token', 'company.active', 'worker.office.access']);
 
-Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group(function () {
+Route::middleware(['auth:sanctum', 'single.api.token', 'company.active', 'worker.office.access'])->group(function () {
+    Route::post('/vouchers/resolve-qr', [\App\Http\Controllers\Api\VoucherScanController::class, 'resolve']);
+    Route::get('/vouchers/{type}/{id}/qr', [\App\Http\Controllers\Api\VoucherScanController::class, 'qr'])->whereIn('type', ['approval', 'sale', 'sale-return', 'jobwork-issue', 'jobwork-receive', 'casting', 'casting-metal-issue', 'tree-cutting-receive', 'tree-cutting-issue'])->whereNumber('id');
     Route::get('/bullion/persons', [\App\Http\Controllers\Api\BullionApiController::class, 'persons']);
     Route::get('/bullion/balance', [\App\Http\Controllers\Api\BullionApiController::class, 'balance']);
     Route::get('/bullion/entries', [\App\Http\Controllers\Api\BullionApiController::class, 'entries']);
@@ -83,7 +86,8 @@ Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group
     Route::put('/company/opening-balances', [\App\Http\Controllers\Api\CompanyOpeningBalanceController::class, 'update']);
 
     Route::get('/office-access/status', [OfficeAccessController::class, 'status']);
-    Route::post('/office-access/register-device', [OfficeAccessController::class, 'registerDevice']);
+    Route::post('/office-access/register-device', [OfficeAccessController::class, 'registerDevice'])
+        ->withoutMiddleware('worker.office.access');
     Route::get('/office-access/settings', [OfficeAccessController::class, 'settings']);
     Route::post('/office-access/settings', [OfficeAccessController::class, 'updateSettings']);
     Route::get('/office-access/devices', [OfficeAccessController::class, 'devices']);
@@ -100,7 +104,7 @@ Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group
 
 
 
-Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group(function () {
+Route::middleware(['auth:sanctum', 'single.api.token', 'company.active', 'worker.office.access'])->group(function () {
 
     Route::get('/notifications/summary', [NotificationApiController::class, 'summary']);
     Route::get('/notifications', [NotificationApiController::class, 'index']);
@@ -499,6 +503,7 @@ Route::middleware(['auth:sanctum', 'single.api.token', 'company.active'])->group
     Route::post('/approvals/sale', [ApprovalApiController::class, 'markSold']);
     Route::get('/approvals/pending-items', [ApprovalApiController::class, 'pendingItemsByCustomer']);
     Route::post('/approvals/return', [ApprovalApiController::class, 'returnItems']);
+    Route::get('/approvals/{id}/return-options', [\App\Http\Controllers\Api\VoucherScanController::class, 'returnOptions'])->whereNumber('id');
     Route::get('/approvals/{id}/pdf', [ApprovalApiController::class, 'pdf'])->whereNumber('id');
     Route::get('/approvals/pdf/{id}', [ApprovalApiController::class, 'pdf'])->whereNumber('id');
     Route::get('/approvals/export/pdf', [ApprovalApiController::class, 'exportListPdf']);

@@ -28,7 +28,9 @@ class CastingSortingController extends Controller
         if ($request->ajax() || $request->filled('export')) {
             $rows = VacuumVoucher::query()
                 ->whereIn('company_id', $selectedCompanies->keys())
-                ->whereExists(function ($query) use ($fromDate, $toDate) {
+                ->where(function ($eligible) use ($fromDate, $toDate) {
+                    $eligible->where(function ($ready) use ($fromDate, $toDate) {
+                        $ready->whereExists(function ($query) use ($fromDate, $toDate) {
                     $query->selectRaw('1')
                         ->from('tree_cutting_receive_items')
                         ->whereColumn('tree_cutting_receive_items.vacuum_voucher_id', 'vacuum_vouchers.id')
@@ -56,6 +58,8 @@ class CastingSortingController extends Controller
                                         ->orWhere('tree_cutting_receive_items.receive_tree_bhuko', '>', 0);
                                 });
                         });
+                });
+                    })->orWhere(fn ($saved) => $saved->withSavedSorting($fromDate, $toDate));
                 })
                 ->with(['process:id,name', 'jobWorker:id,name'])
                 ->select('vacuum_vouchers.*')
@@ -237,7 +241,7 @@ class CastingSortingController extends Controller
             })
             ->exists();
 
-        abort_if($receiveCount === 0 || $hasPendingIssueRows, 404);
+        abort_if(($receiveCount === 0 || $hasPendingIssueRows) && !VacuumVoucher::whereKey($voucher->id)->where('company_id', $company->id)->withSavedSorting()->exists(), 404);
 
         $sortingItems = CastingSortingItem::where('company_id', $company->id)
             ->where('vacuum_voucher_id', $voucher->id)

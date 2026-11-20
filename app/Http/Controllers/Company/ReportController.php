@@ -799,21 +799,41 @@ class ReportController extends Controller
         $relations = ['itemSet.item', 'legacyItemSet.item', 'item', 'approval'];
         if ($type === 'approval') {
             $voucher = ApprovalHeader::whereIn('company_id', \App\Services\ReportBranches::ids($company))->findOrFail($id);
-            $lines = $voucher->items()->with($relations)->get()->map(fn ($a) => ['source'=>$a, 'approval'=>$a, 'amount'=>$a->total_amount]);
+            $lines = $voucher->items()->with($relations)->get()
+                ->groupBy(function ($item) {
+                    $itemSet = $item->itemSet ?? $item->legacyItemSet;
+                    return $itemSet ? 'itemset:'.$itemSet->id : 'label:'.($item->qr_code ?? '').'|item:'.($item->item_id ?? '');
+                })
+                ->map(function ($group) {
+                    $combined = clone $group->first();
+                    $qty = $group->sum(fn ($item) => max(1, (int) ($item->qty ?? 1)));
+                    foreach (['gross_weight', 'other_weight', 'net_weight', 'total_fine_weight'] as $field) {
+                        $combined->{$field} = $group->sum(fn ($item) => (float) ($item->{$field} ?? 0));
+                    }
+
+                    $unitSalePrice = \App\Services\ApprovalItemPricing::unitSalePrice($combined);
+                    $amount = $unitSalePrice > 0
+                        ? round($unitSalePrice * $qty, 2)
+                        : $group->sum(fn ($item) => (float) ($item->total_amount ?? 0));
+                    $combined->qty = $qty;
+                    $combined->total_amount = $amount;
+
+                    return ['source'=>$combined, 'approval'=>$combined, 'qty'=>$qty, 'amount'=>$amount];
+                })->values();
             $number = $voucher->approval_no;
             $date = $voucher->approval_date;
         } elseif ($type === 'return') {
             $voucher = \App\Models\SaleReturn::whereIn('company_id', \App\Services\ReportBranches::ids($company))->where('source_type', 'approval')->findOrFail($id);
             $lines = $voucher->items()->with(array_map(fn ($r) => 'approvalItem.'.$r, $relations))->get()
                 ->filter(fn ($r) => $r->approvalItem && (int) $r->approvalItem->approval?->company_id === (int) $voucher->company_id)
-                ->map(fn ($r) => ['source'=>$r->approvalItem, 'approval'=>$r->approvalItem, 'amount'=>$r->return_amount]);
+                ->map(fn ($r) => ['source'=>$r->approvalItem, 'approval'=>$r->approvalItem, 'qty'=>max(1, (int) ($r->qty ?? $r->approvalItem->qty ?? 1)), 'amount'=>$r->return_amount]);
             $number = $voucher->return_voucher_no;
             $date = $voucher->return_date;
         } elseif ($type === 'sale') {
             $voucher = \App\Models\Sale::whereIn('company_id', \App\Services\ReportBranches::ids($company))->findOrFail($id);
             $lines = $voucher->saleItems()->whereNotNull('approval_item_id')->get()->map(function ($r) use ($company, $relations, $voucher) {
                 $a = \App\Models\ApprovalItem::with($relations)->whereHas('approval', fn ($q) => $q->where('company_id', $voucher->company_id))->find($r->approval_item_id);
-                return $a ? ['source'=>$r, 'approval'=>$a, 'amount'=>$r->total_amount] : null;
+                return $a ? ['source'=>$r, 'approval'=>$a, 'qty'=>max(1, (int) ($r->qty ?? 1)), 'amount'=>$r->total_amount] : null;
             })->filter();
             $number = $voucher->voucher_no;
             $date = $voucher->sale_date;
@@ -859,7 +879,7 @@ class ReportController extends Controller
             foreach ($metrics as $key => $label) $totals[$row->entry_type][$key] += (float) $row->$key;
         }
         $pendingItems = \App\Services\ApprovalReturnRegister::pendingItems(\App\Services\ReportBranches::ids($company), $filters)->get();
-        $totals['Pending Approval (current)'] = ['qty' => $pendingItems->count()];
+        $totals['Pending Approval (current)'] = ['qty' => $pendingItems->sum(fn ($item) => max(1, (int) ($item->qty ?? 1)))];
         foreach (['gross', 'other', 'net', 'fine', 'amount'] as $key) {
             $totals['Pending Approval (current)'][$key] = $pendingItems->sum($key);
         }
@@ -965,10 +985,10 @@ class ReportController extends Controller
         \App\Services\ReportBranches::ids($company);
 
         if ($request->ajax()) {
-            $baseQuery = $this->approvalOutstandingBaseQuery($company, $request);
-            $summary = $this->approvalOutstandingTotals((clone $baseQuery)->get());
+            $baseQuery = $this->approvalOutstandingRows($company, $request);
+            $summary = $this->approvalOutstandingTotals($baseQuery);
 
-            return DataTables::of($baseQuery->latest('approval_date'))
+            return DataTables::of($baseQuery)
                 ->addIndexColumn()
                 ->addColumn('branch_name', fn ($row) => \App\Services\ReportBranches::name(data_get($row, 'company_id')))
                 ->addColumn('customer_name', fn($row) => optional($row->customer)->name ?? '-')
@@ -1049,7 +1069,7 @@ class ReportController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
         \App\Services\ReportBranches::ids($company);
-        $rows = $this->approvalOutstandingBaseQuery($company, $request)->latest('approval_date')->get();
+        $rows = $this->approvalOutstandingRows($company, $request);
         $summary = $this->approvalOutstandingTotals($rows);
         $visibleColumns = $this->approvalOutstandingVisibleColumns($request);
 
@@ -1070,7 +1090,7 @@ class ReportController extends Controller
     {
         $company = Company::whereSlug($slug)->firstOrFail();
         \App\Services\ReportBranches::ids($company);
-        $rows = $this->approvalOutstandingBaseQuery($company, $request)->latest('approval_date')->get();
+        $rows = $this->approvalOutstandingRows($company, $request);
         $summary = $this->approvalOutstandingTotals($rows);
         $visibleColumns = $this->approvalOutstandingVisibleColumns($request);
 
@@ -1886,6 +1906,12 @@ class ReportController extends Controller
     private function stockPositionBaseQuery(Company $company, Request $request)
     {
         $request->validate(['stock_type' => 'nullable|in:raw_material,finished_item,customer_received,scrap,repair']);
+        // A finished-item row is one QR label that may represent a batch of pieces.
+        // Weights and charges are stored for the whole batch, while availability
+        // changes piece-by-piece as sales are confirmed.
+        $availableQtySql = 'GREATEST(COALESCE(item_sets.available_quantity, CASE WHEN item_sets.is_sold = 1 THEN 0 ELSE COALESCE(item_sets.quantity, 1) END), 0)';
+        $batchQtySql = 'GREATEST(COALESCE(NULLIF(item_sets.quantity, 0), 1), 1)';
+        $remainingRatioSql = "({$availableQtySql} / {$batchQtySql})";
         $labelStock = ItemSet::query()
             ->join('items', 'items.id', '=', 'item_sets.item_id')
             ->leftJoin('customers as supplier_customers', function ($join) use ($company) {
@@ -1908,13 +1934,13 @@ class ReportController extends Controller
                 DB::raw("'Finished Item' as stock_type_name"),
                 DB::raw('supplier_customers.id as customer_id'),
                 DB::raw("COALESCE(NULLIF(item_sets.supplier_person, ''), '-') as customer_name"),
-                DB::raw('COUNT(item_sets.id) as qty_pcs'),
-                DB::raw('SUM(COALESCE(item_sets.gross_weight,0)) as gross_weight'),
-                DB::raw('SUM(COALESCE(item_sets.other,0)) as other_weight'),
-                DB::raw('SUM(COALESCE(item_sets.net_weight,0)) as net_weight'),
-                DB::raw('SUM(COALESCE(item_sets.net_weight,0)) as fine_weight'),
-                DB::raw('SUM(COALESCE(item_sets.sale_labour_amount,0)) as labour_amount'),
-                DB::raw('SUM(COALESCE(item_sets.sale_other,0)) as other_amount'),
+                DB::raw("SUM({$availableQtySql}) as qty_pcs"),
+                DB::raw("SUM(COALESCE(item_sets.gross_weight,0) * {$remainingRatioSql}) as gross_weight"),
+                DB::raw("SUM(COALESCE(item_sets.other,0) * {$remainingRatioSql}) as other_weight"),
+                DB::raw("SUM(COALESCE(item_sets.net_weight,0) * {$remainingRatioSql}) as net_weight"),
+                DB::raw("SUM(COALESCE(item_sets.net_weight,0) * {$remainingRatioSql}) as fine_weight"),
+                DB::raw("SUM(COALESCE(item_sets.sale_labour_amount,0) * {$remainingRatioSql}) as labour_amount"),
+                DB::raw("SUM(COALESCE(item_sets.sale_other,0) * {$remainingRatioSql}) as other_amount"),
                 'item_sets.company_id',
             ])
             ->groupBy('item_sets.company_id', 'item_sets.item_id', 'items.item_name', 'supplier_customers.id', 'item_sets.supplier_person');
@@ -2006,7 +2032,7 @@ class ReportController extends Controller
             ->groupBy('stock_rows.company_id', 'stock_rows.item_id', 'stock_rows.item_name', 'stock_rows.stock_type', 'stock_rows.stock_type_name', 'stock_rows.customer_id', 'stock_rows.customer_name');
         return DB::query()->fromSub($grouped, 'stock_group')->select('stock_group.*')
             ->when($request->filled('stock_type'), fn ($query) => $query->where('stock_group.stock_type', $request->input('stock_type')))
-            ->selectRaw("CASE WHEN stock_type = 'finished_item' THEN (SELECT COUNT(*) FROM item_sets img WHERE img.company_id = stock_group.company_id AND img.item_id = stock_group.item_id AND img.is_final = 1 AND img.is_sold = 0 AND COALESCE(NULLIF(img.supplier_person, ''), '-') = stock_group.customer_name AND NULLIF(TRIM(img.image_path), '') IS NOT NULL) ELSE 0 END as with_image");
+            ->selectRaw("CASE WHEN stock_type = 'finished_item' THEN (SELECT COALESCE(SUM(GREATEST(COALESCE(img.available_quantity, CASE WHEN img.is_sold = 1 THEN 0 ELSE COALESCE(img.quantity, 1) END), 0)), 0) FROM item_sets img WHERE img.company_id = stock_group.company_id AND img.item_id = stock_group.item_id AND img.is_final = 1 AND img.is_sold = 0 AND COALESCE(NULLIF(img.supplier_person, ''), '-') = stock_group.customer_name AND NULLIF(TRIM(img.image_path), '') IS NOT NULL) ELSE 0 END as with_image");
     }
 
     private function stockPositionSummary(Company $company, Request $request): array
@@ -2054,6 +2080,9 @@ class ReportController extends Controller
         }
 
         if (in_array($stockType, ['all', 'finished_item'], true)) {
+            $availableQtySql = 'GREATEST(COALESCE(item_sets.available_quantity, CASE WHEN item_sets.is_sold = 1 THEN 0 ELSE COALESCE(item_sets.quantity, 1) END), 0)';
+            $batchQtySql = 'GREATEST(COALESCE(NULLIF(item_sets.quantity, 0), 1), 1)';
+            $remainingRatioSql = "({$availableQtySql} / {$batchQtySql})";
             $rows = $rows->merge(
                 ItemSet::query()
                     ->join('items', 'items.id', '=', 'item_sets.item_id')
@@ -2078,13 +2107,13 @@ class ReportController extends Controller
                         DB::raw('COALESCE(item_sets.qr_code, item_sets.barcode) as label_code'),
                         'item_sets.HUID as huid',
                         'item_sets.size',
-                        DB::raw('1 as qty_pcs'),
-                        'item_sets.gross_weight',
-                        DB::raw('item_sets.other as other_weight'),
-                        'item_sets.net_weight',
-                        DB::raw('item_sets.net_weight as fine_weight'),
-                        'item_sets.sale_labour_amount as labour_amount',
-                        'item_sets.sale_other as other_amount',
+                        DB::raw("{$availableQtySql} as qty_pcs"),
+                        DB::raw("COALESCE(item_sets.gross_weight, 0) * {$remainingRatioSql} as gross_weight"),
+                        DB::raw("COALESCE(item_sets.other, 0) * {$remainingRatioSql} as other_weight"),
+                        DB::raw("COALESCE(item_sets.net_weight, 0) * {$remainingRatioSql} as net_weight"),
+                        DB::raw("COALESCE(item_sets.net_weight, 0) * {$remainingRatioSql} as fine_weight"),
+                        DB::raw("COALESCE(item_sets.sale_labour_amount, 0) * {$remainingRatioSql} as labour_amount"),
+                        DB::raw("COALESCE(item_sets.sale_other, 0) * {$remainingRatioSql} as other_amount"),
                         DB::raw('NULL as remarks'),
                     ])
                     ->orderBy('item_sets.qr_code')
@@ -2373,6 +2402,9 @@ class ReportController extends Controller
                     'label' => $labelField === 'worker_name'
                         ? ($first->worker_name ?: 'No Worker')
                         : ($key ?: '-'),
+                    'branch_name' => $labelField === 'worker_name'
+                        ? $group->pluck('company_id')->unique()->map(fn ($id) => \App\Services\ReportBranches::name($id))->filter()->implode(', ')
+                        : '',
                     'rows' => $group->count(),
                     'source_wt' => $format($group->sum(fn($row) => (float) ($row->source_wt ?? 0))),
                     'receive_wt' => $format($group->sum(fn($row) => (float) ($row->receive_wt ?? 0))),
@@ -2412,60 +2444,9 @@ class ReportController extends Controller
         return in_array($value, [1, '1', true, 'true', 'on', 'yes'], true);
     }
 
-    private function approvalOutstandingBaseQuery(Company $company, Request $request)
+    private function approvalOutstandingRows(Company $company, Request $request)
     {
-        $query = ApprovalHeader::with(['customer', 'creator'])
-            ->withSum(['items as pending_fine_weight' => fn ($q) => $q->where('status', 'pending')], 'total_fine_weight')
-            ->withCount([
-                'items as pending_items_count' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ])
-            ->withSum([
-                'items as pending_net_weight' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ], 'net_weight')
-            ->withAvg([
-                'items as pending_purity' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ], 'purity')
-            ->withAvg([
-                'items as pending_waste_percent' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ], 'waste_percent')
-            ->withAvg([
-                'items as pending_metal_rate' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ], 'metal_rate')
-            ->withAvg([
-                'items as pending_labour_rate' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ], 'labour_rate')
-            ->withSum([
-                'items as pending_gross_weight' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ], 'gross_weight')
-            ->withSum([
-                'items as pending_other_weight' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ], 'other_weight')
-            ->withSum([
-                'items as pending_other_amount' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ], 'other_amount')
-            ->withSum([
-                'items as pending_total_amount' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ], 'total_amount')
+        $query = ApprovalHeader::with(['customer', 'creator', 'items'])
             ->whereIn('company_id', \App\Services\ReportBranches::ids($company))
             ->whereIn('status', ['open', 'partial']);
 
@@ -2476,7 +2457,7 @@ class ReportController extends Controller
             $query->whereBetween('approval_date', [$request->from_date, $request->to_date]);
         }
 
-        return $query;
+        return \App\Services\ApprovalOutstanding::headers($query->latest('approval_date')->get());
     }
 
     private function approvalOutstandingColumnDefinitions(): array
@@ -2512,6 +2493,7 @@ class ReportController extends Controller
             'qr_code' => ['label' => 'QR Code', 'total' => 'TOTAL'],
             'huid' => ['label' => 'HUID', 'total' => ''],
             'item' => ['label' => 'Item', 'total' => ''],
+            'qty' => ['label' => 'Qty', 'total_key' => 'pending_pcs', 'decimals' => 0],
             'status' => ['label' => 'Status', 'total' => ''],
             'gross_weight' => ['label' => 'Gross Wt', 'total_key' => 'pending_gross_weight', 'decimals' => 3],
             'other_weight' => ['label' => 'Other Wt', 'total_key' => 'pending_other_weight', 'decimals' => 3],
@@ -2530,6 +2512,10 @@ class ReportController extends Controller
         }
 
         if (is_array($requested) && !empty($requested)) {
+            if (!in_array('qty', $requested, true)) {
+                $itemPosition = array_search('item', $requested, true);
+                array_splice($requested, $itemPosition === false ? 0 : $itemPosition + 1, 0, ['qty']);
+            }
             $visible = [];
             foreach ($requested as $key) {
                 if (isset($definitions[$key])) {
@@ -2540,7 +2526,7 @@ class ReportController extends Controller
             return $visible;
         }
 
-        $visibleKeys = ['qr_code', 'huid', 'item'];
+        $visibleKeys = ['qr_code', 'huid', 'item', 'qty'];
         $selectedReportColumns = is_array($requested) ? $requested : [];
         foreach (['status', 'gross_weight', 'other_weight', 'net_weight', 'other_amount', 'pending_amount'] as $key) {
             if (empty($selectedReportColumns) || in_array($key, $selectedReportColumns, true)) {
@@ -2564,11 +2550,10 @@ class ReportController extends Controller
 
         $approval->load(['customer', 'creator']);
 
-        $items = $approval->items()
+        $items = \App\Services\ApprovalOutstanding::items($approval->items()
             ->with(['itemSet.item', 'legacyItemSet.item', 'item'])
-            ->where('status', 'pending')
             ->orderBy('id')
-            ->get()
+            ->get())
             ->map(function ($row) use ($approval) {
                 $itemSet = $row->itemSet ?? $row->legacyItemSet;
                 $item = optional($itemSet)->item ?? $row->item;
@@ -2584,6 +2569,7 @@ class ReportController extends Controller
                     'customer' => optional($approval->customer)->name ?? '-',
                     'qr_code' => $row->qr_code ?? optional($itemSet)->qr_code ?? '-',
                     'huid' => $row->huid ?? optional($itemSet)->HUID ?? '-',
+                    'qty' => (int) $row->qty,
                     'item_name' => optional($item)->item_name ?? '-',
                     'gross_weight' => number_format($grossWeight, 3),
                     'other_weight' => number_format($otherWeight, 3),
@@ -2609,7 +2595,7 @@ class ReportController extends Controller
                 'created_by' => optional($approval->creator)->name ?? '-',
             ],
             'summary' => [
-                'pending_pcs' => $items->count(),
+                'pending_pcs' => $items->sum('qty'),
                 'pending_gross_weight' => number_format((float) $items->sum('_gross_weight'), 3),
                 'pending_other_weight' => number_format((float) $items->sum('_other_weight'), 3),
                 'pending_net_weight' => number_format((float) $items->sum('_net_weight'), 3),
@@ -2629,6 +2615,7 @@ class ReportController extends Controller
             'qr_code' => $item['qr_code'] ?? '-',
             'huid' => $item['huid'] ?? '-',
             'item' => $item['item_name'] ?? '-',
+            'qty' => (int) ($item['qty'] ?? 0),
             'status' => $item['status'] ?? '-',
             'gross_weight' => $item['gross_weight'] ?? '0.000',
             'other_weight' => $item['other_weight'] ?? '0.000',

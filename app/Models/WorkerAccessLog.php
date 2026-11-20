@@ -13,6 +13,7 @@ class WorkerAccessLog extends Model
         'latitude',
         'longitude',
         'distance_meters',
+        'allowed_radius_meters',
         'status',
         'reason',
         'path',
@@ -24,6 +25,7 @@ class WorkerAccessLog extends Model
         'latitude' => 'decimal:7',
         'longitude' => 'decimal:7',
         'distance_meters' => 'decimal:2',
+        'allowed_radius_meters' => 'integer',
     ];
 
     public function company()

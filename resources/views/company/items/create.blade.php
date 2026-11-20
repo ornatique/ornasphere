@@ -25,7 +25,6 @@
 
                 {{-- ================= BASIC DETAILS ================= --}}
                 <h5 class="mb-3">Item Details</h5>
-                @include('company.stock_gallery.category')
 
                 <div class="row">
 
@@ -168,8 +167,8 @@
 
                     <div class="col-md-6">
                         <div class="form-group">
-                            <label>Jobwork Item Type</label>
-                            <select name="jobwork_item_type" class="form-select">
+                            <label for="jobwork_item_type">Jobwork Item Type *</label>
+                            <select id="jobwork_item_type" name="jobwork_item_type" class="form-select" required>
                                 <option value="">Select Value</option>
                                 <option value="finish" {{ old('jobwork_item_type')=='finish'?'selected':'' }}>Finish</option>
                                 <option value="raw" {{ old('jobwork_item_type')=='raw'?'selected':'' }}>Raw</option>
@@ -242,7 +241,7 @@
                     <div class="col-md-6">
                         <div class="form-group">
                             <label>NUmeric Length</label>
-                            <input type="number" name="numeric_length"
+                            <input type="number" name="numeric_length" step="0.01"
                                 value="{{ old('numeric_length') }}"
                                 class="form-control">
                         </div>

@@ -9,7 +9,7 @@ class ItemManagementListExport
         'label-config' => ['company_name'=>'Company / Branch', 'item_name'=>'Item', 'prefix'=>'Prefix'],
         'other-charges' => ['company_name'=>'Company / Branch', 'other_charge'=>'Name', 'code'=>'Code', 'default_amount'=>'Default Amount'],
         'label-items' => ['company_name'=>'Company / Branch', 'date'=>'Date', 'item_name'=>'Item', 'qr_code'=>'Label Code', 'gross_weight'=>'Gross Wt', 'other_weight'=>'Other Wt', 'other_charges'=>'Other Charges', 'net_weight'=>'Net Wt', 'qty_pcs'=>'Quantity', 'printed_at'=>'Printed At'],
-        'label-printing' => ['company_name'=>'Company / Branch', 'item_name'=>'Item', 'label_code'=>'Label Code', 'gross_weight'=>'Gross Wt', 'other_weight'=>'Other Wt', 'net_weight'=>'Net Wt', 'sale_other'=>'Other Charges', 'date_time'=>'Printed At'],
+        'label-printing' => ['company_name'=>'Company / Branch', 'item_name'=>'Item', 'label_code'=>'Label Code', 'gross_weight'=>'Gross Wt', 'other_weight'=>'Other Wt', 'net_weight'=>'Net Wt', 'sale_other'=>'Other Charges', 'sale_price'=>'Sale Price', 'date_time'=>'Printed At'],
     ];
     public static function respond($table, Request $request, $companies, string $module)
     {

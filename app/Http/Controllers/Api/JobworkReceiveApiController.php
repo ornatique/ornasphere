@@ -379,7 +379,9 @@ class JobworkReceiveApiController extends Controller
 
     private function baseQuery(Request $request, int $companyId)
     {
+        $request->validate(['issue_id'=>'sometimes|required|integer|min:1']);
         return JobworkIssue::query()
+            ->when($request->filled('issue_id'), fn ($q) => $q->whereKey($request->integer('issue_id')))
             ->where('company_id', $companyId)
             ->whereHas('items')
             ->with(['jobWorker:id,name', 'productionStep:id,name'])
@@ -455,7 +457,7 @@ class JobworkReceiveApiController extends Controller
             $rows = $rows->merge($issueRows);
         }
 
-        if ($status === '' || $status === 'direct') {
+        if (!$request->filled('issue_id') && ($status === '' || $status === 'direct')) {
             $directRows = $this->directBaseQuery($request, $companyId)
                 ->get()
                 ->map(fn($row) => [

@@ -31,8 +31,18 @@
         $rowCount = 0;
     @endphp
 
-    <div class="title">Tree Cutting Receive</div>
-    <div class="company">{{ $company->name }}</div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+        <tr>
+            <td style="width:15%;border:0"></td>
+            <td style="width:70%;border:0;text-align:center">
+                <div class="title">Tree Cutting Receive</div>
+                <div class="company" style="margin-bottom:0">{{ $company->name }}</div>
+            </td>
+            <td style="width:15%;border:0;text-align:right;vertical-align:middle">
+                <img src="{{ \App\Services\VoucherQr::dataUri('tree-cutting-receive', $voucher->id) }}" width="64" height="64" alt="Scan Tree Cutting Receive voucher">
+            </td>
+        </tr>
+    </table>
 
     <table class="meta">
         <tr>

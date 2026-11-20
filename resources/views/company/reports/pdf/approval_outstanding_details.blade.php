@@ -68,6 +68,9 @@
                             @case('status')
                                 <td>{{ $item['status'] ?? '-' }}</td>
                                 @break
+                            @case('qty')
+                                <td>{{ $item['qty'] ?? 0 }}</td>
+                                @break
                             @case('gross_weight')
                                 <td>{{ $item['gross_weight'] ?? '0.000' }}</td>
                                 @break
@@ -90,7 +93,9 @@
             <tr>
                 <td style="font-weight:700;">TOTAL</td>
                 @foreach($columns as $key => $column)
-                    @if($key === 'gross_weight')
+                    @if($key === 'qty')
+                        <td style="font-weight:700;">{{ $summary['pending_pcs'] ?? 0 }}</td>
+                    @elseif($key === 'gross_weight')
                         <td style="font-weight:700;">{{ $summary['pending_gross_weight'] ?? '0.000' }}</td>
                     @elseif($key === 'other_weight')
                         <td style="font-weight:700;">{{ $summary['pending_other_weight'] ?? '0.000' }}</td>

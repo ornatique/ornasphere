@@ -23,6 +23,14 @@ use Illuminate\Support\Facades\DB;
 
 class CompanyController extends Controller
 {
+    private const PAID_PLAN_YEARS = [
+        'yearly' => 1,
+        '2_years' => 2,
+        '3_years' => 3,
+        '4_years' => 4,
+        '5_years' => 5,
+    ];
+
     /*
     ======================================================
     LIST PAGE + DATATABLE
@@ -40,7 +48,15 @@ class CompanyController extends Controller
                 ->withCount('users')
                 ->withCount(['planRenewals as plan_renewals_count'])
                 ->with(['users' => function ($query) {
-                    $query->select('id', 'company_id', 'password_set_url', 'is_active', 'role')
+                    $query->select('id', 'company_id', 'password_set_url', 'password_changed', 'is_active', 'role')
+                        ->addSelect([
+                            'password_setup_expires_at' => DB::table('password_set_tokens')
+                                ->select('expires_at')
+                                ->whereColumn('user_id', 'users.id')
+                                ->whereNull('used_at')
+                                ->orderByDesc('id')
+                                ->limit(1),
+                        ])
                         ->where(function ($q) {
                             $q->where('role', 'admin')
                                 ->orWhereHas('roles', function ($roleQuery) {
@@ -60,26 +76,30 @@ class CompanyController extends Controller
                     ])->render();
                 })
                 ->addColumn('password_set_url', function ($row) {
-
                     $adminUser = $row->users->first();
+                    $copyButton = '<button type="button" class="btn btn-sm btn-info" disabled>No setup link</button>';
 
-                    if ($adminUser && $adminUser->password_set_url) {
-
-                        $url = $adminUser->password_set_url;
-
-                        return '
-                            <div class="d-flex gap-1">
-                                
-                                <button class="btn btn-sm btn-info copyBtn"
-                                        data-url="' . $url . '">
-                                    Copy
-                                </button>
-
-                            </div>
-                        ';
+                    if ($adminUser && $adminUser->password_changed) {
+                        $copyButton = '<button type="button" class="btn btn-sm btn-info" disabled>Password already set</button>';
+                    } elseif ($adminUser && $adminUser->password_set_url && $adminUser->password_setup_expires_at) {
+                        $expiresAt = Carbon::parse($adminUser->password_setup_expires_at);
+                        if ($expiresAt->isFuture()) {
+                            $copyButton = '<button type="button" class="btn btn-sm btn-info copyBtn" data-url="' . e($adminUser->password_set_url) . '">Copy Link</button>'
+                                . '<small class="setup-link-expiry">Expires: ' . e($expiresAt->format('d-m-Y h:i A')) . '</small>';
+                        } else {
+                            $copyButton = '<button type="button" class="btn btn-sm btn-danger" disabled>Link expired</button>'
+                                . '<small class="setup-link-expiry">Expired: ' . e($expiresAt->format('d-m-Y h:i A')) . '</small>';
+                        }
+                    } elseif ($adminUser && $adminUser->password_set_url) {
+                        $copyButton = '<button type="button" class="btn btn-sm btn-danger" disabled>Link status unknown</button>';
                     }
 
-                    return '<span class="text-danger">Not Available</span>';
+                    return '<div class="login-setup-actions">'
+                        . $copyButton
+                        . '<form method="POST" action="' . route('superadmin.companies.regenerate-password-link', $row->id) . '" onsubmit="return confirm(\'Generate a fresh 24-hour password setup link? The old link will stop working.\')">'
+                        . csrf_field()
+                        . '<button type="submit" class="btn btn-sm btn-warning">Generate New Link</button>'
+                        . '</form></div>';
                 })
                 ->addColumn('logo', function ($row) {
                     $defaultLogo = asset('celestial/assets/images/ornasphere-auth-logo.png') . '?v=' . @filemtime(public_path('celestial/assets/images/ornasphere-auth-logo.png'));
@@ -172,10 +192,157 @@ class CompanyController extends Controller
         return view('superadmin.auth.company.index');
     }
 
+    public function validityReport(Request $request)
+    {
+        [$filters, $rows] = $this->validityReportData($request);
+
+        return view('superadmin.auth.company.validity-report', compact('filters', 'rows'));
+    }
+
+    public function validityReportExcel(Request $request)
+    {
+        [, $rows] = $this->validityReportData($request);
+        $exportRows = [[
+            'Company / Branch', 'Type', 'Parent Company', 'Branches', 'Company Email', 'Admin Name', 'Admin Email',
+            'Users', 'Active Users', 'User Limit', 'Plan', 'Plan Start', 'Plan Expiry', 'Plan Validity',
+            'Company Access', 'City', 'State', 'Postcode', 'Country', 'Created At',
+        ]];
+
+        foreach ($rows as $row) {
+            $exportRows[] = [
+                $row['name'], $row['type'], $row['parent_name'], $row['branch_count'], $row['email'], $row['admin_name'], $row['admin_email'],
+                $row['users'], $row['active_users'], $row['user_limit'], $row['plan'], $row['started_at'],
+                $row['expires_at'], $row['validity'], $row['company_access'], $row['city'], $row['state'],
+                $row['postcode'], $row['country'], $row['created_at'],
+            ];
+        }
+
+        return \App\Services\ReportXlsx::download($exportRows, 'company_validity_report.xlsx', 'Company Validity');
+    }
+
+    public function validityReportPdf(Request $request)
+    {
+        [$filters, $rows] = $this->validityReportData($request);
+
+        return \Barryvdh\DomPDF\Facade\Pdf::loadView('superadmin.auth.company.validity-report-pdf', [
+            'filters' => $filters,
+            'rows' => $rows,
+            'generatedAt' => now(),
+        ])->setPaper('a4', 'landscape')->download('company_validity_report.pdf');
+    }
+
+    private function validityReportData(Request $request): array
+    {
+        $filters = $request->validate([
+            'plan' => ['nullable', 'string', \Illuminate\Validation\Rule::in(array_merge(['trial', 'custom'], array_keys(self::PAID_PLAN_YEARS)))],
+            'validity' => ['nullable', 'string', \Illuminate\Validation\Rule::in(['active', 'expired'])],
+            'expiry_from' => ['nullable', 'date_format:Y-m-d'],
+            'expiry_to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:expiry_from'],
+        ]);
+
+        $companies = Company::query()
+            ->withCount([
+                'users',
+                'users as active_users_count' => fn ($query) => $query->where('is_active', true),
+                'branches',
+            ])
+            ->with([
+                'moduleParent:id,name,plan,plan_started_at,plan_expires_at',
+                'users' => function ($query) {
+                    $query->select('id', 'company_id', 'name', 'email', 'role')
+                        ->where(function ($userQuery) {
+                            $userQuery->where('role', 'admin')
+                                ->orWhereHas('roles', fn ($roleQuery) => $roleQuery->where('name', 'company_admin'));
+                        })
+                        ->orderBy('id');
+                },
+            ])
+            // Show the newest company or branch first in the report and exports.
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->get();
+
+        $rows = $companies->map(function (Company $company) {
+            $effectiveCompany = $company->moduleParent ?: $company;
+            $planStatus = CompanyPlanService::status($effectiveCompany);
+            $adminUser = $company->users->first();
+            $expiryDate = $planStatus['expires_at'] ? Carbon::parse($planStatus['expires_at'])->toDateString() : null;
+
+            return [
+                'name' => $company->name,
+                'type' => $company->parent_company_id ? 'Branch' : 'Company',
+                'parent_name' => $company->moduleParent?->name ?: '-',
+                'branch_count' => $company->parent_company_id ? '-' : (int) $company->branches_count,
+                'email' => $company->email ?: '-',
+                'admin_name' => $adminUser?->name ?: '-',
+                'admin_email' => $adminUser?->email ?: '-',
+                'users' => (int) $company->users_count,
+                'active_users' => (int) $company->active_users_count,
+                'user_limit' => (int) $company->max_users,
+                'plan' => $effectiveCompany->plan ? ucwords(str_replace('_', ' ', $effectiveCompany->plan)) : '-',
+                'plan_value' => (string) ($effectiveCompany->plan ?? ''),
+                'started_at' => $planStatus['started_at_view'] ?: '-',
+                'expires_at' => $planStatus['expires_at_view'] ?: '-',
+                'expiry_date' => $expiryDate,
+                'validity' => $planStatus['expired'] ? 'Expired' : 'Active',
+                'validity_value' => $planStatus['expired'] ? 'expired' : 'active',
+                'company_access' => $company->status ? 'Active' : 'Inactive',
+                'city' => $company->city ?: '-',
+                'state' => $company->state ?: '-',
+                'postcode' => $company->postcode ?: '-',
+                'country' => $company->country ?: '-',
+                'created_at' => optional($company->created_at)->format('d-m-Y h:i A') ?: '-',
+            ];
+        })->filter(function (array $row) use ($filters) {
+            if (!empty($filters['plan']) && $row['plan_value'] !== $filters['plan']) return false;
+            if (!empty($filters['validity']) && $row['validity_value'] !== $filters['validity']) return false;
+            if (!empty($filters['expiry_from']) && (!$row['expiry_date'] || $row['expiry_date'] < $filters['expiry_from'])) return false;
+            if (!empty($filters['expiry_to']) && (!$row['expiry_date'] || $row['expiry_date'] > $filters['expiry_to'])) return false;
+            return true;
+        })->values();
+
+        return [$filters, $rows];
+    }
+
     private function companyEffectiveStatus(Company $company): bool
     {
         // Company access and individual user access are independent settings.
         return (bool) $company->status;
+    }
+
+    private function resolvePlanDates(string $plan, Request $request, ?Company $existingCompany = null): array
+    {
+        if ($plan === 'custom') {
+            return [
+                'started_at' => Carbon::parse($request->input('plan_start_date'))->startOfDay(),
+                'expires_at' => Carbon::parse($request->input('plan_end_date'))->endOfDay(),
+            ];
+        }
+
+        // Saving unrelated company details must not restart the current plan clock.
+        if ($existingCompany && $existingCompany->plan === $plan
+            && $existingCompany->plan_started_at && $existingCompany->plan_expires_at) {
+            return [
+                'started_at' => $existingCompany->plan_started_at,
+                'expires_at' => $existingCompany->plan_expires_at,
+            ];
+        }
+
+        $startedAt = now();
+        if ($plan === 'trial') {
+            return [
+                'started_at' => $startedAt,
+                'expires_at' => $startedAt->copy()->addDays(10),
+            ];
+        }
+
+        $years = self::PAID_PLAN_YEARS[$plan] ?? 1;
+        $expiresAt = $startedAt->copy();
+        for ($year = 0; $year < $years; $year++) {
+            $expiresAt->addYearNoOverflow();
+        }
+
+        return ['started_at' => $startedAt, 'expires_at' => $expiresAt];
     }
 
     private function companyAdminUsersQuery(Company $company)
@@ -220,16 +387,21 @@ class CompanyController extends Controller
             'admin_name' => 'nullable|string|max:255',
             'email'     => 'required|email|unique:users,email',
             'max_users' => 'required|integer|min:1',
-            'plan'      => 'required|string|in:trial,yearly',
+            'plan'      => ['required', 'string', \Illuminate\Validation\Rule::in(array_merge(['trial', 'custom'], array_keys(self::PAID_PLAN_YEARS)))],
+            'plan_start_date' => ['nullable', 'required_if:plan,custom', 'date_format:Y-m-d'],
+            'plan_end_date' => ['nullable', 'required_if:plan,custom', 'date_format:Y-m-d', 'after_or_equal:plan_start_date'],
             'status'    => 'nullable|boolean',
             'company_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'wholesale_price_enabled' => ['sometimes', 'boolean'],
             'allowed_modules' => ['nullable', 'array'],
             'allowed_modules.*' => ['string', 'distinct', \Illuminate\Validation\Rule::in(array_keys(config('company_modules')))],
         ]);
 
-        DB::beginTransaction();
-
+        $planDates = $this->resolvePlanDates($request->plan, $request);
+        $creationStage = 'begin_transaction';
         try {
+            DB::beginTransaction();
+            $creationStage = 'prepare_company';
             /*
         -------------------------
         Create Company
@@ -241,10 +413,13 @@ class CompanyController extends Controller
             if ($request->hasFile('company_logo')) {
                 $file = $request->file('company_logo');
                 $fileName = time() . '_' . Str::random(8) . '.' . $file->getClientOriginalExtension();
+                $creationStage = 'upload_company_logo';
                 $logoPath = $this->storeCompanyLogo($file, $fileName);
             }
 
+            $creationStage = 'create_company';
             $company = Company::create([
+                'wholesale_price_enabled' => $request->boolean('wholesale_price_enabled'),
                 'allowed_modules' => $request->input('allowed_modules', []),
                 'name'       => $request->name,
                 'slug'       => $slug,
@@ -252,8 +427,8 @@ class CompanyController extends Controller
                 'company_logo' => $logoPath,
                 'max_users'  => $request->max_users,
                 'plan'       => $request->plan,
-                'plan_started_at' => now(),
-                'plan_expires_at' => $request->plan === 'trial' ? now()->addDays(10) : now()->addYearNoOverflow(),
+                'plan_started_at' => $planDates['started_at'],
+                'plan_expires_at' => $planDates['expires_at'],
 
                 // Address fields
                 'address_1'  => $request->address_1,
@@ -266,6 +441,7 @@ class CompanyController extends Controller
                 'status'     => $request->boolean('status'),
             ]);
 
+            $creationStage = 'create_default_categories';
             CategoryPerson::ensureCompanyDefaults((int) $company->id);
 
             /*
@@ -273,6 +449,7 @@ class CompanyController extends Controller
         Create Default Admin User
         -------------------------
         */
+            $creationStage = 'create_admin_user';
             $tempPassword = Str::password(10);
 
             $user = User::create([
@@ -285,6 +462,7 @@ class CompanyController extends Controller
             ]);
 
             // Assign role
+            $creationStage = 'assign_admin_role';
             $user->assignRole('company_admin');
 
             /*
@@ -293,6 +471,7 @@ class CompanyController extends Controller
         -------------------------
         */
 
+            $creationStage = 'create_password_setup_token';
             $token = Str::uuid()->toString();
 
             // Generate full URL
@@ -316,11 +495,14 @@ class CompanyController extends Controller
         Send Email (Queued)
         -------------------------
         */
+            $creationStage = 'queue_login_email';
             Mail::to($user->email)
                 ->queue(new CompanyLoginMail($company, $user, $token));
 
+            $creationStage = 'commit_transaction';
             DB::commit();
 
+            $creationStage = 'write_audit_log';
             AuditLog::logEvent(
                 'create',
                 'company',
@@ -334,11 +516,21 @@ class CompanyController extends Controller
             return redirect()
                 ->route('superadmin.companies.index')
                 ->with('success', 'Company created. Login email sent successfully.');
-        } catch (\Exception $e) {
-            DB::rollBack();
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Company creation failed', [
+                'stage' => $creationStage,
+                'plan' => $request->input('plan'),
+                'actor_id' => $request->user()?->id,
+                'exception' => $e,
+            ]);
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
 
             return back()->withErrors([
-                'error' => 'Something went wrong. Please try again.',
+                'error' => $creationStage === 'upload_company_logo'
+                    ? 'Company logo could not be uploaded. Please ask the server administrator to check the company logo upload folder permissions and the error log.'
+                    : 'Something went wrong. Please try again.',
             ]);
         }
     }
@@ -379,13 +571,18 @@ class CompanyController extends Controller
             'admin_name' => 'nullable|string|max:255',
             'email'      => 'required|email|max:255',
             'max_users'  => 'required|integer|min:1',
-            'plan'       => ['required', \Illuminate\Validation\Rule::in([$company->plan])],
+            'plan'       => ['required', 'string', \Illuminate\Validation\Rule::in(array_merge(['trial', 'custom'], array_keys(self::PAID_PLAN_YEARS)))],
+            'plan_start_date' => ['nullable', 'required_if:plan,custom', 'date_format:Y-m-d'],
+            'plan_end_date' => ['nullable', 'required_if:plan,custom', 'date_format:Y-m-d', 'after_or_equal:plan_start_date'],
             'status'     => 'nullable|boolean',
             'company_logo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'wholesale_price_enabled' => ['sometimes', 'boolean'],
             'allowed_modules' => ['nullable', 'array'],
             'allowed_modules.*' => ['string', 'distinct', \Illuminate\Validation\Rule::in(array_keys(config('company_modules')))],
             'admin_password' => 'nullable|string|min:6|confirmed',
         ]);
+
+        $planDates = $this->resolvePlanDates($request->plan, $request, $company);
 
         $logoPath = $company->company_logo;
         if ($request->hasFile('company_logo')) {
@@ -401,12 +598,15 @@ class CompanyController extends Controller
         }
 
         $company->update([
+            'wholesale_price_enabled' => $request->has('wholesale_price_enabled') ? $request->boolean('wholesale_price_enabled') : $company->wholesale_price_enabled,
             'allowed_modules' => $request->has('modules_present') ? $request->input('allowed_modules', []) : $company->allowed_modules,
             'name'       => $request->name,
             'email'      => $request->email,
             'company_logo' => $logoPath,
             'max_users'  => $request->max_users,
             'plan'       => $request->plan,
+            'plan_started_at' => $planDates['started_at'],
+            'plan_expires_at' => $planDates['expires_at'],
             'status'     => $request->boolean('status'),
 
             'address_1'  => $request->address_1,
@@ -472,8 +672,14 @@ class CompanyController extends Controller
     DELETE COMPANY
     ======================================================
     */
-    public function destroy(Company $company, CompanyPurgeService $companyPurgeService)
+    public function destroy(Request $request, Company $company, CompanyPurgeService $companyPurgeService)
     {
+        $expectsJson = $request->expectsJson() || $request->ajax();
+        if ($expectsJson && (string) $request->input('confirm_name') !== (string) $company->name
+            && !$this->companyEffectiveStatus($company)) {
+            return response()->json(['success' => false, 'message' => 'Company name confirmation does not match.'], 422);
+        }
+
         $company->load(['users' => function ($query) {
             $query->select('id', 'company_id', 'password_set_url', 'is_active', 'role')
                 ->where(function ($q) {
@@ -499,6 +705,15 @@ class CompanyController extends Controller
                 ['company_id' => $company->id]
             );
 
+            if ($expectsJson) {
+                return response()->json([
+                    'success' => true,
+                    'action' => 'deactivated',
+                    'message' => 'Company deactivated. Click Delete again to permanently remove it.',
+                    'status' => false,
+                ]);
+            }
+
             return redirect()
                 ->route('superadmin.companies.index')
                 ->with('success', 'Company deactivated first. Click Delete again to permanently delete it.');
@@ -514,6 +729,14 @@ class CompanyController extends Controller
             'Permanently deleted company "' . $companyName . '" (ID: ' . $companyId . '). Deleted rows from ' . count($summary['tables']) . ' table(s); files deleted: ' . $summary['files_deleted'],
             []
         );
+
+        if ($expectsJson) {
+            return response()->json([
+                'success' => true,
+                'action' => 'deleted',
+                'message' => 'Company and all related data deleted permanently.',
+            ]);
+        }
 
         return redirect()
             ->route('superadmin.companies.index')
@@ -566,18 +789,39 @@ class CompanyController extends Controller
     {
         abort_if($company->parent_company_id, 422, 'Renew the main company plan. Branches inherit its expiry date.');
         $request->validate([
+            'plan' => ['required', 'string', \Illuminate\Validation\Rule::in(array_merge(['trial', 'custom'], array_keys(self::PAID_PLAN_YEARS)))],
+            'plan_start_date' => ['nullable', 'required_if:plan,custom', 'date_format:Y-m-d'],
+            'plan_end_date' => ['nullable', 'required_if:plan,custom', 'date_format:Y-m-d', 'after_or_equal:plan_start_date'],
             'remarks' => 'nullable|string|max:1000',
         ]);
 
         $planStatus = CompanyPlanService::status($company);
         $oldExpiresAt = $planStatus['expires_at'] ? Carbon::parse($planStatus['expires_at']) : null;
-        $baseDate = ($company->plan !== 'trial' && $oldExpiresAt && $oldExpiresAt->isFuture()) ? $oldExpiresAt->copy() : now();
-        $newExpiresAt = $baseDate->copy()->addYearNoOverflow();
+        $renewalPlan = $request->plan;
 
-        DB::transaction(function () use ($company, $planStatus, $oldExpiresAt, $newExpiresAt, $request) {
+        if ($renewalPlan === 'custom') {
+            $newStartedAt = Carbon::parse($request->plan_start_date)->startOfDay();
+            $newExpiresAt = Carbon::parse($request->plan_end_date)->endOfDay();
+        } elseif ($renewalPlan === 'trial') {
+            $newStartedAt = now();
+            $newExpiresAt = $newStartedAt->copy()->addDays(10);
+        } else {
+            $extendsActivePaidPlan = $company->plan !== 'trial' && $oldExpiresAt && $oldExpiresAt->isFuture();
+            $newStartedAt = $extendsActivePaidPlan
+                ? Carbon::parse($company->plan_started_at ?: $planStatus['started_at'])
+                : now();
+            $baseDate = $extendsActivePaidPlan ? $oldExpiresAt->copy() : now();
+            $years = self::PAID_PLAN_YEARS[$renewalPlan] ?? 1;
+            $newExpiresAt = $baseDate->copy();
+            for ($year = 0; $year < $years; $year++) {
+                $newExpiresAt->addYearNoOverflow();
+            }
+        }
+
+        DB::transaction(function () use ($company, $oldExpiresAt, $newStartedAt, $newExpiresAt, $renewalPlan, $request) {
             $company->update([
-                'plan' => 'yearly',
-                'plan_started_at' => $company->plan === 'trial' ? now() : ($company->plan_started_at ?: $planStatus['started_at']),
+                'plan' => $renewalPlan,
+                'plan_started_at' => $newStartedAt,
                 'plan_expires_at' => $newExpiresAt,
                 'plan_renewed_at' => now(),
             ]);
@@ -594,9 +838,11 @@ class CompanyController extends Controller
         AuditLog::logEvent(
             'renew_plan',
             'company',
-            'Renewed plan for company "' . $company->name . '" until ' . $newExpiresAt->format('d-m-Y h:i A'),
+            'Renewed company "' . $company->name . '" on the ' . str_replace('_', ' ', $renewalPlan) . ' plan until ' . $newExpiresAt->format('d-m-Y h:i A'),
             [
                 'company_id' => $company->id,
+                'plan' => $renewalPlan,
+                'plan_started_at' => $newStartedAt->toDateTimeString(),
                 'old_expires_at' => optional($oldExpiresAt)->toDateTimeString(),
                 'new_expires_at' => $newExpiresAt->toDateTimeString(),
             ]
@@ -604,37 +850,53 @@ class CompanyController extends Controller
 
         return redirect()
             ->back()
-            ->with('success', 'Plan renewed until ' . $newExpiresAt->format('d-m-Y h:i A'));
+            ->with('success', 'Plan renewed as ' . ucwords(str_replace('_', ' ', $renewalPlan)) . ' until ' . $newExpiresAt->format('d-m-Y h:i A'));
     }
 
-    public function resendLogin(Company $company)
+    public function regeneratePasswordLink(Company $company)
     {
-        $user = $company->users()->first();
+        $user = $this->companyAdminUsersQuery($company)->orderBy('id')->first();
 
         if (!$user) {
             return back()->with('error', 'No admin user found.');
         }
 
-        $password = Str::password(10);
+        $token = Str::uuid()->toString();
+        $setPasswordUrl = url('/set-password/' . $token);
+        $expiresAt = now()->addHours(24);
 
-        $user->update([
-            'password' => Hash::make($password),
-        ]);
+        DB::transaction(function () use ($user, $token, $setPasswordUrl, $expiresAt) {
+            // A newly generated link replaces any previous valid or expired token.
+            DB::table('password_set_tokens')
+                ->where('user_id', $user->id)
+                ->whereNull('used_at')
+                ->update(['used_at' => now(), 'updated_at' => now()]);
+            DB::table('password_set_tokens')->insert([
+                'user_id' => $user->id,
+                'token' => $token,
+                'expires_at' => $expiresAt,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
 
-        Mail::to($user->email)
-            ->queue(new CompanyLoginMail($company, $user->email, $password));
+            $user->update([
+                'password_set_url' => $setPasswordUrl,
+                'password_changed' => false,
+            ]);
+        });
 
         AuditLog::logEvent(
-            'resend_login',
+            'regenerate_password_link',
             'company',
-            'Resent login credentials for company "' . $company->name . '" (ID: ' . $company->id . ') admin user ID ' . $user->id,
+            'Generated a new 24-hour password setup link for company "' . $company->name . '" (ID: ' . $company->id . ') admin user ID ' . $user->id,
             [
                 'company_id' => $company->id,
                 'user_id' => $user->id,
+                'expires_at' => $expiresAt->toDateTimeString(),
             ]
         );
 
-        return back()->with('success', 'Login credentials resent successfully.');
+        return back()->with('success', 'A new 24-hour password setup link was generated. Use Copy Link to share it with the company admin.');
     }
 
     public function reset2fa(Company $company)
@@ -664,23 +926,35 @@ class CompanyController extends Controller
         $relativePath = 'uploads/company_logos/' . $fileName;
         $uploadDir = public_path('uploads/company_logos');
 
-        if (!File::exists($uploadDir)) {
-            File::makeDirectory($uploadDir, 0755, true);
+        if (!$file->isValid()) {
+            throw new \RuntimeException('Company logo upload is invalid: ' . $file->getErrorMessage());
+        }
+        File::ensureDirectoryExists($uploadDir, 0755, true);
+        clearstatcache(true, $uploadDir);
+        if (!is_dir($uploadDir) || !is_writable($uploadDir)) {
+            throw new \RuntimeException('Company logo directory is not writable by PHP: ' . $uploadDir);
         }
 
         $file->move($uploadDir, $fileName);
         $primaryPath = $uploadDir . DIRECTORY_SEPARATOR . $fileName;
 
+        // The public upload is authoritative; an optional legacy copy must not
+        // prevent saving a successfully uploaded company logo.
         foreach ($this->companyLogoUploadDirs() as $mirrorDir) {
             if ($mirrorDir === $uploadDir) {
                 continue;
             }
-
-            if (!File::exists($mirrorDir)) {
-                File::makeDirectory($mirrorDir, 0755, true);
+            try {
+                File::ensureDirectoryExists($mirrorDir, 0755, true);
+                if (!File::copy($primaryPath, $mirrorDir . DIRECTORY_SEPARATOR . $fileName)) {
+                    throw new \RuntimeException('Unable to copy company logo to legacy directory.');
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Company logo legacy copy failed; public logo saved', [
+                    'directory' => $mirrorDir,
+                    'exception' => $e,
+                ]);
             }
-
-            File::copy($primaryPath, $mirrorDir . DIRECTORY_SEPARATOR . $fileName);
         }
 
         return $relativePath;

@@ -12,10 +12,10 @@
         .meta { width: 100%; border-collapse: collapse; border-bottom: 1px solid #000; }
         .meta td { border-right: 1px solid #000; padding: 4px 6px; vertical-align: top; }
         .meta td:last-child { border-right: none; }
-        .voucher-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        .voucher-grid { font-size: 9px; width: 100%; border-collapse: collapse; table-layout: fixed; }
         .voucher-grid th, .voucher-grid td { border: 1px solid #000; padding: 3px 4px; vertical-align: top; word-wrap: break-word; }
         .voucher-grid th { background: #efefef; font-weight: 700; text-align: center; }
-        .text-right { text-align: right; }
+        .text-right { text-align: right; white-space: nowrap; word-wrap: normal; }
         .text-center { text-align: center; }
         .grand-total { text-align: right; font-weight: 700; padding: 6px 8px 8px; }
     </style>
@@ -37,7 +37,7 @@
     ])->first(fn ($value) => filled($value)))->filter()->unique()->implode(' / ') ?: '-';
 
     $companyName = $company->name ?? '';
-    $sumGross = 0; $sumLess = 0; $sumNet = 0; $sumOther = 0; $sumTotal = 0;
+    $sumQty = 0; $sumGross = 0; $sumLess = 0; $sumNet = 0; $sumOther = 0; $sumTotal = 0;
 
     $approvalReturnedItems = collect();
     if ($return->approval) {
@@ -48,7 +48,15 @@
 
 <div class="sheet">
     <div class="company-head">
+        @if(in_array($return->source_type, ['approval', 'mixed'], true))
+        <table style="width:100%;border-collapse:collapse"><tr>
+            <td style="width:40px"></td>
+            <td class="company-name" style="text-align:center">{{ $companyName }}</td>
+            <td style="width:40px;text-align:right"><img src="{{ \App\Services\VoucherQr::dataUri('sale-return', $return->id) }}" width="40" height="40" alt="Approval return voucher QR"></td>
+        </tr></table>
+        @else
         <div class="company-name">{{ $companyName }}</div>
+        @endif
     </div>
     <div class="sheet-title">{{ $return->source_type === 'sale' ? 'Sales Return' : 'Approval Return' }}</div>
 
@@ -75,16 +83,17 @@
         <thead>
             <tr>
                 <th style="width:4%;">Sr</th>
-                <th style="width:23%; text-align:left;">Item</th>
-                <th style="width:7%;">Purity %</th>
-                <th style="width:7%;">Waste %</th>
+                <th style="width:20%; text-align:left;">Item</th>
+                <th style="width:6%;">Purity %</th>
+                <th style="width:6%;">Waste %</th>
                 <th style="width:4%;">Qty</th>
                 <th style="width:7%;">Gross Wt</th>
                 <th style="width:7%;">Less Wt</th>
                 <th style="width:7%;">Net Wt</th>
-                <th style="width:7%;">Metal Rate</th>
-                <th style="width:8%;">Labour Rate</th>
-                <th style="width:9%;">Other</th>
+                <th style="width:6%;">Metal Rate</th>
+                <th style="width:7%;">Labour Rate</th>
+                <th style="width:8%;">Other</th>
+                <th style="width:8%;">Sale Price</th>
                 <th style="width:10%;">Total Amt</th>
             </tr>
         </thead>
@@ -110,7 +119,7 @@
                         ?? optional($item)->purity
                         ?? optional($item)->outward_carat
                         ?? 0);
-                    $qty = 1;
+                    $qty = max(1, (int) ($rItem->qty ?? 1));
                     $waste = (float) ($saleItem->waste_percent ?? optional($approvalItem)->waste_percent ?? 0);
                     $gross = (float) ($saleItem->gross_weight ?? optional($approvalItem)->gross_weight ?? 0);
                     $less = (float) ($saleItem->other_weight ?? optional($approvalItem)->other_weight ?? 0);
@@ -118,9 +127,22 @@
                     $rate = (float) ($saleItem->metal_rate ?? optional($approvalItem)->metal_rate ?? 0);
                     $labourRate = (float) ($saleItem->labour_rate ?? optional($approvalItem)->labour_rate ?? 0);
                     $other = (float) ($saleItem->other_amount ?? optional($approvalItem)->other_amount ?? 0);
+                    if ($saleItem) {
+                        $salePrice = $saleItem->sale_price;
+                    } elseif ($approvalItem) {
+                        // ApprovalItem.sale_price is a per-piece rate. On the
+                        // return document show the amount for the quantity
+                        // returned, matching the Approval Return screen.
+                        $salePrice = \App\Services\ApprovalItemPricing::unitSalePrice($approvalItem) * $qty;
+                    } else {
+                        $salePrice = null;
+                    }
                     $total = (float) ($rItem->return_amount ?? 0);
+                    if (!$saleItem && $total <= 0) {
+                        $total = \App\Services\ApprovalReturnAmount::resolve($approvalItem);
+                    }
 
-                    $sumGross += $gross; $sumLess += $less; $sumNet += $net; $sumOther += $other; $sumTotal += $total;
+                    $sumQty += $qty; $sumGross += $gross; $sumLess += $less; $sumNet += $net; $sumOther += $other; $sumTotal += $total;
                 @endphp
                 <tr>
                     <td class="text-center">{{ $index + 1 }}</td>
@@ -134,25 +156,28 @@
                     <td class="text-right">{{ number_format($rate, 2) }}</td>
                     <td class="text-right">{{ number_format($labourRate, 2) }}</td>
                     <td class="text-right">Rs {{ number_format($other, 2) }}</td>
+                    <td class="text-right">{{ $salePrice !== null ? number_format((float) $salePrice, 2) : '-' }}</td>
                     <td class="text-right">Rs {{ number_format($total, 2) }}</td>
                 </tr>
             @endforeach
         </tbody>
         <tfoot>
             <tr>
-                <th colspan="5" class="text-right">Total</th>
+                <th colspan="4" class="text-right">Total</th>
+                <th class="text-center">{{ $sumQty }}</th>
                 <th class="text-right">{{ number_format($sumGross, 3) }}</th>
                 <th class="text-right">{{ number_format($sumLess, 3) }}</th>
                 <th class="text-right">{{ number_format($sumNet, 3) }}</th>
                 <th></th>
                 <th></th>
                 <th class="text-right">Rs {{ number_format($sumOther, 2) }}</th>
+                <th></th>
                 <th class="text-right">Rs {{ number_format($sumTotal, 2) }}</th>
             </tr>
         </tfoot>
     </table>
 
-    <div class="grand-total">Grand Total : Rs {{ number_format((float)($return->return_total ?? $sumTotal), 2) }}</div>
+    <div class="grand-total">Grand Total : Rs {{ number_format($sumTotal, 2) }}</div>
 </div>
 
 </body>

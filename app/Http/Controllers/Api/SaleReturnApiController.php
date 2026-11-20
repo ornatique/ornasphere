@@ -24,6 +24,7 @@ class SaleReturnApiController extends Controller
 {
     public function list_of_return(Request $request)
     {
+        $request->validate(['voucher_id'=>'sometimes|required|integer|min:1']);
         return \App\Services\SalesApiBranches::listing($request, fn ($companyId) => $this->listForCompany($request, $companyId), 'Approval Return');
     }
 
@@ -36,8 +37,10 @@ class SaleReturnApiController extends Controller
             'sale.customer',
             'approval.customer',
             'items.saleItem.sale.customer',
+            'items.approvalItem.approval.customer',
         ])
             ->where('company_id', $companyId)
+            ->when($request->filled('voucher_id'), fn ($q) => $q->whereKey($request->integer('voucher_id')))
             ->when($request->filled('from_date'), fn ($q) => $q->whereDate('return_date','>=',$request->from_date))
             ->when($request->filled('to_date'), fn ($q) => $q->whereDate('return_date','<=',$request->to_date))
             ->when($request->filled('source_type'), fn ($q) => $q->where('source_type',$request->source_type))
@@ -54,6 +57,11 @@ class SaleReturnApiController extends Controller
                     $firstSaleItem = $return->items->firstWhere('sale_item_id', '!=', null);
                     $sale = optional(optional($firstSaleItem)->saleItem)->sale;
                     $customerName = optional(optional($sale)->customer)->name ?? '-';
+                    if ($customerName === '-') {
+                        $customerName = $return->items
+                            ->map(fn ($item) => $item->approvalItem?->approval?->customer?->name)
+                            ->first(fn ($name) => is_string($name) && trim($name) !== '') ?? '-';
+                    }
                 }
 
                 return [
@@ -371,6 +379,9 @@ class SaleReturnApiController extends Controller
 
         $qr = $request->qr_code;
         $customerId = (int) $request->customer_id;
+        $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        $voucherSessionId = trim((string) $request->input('voucher_session_id'));
+        $deviceEntryId = trim((string) $request->input('device_entry_id'));
 
         $saleItem = SaleItem::whereHas('itemset', function ($q) use ($qr, $user) {
             $q->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
@@ -380,48 +391,57 @@ class SaleReturnApiController extends Controller
                 $q->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
                     ->where('customer_id', $customerId);
             })
-            ->whereNotExists(function ($sub) {
-                $sub->select(DB::raw(1))
-                    ->from('sale_return_items')
-                    ->whereColumn('sale_return_items.sale_item_id', 'sale_items.id');
-            })
             ->with('itemset.item')
             ->first();
 
         if (!$saleItem) {
             return response()->json([
                 'success' => false,
-                'message' => 'Product not sold to this customer or already returned'
+                'message' => 'Product not sold to this customer'
             ]);
         }
 
-        $exists = ReturnCart::where('sale_item_id', $saleItem->id)
+        $soldQty = max(1, (int) ($saleItem->qty ?? 1));
+        $returnedQty = $this->returnedSaleQuantity($saleItem);
+        if ($returnedQty >= $soldQty) {
+            return response()->json(['success' => false, 'message' => 'All pieces for this QR have already been returned.'], 422);
+        }
+
+        $cartQuery = ReturnCart::where('sale_item_id', $saleItem->id)
             ->where('user_id', $user->id)
-            ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
-            ->exists();
+            ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()));
+        if ($deviceId !== '') $cartQuery->where('device_id', $deviceId);
+        if ($voucherSessionId !== '') $cartQuery->where('voucher_session_id', $voucherSessionId);
+        $cart = $cartQuery->lockForUpdate()->first();
 
-        if ($exists) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Product already scanned'
-            ]);
+        $nextQty = (int) ($cart->qty ?? 0) + 1;
+        if ($returnedQty + $nextQty > $soldQty) {
+            return response()->json(['success' => false, 'message' => 'Scanned quantity exceeds the unreturned pieces for this QR.'], 422);
         }
 
-        $payload = [
-            'user_id' => $user->id,
-            'company_id' => \App\Services\CompanyBranches::apiManagementCompanyId(request()),
-            'sale_item_id' => $saleItem->id
-        ];
-
-        if (Schema::hasColumn('return_carts', 'customer_id')) {
-            $payload['customer_id'] = $customerId;
+        if ($cart) {
+            $cart->update(['qty' => $nextQty]);
+        } else {
+            $payload = [
+                'user_id' => $user->id,
+                'device_id' => $deviceId ?: null,
+                'voucher_session_id' => $voucherSessionId ?: null,
+                'device_entry_id' => $deviceEntryId ?: null,
+                'company_id' => \App\Services\CompanyBranches::apiManagementCompanyId(request()),
+                'sale_item_id' => $saleItem->id,
+                'qty' => 1,
+            ];
+            if (Schema::hasColumn('return_carts', 'customer_id')) {
+                $payload['customer_id'] = $customerId;
+            }
+            $cart = ReturnCart::create($payload);
         }
-
-        ReturnCart::create($payload);
 
         return response()->json([
             'success' => true,
-            'message' => 'Added to return list'
+            'message' => 'Added to return list',
+            'quantity' => (int) $cart->qty,
+            'remaining_returnable_quantity' => $soldQty - $returnedQty - (int) $cart->qty,
         ]);
     }
 
@@ -437,9 +457,9 @@ class SaleReturnApiController extends Controller
 
         $qrCode = trim((string) $request->qr_code);
         $customerId = (int) $request->customer_id;
-
-        $hasReturnApprovalItemId = Schema::hasColumn('sale_return_items', 'approval_item_id');
-        $hasReturnItemsetId = Schema::hasColumn('sale_return_items', 'itemset_id');
+        $deviceId = trim((string) ($request->input('device_id') ?: $request->header('X-Device-Id')));
+        $voucherSessionId = trim((string) $request->input('voucher_session_id'));
+        $deviceEntryId = trim((string) $request->input('device_entry_id'));
 
         $approvalItem = ApprovalItem::with(['approval.customer', 'itemSet.item', 'legacyItemSet.item', 'item'])
             ->whereHas('approval', function ($q) use ($user, $customerId) {
@@ -461,20 +481,6 @@ class SaleReturnApiController extends Controller
                             ->where('qr_code', $qrCode);
                     });
             })
-            ->when($hasReturnApprovalItemId, function ($q) {
-                $q->whereNotExists(function ($sub) {
-                    $sub->select(DB::raw(1))
-                        ->from('sale_return_items')
-                        ->whereColumn('sale_return_items.approval_item_id', 'approval_items.id');
-                });
-            })
-            ->when(!$hasReturnApprovalItemId && $hasReturnItemsetId, function ($q) {
-                $q->whereNotExists(function ($sub) {
-                    $sub->select(DB::raw(1))
-                        ->from('sale_return_items')
-                        ->whereColumn('sale_return_items.itemset_id', 'approval_items.itemset_id');
-                });
-            })
             ->latest('id')
             ->first();
 
@@ -486,6 +492,36 @@ class SaleReturnApiController extends Controller
         }
 
         $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
+        $approvalQty = max(1, (int) ($approvalItem->qty ?? 1));
+        $alreadyReturnedQty = $this->returnedApprovalQuantity($approvalItem);
+        if ($alreadyReturnedQty >= $approvalQty) {
+            return response()->json(['success' => false, 'message' => 'All pieces for this approval QR have already been returned.'], 422);
+        }
+        $cart = ReturnCart::where('approval_item_id', $approvalItem->id)
+            ->where('user_id', $user->id)
+            ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
+            ->lockForUpdate()
+            ->first();
+        $nextQty = (int) ($cart->qty ?? 0) + 1;
+        if ($alreadyReturnedQty + $nextQty > $approvalQty) {
+            return response()->json(['success' => false, 'message' => 'Scanned quantity exceeds the unreturned pieces for this QR.'], 422);
+        }
+        if ($cart) {
+            $cart->update(['qty' => $nextQty]);
+        } else {
+            $cartPayload = [
+                'user_id' => $user->id,
+                'device_id' => $deviceId ?: null,
+                'voucher_session_id' => $voucherSessionId ?: null,
+                'device_entry_id' => $deviceEntryId ?: null,
+                'company_id' => \App\Services\CompanyBranches::apiManagementCompanyId(request()),
+                'sale_item_id' => null,
+                'approval_item_id' => $approvalItem->id,
+                'qty' => 1,
+            ];
+            if (Schema::hasColumn('return_carts', 'customer_id')) $cartPayload['customer_id'] = $customerId;
+            $cart = ReturnCart::create($cartPayload);
+        }
         $item = optional($itemSet)->item ?? $approvalItem->item;
         $gross = (float) ($approvalItem->gross_weight ?? optional($itemSet)->gross_weight ?? 0);
         $otherWeight = (float) ($approvalItem->other_weight ?? optional($itemSet)->other ?? 0);
@@ -498,6 +534,7 @@ class SaleReturnApiController extends Controller
         $labourAmount = (float) ($approvalItem->labour_amount ?? 0);
         $otherAmount = $this->resolveOtherAmount($approvalItem->other_amount ?? null, optional($itemSet)->sale_other ?? 0);
         $totalAmount = $this->resolveTotalAmount($approvalItem->total_amount ?? null, $metalAmount, $labourAmount, $otherAmount);
+        $selectedFactor = (int) $cart->qty / $approvalQty;
 
         return response()->json([
             'success' => true,
@@ -515,21 +552,24 @@ class SaleReturnApiController extends Controller
                 'qr_code' => $approvalItem->qr_code ?? optional($itemSet)->qr_code,
                 'item_name' => optional($item)->item_name,
                 'name' => optional($item)->item_name,
-                'gross_weight' => number_format($gross, 3, '.', ''),
-                'other_weight' => number_format($otherWeight, 3, '.', ''),
-                'net_weight' => number_format($net, 3, '.', ''),
+                'gross_weight' => number_format($gross * $selectedFactor, 3, '.', ''),
+                'other_weight' => number_format($otherWeight * $selectedFactor, 3, '.', ''),
+                'net_weight' => number_format($net * $selectedFactor, 3, '.', ''),
                 'purity' => number_format($purity, 3, '.', ''),
                 'waste_percent' => number_format($wastePercent, 3, '.', ''),
                 'net_purity' => number_format($netPurity, 3, '.', ''),
-                'fine_weight' => number_format($fineWeight, 3, '.', ''),
+                'fine_weight' => number_format($fineWeight * $selectedFactor, 3, '.', ''),
                 'metal_rate' => number_format((float) ($approvalItem->metal_rate ?? 0), 2, '.', ''),
-                'metal_amount' => number_format($metalAmount, 2, '.', ''),
+                'metal_amount' => number_format($metalAmount * $selectedFactor, 2, '.', ''),
                 'labour_rate' => number_format((float) ($approvalItem->labour_rate ?? 0), 2, '.', ''),
-                'labour_amount' => number_format($labourAmount, 2, '.', ''),
-                'other_amount' => number_format($otherAmount, 2, '.', ''),
-                'total_amount' => number_format($totalAmount, 2, '.', ''),
+                'labour_amount' => number_format($labourAmount * $selectedFactor, 2, '.', ''),
+                'other_amount' => number_format($otherAmount * $selectedFactor, 2, '.', ''),
+                'total_amount' => number_format($totalAmount * $selectedFactor, 2, '.', ''),
                 'remarks' => (string) ($approvalItem->remarks ?? ''),
                 'source' => 'approval',
+                'qty' => (int) $cart->qty,
+                'available_to_return' => $approvalQty - $alreadyReturnedQty,
+                'remaining_to_scan' => $approvalQty - $alreadyReturnedQty - (int) $cart->qty,
             ]
         ]);
     }
@@ -568,6 +608,9 @@ class SaleReturnApiController extends Controller
             ->map(function ($cart) use ($hasCustomerIdColumn) {
                 $saleItem = $cart->saleItem;
                 if ($saleItem && $saleItem->itemset) {
+                    $cartQty = max(1, (int) ($cart->qty ?? 1));
+                    $soldQty = max(1, (int) ($saleItem->qty ?? 1));
+                    $returnFactor = $cartQty / $soldQty;
                     return [
                         'cart_id' => $cart->id,
                         'customer_id' => $hasCustomerIdColumn ? $cart->customer_id : null,
@@ -575,6 +618,8 @@ class SaleReturnApiController extends Controller
                         'voucher_session_id' => $cart->voucher_session_id,
                         'device_entry_id' => $cart->device_entry_id,
                         'source' => 'sale',
+                        'qty' => $cartQty,
+                        'available_to_return' => max(0, $soldQty - $this->returnedSaleQuantity($saleItem)),
                         'sale_item_id' => $saleItem->id,
                         'approval_item_id' => null,
                         'itemset_id' => $saleItem->itemset_id,
@@ -583,20 +628,21 @@ class SaleReturnApiController extends Controller
                         'huid' => $saleItem->itemset->HUID,
                         'item_id' => $saleItem->itemset->item_id,
                         'item_name' => optional($saleItem->itemset->item)->item_name,
-                        'gross_weight' => number_format((float) ($saleItem->gross_weight ?? $saleItem->itemset->gross_weight ?? 0), 3, '.', ''),
-                        'other_weight' => number_format((float) ($saleItem->other_weight ?? $saleItem->itemset->other ?? 0), 3, '.', ''),
-                        'net_weight' => number_format((float) ($saleItem->net_weight ?? $saleItem->itemset->net_weight ?? 0), 3, '.', ''),
+                        'gross_weight' => number_format((float) ($saleItem->gross_weight ?? $saleItem->itemset->gross_weight ?? 0) * $returnFactor, 3, '.', ''),
+                        'other_weight' => number_format((float) ($saleItem->other_weight ?? $saleItem->itemset->other ?? 0) * $returnFactor, 3, '.', ''),
+                        'net_weight' => number_format((float) ($saleItem->net_weight ?? $saleItem->itemset->net_weight ?? 0) * $returnFactor, 3, '.', ''),
                         'purity' => number_format((float) ($saleItem->purity ?? optional($saleItem->itemset->item)->purity ?? 0), 3, '.', ''),
                         'waste_percent' => number_format((float) ($saleItem->waste_percent ?? 0), 3, '.', ''),
                         'net_purity' => number_format((float) ($saleItem->net_purity ?? 0), 3, '.', ''),
-                        'fine_weight' => number_format((float) ($saleItem->fine_weight ?? 0), 3, '.', ''),
+                        'fine_weight' => number_format((float) ($saleItem->fine_weight ?? 0) * $returnFactor, 3, '.', ''),
                         'metal_rate' => number_format((float) ($saleItem->metal_rate ?? 0), 2, '.', ''),
-                        'metal_amount' => number_format((float) ($saleItem->metal_amount ?? 0), 2, '.', ''),
+                        'metal_amount' => number_format((float) ($saleItem->metal_amount ?? 0) * $returnFactor, 2, '.', ''),
                         'labour_rate' => number_format((float) ($saleItem->labour_rate ?? 0), 2, '.', ''),
-                        'labour_amount' => number_format((float) ($saleItem->labour_amount ?? 0), 2, '.', ''),
-                        'other_amount' => number_format((float) ($saleItem->other_amount ?? 0), 2, '.', ''),
-                        'total_amount' => number_format((float) ($saleItem->total_amount ?? 0), 2, '.', ''),
-                        'amount' => (float) ($saleItem->total_amount ?? 0),
+                        'labour_amount' => number_format((float) ($saleItem->labour_amount ?? 0) * $returnFactor, 2, '.', ''),
+                        'other_amount' => number_format((float) ($saleItem->other_amount ?? 0) * $returnFactor, 2, '.', ''),
+                        'sale_price' => $saleItem->sale_price === null ? null : number_format((float) $saleItem->sale_price, 2, '.', ''),
+                        'total_amount' => number_format(((float) ($saleItem->total_amount ?? 0) / $soldQty) * $cartQty, 2, '.', ''),
+                        'amount' => ((float) ($saleItem->total_amount ?? 0) / $soldQty) * $cartQty,
                     ];
                 }
 
@@ -618,6 +664,17 @@ class SaleReturnApiController extends Controller
                 $labourAmount = (float) ($approvalItem->labour_amount ?? 0);
                 $otherAmount = $this->resolveOtherAmount($approvalItem->other_amount ?? null, optional($itemSet)->sale_other ?? 0);
                 $totalAmount = $this->resolveTotalAmount($approvalItem->total_amount ?? null, $metalAmount, $labourAmount, $otherAmount);
+                $cartQty = max(1, (int) ($cart->qty ?? 1));
+                $approvalQty = max(1, (int) ($approvalItem->qty ?? 1));
+                $returnFactor = $cartQty / $approvalQty;
+                $gross *= $returnFactor;
+                $otherWeight *= $returnFactor;
+                $net *= $returnFactor;
+                $fineWeight *= $returnFactor;
+                $metalAmount *= $returnFactor;
+                $labourAmount *= $returnFactor;
+                $otherAmount *= $returnFactor;
+                $totalAmount *= $returnFactor;
 
                 return [
                     'cart_id' => $cart->id,
@@ -628,6 +685,8 @@ class SaleReturnApiController extends Controller
                     'voucher_session_id' => $cart->voucher_session_id,
                     'device_entry_id' => $cart->device_entry_id,
                     'source' => 'approval',
+                    'qty' => $cartQty,
+                    'available_to_return' => max(0, $approvalQty - $this->returnedApprovalQuantity($approvalItem)),
                     'sale_item_id' => null,
                     'approval_item_id' => $approvalItem->id,
                     'approval_id' => $approvalItem->approval_id,
@@ -649,6 +708,7 @@ class SaleReturnApiController extends Controller
                     'labour_rate' => number_format((float) ($approvalItem->labour_rate ?? 0), 2, '.', ''),
                     'labour_amount' => number_format($labourAmount, 2, '.', ''),
                     'other_amount' => number_format($otherAmount, 2, '.', ''),
+                    'sale_price' => $approvalItem->sale_price === null ? null : number_format((float) $approvalItem->sale_price, 2, '.', ''),
                     'total_amount' => number_format($totalAmount, 2, '.', ''),
                     'remarks' => (string) ($approvalItem->remarks ?? ''),
                     'amount' => $totalAmount,
@@ -751,17 +811,23 @@ class SaleReturnApiController extends Controller
                     continue;
                 }
 
+                $returnQty = max(1, (int) ($cart->qty ?? 1));
+                $soldQty = max(1, (int) ($saleItem->qty ?? 1));
+                if ($this->returnedSaleQuantity($saleItem) + $returnQty > $soldQty) {
+                    throw new \Exception('Return quantity exceeds the remaining pieces for this QR.');
+                }
+                $returnAmount = ((float) ($saleItem->total_amount ?? 0) / $soldQty) * $returnQty;
+
                 SaleReturnItem::create([
                     'sale_return_id' => $return->id,
                     'sale_item_id' => $saleItem->id,
-                    'return_amount' => $saleItem->total_amount
+                    'return_amount' => $returnAmount,
+                    'qty' => $returnQty,
                 ]);
 
-                $saleItem->itemset->update([
-                    'is_sold' => 0
-                ]);
+                \App\Services\BatchInventory::restore($saleItem->itemset, $returnQty);
 
-                $total += (float) $saleItem->total_amount;
+                $total += $returnAmount;
             }
 
             $return->update([
@@ -1036,7 +1102,8 @@ class SaleReturnApiController extends Controller
             ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
             ->findOrFail($returnId);
 
-        $pdf = Pdf::loadView('company.returns.return_pdf', compact('return'))
+        $company = Company::findOrFail($return->company_id);
+        $pdf = Pdf::loadView('company.returns.return_pdf', compact('return', 'company'))
             ->setPaper('a4', 'portrait');
 
         return $pdf->download('Return-' . $return->return_voucher_no . '.pdf');
@@ -1087,9 +1154,9 @@ class SaleReturnApiController extends Controller
 
         foreach ($return->items as $returnItem) {
             $itemSet = $returnItem->itemSet;
-            $approvalItem = $itemSet
+            $approvalItem = $returnItem->approvalItem ?? ($itemSet
                 ? $approvalItemsByItemSet->get($itemSet->id)
-                : null;
+                : null);
 
             if (!$approvalItem) {
                 $approvalItem = $remainingApprovalItems->first(function ($item) use ($returnItem) {
@@ -1108,7 +1175,7 @@ class SaleReturnApiController extends Controller
                 optional(optional($itemSet)->item)->item_name
                 ?? optional(optional($approvalItem)->item)->item_name
             );
-            $totals['qty']++;
+            $totals['qty'] += max(1, (int) ($returnItem->qty ?? 1));
             $totals['gross_wt'] += (float) ($approvalItem->gross_weight ?? 0);
             $totals['net_wt'] += (float) ($approvalItem->net_weight ?? 0);
             $totals['fine_wt'] += (float) ($approvalItem->total_fine_weight ?? 0);
@@ -1212,11 +1279,14 @@ class SaleReturnApiController extends Controller
                 $labourAmount = (float) ($row->labour_amount ?? ($net * $labourRate));
                 $otherAmount = $this->resolveOtherAmount($row->other_amount ?? null, optional($itemSet)->sale_other ?? 0);
                 $totalAmount = $this->resolveTotalAmount($row->total_amount ?? null, $metalAmount, $labourAmount, $otherAmount);
+                $unitSalePrice = \App\Services\ApprovalItemPricing::unitSalePrice($row);
+                $availableQty = max(1, (int) ($row->qty ?? 1));
 
                 return [
                     'source' => 'approval',
                     'id' => $row->id,
                     'approval_item_id' => $row->id,
+                    'batch_quantity' => $availableQty,
                     'approval_id' => $row->approval_id,
                     'item_id' => $row->item_id ?? optional($itemSet)->item_id,
                     'itemset_id' => optional($itemSet)->id,
@@ -1236,6 +1306,10 @@ class SaleReturnApiController extends Controller
                     'labour_rate' => number_format($labourRate, 2, '.', ''),
                     'labour_amount' => number_format($labourAmount, 2, '.', ''),
                     'other_amount' => number_format($otherAmount, 2, '.', ''),
+                    // Unit rate plus the full-batch amount lets clients calculate
+                    // a selected return quantity without dividing the unit rate.
+                    'sale_price' => number_format($unitSalePrice, 2, '.', ''),
+                    'sale_price_total' => number_format($unitSalePrice * $availableQty, 2, '.', ''),
                     'total_amount' => number_format($totalAmount, 2, '.', ''),
                     'remarks' => (string) ($row->remarks ?? ''),
                 ];
@@ -1389,6 +1463,13 @@ class SaleReturnApiController extends Controller
                 if (Schema::hasColumn('return_carts', 'customer_id') && (int) ($sessionCart->customer_id ?? 0) !== (int) $customerId) {
                     $sessionCart->update(['customer_id' => $customerId]);
                 }
+                $returnedQty = $this->returnedApprovalQuantity(ApprovalItem::findOrFail($approvalItemId));
+                $maxQty = max(1, (int) ApprovalItem::whereKey($approvalItemId)->value('qty'));
+                if ($returnedQty + (int) ($sessionCart->qty ?? 1) + 1 > $maxQty) {
+                    return response()->json(['success' => false, 'message' => 'Scanned quantity exceeds the remaining pieces for this QR.'], 422);
+                }
+                $sessionCart->increment('qty');
+                $cartQty = (int) $sessionCart->fresh()->qty;
             } else {
                 $cartPayload = [
                     'user_id' => $request->user()->id,
@@ -1398,6 +1479,7 @@ class SaleReturnApiController extends Controller
                     'company_id' => $companyId,
                     'sale_item_id' => null,
                     'approval_item_id' => $approvalItemId,
+                    'qty' => 1,
                 ];
 
                 if (Schema::hasColumn('return_carts', 'customer_id')) {
@@ -1407,7 +1489,24 @@ class SaleReturnApiController extends Controller
                 $cart = ReturnCart::create($cartPayload);
                 $cartAdded = true;
                 $cartId = $cart->id;
+                $cartQty = 1;
             }
+            $batchQty = max(1, (int) ApprovalItem::whereKey($approvalItemId)->value('qty'));
+            $returnedQty = $this->returnedApprovalQuantity(ApprovalItem::findOrFail($approvalItemId));
+            $rows = $rows->map(function ($row) use ($cartQty, $batchQty, $returnedQty) {
+                $factor = ($cartQty ?? 1) / max(1, $batchQty);
+                foreach (['gross_weight', 'other_weight', 'net_weight', 'fine_weight'] as $field) {
+                    $row[$field] = number_format((float) ($row[$field] ?? 0) * $factor, 3, '.', '');
+                }
+                foreach (['metal_amount', 'labour_amount', 'other_amount', 'total_amount'] as $field) {
+                    $row[$field] = number_format((float) ($row[$field] ?? 0) * $factor, 2, '.', '');
+                }
+                $row['qty'] = $cartQty ?? 1;
+                $row['selected_quantity'] = $cartQty ?? 1;
+                $row['available_to_return'] = max(0, $batchQty - $returnedQty);
+                $row['remaining_to_scan'] = max(0, $batchQty - $returnedQty - ($cartQty ?? 1));
+                return $row;
+            });
         }
 
         return response()->json([
@@ -1611,13 +1710,6 @@ class SaleReturnApiController extends Controller
             ->unique()
             ->values();
 
-        if ($saleItemIds->isNotEmpty()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Only pending approval items can be returned from Approval Return.'
-            ], 422);
-        }
-
         $approvalItemIds = collect($request->input('approval_item_ids', []))
             ->filter()
             ->map(fn($id) => (int) $id)
@@ -1661,7 +1753,8 @@ class SaleReturnApiController extends Controller
                 continue;
             }
             $payloadMap["{$rowType}_{$rowId}"] = [
-                'total_amount' => (float) ($payload['total_amount'] ?? 0),
+                'total_amount' => $payload['total_amount'] ?? $payload['amount'] ?? null,
+                'qty' => isset($payload['qty']) ? max(1, (int) $payload['qty']) : null,
             ];
         }
 
@@ -1682,15 +1775,35 @@ class SaleReturnApiController extends Controller
             $saleItems = collect();
             if ($saleItemIds->isNotEmpty()) {
                 $saleItems = $saleItemIds
-                    ->map(fn($id) => TransactionItemGuard::lockSaleItemForReturn($companyId, (int) $id)->load(['sale', 'itemset']))
+                    ->map(function ($id) use ($companyId, $customerId, $payloadMap, $request, $deviceId, $voucherSessionId) {
+                        $cartQuantity = ReturnCart::where('user_id', $request->user()->id)
+                            ->where('company_id', $companyId)
+                            ->where('device_id', $deviceId)
+                            ->where('voucher_session_id', $voucherSessionId)
+                            ->where('sale_item_id', (int) $id)
+                            ->value('qty');
+                        $requestedQuantity = $payloadMap['sale_' . (int) $id]['qty'] ?? $cartQuantity;
+                        $saleItem = TransactionItemGuard::lockSaleItemForReturn($companyId, (int) $id, $requestedQuantity ? (int) $requestedQuantity : null)->load(['sale', 'itemset']);
+                        if ((int) optional($saleItem->sale)->customer_id !== $customerId) {
+                            throw new \Exception('Sale item customer mismatch.');
+                        }
+                        return $saleItem;
+                    })
                     ->values();
             }
 
             $approvalItems = collect();
             if ($approvalItemIds->isNotEmpty()) {
                 $approvalItems = $approvalItemIds
-                    ->map(function ($id) use ($companyId, $customerId) {
-                        $approvalItem = TransactionItemGuard::lockApprovalItemForReturn($companyId, (int) $id)
+                    ->map(function ($id) use ($companyId, $customerId, $payloadMap, $request, $deviceId, $voucherSessionId) {
+                        $cartQuantity = ReturnCart::where('user_id', $request->user()->id)
+                            ->where('company_id', $companyId)
+                            ->where('device_id', $deviceId)
+                            ->where('voucher_session_id', $voucherSessionId)
+                            ->where('approval_item_id', (int) $id)
+                            ->value('qty');
+                        $requestedQuantity = $payloadMap['approval_' . (int) $id]['qty'] ?? $cartQuantity;
+                        $approvalItem = TransactionItemGuard::lockApprovalItemForReturn($companyId, (int) $id, $requestedQuantity ? (int) $requestedQuantity : null)
                             ->load(['approval', 'itemSet', 'legacyItemSet']);
 
                         if ((int) optional($approvalItem->approval)->customer_id !== $customerId) {
@@ -1733,18 +1846,33 @@ class SaleReturnApiController extends Controller
                 $saleTotalsBySaleId = [];
                 foreach ($saleItems as $saleItem) {
                     $rowKey = 'sale_' . (int) $saleItem->id;
+                    $requestedQty = $payloadMap[$rowKey]['qty']
+                        ?? ReturnCart::where('user_id', $request->user()->id)
+                            ->where('company_id', $companyId)
+                            ->where('device_id', $deviceId)
+                            ->where('voucher_session_id', $voucherSessionId)
+                            ->where('sale_item_id', $saleItem->id)
+                            ->value('qty')
+                        ?? max(1, (int) ($saleItem->qty ?? 1));
+                    $returnQty = max(1, (int) $requestedQty);
+                    $soldQty = max(1, (int) ($saleItem->qty ?? 1));
+                    if ($this->returnedSaleQuantity($saleItem) + $returnQty > $soldQty) {
+                        throw new \Exception('Return quantity exceeds the remaining pieces for this QR.');
+                    }
+                    $defaultAmount = ((float) ($saleItem->total_amount ?? 0) / $soldQty) * $returnQty;
                     $overrideAmount = isset($payloadMap[$rowKey]['total_amount'])
                         ? (float) $payloadMap[$rowKey]['total_amount']
-                        : (float) $saleItem->total_amount;
+                        : $defaultAmount;
 
                     SaleReturnItem::create([
                         'sale_return_id' => $return->id,
                         'sale_item_id' => $saleItem->id,
+                        'qty' => $returnQty,
                         'return_amount' => $overrideAmount,
                     ]);
 
                     if ($saleItem->itemset) {
-                        $saleItem->itemset->update(['is_sold' => 0]);
+                        \App\Services\BatchInventory::restore($saleItem->itemset, $returnQty);
                     }
 
                     $total += $overrideAmount;
@@ -1770,16 +1898,33 @@ class SaleReturnApiController extends Controller
                     }
 
                     $rate = (float) ($itemSet->metal_rate ?? 1);
-                    $calculatedAmount = (float) ($approvalItem->total_amount ?? ((float) $approvalItem->net_weight * $rate));
+                    $calculatedAmount = \App\Services\ApprovalReturnAmount::resolve($approvalItem);
+                    $unitSalePrice = \App\Services\ApprovalItemPricing::unitSalePrice($approvalItem);
                     $rowKey = 'approval_' . (int) $approvalItem->id;
-                    $amount = isset($payloadMap[$rowKey]['total_amount'])
-                        ? (float) $payloadMap[$rowKey]['total_amount']
-                        : $calculatedAmount;
+                    $returnQty = $payloadMap[$rowKey]['qty']
+                        ?? ReturnCart::where('user_id', $request->user()->id)
+                            ->where('company_id', $companyId)
+                            ->where('device_id', $deviceId)
+                            ->where('voucher_session_id', $voucherSessionId)
+                            ->where('approval_item_id', $approvalItem->id)
+                            ->value('qty')
+                        ?? max(1, (int) ($approvalItem->qty ?? 1));
+                    $returnQty = max(1, (int) $returnQty);
+                    $approvalQty = max(1, (int) ($approvalItem->qty ?? 1));
+                    if ($this->returnedApprovalQuantity($approvalItem) + $returnQty > $approvalQty) {
+                        throw new \Exception('Return quantity exceeds the remaining pieces for this approval QR.');
+                    }
+                    $amount = $unitSalePrice > 0
+                        ? $unitSalePrice * $returnQty
+                        : (isset($payloadMap[$rowKey]['total_amount']) && (float) $payloadMap[$rowKey]['total_amount'] > 0
+                            ? (float) $payloadMap[$rowKey]['total_amount']
+                            : ($calculatedAmount / $approvalQty) * $returnQty);
 
                     $returnItemPayload = [
                         'sale_return_id' => $return->id,
                         'sale_item_id' => null,
                         'return_amount' => $amount,
+                        'qty' => $returnQty,
                     ];
 
                     if ($hasApprovalItemIdColumn) {
@@ -1794,8 +1939,42 @@ class SaleReturnApiController extends Controller
 
                     SaleReturnItem::create($returnItemPayload);
 
-                    $approvalItem->update(['status' => 'returned']);
-                    $itemSet->update(['is_sold' => 0]);
+                    $remainingQty = $approvalQty - $returnQty;
+                    if ($remainingQty > 0) {
+                        // Keep the unreturned pieces on a pending approval row so
+                        // approval sale can only use the remaining quantity.
+                        $attributes = $approvalItem->getAttributes();
+                        unset($attributes['id'], $attributes['created_at'], $attributes['updated_at']);
+                        $returnRatio = $returnQty / $approvalQty;
+                        $remainingRatio = $remainingQty / $approvalQty;
+                        $remainder = $attributes;
+                        $remainder['qty'] = $remainingQty;
+                        $remainder['status'] = 'pending';
+                        $attributes['qty'] = $returnQty;
+                        $attributes['status'] = 'returned';
+                        $scaledFields = [
+                            'gross_weight' => 3,
+                            'other_weight' => 3,
+                            'net_weight' => 3,
+                            'total_fine_weight' => 3,
+                            'metal_amount' => 2,
+                            'labour_amount' => 2,
+                            'other_amount' => 2,
+                            'total_amount' => 2,
+                        ];
+                        foreach ($scaledFields as $field => $precision) {
+                            if (array_key_exists($field, $attributes) && $attributes[$field] !== null) {
+                                $fullValue = (float) $attributes[$field];
+                                $attributes[$field] = round($fullValue * $returnRatio, $precision);
+                                $remainder[$field] = round($fullValue * $remainingRatio, $precision);
+                            }
+                        }
+                        $approvalItem->update(array_intersect_key($attributes, array_flip(array_merge(array_keys($scaledFields), ['qty', 'status']))));
+                        ApprovalItem::create($remainder);
+                    } else {
+                        $approvalItem->update(['status' => 'returned']);
+                    }
+                    \App\Services\BatchInventory::restore($itemSet, $returnQty);
                     $total += $amount;
                 }
 
@@ -2151,6 +2330,30 @@ class SaleReturnApiController extends Controller
         }
 
         return $inputOther;
+    }
+
+    private function returnedSaleQuantity(SaleItem $saleItem): int
+    {
+        $query = SaleReturnItem::where('sale_item_id', $saleItem->id);
+        if (Schema::hasColumn('sale_return_items', 'qty')) {
+            return (int) $query->sum('qty');
+        }
+
+        return $query->exists() ? max(1, (int) ($saleItem->qty ?? 1)) : 0;
+    }
+
+    private function returnedApprovalQuantity(ApprovalItem $approvalItem): int
+    {
+        if (!Schema::hasColumn('sale_return_items', 'approval_item_id')) {
+            return 0;
+        }
+
+        $query = SaleReturnItem::where('approval_item_id', $approvalItem->id);
+        if (Schema::hasColumn('sale_return_items', 'qty')) {
+            return (int) $query->sum('qty');
+        }
+
+        return $query->exists() ? max(1, (int) ($approvalItem->qty ?? 1)) : 0;
     }
 
     private function approvalReturnLockPayload(ApprovalItem $approvalItem, ReturnCart $cart): array

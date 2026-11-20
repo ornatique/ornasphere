@@ -83,6 +83,7 @@
                     <thead>
                         <tr>
                             <th>Label</th>
+                            <th>Qty</th>
                             <th>Gross Wt</th>
                             <th>Other Wt</th>
                             <th>Net Wt</th>
@@ -95,7 +96,8 @@
                             <th>Labour Rate <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="labour_rate" title="Apply first row labour rate to all rows">All</button></th>
                             <th>Labour Amt</th>
                             <th>Other Amt <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="other_amount" title="Apply first row other amount to all rows">All</button></th>
-                            <th>Total Amt</th>
+                            <th>Sale Price</th>
+                                <th>Total Amt</th>
                             <th>Remarks</th>
                             <th>Action</th>
                         </tr>
@@ -503,7 +505,11 @@ $(function () {
         row.total_fine_weight = (row.net_weight * row.net_purity) / 100;
         row.metal_amount = row.net_weight * row.metal_rate;
         row.labour_amount = row.net_weight * row.labour_rate;
-        row.total_amount = row.metal_amount + row.labour_amount + row.other_amount;
+        row.total_amount = (row.metal_amount + row.labour_amount + row.other_amount) * Math.max(1, Math.floor(toNum(row.qty, 1)));
+        if (toNum(row.sale_price) > 0) {
+            row.metal_amount = row.labour_amount = row.other_amount = row.total_fine_weight = 0;
+            row.total_amount = toNum(row.sale_price) * Math.max(1, Math.floor(toNum(row.qty, 1)));
+        }
 
         $(`#net_${id}`).val(nfix(row.net_weight, 3));
         $(`#net_purity_${id}`).val(nfix(row.net_purity, 3));
@@ -523,10 +529,11 @@ $(function () {
         let totalAmount = 0;
 
         Object.values(selectedItems).forEach(row => {
-            totalCount += 1;
-            totalGross += toNum(row.gross_weight);
-            totalOtherWt += toNum(row.other_weight);
-            totalNet += toNum(row.net_weight);
+            const qty = Math.max(1, Math.floor(toNum(row.qty, 1)));
+            totalCount += qty;
+            totalGross += toNum(row.gross_weight) * qty;
+            totalOtherWt += toNum(row.other_weight) * qty;
+            totalNet += toNum(row.net_weight) * qty;
             totalAmount += toNum(row.total_amount);
         });
 
@@ -798,7 +805,18 @@ $(function () {
     }
 
     function addRow(row, prepend = false) {
-        if (selectedItems[row.itemset_id]) return;
+        if (selectedItems[row.itemset_id]) {
+            const existing = selectedItems[row.itemset_id];
+            const nextQty = Math.max(1, Math.floor(toNum(existing.qty, 1))) + 1;
+            if (nextQty > Math.max(1, Math.floor(toNum(existing.available_quantity, 1)))) {
+                alert(`Only ${existing.available_quantity} piece(s) are available for this label.`);
+                return;
+            }
+            existing.qty = nextQty;
+            $(`.approval-qty[data-id="${row.itemset_id}"]`).val(nextQty);
+            calculateRow(row.itemset_id);
+            return;
+        }
 
         selectedItems[row.itemset_id] = row;
 
@@ -809,6 +827,7 @@ $(function () {
                     <small>${esc(row.qr_code)}</small><br>
                     <small>${esc(row.item_name)}</small>
                 </td>
+                <td><input type="number" min="1" max="${Math.max(1, Math.floor(toNum(row.available_quantity, 1)))}" step="1" class="form-control approval-qty" data-id="${row.itemset_id}" value="${Math.max(1, Math.floor(toNum(row.qty, 1)))}"></td>
                 <td><input type="number" step="0.001" class="form-control gross" data-id="${row.itemset_id}" value="${nfix(row.gross_weight,3)}"></td>
                 <td><input type="number" step="0.001" class="form-control other-weight" data-id="${row.itemset_id}" value="${nfix(row.other_weight,3)}"></td>
                 <td><input type="number" step="0.001" class="form-control" id="net_${row.itemset_id}" readonly value="${nfix(row.net_weight,3)}"></td>
@@ -826,6 +845,7 @@ $(function () {
                         <button type="button" class="btn btn-info open-other-charge-modal" data-id="${row.itemset_id}" title="Other Charges">...</button>
                     </div>
                 </td>
+                <td>${toNum(row.sale_price) > 0 ? nfix(row.sale_price, 2) : "-"}</td>
                 <td><input type="number" step="0.01" class="form-control" id="total_amt_${row.itemset_id}" readonly value="${nfix(row.total_amount,2)}"></td>
                 <td><input type="text" class="form-control remarks" data-id="${row.itemset_id}" value="${esc(row.remarks || '')}"></td>
                 <td><button class="btn btn-danger removeRow" data-id="${row.itemset_id}" type="button">X</button></td>
@@ -838,11 +858,17 @@ $(function () {
             $('#cartTable tbody').append(rowHtml);
         }
 
+        if (toNum(row.sale_price) > 0) {
+            $(`#row_${row.itemset_id}`).find('.metal-rate, .labour-rate, .other-amount').prop('readonly', true).val(0);
+            $(`#row_${row.itemset_id}`).find('.open-other-charge-modal, .apply-metal, .apply-labour').prop('disabled', true);
+        }
         calculateRow(row.itemset_id);
     }
 
     function buildRowFromItemSet(itemSet) {
         const item = itemSet.item || {};
+        const batchQty = Math.max(1, Math.floor(toNum(itemSet.quantity, 1)));
+        const availableQty = Math.max(0, Math.floor(toNum(itemSet.available_quantity, batchQty)));
 
         return {
             itemset_id: Number(itemSet.id),
@@ -850,9 +876,12 @@ $(function () {
             item_name: item.item_name || '',
             huid: itemSet.HUID || '',
             qr_code: itemSet.qr_code || '',
-            gross_weight: toNum(itemSet.gross_weight),
-            other_weight: toNum(itemSet.other),
-            net_weight: toNum(itemSet.net_weight),
+            sale_price: toNum(itemSet.billing_sale_price ?? itemSet.sale_price),
+            qty: 1,
+            available_quantity: availableQty,
+            gross_weight: toNum(itemSet.gross_weight) / batchQty,
+            other_weight: toNum(itemSet.other) / batchQty,
+            net_weight: toNum(itemSet.net_weight) / batchQty,
             purity: toNum(item.outward_purity ?? itemSet.purity),
             waste_percent: 0,
             net_purity: 0,
@@ -896,6 +925,8 @@ $(function () {
                 const isItemOnly = !!itemSet.is_item_only;
                 if (!isItemOnly && selectedItems[itemSet.id]) return;
                 const codeText = itemSet.qr_code || itemSet.HUID || itemSet.barcode || '';
+                const batchQty = Math.max(1, Math.floor(toNum(itemSet.quantity, 1)));
+                const availableQty = Math.max(0, Math.floor(toNum(itemSet.available_quantity, batchQty)));
                 const rowClass = isItemOnly ? ' disabled text-muted bg-transparent' : '';
                 const disabledAttr = isItemOnly ? ' data-item-only="1"' : '';
                 const noteText = isItemOnly ? '<br><small>(Item found, Itemset not created)</small>' : '';
@@ -906,9 +937,9 @@ $(function () {
                        data-item-name="${esc(itemSet.item?.item_name || '')}"
                        data-huid="${esc(itemSet.HUID || '')}"
                        data-qr="${esc(itemSet.qr_code || '')}"
-                       data-gross="${toNum(itemSet.gross_weight).toFixed(3)}"
-                       data-other="${toNum(itemSet.other).toFixed(3)}"
-                       data-net="${toNum(itemSet.net_weight).toFixed(3)}"
+                       data-sale-price="${toNum(itemSet.billing_sale_price ?? itemSet.sale_price)}" data-batch-qty="${batchQty}" data-available-qty="${availableQty}" data-gross="${(toNum(itemSet.gross_weight) / batchQty).toFixed(3)}"
+                       data-other="${(toNum(itemSet.other) / batchQty).toFixed(3)}"
+                       data-net="${(toNum(itemSet.net_weight) / batchQty).toFixed(3)}"
                        data-purity="${toNum(itemSet.item?.outward_purity).toFixed(3)}"
                        data-metal-rate="0"
                        data-labour-rate="${toNum(itemSet.sale_labour_rate ?? itemSet.item?.labour_rate).toFixed(2)}"
@@ -972,10 +1003,13 @@ $(function () {
 
         const row = {
             itemset_id: id,
+            qty: 1,
+            available_quantity: Math.max(0, Math.floor(toNum($(this).data('available-qty'), 1))),
             item_id: Number($(this).data('item-id')),
             item_name: $(this).data('item-name'),
             huid: $(this).data('huid'),
             qr_code: $(this).data('qr'),
+            sale_price: toNum($(this).data('sale-price')),
             gross_weight: toNum($(this).data('gross')),
             other_weight: toNum($(this).data('other')),
             net_weight: toNum($(this).data('net')),
@@ -1008,6 +1042,16 @@ $(function () {
 
     $(document).on('input', '.gross, .other-weight, .purity, .waste-percent, .metal-rate, .labour-rate, .other-amount', function () {
         calculateRow(Number($(this).data('id')));
+    });
+
+    $(document).on('input change', '.approval-qty', function () {
+        const id = Number($(this).data('id'));
+        const row = selectedItems[id];
+        if (!row) return;
+        const max = Math.max(1, Math.floor(toNum(row.available_quantity, 1)));
+        row.qty = Math.min(max, Math.max(1, Math.floor(toNum($(this).val(), 1))));
+        $(this).val(row.qty);
+        calculateRow(id);
     });
 
     $(document).on('click', '.apply-first-column', function(e) {
@@ -1154,6 +1198,9 @@ $(function () {
                 item_name: row.item_name || '',
                 huid: row.huid || '',
                 qr_code: row.qr_code || '',
+                qty: Math.max(1, Math.floor(toNum(row.qty, 1))),
+                available_quantity: Math.max(0, Math.floor(toNum(row.available_quantity, row.qty || 1))),
+                sale_price: toNum(row.sale_price),
                 gross_weight: toNum(row.gross_weight),
                 other_weight: toNum(row.other_weight),
                 net_weight: toNum(row.net_weight),

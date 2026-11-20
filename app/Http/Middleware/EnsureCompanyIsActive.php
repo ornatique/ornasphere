@@ -152,7 +152,20 @@ class EnsureCompanyIsActive
         $response = $next($request);
         if ($response instanceof \Illuminate\Http\JsonResponse && $response->getStatusCode() === 200) {
             $payload = $response->getData(true);
-            if (is_array($payload)) { $payload['plan_alert'] = $plan['alert']; $payload['plan_days_remaining'] = $plan['days_remaining']; $response->setData(\App\Services\BranchReadOnly::protectRows($payload,$user)); }
+            if (is_array($payload)) {
+                // Search endpoints return JSON lists. Adding named keys converts
+                // those lists into objects and breaks dropdown array consumers.
+                if (!array_is_list($payload)) {
+                    $alert = \App\Services\CompanyPlanService::popupAlert($plan);
+                    if ($alert !== null) {
+                        $payload['plan_alert'] = $alert;
+                        $payload['plan_days_remaining'] = $plan['days_remaining'];
+                    } else {
+                        unset($payload['plan_alert'], $payload['plan_days_remaining']);
+                    }
+                }
+                $response->setData(\App\Services\BranchReadOnly::protectRows($payload, $user));
+            }
         }
         return $response;
     }

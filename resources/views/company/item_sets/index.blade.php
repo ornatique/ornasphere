@@ -1,6 +1,7 @@
 @extends('company_layout.admin')
 
 @section('content')
+@php($wholesaleEnabled = \App\Services\WholesalePrice::enabled($company))
 
 <div class="content-wrapper">
 
@@ -82,11 +83,15 @@
 
                             <th width="150">Sale Labour Formula</th>
 
+                            <th width="90">Quantity</th>
+
                             <th width="120">Labour Rate</th>
 
                             <th width="120">Labour Amount</th>
 
                             <th width="120">Sale Other</th>
+                            <th width="140">Sale Price</th>
+                            @if($wholesaleEnabled)<th width="140">Wholesale Price</th>@endif
 
                             <th width="140">Supplier Person</th>
 
@@ -106,13 +111,14 @@
                     <tfoot>
                         <tr>
                             <th></th>
+                            <th></th>
                             <th id="totalGrossCell">0.000</th>
                             <th id="totalOtherCell">0.000</th>
                             <th></th>
                             <th></th>
                             <th></th>
                             <th id="totalAmountCell">0.00</th>
-                            <th colspan="5"></th>
+                            <th colspan="{{ $wholesaleEnabled ? 7 : 6 }}"></th>
                         </tr>
                     </tfoot>
 
@@ -121,6 +127,7 @@
             </div>
 
         </div>
+        <p class="mt-2">Sale Price: fixed amount per label; weight is optional. Leave blank for weight-based billing.</p>
         <button type="button" id="btnFinalizeItemSets" class="btn btn-success">
             Finalize & Generate QR
         </button>
@@ -495,6 +502,8 @@
         'sale_labour_rate',
         'sale_labour_amount',
         'sale_other',
+        'sale_price',
+        @if($wholesaleEnabled) 'wholesale_price', @endif
         'supplier_person',
         'size',
         'HUID'
@@ -602,11 +611,16 @@
 
             <td class="cell formula-cell" data-column="sale_labour_formula">${buildLabourFormulaSelect(rowFormula)}</td>
 
+            <td contenteditable="true" class="cell" data-column="quantity">${row.quantity ?? 1}</td>
+
             <td contenteditable="true" class="cell" data-column="sale_labour_rate">${row.sale_labour_rate ?? ''}</td>
 
             <td contenteditable="true" class="cell" data-column="sale_labour_amount">${row.sale_labour_amount ?? ''}</td>
 
             <td contenteditable="true" class="cell" data-column="sale_other">${row.sale_other ?? ''}</td>
+
+            <td contenteditable="true" class="cell" data-column="sale_price">${row.sale_price ?? ""}</td>
+            @if($wholesaleEnabled)<td contenteditable="true" class="cell" data-column="wholesale_price">${row.wholesale_price ?? ""}</td>@endif
 
             <td contenteditable="true" class="cell" data-column="supplier_person">${row.supplier_person ?? ''}</td>
 
@@ -652,11 +666,16 @@
 
             <td class="cell formula-cell" data-column="sale_labour_formula">${buildLabourFormulaSelect(defaultFormula)}</td>
 
+            <td contenteditable="true" class="cell" data-column="quantity">1</td>
+
             <td contenteditable="true" class="cell" data-column="sale_labour_rate"></td>
 
             <td contenteditable="true" class="cell" data-column="sale_labour_amount"></td>
 
             <td contenteditable="true" class="cell" data-column="sale_other"></td>
+
+            <td contenteditable="true" class="cell" data-column="sale_price"></td>
+            @if($wholesaleEnabled)<td contenteditable="true" class="cell" data-column="wholesale_price"></td>@endif
 
             <td contenteditable="true" class="cell" data-column="supplier_person"></td>
 
@@ -679,6 +698,25 @@
         return $row;
     }
 
+    // Keep a fresh row ready as soon as the user clicks or starts editing
+    // the current last row. The per-row flag prevents duplicate blank rows
+    // when both mouse and keyboard events fire for the same cell.
+    function prepareFollowingRow($cell) {
+        if (!$cell || !$cell.length) return;
+
+        const $row = $cell.closest('tr');
+        if (!$row.length || !$row.is(':last-child')) return;
+        if ($row.data('followingRowReady')) return;
+
+        $row.data('followingRowReady', true);
+        addEmptyRow();
+        updateSrNumbers();
+    }
+
+    $(document).on('mousedown focusin input', '#setsBody .cell[contenteditable="true"]', function() {
+        prepareFollowingRow($(this));
+    });
+
 
     //////////////////////////////////////////////////////
     // AUTO SAVE CELL
@@ -693,7 +731,7 @@
         const currentId = tr.attr('data-id');
         const selectedFormula = getRowFormula(tr);
 
-        if (value === '') return;
+        if (value === '' && (!['sale_price', 'wholesale_price'].includes(column) || !currentId)) return;
         if (!column) return;
 
         if (!currentId && tr.data('creating')) return;
@@ -850,7 +888,9 @@
         tr.find('.cell').each(function() {
             const col = $(this).data('column');
             const txt = $(this).text().trim();
-            if (col === 'sale_labour_formula') {
+            // Quantity defaults to 1 on a new row; that alone does not mean
+            // the user has started entering a label.
+            if (col === 'sale_labour_formula' || (col === 'quantity' && txt === '1')) {
                 return;
             }
             if (txt !== '') {

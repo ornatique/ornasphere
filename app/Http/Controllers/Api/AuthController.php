@@ -107,9 +107,10 @@ class AuthController extends Controller
                 'plan_started_at' => $planStatus['started_at'],
                 'plan_expires_at' => $planStatus['expires_at'],
                 'plan_expired' => $planStatus['expired'],
-                'plan_alert' => $planStatus['alert'],
+                'plan_alert' => CompanyPlanService::popupAlert($planStatus),
                 'trial_countdown' => $planStatus['trial_countdown'] ?? null,
                 'allowed_modules' => \App\Services\CompanyModules::allowed($user->company),
+                'wholesale_price_enabled' => \App\Services\WholesalePrice::enabled($user->company),
             ],
         ]);
     }
@@ -248,9 +249,10 @@ class AuthController extends Controller
                 'plan_started_at' => $planStatus['started_at'],
                 'plan_expires_at' => $planStatus['expires_at'],
                 'plan_expired' => $planStatus['expired'],
-                'plan_alert' => $planStatus['alert'],
+                'plan_alert' => CompanyPlanService::popupAlert($planStatus),
                 'trial_countdown' => $planStatus['trial_countdown'] ?? null,
                 'allowed_modules' => \App\Services\CompanyModules::allowed($user->company),
+                'wholesale_price_enabled' => \App\Services\WholesalePrice::enabled($user->company),
             ],
         ]);
     }
@@ -406,9 +408,10 @@ class AuthController extends Controller
                 'plan_expires_at_view' => $planStatus['expires_at_view'],
                 'plan_expired' => $planStatus['expired'],
                 'plan_days_remaining' => $planStatus['days_remaining'],
-                'plan_alert' => $planStatus['alert'],
+                'plan_alert' => CompanyPlanService::popupAlert($planStatus),
                 'trial_countdown' => $planStatus['trial_countdown'] ?? null,
                 'allowed_modules' => \App\Services\CompanyModules::allowed($user->company),
+                'wholesale_price_enabled' => \App\Services\WholesalePrice::enabled($user->company),
                 'address_1' => $company->address_1,
                 'address_2' => $company->address_2,
                 'city' => $company->city,

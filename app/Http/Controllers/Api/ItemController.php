@@ -21,7 +21,7 @@ class ItemController extends Controller
 
         $items = Item::where('company_id', $companyId)
             ->when($request->filled('jobwork_item_type'), fn ($q) => $q->where('jobwork_item_type', $request->input('jobwork_item_type')))
-            ->withCount(['itemSets', 'itemLabels'])
+            ->withCount(['itemSets', 'itemLabels', 'jobworkIssueItems', 'jobworkReceiveItems'])
             ->when(
                 $request->boolean('label_configured_only') || $request->boolean('has_label_config'),
                 function ($query) use ($companyId) {
@@ -41,7 +41,10 @@ class ItemController extends Controller
             ->latest()
             ->get()
             ->map(function ($item) {
-                $item->is_in_use = ((int) ($item->item_sets_count ?? 0) + (int) ($item->item_labels_count ?? 0)) > 0;
+                $item->is_in_use = ((int) ($item->item_sets_count ?? 0)
+                    + (int) ($item->item_labels_count ?? 0)
+                    + (int) ($item->jobwork_issue_items_count ?? 0)
+                    + (int) ($item->jobwork_receive_items_count ?? 0)) > 0;
                 $item->delete_status = $item->is_in_use ? 'in_use' : 'deletable';
 
                 return $item;
@@ -59,7 +62,7 @@ class ItemController extends Controller
         $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $item = Item::where('company_id', $companyId)
-            ->withCount(['itemSets', 'itemLabels'])
+            ->withCount(['itemSets', 'itemLabels', 'jobworkIssueItems', 'jobworkReceiveItems'])
             ->where('id', $id)
             ->first();
 
@@ -73,7 +76,10 @@ class ItemController extends Controller
         return response()->json([
             'success' => true,
             'data' => tap($item, function ($row) {
-                $row->is_in_use = ((int) ($row->item_sets_count ?? 0) + (int) ($row->item_labels_count ?? 0)) > 0;
+                $row->is_in_use = ((int) ($row->item_sets_count ?? 0)
+                    + (int) ($row->item_labels_count ?? 0)
+                    + (int) ($row->jobwork_issue_items_count ?? 0)
+                    + (int) ($row->jobwork_receive_items_count ?? 0)) > 0;
                 $row->delete_status = $row->is_in_use ? 'in_use' : 'deletable';
             })
         ]);
@@ -190,10 +196,10 @@ class ItemController extends Controller
             ], 404);
         }
 
-        if ($item->isInUseInLabelStock()) {
+        if ($item->isInUse()) {
             return response()->json([
                 'success' => false,
-                'message' => 'This item is in use in label stock and cannot be deleted.',
+                'message' => 'This item is already used in label stock or a transaction and cannot be deleted.',
                 'code' => 'ITEM_IN_USE',
             ], 422);
         }

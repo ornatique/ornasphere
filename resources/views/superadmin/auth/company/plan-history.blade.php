@@ -19,7 +19,7 @@
                 </div>
                 <div class="summary-box">
                     <span>Plan</span>
-                    <strong>{{ $company->plan ? ucfirst($company->plan) : '-' }}</strong>
+                    <strong>{{ $company->plan ? ucwords(str_replace('_', ' ', $company->plan)) : '-' }}</strong>
                 </div>
                 <div class="summary-box">
                     <span>Users</span>

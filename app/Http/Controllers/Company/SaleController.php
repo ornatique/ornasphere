@@ -31,6 +31,14 @@ class SaleController extends Controller
      */
 
 
+    public function scanActions($slug, $encryptedId)
+    {
+        $company = Company::where('slug', $slug)->firstOrFail();
+        $sale = Sale::with('customer')->where('company_id', $company->id)
+            ->findOrFail((int) Crypt::decryptString($encryptedId));
+        return view('company.sales.scan_actions', compact('company', 'sale', 'encryptedId'));
+    }
+
     public function index(Request $request, $slug)
     {
         // ✅ Get Company
@@ -328,6 +336,10 @@ class SaleController extends Controller
         $cashTotal = 0.0;
 
         foreach ($items as $row) {
+            if ((float) $row->sale_price > 0) {
+                $cashTotal += \App\Services\FixedSalePrice::amount($row->sale_price, (int) $row->qty);
+                continue;
+            }
             $cashTotal += (float) ($row->labour_amount ?? 0) + (float) ($row->other_amount ?? 0);
 
             $fine = max(0, (float) ($row->fine_weight ?? 0));
@@ -430,6 +442,7 @@ class SaleController extends Controller
                 'labour_rate' => (float) ($row->labour_rate ?? 0),
                 'labour_amount' => (float) ($row->labour_amount ?? 0),
                 'other_amount' => (float) ($row->other_amount ?? 0),
+                'sale_price' => $row->sale_price,
                 'total_amount' => (float) ($row->total_amount ?? 0),
                 'remarks' => (string) ($row->remarks ?? ''),
                 'other_charges' => $this->decodeOtherChargeDetails($row->other_charge_details ?? null),
@@ -455,7 +468,6 @@ class SaleController extends Controller
         $userId = optional($request->user())->id;
         $search = trim((string) $request->search);
         $customerId = (int) $request->input('customer_id', 0);
-        $currentSaleId = (int) $request->input('sale_id', 0);
         $limit = max(10, min((int) $request->input('limit', 1000), 2000));
         $includeApproval = $request->boolean('include_approval', true);
 
@@ -471,22 +483,7 @@ class SaleController extends Controller
                 })
                 ->where(function ($q) {
                     $q->whereNull('status')
-                        ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
-                })
-                ->whereNotExists(function ($sub) use ($company, $currentSaleId) {
-                    $sub->select(DB::raw(1))
-                        ->from('sale_items')
-                        ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
-                        ->where('sales.company_id', $company->id)
-                        ->where(function ($q) {
-                            $q->whereColumn('sale_items.approval_item_id', 'approval_items.id')
-                                ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
-                                ->orWhereColumn('sale_items.itemset_id', 'approval_items.item_id');
-                        });
-
-                    if ($currentSaleId > 0) {
-                        $sub->where('sale_items.sale_id', '<>', $currentSaleId);
-                    }
+                        ->orWhereRaw('LOWER(TRIM(status)) in (?, ?)', ['pending', 'sold']);
                 })
                 ->where(function ($q) use ($search) {
                     $q->where('approval_items.qr_code', 'like', '%' . $search . '%')
@@ -519,6 +516,10 @@ class SaleController extends Controller
                 ->get();
         }
 
+        $approvalItems = $approvalItems->filter(fn ($approvalItem) =>
+            \App\Services\ApprovalItemAvailability::availableQuantity($approvalItem) > 0
+        )->values();
+
         $approvalItemsetIds = $approvalItems
             ->map(function ($approvalItem) {
                 $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
@@ -540,9 +541,10 @@ class SaleController extends Controller
                 })
                 ->where(function ($q) {
                     $q->whereNull('status')
-                        ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+                        ->orWhereRaw('LOWER(TRIM(status)) in (?, ?)', ['pending', 'sold']);
                 })
                 ->get()
+                ->filter(fn ($approvalItem) => \App\Services\ApprovalItemAvailability::availableQuantity($approvalItem) > 0)
                 ->map(function ($approvalItem) {
                     $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
                     return optional($itemSet)->id;
@@ -578,6 +580,8 @@ class SaleController extends Controller
         $approvalRows = $approvalItems->map(function ($approvalItem) {
             $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
             $item = optional($itemSet)->item ?? $approvalItem->item;
+            $originalQty = max(1, (int) ($approvalItem->qty ?? 1));
+            $qty = \App\Services\ApprovalItemAvailability::availableQuantity($approvalItem);
             $gross = (float) ($approvalItem->gross_weight ?? optional($itemSet)->gross_weight ?? 0);
             $otherWeight = (float) ($approvalItem->other_weight ?? optional($itemSet)->other ?? 0);
             $net = (float) ($approvalItem->net_weight ?? optional($itemSet)->net_weight ?? max(0, $gross - $otherWeight));
@@ -598,6 +602,12 @@ class SaleController extends Controller
             $otherAmount = (float) ($approvalItem->other_amount ?? optional($itemSet)->sale_other ?? 0);
             $savedTotalAmount = (float) ($approvalItem->total_amount ?? 0);
             $totalAmount = $savedTotalAmount > 0 ? $savedTotalAmount : ($metalAmount + $labourAmount + $otherAmount);
+            $salePrice = \App\Services\ApprovalItemPricing::unitSalePrice($approvalItem);
+            if ($salePrice > 0) $totalAmount = $salePrice * $originalQty;
+
+            foreach (['gross', 'otherWeight', 'net', 'fineWeight', 'metalAmount', 'labourAmount', 'otherAmount', 'totalAmount'] as $field) {
+                $$field = \App\Services\ApprovalItemAvailability::remainingValue($$field, $originalQty, $qty);
+            }
 
             return [
                 'id' => (int) (optional($itemSet)->id ?? 0),
@@ -610,7 +620,9 @@ class SaleController extends Controller
                 'metal_type' => $this->normalizeMetalType(optional($item)->metal ?? null),
                 'code' => (string) ($approvalItem->qr_code ?? optional($itemSet)->qr_code ?? ''),
                 'huid' => (string) ($approvalItem->huid ?? optional($itemSet)->HUID ?? ''),
-                'qty' => 1,
+                'qty' => $qty,
+                'quantity' => $qty,
+                'available_quantity' => $qty,
                 'gross_weight' => $gross,
                 'other_weight' => $otherWeight,
                 'net_weight' => $net,
@@ -625,6 +637,7 @@ class SaleController extends Controller
                 'labour_rate' => $labourRate,
                 'labour_amount' => $labourAmount,
                 'other_amount' => $otherAmount,
+                'sale_price' => $salePrice,
                 'total_amount' => $totalAmount,
                 'remarks' => (string) ($approvalItem->remarks ?? ''),
                 'other_charges' => $this->decodeOtherChargeDetails($approvalItem->other_charge_details ?? null),
@@ -675,7 +688,9 @@ class SaleController extends Controller
                 'metal_type' => $this->normalizeMetalType(optional($item->item)->metal ?? null),
                 'code' => $item->qr_code,
                 'huid' => $item->HUID,
-                'qty' => 1,
+                'qty' => max(1, (int) ($item->available_quantity ?? $item->quantity ?? 1)),
+                'quantity' => max(1, (int) ($item->quantity ?? 1)),
+                'available_quantity' => max(0, (int) ($item->available_quantity ?? $item->quantity ?? 1)),
                 'gross_weight' => $gross,
                 'other_weight' => $otherWeight,
                 'net_weight' => $net,
@@ -688,7 +703,8 @@ class SaleController extends Controller
                 'labour_rate' => $labourRate,
                 'labour_amount' => $labourAmount,
                 'other_amount' => $otherAmount,
-                'total_amount' => $totalAmount,
+                'sale_price' => $item->billing_sale_price,
+                'total_amount' => (float) $item->billing_sale_price > 0 ? (float) $item->billing_sale_price : $totalAmount,
                 'remarks' => (string) ($item->remarks ?? ''),
                 'is_item_only' => false,
                 'source' => 'itemset',
@@ -717,6 +733,7 @@ class SaleController extends Controller
                 'labour_rate' => (float) ($item->labour_rate ?? 0),
                 'labour_amount' => 0,
                 'other_amount' => 0,
+                'sale_price' => null,
                 'total_amount' => 0,
                 'remarks' => '',
                 'is_item_only' => true,
@@ -1006,6 +1023,7 @@ class SaleController extends Controller
                 }
 
                 $approvalItemId = $row['approval_item_id'] ?? null;
+                $approvalForSale = null;
                 $item = null;
                 $directItem = null;
                 if ($itemsetId > 0) {
@@ -1019,6 +1037,13 @@ class SaleController extends Controller
 
                 $product = $directItem ?: optional($item)->item;
                 $qty = max(1, (int) ($row['qty'] ?? 1));
+                if (!empty($approvalItemId)) {
+                    $approvalForSale = TransactionItemGuard::lockApprovalItemForSale($company->id, (int) $approvalItemId);
+                    $availableQty = \App\Services\ApprovalItemAvailability::availableQuantity($approvalForSale);
+                    if ($qty > $availableQty) {
+                        throw new \RuntimeException("Only {$availableQty} piece(s) remain in this approval item.");
+                    }
+                }
                 $grossWeight = (float) ($row['gross_weight'] ?? ($item->gross_weight ?? 0));
                 $otherWeight = (float) ($row['other_weight'] ?? ($item->other ?? 0));
                 $netWeight = (float) ($row['net_weight'] ?? max(0, $grossWeight - $otherWeight));
@@ -1033,7 +1058,14 @@ class SaleController extends Controller
                 $applyLabour = $this->truthy($row['apply_labour'] ?? null, true);
                 $labourAmount = $applyLabour ? $this->positiveOr($row['labour_amount'] ?? null, $item?->sale_labour_amount ?? ($netWeight * $labourRate)) : 0;
                 $otherAmount = (float) ($row['other_amount'] ?? $item?->sale_other ?? 0);
-                $lineTotal = $this->positiveOr($row['total_amount'] ?? null, $metalAmount + $labourAmount + $otherAmount);
+                $lineTotal = (float) ($row['total_amount'] ?? (($metalAmount + $labourAmount + $otherAmount) * $qty));
+                $salePrice = !empty($approvalItemId)
+                    ? \App\Services\ApprovalItemPricing::unitSalePrice($approvalForSale)
+                    : (float) ($row['sale_price'] ?? $item?->billing_sale_price ?? 0);
+                if ($salePrice > 0) {
+                    $metalAmount = $labourAmount = $otherAmount = $fineWeight = 0;
+                    $lineTotal = $salePrice * $qty;
+                }
 
                 // ✅ SAVE SALE ITEM
                 SaleItem::create([
@@ -1042,18 +1074,19 @@ class SaleController extends Controller
                     'product_id'       => $productId ?: (int) ($item->item_id ?? 0),
                     'approval_item_id' => $approvalItemId,
                     'qty'              => $qty,
-                    'gross_weight'     => $grossWeight,
-                    'other_weight'     => $otherWeight,
-                    'net_weight'       => $netWeight,
+                    'sale_price'       => $salePrice > 0 ? $salePrice : null,
+                    'gross_weight'     => $grossWeight * $qty,
+                    'other_weight'     => $otherWeight * $qty,
+                    'net_weight'       => $netWeight * $qty,
                     'purity'           => $purity,
                     'waste_percent'    => $wastePercent,
                     'net_purity'       => $netPurity,
-                    'fine_weight'      => $fineWeight,
+                    'fine_weight'      => $fineWeight * $qty,
                     'metal_rate'       => $metalRate,
-                    'metal_amount'     => $metalAmount,
+                    'metal_amount'     => $metalAmount * $qty,
                     'labour_rate'      => $labourRate,
-                    'labour_amount'    => $labourAmount,
-                    'other_amount'     => $otherAmount,
+                    'labour_amount'    => $labourAmount * $qty,
+                    'other_amount'     => $otherAmount * $qty,
                     'other_charge_details' => $this->normalizeOtherChargeDetails($row['other_charge_details'] ?? $row['other_charges'] ?? null),
                     'total_amount'     => $lineTotal,
                     'remarks'          => $row['remarks'] ?? null,
@@ -1062,15 +1095,17 @@ class SaleController extends Controller
 
                 // ✅ mark itemset sold (only for itemset flow)
                 if ($item) {
-                    $item->update(['is_sold' => 1]);
+                    if (empty($approvalItemId)) {
+                        \App\Services\BatchInventory::consume($item, $qty);
+                    }
                     $processedItemSetIds[] = (int) $item->id;
                 }
 
                 // ✅ UPDATE APPROVAL ITEM
                 if (!empty($approvalItemId)) {
-                    $approval = TransactionItemGuard::lockApprovalItemForSale($company->id, (int) $approvalItemId);
-                    $approval->update(['status' => 'sold']);
-                    $approvalIds[] = $approval->approval_id;
+                    $approvalForSale = $approvalForSale ?: TransactionItemGuard::lockApprovalItemForSale($company->id, (int) $approvalItemId);
+                    \App\Services\ApprovalItemAvailability::syncStatus($approvalForSale->fresh());
+                    $approvalIds[] = $approvalForSale->approval_id;
                 }
 
                 $total += $lineTotal;
@@ -1096,26 +1131,8 @@ class SaleController extends Controller
                 optional($request->user())->id
             );
 
-            // ✅ UPDATE APPROVAL HEADER STATUS
             foreach (array_unique($approvalIds) as $approvalId) {
-
-                $totalItems = ApprovalItem::where('approval_id', $approvalId)->count();
-
-                $soldItems = ApprovalItem::where('approval_id', $approvalId)
-                    ->where('status', 'sold')
-                    ->count();
-
-                if ($soldItems == 0) {
-                    $status = 'open';
-                } elseif ($soldItems < $totalItems) {
-                    $status = 'partial';
-                } else {
-                    $status = 'closed';
-                }
-
-                ApprovalHeader::where('company_id', $company->id)
-                    ->where('id', $approvalId)
-                    ->update(['status' => $status]);
+                \App\Services\ApprovalItemAvailability::syncHeaderStatus((int) $approvalId);
             }
 
             $this->clearSaleCartLocks($company->id, optional($request->user())->id, $processedItemSetIds);
@@ -1232,6 +1249,7 @@ class SaleController extends Controller
             $approvalIds = [];
             $processedItemSetIds = [];
 
+            $savedPrices = $sale->saleItems->pluck('sale_price', 'itemset_id');
             $retainedApprovalIds = array_map('intval', array_column($saleRows, 'approval_item_id'));
             foreach ($sale->saleItems as $saleItem) {
                 if (!empty($saleItem->approval_item_id)) {
@@ -1250,9 +1268,13 @@ class SaleController extends Controller
                 }
 
                 if (!empty($saleItem->itemset_id) && empty($saleItem->approval_item_id)) {
-                    ItemSet::where('company_id', $company->id)
+                    $restoredSet = ItemSet::where('company_id', $company->id)
                         ->where('id', (int) $saleItem->itemset_id)
-                        ->update(['is_sold' => 0]);
+                        ->lockForUpdate()
+                        ->first();
+                    if ($restoredSet) {
+                        \App\Services\BatchInventory::restore($restoredSet, max(1, (int) ($saleItem->qty ?? 1)));
+                    }
                 }
 
                 $saleItem->delete();
@@ -1282,6 +1304,14 @@ class SaleController extends Controller
 
                 $product = $directItem ?: optional($item)->item;
                 $qty = max(1, (int) ($row['qty'] ?? 1));
+                $approvalForSale = null;
+                if (!empty($approvalItemId)) {
+                    $approvalForSale = TransactionItemGuard::lockApprovalItemForSale($company->id, (int) $approvalItemId);
+                    $availableQty = \App\Services\ApprovalItemAvailability::availableQuantity($approvalForSale);
+                    if ($qty > $availableQty) {
+                        throw new \RuntimeException("Only {$availableQty} piece(s) remain in this approval item.");
+                    }
+                }
                 $grossWeight = (float) ($row['gross_weight'] ?? ($item->gross_weight ?? 0));
                 $otherWeight = (float) ($row['other_weight'] ?? ($item->other ?? 0));
                 $netWeight = (float) ($row['net_weight'] ?? max(0, $grossWeight - $otherWeight));
@@ -1297,12 +1327,20 @@ class SaleController extends Controller
                 $labourAmount = $applyLabour ? $this->positiveOr($row['labour_amount'] ?? null, $netWeight * $labourRate) : 0;
                 $otherAmount = (float) ($row['other_amount'] ?? 0);
                 $lineTotal = $this->positiveOr($row['total_amount'] ?? null, $metalAmount + $labourAmount + $otherAmount);
+                $salePrice = !empty($approvalItemId)
+                    ? \App\Services\ApprovalItemPricing::unitSalePrice($approvalForSale)
+                    : (float) ($row['sale_price'] ?? $item?->billing_sale_price ?? 0);
+                if ($salePrice > 0) {
+                    $metalAmount = $labourAmount = $otherAmount = $fineWeight = 0;
+                    $lineTotal = $salePrice * $qty;
+                }
 
                 $payload = [
                     'sale_id'          => $sale->id,
                     'itemset_id'       => $item ? $item->id : null,
                     'product_id'       => $productId ?: (int) ($item->item_id ?? optional($product)->id ?? 0),
                     'qty'              => $qty,
+                    'sale_price'       => $salePrice > 0 ? $salePrice : null,
                     'gross_weight'     => $grossWeight,
                     'other_weight'     => $otherWeight,
                     'net_weight'       => $netWeight,
@@ -1321,20 +1359,22 @@ class SaleController extends Controller
                     'approval_item_id' => $approvalItemId,
                 ];
 
+                if (empty($approvalItemId) && $savedPrices->has($itemsetId)) { $payload['sale_price'] = $savedPrices->get($itemsetId); }
                 SaleItem::create($payload);
                 $savedRows++;
 
                 if ($item) {
-                    $item->update(['is_sold' => 1]);
+                    if (empty($approvalItemId)) {
+                        \App\Services\BatchInventory::consume($item, $qty);
+                    }
                     $processedItemSetIds[] = (int) $item->id;
                 }
 
                 if (!empty($approvalItemId)) {
-                    $approval = TransactionItemGuard::lockApprovalItemForSale($company->id, (int) $approvalItemId);
-
-                    if ($approval) {
-                        $approval->update(['status' => 'sold']);
-                        $approvalIds[] = (int) $approval->approval_id;
+                    $approvalForSale = $approvalForSale ?: TransactionItemGuard::lockApprovalItemForSale($company->id, (int) $approvalItemId);
+                    if ($approvalForSale) {
+                        \App\Services\ApprovalItemAvailability::syncStatus($approvalForSale->fresh());
+                        $approvalIds[] = (int) $approvalForSale->approval_id;
                     }
                 }
 
@@ -1375,22 +1415,7 @@ class SaleController extends Controller
             $sale->increment('modified_count');
 
             foreach (array_unique($approvalIds) as $approvalId) {
-                $totalItems = ApprovalItem::where('approval_id', $approvalId)->count();
-                $soldItems = ApprovalItem::where('approval_id', $approvalId)
-                    ->whereIn('status', ['sold', 'returned'])
-                    ->count();
-
-                if ($soldItems == 0) {
-                    $status = 'open';
-                } elseif ($soldItems < $totalItems) {
-                    $status = 'partial';
-                } else {
-                    $status = 'closed';
-                }
-
-                ApprovalHeader::where('company_id', $company->id)
-                    ->where('id', $approvalId)
-                    ->update(['status' => $status]);
+                \App\Services\ApprovalItemAvailability::syncHeaderStatus((int) $approvalId);
             }
 
             $this->clearSaleCartLocks($company->id, optional($request->user())->id, $processedItemSetIds);
@@ -1569,16 +1594,20 @@ class SaleController extends Controller
 
             foreach ($request->items as $id) {
 
-                $approvalItem = ApprovalItem::whereHas('approval', function ($q) use ($company, $request) {
+                $approvalItem = ApprovalItem::with(['approval', 'itemSet', 'legacyItemSet', 'item'])->whereHas('approval', function ($q) use ($company, $request) {
                     $q->where('company_id', $company->id)
                         ->where('id', (int) $request->approval_id);
                 })
                     ->where(function ($q) {
                         $q->whereNull('status')
-                            ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+                            ->orWhereRaw('LOWER(TRIM(status)) in (?, ?)', ['pending', 'sold']);
                     })
                     ->lockForUpdate()
                     ->findOrFail((int) $id);
+
+                if (\App\Services\ApprovalItemAvailability::availableQuantity($approvalItem) <= 0) {
+                    throw new \RuntimeException('This approval item has no remaining quantity.');
+                }
 
                 // ✅ Find correct item set
                 $itemSet = $approvalItem->itemSet ?: ItemSet::where('company_id', $company->id)
@@ -1589,20 +1618,24 @@ class SaleController extends Controller
                 }
 
                 // ✅ BASIC VALUES
-                $gross = $approvalItem->gross_weight;
-                $net   = $approvalItem->net_weight;
+                $originalQty = max(1, (int) ($approvalItem->qty ?? 1));
+                $gross = (float) $approvalItem->gross_weight / $originalQty;
+                $net   = (float) $approvalItem->net_weight / $originalQty;
 
                 // ✅ PURITY (from item_sets OR item table)
                 $purity = $itemSet->purity ?? 92; // default if not exist
 
                 // ✅ FINE WEIGHT FORMULA
-                $fineWeight = ($net * $purity) / 100;
+                $fineWeight = (float) ($approvalItem->total_fine_weight ?? ($net * $purity / 100 * $originalQty)) / $originalQty;
 
                 // ✅ METAL RATE (you can take from config or DB)
                 $metalRate = $itemSet->sale_labour_rate ?? 0;
 
                 // ✅ AMOUNT CALCULATION
-                $amount = $fineWeight * $metalRate;
+                $salePrice = \App\Services\ApprovalItemPricing::unitSalePrice($approvalItem);
+                $amount = $salePrice > 0
+                    ? $salePrice
+                    : (float) ($approvalItem->total_amount ?? ($fineWeight * $metalRate * $originalQty)) / $originalQty;
 
                 // ✅ SAVE SALE ITEM
                 SaleItem::create([
@@ -1618,24 +1651,20 @@ class SaleController extends Controller
 
                     'metal_rate'   => $metalRate,
                     'total_amount' => $amount,
+                    'sale_price' => $salePrice > 0 ? $salePrice : $approvalItem->sale_price,
+                    'approval_item_id' => $approvalItem->id,
                     'remarks'      => $approvalItem->remarks,
                     'other_charge_details' => $this->normalizeOtherChargeDetails($approvalItem->other_charge_details ?? null),
                 ]);
 
                 // ✅ UPDATE STATUS
-                $approvalItem->update([
-                    'status' => 'sold'
-                ]);
+                \App\Services\ApprovalItemAvailability::syncStatus($approvalItem->fresh());
             }
 
-            // UPDATE APPROVAL STATUS
-            $total = ApprovalItem::where('approval_id', $request->approval_id)->count();
-            $sold = ApprovalItem::where('approval_id', $request->approval_id)
-                ->where('status', 'sold')->count();
+            $sale->update(['net_total' => (float) $sale->saleItems()->sum('total_amount')]);
 
-            ApprovalHeader::where('id', $request->approval_id)->update([
-                'status' => ($total == $sold) ? 'closed' : 'partial'
-            ]);
+            // UPDATE APPROVAL STATUS
+            \App\Services\ApprovalItemAvailability::syncHeaderStatus((int) $request->approval_id);
 
             DB::commit();
 
@@ -1652,10 +1681,12 @@ class SaleController extends Controller
     {
         $company = Company::where('slug', $slug)->firstOrFail();
 
-        $customerId = $request->customer_id;
-        $currentSaleId = (int) $request->input('sale_id', 0);
-
-        $items = ApprovalItem::with(['itemSet.item', 'legacyItemSet.item'])
+        $customerId = (int) (
+            $request->input('approval_customer_id')
+            ?? $request->input('approval_person_id')
+            ?? $request->input('customer_id', 0)
+        );
+        $items = ApprovalItem::with(['itemSet.item', 'legacyItemSet.item', 'item'])
             ->whereExists(function ($q) use ($company, $customerId) {
                 $q->select(DB::raw(1))
                     ->from('approval_headers')
@@ -1663,35 +1694,22 @@ class SaleController extends Controller
                     ->where('approval_headers.company_id', $company->id)
                     ->where('approval_headers.customer_id', $customerId);
             })
+            // Availability is calculated from the linked sale/return quantities
+            // below. Do not restrict this lookup to a short list of workflow
+            // labels: older rows may use partial/legacy statuses while still
+            // having pieces available to sell.
             ->where(function ($q) {
                 $q->whereNull('status')
-                    ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
+                    ->orWhereRaw('LOWER(TRIM(status)) not in (?, ?, ?, ?)', [
+                        'cancelled', 'canceled', 'void', 'deleted',
+                    ]);
             })
-            ->whereNotExists(function ($sub) use ($company, $currentSaleId) {
-                $sub->select(DB::raw(1))
-                    ->from('sale_items')
-                    ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
-                    ->where('sales.company_id', $company->id)
-                    ->where(function ($q) {
-                        $q->whereColumn('sale_items.approval_item_id', 'approval_items.id')
-                            ->orWhereColumn('sale_items.itemset_id', 'approval_items.itemset_id')
-                            ->orWhereColumn('sale_items.itemset_id', 'approval_items.item_id');
-                    });
-
-                if ($currentSaleId > 0) {
-                    $sub->where('sale_items.sale_id', '<>', $currentSaleId);
-                }
-            })
-
             ->get()
-            ->filter(function ($row) {
-                $itemSet = $row->itemSet ?? $row->legacyItemSet;
-                return (bool) $itemSet;
-            });
+            ->filter(fn ($row) => \App\Services\ApprovalItemAvailability::availableQuantity($row) > 0);
 
         return response()->json($items->values()->map(function ($row) {
             $itemSet = $row->itemSet ?? $row->legacyItemSet;
-            $item = optional($itemSet)->item;
+            $item = optional($itemSet)->item ?? $row->item;
             $gross = (float) ($row->gross_weight ?? 0);
             $otherWeight = (float) ($row->other_weight ?? 0);
             $net = (float) ($row->net_weight ?? ($gross - $otherWeight));
@@ -1712,16 +1730,26 @@ class SaleController extends Controller
             $otherAmount = (float) ($row->other_amount ?? optional($itemSet)->sale_other ?? 0);
             $savedTotalAmount = (float) ($row->total_amount ?? 0);
             $totalAmount = $savedTotalAmount > 0 ? $savedTotalAmount : ($metalAmount + $labourAmount + $otherAmount);
+            $originalQty = max(1, (int) ($row->qty ?? 1));
+            $qty = \App\Services\ApprovalItemAvailability::availableQuantity($row);
+            $salePrice = \App\Services\ApprovalItemPricing::unitSalePrice($row);
+            if ($salePrice > 0) $totalAmount = $salePrice * $originalQty;
+            foreach (['gross', 'otherWeight', 'net', 'fineWeight', 'metalAmount', 'labourAmount', 'otherAmount', 'totalAmount'] as $field) {
+                $$field = \App\Services\ApprovalItemAvailability::remainingValue($$field, $originalQty, $qty);
+            }
 
             return [
                 'approval_item_id' => $row->id,
                 'approval_id' => $row->approval_id,
-                'itemset_id'  => $row->itemset_id ?? $row->item_id,
-                'item_id'     => $row->item_id ?? optional($itemSet)->item_id,
+                'itemset_id'  => (int) (optional($itemSet)->id ?? 0),
+                'item_id'     => (int) (optional($itemSet)->item_id ?? $row->item_id ?? 0),
                 'name'        => optional($item)->item_name,
                 'metal_type'  => $this->normalizeMetalType(optional($item)->metal ?? null),
                 'code'        => $row->qr_code ?? optional($itemSet)->qr_code ?? '',
                 'huid'        => $row->huid ?? optional($itemSet)->HUID,
+                'qty'         => $qty,
+                'quantity'    => $qty,
+                'available_quantity' => $qty,
                 'gross_weight'       => $gross,
                 'other_weight'       => $otherWeight,
                 'net_weight'         => $net,
@@ -1736,6 +1764,7 @@ class SaleController extends Controller
                 'labour_rate'        => $labourRate,
                 'labour_amount'      => $labourAmount,
                 'other_amount'       => $otherAmount,
+                'sale_price' => $salePrice,
                 'total_amount'       => $totalAmount,
                 'remarks'            => (string) ($row->remarks ?? ''),
             ];
@@ -1797,20 +1826,18 @@ class SaleController extends Controller
                     $approvalIds[] = (int) $approvalItem->approval_id;
                 }
 
-                if (!empty($saleItem->itemset_id)) {
-                    ItemSet::where('company_id', $companyId)
-                        ->where('id', (int) $saleItem->itemset_id)
-                        ->update(['is_sold' => 1]);
-                }
-
                 $summary['approval_items']++;
                 continue;
             }
 
             if (!empty($saleItem->itemset_id)) {
-                ItemSet::where('company_id', $companyId)
+                $itemSet = ItemSet::where('company_id', $companyId)
                     ->where('id', (int) $saleItem->itemset_id)
-                    ->update(['is_sold' => 0]);
+                    ->lockForUpdate()
+                    ->first();
+                if ($itemSet) {
+                    \App\Services\BatchInventory::restore($itemSet, max(1, (int) ($saleItem->qty ?? 1)));
+                }
                 $summary['stock_items']++;
             }
         }
@@ -1826,26 +1853,7 @@ class SaleController extends Controller
             if (!$approvalId) {
                 continue;
             }
-
-            $totalItems = ApprovalItem::where('approval_id', $approvalId)->count();
-            $doneItems = ApprovalItem::where('approval_id', $approvalId)
-                ->whereIn('status', ['sold', 'returned'])
-                ->count();
-
-            if ($totalItems <= 0) {
-                continue;
-            }
-
-            $status = 'open';
-            if ($doneItems === $totalItems) {
-                $status = 'closed';
-            } elseif ($doneItems > 0 && $doneItems < $totalItems) {
-                $status = 'partial';
-            }
-
-            ApprovalHeader::where('company_id', $companyId)
-                ->where('id', $approvalId)
-                ->update(['status' => $status]);
+            \App\Services\ApprovalItemAvailability::syncHeaderStatus((int) $approvalId);
         }
     }
 

@@ -170,7 +170,7 @@
                         'contact_person1_name','contact_person1_phone',
                         'contact_person2_name','contact_person2_phone',
                         'gst_no','pan_no','aadhaar_no',
-                        'hallmark_license_no','reference'
+                        'reference'
                         ];
                         @endphp
 
@@ -185,6 +185,8 @@
                                     <div class="col-sm-9">
                                         <input type="text"
                                             name="{{ $field }}"
+                                            @if($field === 'city') id="user-city" autocomplete="address-level2" @endif
+                                            @if($field === 'pincode') id="user-pincode" autocomplete="postal-code" @endif
                                             value="{{ old($field) }}"
                                             class="form-control @error($field) is-invalid @enderror">
 
@@ -263,6 +265,7 @@
     @endsection
 
     @include('company.customers.partials.identity_input_rules')
+@include('company.users.partials.city_autocomplete')
 
     @push("scripts")
     <script>

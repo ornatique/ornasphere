@@ -177,19 +177,25 @@ class CustomerController extends Controller
             ->where('id', $customerId)
             ->firstOrFail();
 
-        if ((int) $customer->is_active === 0) {
-            $message = 'Person is already inactive.';
+        if ($this->isCustomerUsed((int) $customer->company_id, (int) $customer->id, $customer)) {
+            if ((int) $customer->is_active === 1) {
+                $customer->update(['is_active' => 0]);
+                WorkerPersonService::syncPersonToWorker($customer->refresh());
+            }
+            $message = 'This person is used in transactions and cannot be deleted. The person has been marked inactive.';
+            $deleted = false;
         } else {
-            $customer->update(['is_active' => 0]);
-            WorkerPersonService::syncPersonToWorker($customer->refresh());
-            $message = $this->isCustomerUsed($company->id, (int) $customer->id)
-                ? 'Person is used in transactions, so deleted not allowed. Person set to inactive.'
-                : 'Person set to inactive successfully.';
+            // Unused worker rows are linked to this person; remove them before deleting the person.
+            $customer->jobWorker()->delete();
+            $customer->delete();
+            $message = 'Unused person deleted successfully.';
+            $deleted = true;
         }
 
         if ($request->ajax()) {
             return response()->json([
                 'success' => true,
+                'deleted' => $deleted,
                 'message' => $message,
             ]);
         }
@@ -396,9 +402,47 @@ class CustomerController extends Controller
             });
     }
 
-    private function isCustomerUsed(int $companyId, int $customerId): bool
+    private function isCustomerUsed(int $companyId, int $customerId, ?Customer $customer = null): bool
     {
-        return Sale::where('company_id', $companyId)->where('customer_id', $customerId)->exists()
-            || ApprovalHeader::where('company_id', $companyId)->where('customer_id', $customerId)->exists();
+        $checks = [
+            [Sale::class, 'sales', 'customer_id'],
+            [ApprovalHeader::class, 'approval_headers', 'customer_id'],
+            [\App\Models\CustomerAdvanceLedger::class, 'customer_advance_ledgers', 'customer_id'],
+            [\App\Models\CustomerAdvanceVoucher::class, 'customer_advance_vouchers', 'customer_id'],
+            [\App\Models\JobworkReceive::class, 'jobwork_receives', 'customer_id'],
+        ];
+
+        foreach ($checks as [$model, $table, $column]) {
+            if (\Illuminate\Support\Facades\Schema::hasTable($table)
+                && $model::where('company_id', $companyId)->where($column, $customerId)->exists()) return true;
+        }
+
+        // Metal ledgers link to the customer through their sale voucher.
+        if (\Illuminate\Support\Facades\Schema::hasTable('metal_ledgers')
+            && \App\Models\MetalLedger::where('customer_id', $customerId)->exists()) return true;
+
+        // Worker identity is referenced by production/jobwork vouchers through the linked worker row.
+        $worker = $customer?->jobWorker;
+        if ($worker) {
+            $workerId = (int) $worker->id;
+            foreach ([
+                [\App\Models\JobworkIssue::class, 'jobwork_issues', 'job_worker_id'],
+                [\App\Models\JobworkReceive::class, 'jobwork_receives', 'job_worker_id'],
+                [\App\Models\VacuumVoucher::class, 'vacuum_vouchers', 'job_worker_id'],
+            ] as [$model, $table, $column]) {
+                if (\Illuminate\Support\Facades\Schema::hasTable($table)
+                    && $model::where('company_id', $companyId)->where($column, $workerId)->exists()) return true;
+            }
+
+            foreach ([
+                [\App\Models\TreeCuttingIssueItem::class, 'tree_cutting_issue_items'],
+                [\App\Models\TreeCuttingReceiveItem::class, 'tree_cutting_receive_items'],
+            ] as [$model, $table]) {
+                if (\Illuminate\Support\Facades\Schema::hasTable($table)
+                    && $model::where('company_id', $companyId)->where('job_worker_id', $workerId)->exists()) return true;
+            }
+        }
+
+        return false;
     }
 }

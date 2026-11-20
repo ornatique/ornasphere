@@ -7,7 +7,9 @@
 
     {{-- HEADER --}}
     <div class="card-header d-flex justify-content-between">
-        <h4 class="card-title">Approval Details</h4>
+        <div><h4 class="card-title">Approval Details</h4>
+            <strong>{{ $approval->approval_no }}</strong>
+        </div>
         <div class="d-flex gap-2">
             <a id="approvalPdfLink" href="{{ route('company.approval.pdf', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string) $approval->id)]) }}"
                class="btn btn-primary"
@@ -52,10 +54,14 @@
         </div>
 
         @php
-            $billableItems = $approval->items->where('status', '!=', 'returned');
-            $totalGross = (float) $billableItems->sum('gross_weight');
-            $totalNet = (float) $billableItems->sum('net_weight');
-            $totalAmount = (float) $billableItems->sum('total_amount');
+            $totalGross = 0;
+            $totalNet = 0;
+            $totalAmount = 0;
+            foreach ($approval->items as $summaryItem) {
+                $totalGross += (float) ($summaryItem->gross_weight ?? 0);
+                $totalNet += (float) ($summaryItem->net_weight ?? 0);
+                $totalAmount += \App\Services\ApprovalItemPricing::totalAmount($summaryItem);
+            }
         @endphp
 
         <div class="row mb-3">
@@ -103,11 +109,15 @@
                         <th>Item</th>
                         <th>HUID</th>
                         <th>QR Code</th>
+                        <th>Qty</th>
+                        <th>Sold</th>
+                        <th>Returned</th>
+                        <th>Pending</th>
                         <th>Gross</th>
                         <th>Other</th>
                         <th>Net</th>
                         <th>Amount</th>
-                        <th>Status</th>
+                        <th>Status</th><th>Sale Price</th>
                     </tr>
                 </thead>
 
@@ -117,17 +127,29 @@
                     @foreach($approval->items as $index => $row)
 
                         @php
-                            if ($row->status !== 'returned') {
-                                $totalOther += (float) ($row->other_weight ?? 0);
+                            $originalQty = max(1, (int) ($row->qty ?? 1));
+                            $soldQty = min($originalQty, \App\Services\ApprovalItemAvailability::soldQuantity($row));
+                            $returnedQty = min($originalQty - $soldQty, \App\Services\ApprovalItemAvailability::returnedQuantity($row));
+                            $pendingQty = min($originalQty, \App\Services\ApprovalItemAvailability::availableQuantity($row));
+                            if ($pendingQty === 0 && $soldQty === 0 && $returnedQty === 0) {
+                                if (strtolower(trim((string) $row->status)) === 'sold') {
+                                    $soldQty = $originalQty;
+                                } elseif (strtolower(trim((string) $row->status)) === 'returned') {
+                                    $returnedQty = $originalQty;
+                                }
                             }
+                            $displayStatus = $pendingQty === 0
+                                ? ($returnedQty > 0 && $soldQty === 0 ? 'returned' : 'sold')
+                                : (($soldQty > 0 || $returnedQty > 0) ? 'partial' : (strtolower((string) $row->status) === 'returned' ? 'returned' : 'pending'));
+                            $totalOther += (float) ($row->other_weight ?? 0);
                         @endphp
 
                         <tr class="approval-item-row"
-                            data-status="{{ $row->status ?: 'pending' }}"
+                            data-status="{{ $displayStatus }}"
                             data-gross="{{ (float) ($row->gross_weight ?? 0) }}"
                             data-other="{{ (float) ($row->other_weight ?? 0) }}"
                             data-net="{{ (float) ($row->net_weight ?? 0) }}"
-                            data-amount="{{ (float) ($row->total_amount ?? 0) }}">
+                            data-amount="{{ \App\Services\ApprovalItemPricing::totalAmount($row) }}">
                             <td>{{ $index + 1 }}</td>
 
                             <td>{{ optional(optional($row->itemSet ?? $row->legacyItemSet)->item)->item_name ?? '-' }}</td>
@@ -135,6 +157,10 @@
                             <td>{{ $row->huid ?? optional($row->itemSet ?? $row->legacyItemSet)->HUID ?? '-' }}</td>
 
                             <td>{{ $row->qr_code ?? optional($row->itemSet ?? $row->legacyItemSet)->qr_code ?? '-' }}</td>
+                            <td>{{ number_format($originalQty) }}</td>
+                            <td>{{ number_format($soldQty) }}</td>
+                            <td>{{ number_format($returnedQty) }}</td>
+                            <td>{{ number_format($pendingQty) }}</td>
 
                             <td>{{ number_format($row->gross_weight, 3) }}</td>
 
@@ -142,17 +168,19 @@
 
                             <td>{{ number_format($row->net_weight, 3) }}</td>
 
-                            <td>{{ number_format((float) ($row->total_amount ?? 0), 2) }}</td>
+                            <td>{{ number_format(\App\Services\ApprovalItemPricing::totalAmount($row), 2) }}</td>
 
                             <td>
-                                @if($row->status == 'sold')
+                                @if($displayStatus == 'sold')
                                     <span class="badge bg-success">Sold</span>
-                                @elseif($row->status == 'returned')
+                                @elseif($displayStatus == 'returned')
                                     <span class="badge bg-secondary">Return</span>
+                                @elseif($displayStatus == 'partial')
+                                    <span class="badge bg-info">Partial</span>
                                 @else
                                     <span class="badge bg-secondary">Pending</span>
                                 @endif
-                            </td>
+                            </td><td>{{ \App\Services\ApprovalItemPricing::unitSalePrice($row) > 0 ? number_format(\App\Services\ApprovalItemPricing::unitSalePrice($row), 2) : "-" }}</td>
                         </tr>
 
                     @endforeach
@@ -162,12 +190,12 @@
                 {{-- TOTAL --}}
                 <tfoot>
                     <tr>
-                        <th colspan="4" class="text-end">Total</th>
+                        <th colspan="8" class="text-end">Visible Total</th>
                         <th id="approvalVisibleGrossTotal">{{ number_format($totalGross, 3) }}</th>
                         <th id="approvalVisibleOtherTotal">{{ number_format($totalOther, 3) }}</th>
                         <th id="approvalVisibleNetTotal">{{ number_format($totalNet, 3) }}</th>
                         <th id="approvalVisibleAmountTotal">{{ number_format($totalAmount, 2) }}</th>
-                        <th></th>
+                        <th></th><th></th>
                     </tr>
                 </tfoot>
 
@@ -278,7 +306,7 @@
             }
 
             if (selectedStatus === 'partial') {
-                return status === 'pending' || status === 'sold';
+                return status === 'partial';
             }
 
             return status === selectedStatus;

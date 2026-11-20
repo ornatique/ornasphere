@@ -195,7 +195,9 @@ class CastingSortingApiController extends Controller
     {
         return VacuumVoucher::query()
             ->where('company_id', $companyId)
-            ->whereExists(function ($query) use ($companyId, $fromDate, $toDate) {
+            ->where(function ($eligible) use ($companyId, $fromDate, $toDate) {
+                    $eligible->where(function ($ready) use ($companyId, $fromDate, $toDate) {
+                        $ready->whereExists(function ($query) use ($companyId, $fromDate, $toDate) {
                 $query->selectRaw('1')
                     ->from('tree_cutting_receive_items')
                     ->whereColumn('tree_cutting_receive_items.vacuum_voucher_id', 'vacuum_vouchers.id')
@@ -224,6 +226,8 @@ class CastingSortingApiController extends Controller
                             });
                     });
             });
+                    })->orWhere(fn ($saved) => $saved->withSavedSorting($fromDate, $toDate));
+                });
     }
 
     private function voucherData(Request $request, int $id): ?array
@@ -260,7 +264,7 @@ class CastingSortingApiController extends Controller
             })
             ->exists();
 
-        if ($receiveCount === 0 || $hasPendingIssueRows) {
+        if (($receiveCount === 0 || $hasPendingIssueRows) && !VacuumVoucher::whereKey($voucher->id)->where('company_id', $companyId)->withSavedSorting()->exists()) {
             return null;
         }
 

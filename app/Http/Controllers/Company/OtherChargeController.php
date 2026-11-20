@@ -212,7 +212,6 @@ class OtherChargeController extends Controller
             'stone' => $this->boolLike($request->input('stone')),
             'stock_effect' => $this->boolLike($request->input('stock_effect')),
             'other_amt_formula' => $request->other_amt_formula,
-            'other_charge_ol' => $this->boolLike($request->other_charge_ol),
             'purity' => $request->purity,
             'required_purity' => $request->required_purity,
             'merge_other_charge' => $request->merge_other_charge,

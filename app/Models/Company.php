@@ -18,6 +18,7 @@ class Company extends Model
     }
 
     protected $fillable = [
+        'wholesale_price_enabled',
         'allowed_modules',
         'name',
         'slug',
@@ -43,6 +44,7 @@ class Company extends Model
     }
 
     protected $casts = [
+        'wholesale_price_enabled' => 'boolean',
         'allowed_modules' => 'array',
         'plan_started_at' => 'datetime',
         'plan_expires_at' => 'datetime',

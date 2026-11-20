@@ -38,27 +38,6 @@
     </div>
 
     <div class="row">
-        <div class="col-xl-4 col-md-6 grid-margin stretch-card">
-            <div class="card"><div class="card-body">
-                <h6 class="text-muted mb-2">Monthly Sales</h6>
-                <h3 class="mb-0">Rs {{ number_format($monthlySales, 2) }}</h3>
-            </div></div>
-        </div>
-        <div class="col-xl-4 col-md-6 grid-margin stretch-card">
-            <div class="card"><div class="card-body">
-                <h6 class="text-muted mb-2">Monthly Returns</h6>
-                <h3 class="mb-0">Rs {{ number_format($monthlyReturns, 2) }}</h3>
-            </div></div>
-        </div>
-        <div class="col-xl-4 col-md-12 grid-margin stretch-card">
-            <div class="card"><div class="card-body">
-                <h6 class="text-muted mb-2">Monthly Net</h6>
-                <h3 class="mb-0 {{ ($monthlySales - $monthlyReturns) >= 0 ? 'text-success' : 'text-danger' }}">Rs {{ number_format($monthlySales - $monthlyReturns, 2) }}</h3>
-            </div></div>
-        </div>
-    </div>
-
-    <div class="row">
         <div class="col-lg-7 grid-margin stretch-card">
             <div class="card">
                 <div class="card-body">
@@ -86,7 +65,7 @@
                                 @forelse($recentCompanies as $company)
                                     <tr>
                                         <td>{{ $company->name }}</td>
-                                        <td>{{ $company->plan ? ucfirst($company->plan) : '-' }}</td>
+                                        <td>{{ $company->plan ? ucwords(str_replace('_', ' ', $company->plan)) : '-' }}</td>
                                         <td>
                                             @if($company->status)
                                                 <span class="badge bg-success">Active</span>

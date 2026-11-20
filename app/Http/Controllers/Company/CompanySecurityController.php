@@ -92,6 +92,9 @@ class CompanySecurityController extends Controller
 
         session(['company_2fa_verified' => true]);
 
+        if ($destination = request()->session()->pull('approval_qr_destination')) {
+            return redirect()->to($destination);
+        }
         return redirect()->route('company.dashboard', $slug);
     }
 

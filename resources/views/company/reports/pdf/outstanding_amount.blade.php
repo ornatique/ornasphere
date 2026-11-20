@@ -23,7 +23,7 @@
         $showPartyColumn = blank($selectedPartyName);
         $showCityColumn = blank($selectedPartyName);
         $totalLabelColspan = 4 + ($showPartyColumn ? 1 : 0) + ($showCityColumn ? 1 : 0);
-        $emptyColspan = 14 + ($showPartyColumn ? 1 : 0) + ($showCityColumn ? 1 : 0);
+        $emptyColspan = 15 + ($showPartyColumn ? 1 : 0) + ($showCityColumn ? 1 : 0);
     @endphp
     <div class="title">Outstanding Amount Report - {{ \App\Services\ReportBranches::heading($company) }}</div>
     @if(filled($selectedPartyName))
@@ -37,27 +37,27 @@
     <table>
         <thead>
             <tr>
-                <th style="width:3%;">#</th>
-                <th style="width:8%;">Voucher No</th>
-                <th style="width:6%;">Date</th>
+                <th style="width:2.7%;">#</th>
+                <th style="width:7.2%;">Voucher No</th>
+                <th style="width:5.4%;">Date</th>
                 @if($showPartyColumn)
-                    <th style="width:10%;">Party</th>
+                    <th style="width:9%;">Party</th>
                 @endif
                 @if($showCityColumn)
-                    <th style="width:6%;">City</th>
+                    <th style="width:5.4%;">City</th>
                 @endif
-                <th style="width:5%;">Mode</th>
-                <th style="width:6%;">Gross Wt</th>
-                <th style="width:6%;">Net Wt</th>
-                <th style="width:6%;">Fine Wt</th>
-                <th style="width:7%;">Metal Amt</th>
-                <th style="width:7%;">Labour Amt</th>
-                <th style="width:6%;">Metal Dr</th>
-                <th style="width:8%;">Total Amt</th>
-                <th style="width:5%;">Amt In</th>
-                <th style="width:5%;">Amt Out</th>
-                <th style="width:6%;">Pending</th>
-            <th>Company / Branch</th></tr>
+                <th style="width:4.5%;">Mode</th>
+                <th style="width:5.4%;">Gross Wt</th>
+                <th style="width:5.4%;">Net Wt</th>
+                <th style="width:5.4%;">Fine Wt</th>
+                <th style="width:6.3%;">Metal Amt</th>
+                <th style="width:6.3%;">Labour Amt</th>
+                <th style="width:5.4%;">Metal Dr</th>
+                <th style="width:7.2%;">Total Amt</th>
+                <th style="width:4.5%;">Amt In</th>
+                <th style="width:4.5%;">Amt Out</th>
+                <th style="width:5.4%;">Pending</th>
+            <th style="width:10%;">Company / Branch</th></tr>
         </thead>
         <tbody>
             @forelse($rows as $i => $r)

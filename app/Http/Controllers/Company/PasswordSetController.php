@@ -42,7 +42,9 @@ class PasswordSetController extends Controller
         if ($record->used_at) {
             return redirect()
                 ->route('company.login', $user->company->slug)
-                ->with('success', 'Password already set. Please login.');
+                ->with($user->password_changed ? 'success' : 'error', $user->password_changed
+                    ? 'Password already set. Please login.'
+                    : 'This setup link was replaced. Please use the latest link from your company administrator.');
         }
 
         /**
@@ -86,6 +88,7 @@ class PasswordSetController extends Controller
             'password' => Hash::make($request->password),
             'password_changed' => true, // 🔥 THIS IS KEY
             'password_set_at' => now(),
+            'password_set_url' => null,
         ]);
 
         if ($user->company) {

@@ -6,7 +6,13 @@ use Illuminate\Database\Eloquent\Model;
 
 class SaleItem extends Model
 {
+    protected static function booted(): void
+    {
+        static::saving(fn ($line) => \App\Services\FixedSalePrice::saveSnapshot($line));
+    }
+
     protected $fillable = [
+        'sale_price',
         'sale_id',
         'itemset_id',
         'product_id',

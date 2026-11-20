@@ -26,7 +26,13 @@ class OfficeAccessGuard
             return $this->allowed('company_admin_bypass', ['should_log' => false]);
         }
 
+        // The device is bound to the authenticated login during OTP verification.
+        // Fall back to that token's active device so the APK need not repeat the
+        // same device identifier on every API call.
         $deviceId = $this->deviceId($request);
+        if ($deviceId === '') {
+            $deviceId = trim((string) ($user->active_device_id ?? ''));
+        }
         $latitude = $this->coordinate($request, 'latitude', 'X-Latitude');
         $longitude = $this->coordinate($request, 'longitude', 'X-Longitude');
 
@@ -128,7 +134,9 @@ class OfficeAccessGuard
                 return $this->blocked(
                     'Office location access is required. Please send latitude and longitude.',
                     'location_required',
-                    compact('deviceId', 'latitude', 'longitude')
+                    array_merge(compact('deviceId', 'latitude', 'longitude'), [
+                        'allowed_radius_meters' => (int) $setting->allowed_radius_meters,
+                    ])
                 );
             }
 
@@ -136,7 +144,9 @@ class OfficeAccessGuard
                 return $this->blocked(
                     'Company office location is not configured.',
                     'office_location_not_configured',
-                    compact('deviceId', 'latitude', 'longitude')
+                    array_merge(compact('deviceId', 'latitude', 'longitude'), [
+                        'allowed_radius_meters' => (int) $setting->allowed_radius_meters,
+                    ])
                 );
             }
 
@@ -161,7 +171,10 @@ class OfficeAccessGuard
                 );
             }
 
-            return $this->allowed('inside_office_access', compact('deviceId', 'latitude', 'longitude', 'distance'));
+            return $this->allowed('inside_office_access', array_merge(
+                compact('deviceId', 'latitude', 'longitude', 'distance'),
+                ['allowed_radius_meters' => (int) $setting->allowed_radius_meters]
+            ));
         }
 
         return $this->allowed('approved_device_access', compact('deviceId', 'latitude', 'longitude'));
@@ -177,6 +190,7 @@ class OfficeAccessGuard
                 'latitude' => $decision['latitude'] ?? null,
                 'longitude' => $decision['longitude'] ?? null,
                 'distance_meters' => isset($decision['distance_meters']) ? round((float) $decision['distance_meters'], 2) : null,
+                'allowed_radius_meters' => $decision['allowed_radius_meters'] ?? null,
                 'status' => $decision['allowed'] ? 'allowed' : 'blocked',
                 'reason' => $decision['reason'],
                 'path' => '/' . ltrim($request->path(), '/'),
@@ -213,6 +227,8 @@ class OfficeAccessGuard
         return trim((string) (
             $request->input('device_id')
             ?: $request->input('deviceId')
+            ?: $request->input('X-Device-Id')
+            ?: $request->input('X-Device-ID')
             ?: $request->header('X-Device-Id')
             ?: $request->header('X-Device-ID')
             ?: $request->header('Device-Id')
@@ -224,6 +240,8 @@ class OfficeAccessGuard
     public function coordinate(Request $request, string $inputKey, string $headerKey): ?float
     {
         $value = $request->input($inputKey);
+        $value ??= $request->input($headerKey);
+        $value ??= $request->input(strtolower($headerKey));
         $value ??= $request->header($headerKey);
         $value ??= $request->header(str_replace('_', '-', $inputKey));
 

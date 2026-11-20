@@ -109,7 +109,11 @@
                 <div class="label left-label">
                     @if($item)
                         <div class="left-col">
-                            <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                            @if(($labelFormat ?? '') === 'double_barcode_price')
+                                    <div class="code">{{ \App\Services\WholesalePrice::sticker($item) }}</div>
+                                    @else
+                                    <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                    @endif
                             <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
                             <div class="code">{{ $item->qr_code }}</div>
                         </div>
@@ -117,7 +121,11 @@
                         <div class="right-col">
                             <div class="code">{{ $item->qr_code }}</div>
                             <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
-                            <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                            @if(($labelFormat ?? '') === 'double_barcode_price')
+                                    <div class="code">{{ \App\Services\WholesalePrice::sticker($item) }}</div>
+                                    @else
+                                    <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                    @endif
 
                         </div>
                     @endif
@@ -135,7 +143,11 @@
                 <div class="label right-label {{ $index === 0 ? 'first' : '' }}">
                     @if($item)
                         <div class="left-col">
-                            <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                            @if(($labelFormat ?? '') === 'double_barcode_price')
+                                    <div class="code">{{ \App\Services\WholesalePrice::sticker($item) }}</div>
+                                    @else
+                                    <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                    @endif
                             <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
                             <div class="code">{{ $item->qr_code }}</div>
                         </div>
@@ -143,7 +155,11 @@
                         <div class="right-col">
                             <div class="code">{{ $item->qr_code }}</div>
                             <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
-                            <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                            @if(($labelFormat ?? '') === 'double_barcode_price')
+                                    <div class="code">{{ \App\Services\WholesalePrice::sticker($item) }}</div>
+                                    @else
+                                    <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                    @endif
                         </div>
                     @endif
 

@@ -47,7 +47,27 @@ class ItemSetController extends Controller
 
     private function itemSetApiPayload(ItemSet $itemSet): array
     {
-        return array_merge($itemSet->toArray(), [
+        $attributes = $itemSet->toArray();
+        $quantity = max(1, (int) ($attributes['quantity'] ?? 1));
+        $availableQuantity = max(0, (int) ($attributes['available_quantity'] ?? $quantity));
+        unset($attributes['quantity'], $attributes['available_quantity']);
+
+        // Match the Item Sets Grid order in API payloads as well as the web UI.
+        $orderedAttributes = [];
+        foreach ($attributes as $key => $value) {
+            $orderedAttributes[$key] = $value;
+            if ($key === 'sale_labour_formula') {
+                $orderedAttributes['quantity'] = $quantity;
+                $orderedAttributes['available_quantity'] = $availableQuantity;
+            }
+        }
+
+        if (!array_key_exists('quantity', $orderedAttributes)) {
+            $orderedAttributes['quantity'] = $quantity;
+            $orderedAttributes['available_quantity'] = $availableQuantity;
+        }
+
+        return array_merge($orderedAttributes, [
             'image_url' => $this->itemImageUrl($itemSet),
             'image_uploaded_at_formatted' => $itemSet->image_uploaded_at?->format('d-m-Y h:i A'),
             'image_show_url' => url('/api/item-sets/' . $itemSet->id . '/image?company_id=' . $itemSet->company_id),
@@ -245,6 +265,7 @@ class ItemSetController extends Controller
 
         $request->validate([
             'item_id' => 'required',
+            'quantity' => 'sometimes|integer|min:1|max:100000',
         ]);
 
         if (!$this->configuredItem($companyId, $request->item_id)) {
@@ -260,8 +281,11 @@ class ItemSetController extends Controller
             'gross_weight' => $request->gross_weight,
             'other' => $request->other ?? $request->other_weight,
             'net_weight' => $request->net_weight,
+            'quantity' => max(1, (int) $request->input('quantity', 1)),
             'sale_labour_rate' => $request->sale_labour_rate ?? $request->labour_rate,
             'sale_labour_amount' => $request->sale_labour_amount ?? $request->labour_amount,
+            'sale_price' => $request->sale_price,
+            ...($request->has('wholesale_price') ? ['wholesale_price' => $request->input('wholesale_price')] : []),
             'sale_other' => $request->sale_other,
             'size' => $request->size,
             'HUID' => $request->HUID ?? $request->huid,
@@ -295,6 +319,13 @@ class ItemSetController extends Controller
             }
             $payload['updated_by'] = $userId;
 
+            if ((int) $set->is_final === 0) {
+                $payload['available_quantity'] = $payload['quantity'];
+            } else {
+                unset($payload['quantity']);
+            }
+
+            if (!$request->has('sale_price')) unset($payload['sale_price']);
             $set->update($payload);
         } else {
             $set = ItemSet::create(array_merge($payload, [
@@ -302,6 +333,7 @@ class ItemSetController extends Controller
                 'created_by' => $userId,
                 'updated_by' => $userId,
                 'item_id' => $request->item_id,
+                'available_quantity' => max(1, (int) $request->input('quantity', 1)),
                 'is_final' => 0,
             ]));
         }
@@ -331,7 +363,13 @@ public function bulkSave(Request $request)
 
     $request->validate([
         'item_id' => 'required',
-        'rows' => 'required|array'
+        'rows' => 'required|array',
+        // The mobile grid posts its unused placeholder rows with quantity 0.
+        // Allow those through validation so the blank-row check below can skip
+        // them; real rows are still required to have at least one piece.
+        'rows.*.quantity' => 'nullable|integer|min:0|max:100000',
+        'rows.*.sale_price' => 'nullable|numeric|gt:0',
+        'rows.*.wholesale_price' => 'nullable|numeric|gt:0'
     ]);
 
     if (!$this->configuredItem($companyId, $request->item_id)) {
@@ -359,26 +397,46 @@ public function bulkSave(Request $request)
         $existingIds = $existingDrafts->keys()->all();
         $touchedExistingIds = [];
 
-        foreach ($rows as $row) {
+        foreach ($rows as $rowIndex => $row) {
             $huid = $row['HUID'] ?? ($row['huid'] ?? null);
 
             if (
                 empty($row['gross_weight']) &&
                 empty($row['net_weight']) &&
+                empty($row['sale_price']) &&
+                empty($row['wholesale_price']) &&
                 empty($row['size']) &&
                 empty($huid)
             ) {
                 continue;
             }
 
+            $quantity = (int) ($row['quantity'] ?? 1);
+            if ($quantity < 1) {
+                DB::rollBack();
+
+                return response()->json([
+                    'success' => false,
+                    'message' => "The rows.{$rowIndex}.quantity field must be at least 1 for a populated row.",
+                    'code' => 'VALIDATION_ERROR',
+                    'errors' => [
+                        "rows.{$rowIndex}.quantity" => ['Quantity must be at least 1 for a populated row.'],
+                    ],
+                ], 422);
+            }
+
             $data = [
                 'gross_weight' => $row['gross_weight'] ?? null,
                 'other' => $row['other'] ?? ($row['other_weight'] ?? null),
                 'net_weight' => $row['net_weight'] ?? null,
+                'quantity' => $quantity,
+                'available_quantity' => $quantity,
                 'sale_labour_formula' => $row['sale_labour_formula'] ?? null,
                 'sale_labour_rate' => $row['sale_labour_rate'] ?? ($row['labour_rate'] ?? null),
                 'sale_labour_amount' => $row['sale_labour_amount'] ?? ($row['labour_amount'] ?? null),
-                'sale_other' => $row['sale_other'] ?? $row['other_weight'] ?? null,
+                'sale_price' => $row['sale_price'] ?? null,
+                ...(array_key_exists('wholesale_price', $row) ? ['wholesale_price' => $row['wholesale_price']] : []),
+                    'sale_other' => $row['sale_other'] ?? $row['other_weight'] ?? null,
                 'supplier_person' => $row['supplier_person'] ?? null,
                 'size' => $row['size'] ?? null,
                 'HUID' => $huid,
@@ -546,6 +604,9 @@ public function bulkSave(Request $request)
                     'qr_code'   => $qrText,
                     'barcode'   => $qrText,
                     'net_weight' => $net,
+                    'quantity' => max(1, (int) ($set->quantity ?? 1)),
+                    'available_quantity' => max(1, (int) ($set->quantity ?? 1)),
+                    'is_sold' => 0,
                     'is_final'  => 1,
                     'created_by' => $set->created_by ?: $userId,
                     'updated_by' => $userId,
@@ -558,7 +619,8 @@ public function bulkSave(Request $request)
 
             return response()->json([
                 'success' => true,
-                'message' => 'Finalized successfully'
+                'message' => 'Finalized successfully',
+                'data' => $draftSets->map(fn ($set) => $this->itemSetApiPayload($set->fresh()))->values(),
             ]);
 
         } catch (\Exception $e) {
@@ -621,9 +683,13 @@ public function bulkSave(Request $request)
                 'other',
                 'net_weight',
                 'sale_labour_formula',
+                'quantity',
+                'available_quantity',
                 'sale_labour_rate',
                 'sale_labour_amount',
                 'sale_other',
+                'sale_price',
+                'wholesale_price',
                 'is_printed',
                 'created_at',
                 'printed_at',
@@ -696,7 +762,7 @@ public function bulkSave(Request $request)
                 item_sets.item_id,
                 items.item_name,
                 items.item_code,
-                COUNT(item_sets.id) as total_pcs,
+                COALESCE(SUM(item_sets.quantity), COUNT(item_sets.id)) as total_pcs,
                 COALESCE(SUM(item_sets.gross_weight), 0) as total_gross_weight,
                 COALESCE(SUM(item_sets.other), 0) as total_other_weight,
                 COALESCE(SUM(item_sets.net_weight), 0) as total_net_weight,
@@ -814,6 +880,8 @@ public function bulkSave(Request $request)
             'sale_labour_amount' => 'nullable',
             'labour_amount' => 'nullable',
             'sale_other' => 'nullable',
+            'sale_price' => 'nullable|numeric|gt:0',
+            'wholesale_price' => 'nullable|numeric|gt:0',
             'supplier_person' => 'nullable',
             'size' => 'nullable',
             'HUID' => 'nullable',
@@ -846,6 +914,8 @@ public function bulkSave(Request $request)
             'sale_labour_rate' => $request->input('sale_labour_rate', $request->input('labour_rate')),
             'sale_labour_amount' => $request->input('sale_labour_amount', $request->input('labour_amount')),
             'sale_other' => $request->input('sale_other'),
+            'sale_price' => $request->input('sale_price'),
+            ...($request->has('wholesale_price') ? ['wholesale_price' => $request->input('wholesale_price')] : []),
             'supplier_person' => $request->input('supplier_person'),
             'size' => $request->input('size'),
             'HUID' => $request->input('HUID', $request->input('huid')),
@@ -959,6 +1029,8 @@ public function bulkSave(Request $request)
                 'sale_labour_rate' => $request->sale_labour_rate ?? $request->labour_rate,
                 'sale_labour_amount' => $request->sale_labour_amount ?? $request->labour_amount,
                 'sale_other' => $saleOther,
+                'sale_price' => $request->has('sale_price') ? $request->sale_price : $item->sale_price,
+                ...($request->has('wholesale_price') ? ['wholesale_price' => $request->input('wholesale_price')] : []),
                 'updated_by' => $userId,
             ]);
 

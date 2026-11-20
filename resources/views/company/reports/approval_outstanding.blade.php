@@ -465,6 +465,7 @@ $(function () {
         qr_code: 'QR Code',
         huid: 'HUID',
         item: 'Item',
+        qty: 'Qty',
         status: 'Status',
         gross_weight: 'Gross Wt',
         other_weight: 'Other Wt',
@@ -475,7 +476,7 @@ $(function () {
 
     function selectedDetailColumns() {
         const selected = selectedReportColumns();
-        const columns = ['qr_code', 'huid', 'item'];
+        const columns = ['qr_code', 'huid', 'item', 'qty'];
         ['status', 'gross_weight', 'other_weight', 'net_weight', 'other_amount', 'pending_amount'].forEach(function (key) {
             if (selected.includes(key)) {
                 columns.push(key);
@@ -499,6 +500,7 @@ $(function () {
             item.qr_code,
             item.huid,
             item.item_name,
+            item.qty,
             item.status,
             item.gross_weight,
             item.other_weight,
@@ -534,6 +536,7 @@ $(function () {
                 qr_code: item.qr_code || '-',
                 huid: item.huid || '-',
                 item: item.item_name || '-',
+                qty: item.qty ?? 0,
                 status: item.status || '-',
                 gross_weight: item.gross_weight || '0.000',
                 other_weight: item.other_weight || '0.000',

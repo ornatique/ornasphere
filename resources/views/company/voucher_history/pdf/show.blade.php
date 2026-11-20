@@ -20,6 +20,7 @@
     </style>
 </head>
 <body>
+    <div style="text-align:right"><img src="{{ \App\Services\VoucherQr::dataUri('casting', $voucher->id) }}" width="48" height="48" alt="Scan casting voucher"></div>
     <div class="title">Voucher Process History</div>
     <div class="company">{{ $company->name }}</div>
 

@@ -20,6 +20,15 @@ use Yajra\DataTables\Facades\DataTables;
 
 class TreeCuttingIssueController extends Controller
 {
+    public function scanActions(Request $request, $slug, int $voucherId)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $destination = \App\Services\VoucherScan::resolve($request->user(), 'tree-cutting-issue', $voucherId);
+        abort_unless((int) $destination['company_id'] === (int) $company->id, 404);
+        $menu = \App\Services\TreeCuttingIssueScanActions::menu($request->user(), $destination);
+        return view('company.tree_cutting_issue.scan_actions', compact('company', 'menu'));
+    }
+
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();

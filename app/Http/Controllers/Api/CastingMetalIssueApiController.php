@@ -22,11 +22,15 @@ class CastingMetalIssueApiController extends Controller
 
     private function listForCompany(Request $request, int $companyId)
     {
-        $fromDate = $request->input('from_date', now()->toDateString());
-        $toDate = $request->input('to_date', now()->toDateString());
+        // A voucher-specific list is opened from its QR and must include that
+        // voucher even when it was created on a different date.
+        $voucherId = $request->integer('voucher_id') ?: null;
+        $fromDate = $request->input('from_date', $voucherId ? null : now()->toDateString());
+        $toDate = $request->input('to_date', $voucherId ? null : now()->toDateString());
 
         $rows = VacuumVoucher::query()
             ->where('company_id', $companyId)
+            ->when($voucherId, fn($query) => $query->whereKey($voucherId))
             ->whereHas('heatingItems', fn($query) => $query->where('in_bhati', true))
             ->when($fromDate, fn($query) => $query->whereDate('voucher_date', '>=', $fromDate))
             ->when($toDate, fn($query) => $query->whereDate('voucher_date', '<=', $toDate))

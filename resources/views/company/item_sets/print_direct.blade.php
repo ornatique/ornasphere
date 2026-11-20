@@ -44,6 +44,7 @@
             overflow: hidden;
         }
 
+
         .label-inner {
             display: flex;
             justify-content: space-between;
@@ -148,7 +149,11 @@
                                 <div class="dd-meta">
 
                                     <div class="code">{{ $item->qr_code }}</div>
+                                    @if(($labelFormat ?? '') === 'double_barcode_price')
+                                    <div class="code">{{ \App\Services\WholesalePrice::sticker($item) }}</div>
+                                    @else
                                     <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                    @endif
                                     <div class="code">L: {{ number_format($item->other ?? 0, 3) }}</div>
                                     <div class="code">N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
                                     <div class="code">OC: {{ 0 + ($item->sale_other ?? 0) }}</div>
@@ -159,7 +164,11 @@
                                 <div class="dd-meta">
 
                                     <div class="code">{{ $item->qr_code }}</div>
+                                    @if(($labelFormat ?? '') === 'double_barcode_price')
+                                    <div class="code">{{ \App\Services\WholesalePrice::sticker($item) }}</div>
+                                    @else
                                     <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                    @endif
                                     <div class="code">L: {{ number_format($item->other ?? 0, 3) }}</div>
                                     <div class="code">N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
                                     <div class="code">OC: {{ 0 + ($item->sale_other ?? 0) }}</div>
@@ -167,8 +176,12 @@
                             </div>
                             @else
                             <div class="left-col">
-                                @if($labelFormat === 'double_barcode')
-                                <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                @if(in_array($labelFormat, ['double_barcode', 'double_barcode_price'], true))
+                                @if(($labelFormat ?? '') === 'double_barcode_price')
+                                    <div class="code">{{ \App\Services\WholesalePrice::sticker($item) }}</div>
+                                    @else
+                                    <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                    @endif
                                 <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
                                 <div class="code">{{ $item->qr_code }}</div>
                                 @else
@@ -177,10 +190,14 @@
                                 @endif
                             </div>
                             <div class="right-col">
-                                @if($labelFormat === 'double_barcode')
+                                @if(in_array($labelFormat, ['double_barcode', 'double_barcode_price'], true))
                                 <div class="code">{{ $item->qr_code }}</div>
                                 <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
-                                <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                @if(($labelFormat ?? '') === 'double_barcode_price')
+                                    <div class="code">{{ \App\Services\WholesalePrice::sticker($item) }}</div>
+                                    @else
+                                    <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                    @endif
                                 @else
                                 <div class="code">{{ $item->qr_code }}</div>
                                 <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
@@ -204,7 +221,11 @@
                                 <div class="dd-meta">
 
                                     <div class="code">{{ $item->qr_code }}</div>
+                                    @if(($labelFormat ?? '') === 'double_barcode_price')
+                                    <div class="code">{{ \App\Services\WholesalePrice::sticker($item) }}</div>
+                                    @else
                                     <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                    @endif
                                     <div class="code">L: {{ number_format($item->other ?? 0, 3) }}</div>
                                     <div class="code">N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
                                     <div class="code">OC: {{ 0 + ($item->sale_other ?? 0) }}</div>
@@ -215,7 +236,11 @@
                                 <div class="dd-meta">
 
                                     <div class="code">{{ $item->qr_code }}</div>
+                                    @if(($labelFormat ?? '') === 'double_barcode_price')
+                                    <div class="code">{{ \App\Services\WholesalePrice::sticker($item) }}</div>
+                                    @else
                                     <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                    @endif
                                     <div class="code">L: {{ number_format($item->other ?? 0, 3) }}</div>
                                     <div class="code">N: {{ number_format($item->net_weight ?? 0, 3) }}</div>
                                     <div class="code">OC: {{ 0 + ($item->sale_other ?? 0) }}</div>
@@ -223,8 +248,12 @@
                             </div>
                             @else
                             <div class="left-col">
-                                @if($labelFormat === 'double_barcode')
-                                <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                @if(in_array($labelFormat, ['double_barcode', 'double_barcode_price'], true))
+                                @if(($labelFormat ?? '') === 'double_barcode_price')
+                                    <div class="code">{{ \App\Services\WholesalePrice::sticker($item) }}</div>
+                                    @else
+                                    <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                    @endif
                                 <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
                                 <div class="code">{{ $item->qr_code }}</div>
                                 @else
@@ -233,10 +262,14 @@
                                 @endif
                             </div>
                             <div class="right-col">
-                                @if($labelFormat === 'double_barcode')
+                                @if(in_array($labelFormat, ['double_barcode', 'double_barcode_price'], true))
                                 <div class="code">{{ $item->qr_code }}</div>
                                 <img class="qr" src="{{ $item->qr_base64 ?? '' }}">
-                                <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                @if(($labelFormat ?? '') === 'double_barcode_price')
+                                    <div class="code">{{ \App\Services\WholesalePrice::sticker($item) }}</div>
+                                    @else
+                                    <div class="code">W: {{ number_format($item->gross_weight ?? 0, 3) }}</div>
+                                    @endif
                                 @else
                                 <div class="code">{{ $item->qr_code }}</div>
                                 <img class="qr" src="{{ $item->qr_base64 ?? '' }}">

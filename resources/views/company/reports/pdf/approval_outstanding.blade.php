@@ -90,6 +90,9 @@
                         @case('created_by')
                             <td>{{ optional($r->creator)->name ?? '-' }}</td>
                             @break
+                        @case('branch_name')
+                            <td>{{ \App\Services\ReportBranches::name($r->company_id) }}</td>
+                            @break
                     @endswitch
                 @endforeach
             </tr>

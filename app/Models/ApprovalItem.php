@@ -11,12 +11,19 @@ class ApprovalItem extends Model
 
     protected $table = 'approval_items';
 
+    protected static function booted(): void
+    {
+        static::saving(fn ($line) => \App\Services\FixedSalePrice::saveSnapshot($line));
+    }
+
     protected $fillable = [
+        'sale_price',
         'approval_id',
         'device_id',
         'voucher_session_id',
         'itemset_id',
         'item_id',
+        'qty',
         'huid',
         'qr_code',
         'gross_weight',
@@ -38,6 +45,7 @@ class ApprovalItem extends Model
     ];
 
     protected $casts = [
+        'sale_price' => 'decimal:2',
         'gross_weight' => 'decimal:3',
         'other_weight' => 'decimal:3',
         'net_weight'   => 'decimal:3',

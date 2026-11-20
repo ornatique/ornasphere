@@ -34,6 +34,12 @@ class SaleSettlement
         $cash = 0.0;
         $lines = [];
         foreach ($items as $row) {
+            if ((float) ($row['sale_price'] ?? 0) > 0) {
+                $lineCash = FixedSalePrice::amount($row['sale_price'], (int) ($row['qty'] ?? 1));
+                $cash += $lineCash;
+                $lines[] = $lineCash;
+                continue;
+            }
             $metal = strtolower(trim((string) ($row['metal'] ?? 'silver')));
             $metal = str_contains($metal, 'gold') ? 'gold' : (str_contains($metal, 'silver') || $metal === '' ? 'silver' : 'other');
             $fine = max(0, (float) ($row['fine_weight'] ?? 0));

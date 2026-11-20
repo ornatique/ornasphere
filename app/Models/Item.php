@@ -70,4 +70,21 @@ class Item extends Model
     {
         return $this->hasMany(ApprovalItem::class, 'item_id');
     }
+
+    public function jobworkIssueItems()
+    {
+        return $this->hasMany(JobworkIssueItem::class, 'item_id');
+    }
+
+    public function jobworkReceiveItems()
+    {
+        return $this->hasMany(JobworkReceiveItem::class, 'item_id');
+    }
+
+    public function isInUse(): bool
+    {
+        return $this->isInUseInLabelStock()
+            || $this->jobworkIssueItems()->exists()
+            || $this->jobworkReceiveItems()->exists();
+    }
 }

@@ -472,7 +472,9 @@ class JobworkIssueApiController extends Controller
 
     private function baseQuery(Request $request, int $companyId)
     {
+        $request->validate(['voucher_id' => 'sometimes|required|integer|min:1']);
         return JobworkIssue::query()
+            ->when($request->filled('voucher_id'), fn ($q) => $q->whereKey($request->integer('voucher_id')))
             ->where('company_id', $companyId)
             ->with(['jobWorker:id,name', 'productionStep:id,name'])
             ->with('items.item:id,item_name')

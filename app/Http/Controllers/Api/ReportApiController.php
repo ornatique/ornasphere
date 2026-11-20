@@ -98,7 +98,7 @@ class ReportApiController extends Controller
 
         return response()->streamDownload(function () use ($rows, $totals) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Voucher No', 'Date', 'Customer', 'Source', 'Qty', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Metal Amt', 'Labour Amt', 'Other Amt', 'Total', 'Remarks', 'Created By']);
+            fputcsv($out, ['Voucher No', 'Date', 'Customer', 'Source', 'Qty', 'Gross Wt', 'Net Wt', 'Fine Wt', 'Metal Amt', 'Labour Amt', 'Other Amt', 'Total', 'Remarks', 'Created By', 'Company / Branch']);
             foreach ($rows as $r) {
                 fputcsv($out, [
                     $r->return_voucher_no,
@@ -115,6 +115,7 @@ class ReportApiController extends Controller
                     number_format((float) ($r->return_total ?? 0), 2, '.', ''),
                     $r->remarks ?? '-',
                     $r->created_by ?? '-',
+                    \App\Services\ReportBranches::name($r->company_id),
                 ]);
             }
             fputcsv($out, [
@@ -127,7 +128,7 @@ class ReportApiController extends Controller
                 number_format((float) ($totals['labour_amount'] ?? 0), 2, '.', ''),
                 number_format((float) ($totals['other_amount'] ?? 0), 2, '.', ''),
                 number_format((float) ($totals['return_total'] ?? 0), 2, '.', ''),
-                '', '',
+                '', '', '',
             ]);
             fclose($out);
         }, 'purchase_receiver_summary_report.csv', [
@@ -190,49 +191,21 @@ class ReportApiController extends Controller
 
     public function stockPositionExcel(Request $request): StreamedResponse
     {
-        $companyId = (int) $request->user()->company_id;
-        $rows = $this->stockPositionBaseQuery($request, $companyId)->get();
-
-        return response()->streamDownload(function () use ($rows) {
-            $out = fopen('php://output', 'w');
-            fputcsv($out, ['Item', 'Stock Type', 'Party', 'Qty Pcs', 'Gross Wt', 'Less Wt', 'Net Wt', 'Fine Wt', 'Labour Amt', 'Other Amt', 'With image', 'Without image']);
-            foreach ($rows as $r) {
-                fputcsv($out, [
-                    $r->item_name,
-                    $r->stock_type_name,
-                    $r->customer_name,
-                    (int) ($r->qty_pcs ?? 0),
-                    number_format((float) ($r->gross_weight ?? 0), 3, '.', ''),
-                    number_format((float) ($r->less_weight ?? 0), 3, '.', ''),
-                    number_format((float) ($r->net_weight ?? 0), 3, '.', ''),
-                    number_format((float) ($r->fine_weight ?? 0), 3, '.', ''),
-                    number_format((float) ($r->labour_amount ?? 0), 2, '.', ''),
-                    number_format((float) ($r->other_amount ?? 0), 2, '.', ''),
-                    (int)$r->with_image, max(0, (int)$r->qty_pcs - (int)$r->with_image),
-                ]);
-            }
-            fclose($out);
-        }, 'stock_position_report.csv', [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-        ]);
+        $company = $request->user()->company;
+        abort_unless($company, 403);
+        \App\Services\ReportBranches::ids($company, $request);
+        return app(\App\Http\Controllers\Company\ReportController::class)
+            ->stockPositionExcel($request, $company->slug);
     }
 
     public function stockPositionPdf(Request $request)
     {
-        $companyId = (int) $request->user()->company_id;
-        $company = Company::find($companyId);
-        if (!$company) {
-            $company = (object) ['name' => 'Company', 'company_name' => 'Company'];
-        }
-        $rows = $this->stockPositionBaseQuery($request, $companyId)->get();
-
-        $summary = collect(['qty_pcs','gross_weight','other_weight','net_weight','fine_weight','with_image'])->mapWithKeys(fn ($key) => [$key=>$rows->sum($key)])->all();
-        $summary['without_image'] = $rows->sum(fn ($row) => max(0, (int)$row->qty_pcs - (int)$row->with_image));
-        return Pdf::loadView('company.reports.pdf.stock_position', compact('company', 'rows', 'summary'))
-            ->setPaper('a4', 'portrait')
-            ->download('stock_position_report.pdf');
+        $company = $request->user()->company;
+        abort_unless($company, 403);
+        \App\Services\ReportBranches::ids($company, $request);
+        return app(\App\Http\Controllers\Company\ReportController::class)
+            ->stockPositionPdf($request, $company->slug);
     }
-
     public function workerLoss(Request $request)
     {
         $companyId = (int) $request->user()->company_id;
@@ -367,18 +340,15 @@ class ReportApiController extends Controller
     public function approvalOutstanding(Request $request)
     {
         $companyId = (int) $request->user()->company_id;
-        $totals = $this->approvalOutstandingTotalsDetailed($request, $companyId);
-        $approvalRows = $this->approvalOutstandingBaseQuery($request, $companyId)
-            ->latest('approval_date')
-            ->get();
-        $voucherTotals = $this->approvalOutstandingVoucherTotals(
-            $companyId,
-            $approvalRows->pluck('id')->map(fn($id) => (int) $id)->all()
-        );
-
+        $approvalRows = $this->approvalOutstandingRows($request, $companyId);
+        $totals = $this->approvalOutstandingTotals($approvalRows)
+            + \App\Services\ApprovalOutstanding::totals($approvalRows);
+        foreach (['purity', 'waste_percent', 'metal_rate', 'labour_rate'] as $field) {
+            $totals[$field] = $totals['pending_'.$field];
+        }
         $rows = $approvalRows
-            ->map(function ($row) use ($voucherTotals) {
-                $rowTotals = $voucherTotals[(int) $row->id] ?? [];
+            ->map(function ($row) {
+                $rowTotals = \App\Services\ApprovalOutstanding::totals(collect([$row]));
 
                 return [
                     'id' => (int) $row->id,
@@ -466,7 +436,7 @@ class ReportApiController extends Controller
     public function approvalOutstandingExcel(Request $request): StreamedResponse
     {
         $companyId = (int) $request->user()->company_id;
-        $rows = $this->approvalOutstandingBaseQuery($request, $companyId)->latest('approval_date')->get();
+        $rows = $this->approvalOutstandingRows($request, $companyId);
         $summary = $this->approvalOutstandingTotals($rows);
         $visibleColumns = $this->approvalOutstandingVisibleColumns($request);
 
@@ -490,7 +460,7 @@ class ReportApiController extends Controller
         if (!$company) {
             $company = (object) ['name' => 'Company', 'company_name' => 'Company'];
         }
-        $rows = $this->approvalOutstandingBaseQuery($request, $companyId)->latest('approval_date')->get();
+        $rows = $this->approvalOutstandingRows($request, $companyId);
         $summary = $this->approvalOutstandingTotals($rows);
         $visibleColumns = $this->approvalOutstandingVisibleColumns($request);
 
@@ -951,29 +921,16 @@ class ReportApiController extends Controller
     }
     public function barcodeHistoryPdf(Request $request)
     {
-        $user = $request->user();
         $code = trim((string) ($request->code ?? $request->barcode ?? $request->qr_code ?? $request->huid ?? ''));
-
         if ($code === '') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Code is required.',
-            ], 422);
+            return response()->json(['success' => false, 'message' => 'Code is required.'], 422);
         }
-
-        $company = Company::find((int) $user->company_id);
-        if (!$company) {
-            $company = (object) ['name' => 'Company', 'company_name' => 'Company'];
-        }
-        $rows = $this->barcodeHistoryRows($request, (int) $user->company_id, $code)
-            ->map(fn($r) => is_array($r) ? $r : (array) $r)
-            ->values();
-
-        return Pdf::loadView('company.reports.pdf.barcode_history', compact('company', 'rows'))
-            ->setPaper('a4', 'landscape')
-            ->download('barcode_history_report.pdf');
+        $company = Company::findOrFail($request->user()->company_id);
+        \App\Services\ReportBranches::ids($company, $request);
+        $request->merge(['code' => $code]);
+        return app(\App\Http\Controllers\Company\ReportController::class)
+            ->barcodeHistoryPdf($request, $company->slug);
     }
-
     private function barcodeHistoryRows(Request $request, int $companyId, string $code): Collection
     {
         $companyIds = \App\Services\ReportBranches::ids(Company::findOrFail($companyId), $request);
@@ -1284,6 +1241,7 @@ class ReportApiController extends Controller
             'qr_code' => ['label' => 'QR Code', 'total' => 'TOTAL'],
             'huid' => ['label' => 'HUID', 'total' => ''],
             'item' => ['label' => 'Item', 'total' => ''],
+            'qty' => ['label' => 'Qty', 'total_key' => 'pending_pcs', 'decimals' => 0],
             'status' => ['label' => 'Status', 'total' => ''],
             'gross_weight' => ['label' => 'Gross Wt', 'total_key' => 'pending_gross_weight', 'decimals' => 3],
             'other_weight' => ['label' => 'Other Wt', 'total_key' => 'pending_other_weight', 'decimals' => 3],
@@ -1295,11 +1253,13 @@ class ReportApiController extends Controller
 
     private function approvalOutstandingVisibleColumns(Request $request): array
     {
-        return $this->visibleReportColumns($request, $this->approvalOutstandingColumnDefinitions(), [
+        $columns = $this->visibleReportColumns($request, $this->approvalOutstandingColumnDefinitions(), [
             'approval_no', 'date', 'customer', 'status', 'pending_pcs', 'gross_weight',
             'other_weight', 'net_weight', 'purity', 'waste_percent', 'metal_rate', 'labour_rate',
             'other_amount', 'pending_amount', 'remarks', 'created_by',
         ]);
+        $columns['branch_name'] = ['label' => 'Company / Branch', 'total' => ''];
+        return $columns;
     }
 
     private function approvalOutstandingDetailsVisibleColumns(Request $request): array
@@ -1307,12 +1267,16 @@ class ReportApiController extends Controller
         $definitions = $this->approvalOutstandingDetailsColumnDefinitions();
         $selected = $this->requestedColumns($request);
         if (!empty($selected)) {
+            if (!in_array('qty', $selected, true)) {
+                $itemPosition = array_search('item', $selected, true);
+                array_splice($selected, $itemPosition === false ? 0 : $itemPosition + 1, 0, ['qty']);
+            }
             return $this->columnsByKeys($definitions, array_map(function ($key) {
                 return $key === 'pending_amount' ? 'pending_amount' : $key;
             }, $selected));
         }
 
-        $visibleKeys = ['qr_code', 'huid', 'item'];
+        $visibleKeys = ['qr_code', 'huid', 'item', 'qty'];
 
         foreach (['status', 'gross_weight', 'other_weight', 'net_weight', 'other_amount', 'pending_amount'] as $key) {
             if (empty($selected) || in_array($key, $selected, true)) {
@@ -1327,6 +1291,7 @@ class ReportApiController extends Controller
     {
         $values = [
             'approval_no' => $row->approval_no,
+            'branch_name' => \App\Services\ReportBranches::name($row->company_id),
             'date' => optional($row->approval_date)?->format('d-m-Y'),
             'customer' => optional($row->customer)->name ?? '-',
             'status' => $row->status,
@@ -1358,11 +1323,10 @@ class ReportApiController extends Controller
 
         $approval->load(['customer', 'creator']);
 
-        $items = $approval->items()
+        $items = \App\Services\ApprovalOutstanding::items($approval->items()
             ->with(['itemSet.item', 'legacyItemSet.item', 'item'])
-            ->where('status', 'pending')
             ->orderBy('id')
-            ->get()
+            ->get())
             ->map(function ($row) use ($approval) {
                 $itemSet = $row->itemSet ?? $row->legacyItemSet;
                 $item = optional($itemSet)->item ?? $row->item;
@@ -1379,6 +1343,7 @@ class ReportApiController extends Controller
                     'customer' => optional($approval->customer)->name ?? '-',
                     'qr_code' => $row->qr_code ?? optional($itemSet)->qr_code,
                     'huid' => $row->huid ?? optional($itemSet)->HUID,
+                    'qty' => (int) $row->qty,
                     'item_name' => optional($item)->item_name,
                     'gross_weight' => $grossWeight,
                     'other_weight' => $otherWeight,
@@ -1414,7 +1379,7 @@ class ReportApiController extends Controller
                 'created_by' => optional($approval->creator)->name ?? '-',
             ],
             'summary' => [
-                'pending_pcs' => (int) $items->count(),
+                'pending_pcs' => (int) $items->sum('qty'),
                 'pending_gross_weight' => (float) $items->sum('gross_weight'),
                 'pending_other_weight' => (float) $items->sum('other_weight'),
                 'pending_net_weight' => (float) $items->sum('net_weight'),
@@ -1434,6 +1399,7 @@ class ReportApiController extends Controller
             'qr_code' => $item['qr_code'] ?? '-',
             'huid' => $item['huid'] ?? '-',
             'item' => $item['item_name'] ?? '-',
+            'qty' => (int) ($item['qty'] ?? 0),
             'status' => $item['status'] ?? '-',
             'gross_weight' => number_format((float) ($item['gross_weight'] ?? 0), 3, '.', ''),
             'other_weight' => number_format((float) ($item['other_weight'] ?? 0), 3, '.', ''),
@@ -1667,6 +1633,29 @@ class ReportApiController extends Controller
 
     private function salesSummaryBaseQuery(Request $request, int $companyId)
     {
+        $dates = [];
+        foreach (['from_date', 'to_date'] as $key) {
+            if (!$request->filled($key)) continue;
+            $value = $request->input($key);
+            $date = null;
+            foreach (['Y-m-d', 'd-m-Y'] as $format) {
+                try {
+                    $parsed = Carbon::createFromFormat('!'.$format, $value);
+                    if ($parsed && $parsed->format($format) === $value) {
+                        $date = $parsed->format('Y-m-d');
+                        break;
+                    }
+                } catch (\Throwable $e) {}
+            }
+            if (!$date) throw \Illuminate\Validation\ValidationException::withMessages([$key => 'Use YYYY-MM-DD or DD-MM-YYYY.']);
+            $dates[$key] = $date;
+        }
+        if (isset($dates['from_date'], $dates['to_date']) && $dates['from_date'] > $dates['to_date']) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['to_date' => 'To date must be on or after from date.']);
+        }
+        $request->merge($dates);
+        $company = Company::findOrFail($companyId);
+        $companyIds = \App\Services\ReportBranches::ids($company, $request);
         $query = Sale::with(['customer', 'creator'])
             ->select('sales.*')
             ->withSum('saleItems as total_qty', 'qty')
@@ -1697,13 +1686,14 @@ class ReportApiController extends Controller
             }, 'total_labour_rate')
             ->withSum('saleItems as total_labour_amount', 'labour_amount')
             ->withSum('saleItems as total_other_amount', 'other_amount')
-            ->where('company_id', $companyId);
+            ->whereIn('sales.company_id', $companyIds);
 
         if ($request->filled('customer_id')) {
             $query->where('customer_id', (int) $request->customer_id);
         }
         if ($request->filled('from_date') && $request->filled('to_date')) {
-            $query->whereBetween('sale_date', [$request->from_date, $request->to_date]);
+            $query->whereDate('sale_date', '>=', $request->from_date)
+                ->whereDate('sale_date', '<=', $request->to_date);
         } elseif ($request->filled('from_date')) {
             $query->whereDate('sale_date', '>=', $request->from_date);
         } elseif ($request->filled('to_date')) {
@@ -1716,13 +1706,14 @@ class ReportApiController extends Controller
     private function salesSummaryTotals(Request $request, int $companyId): array
     {
         $applySalesFilters = function ($query) use ($request, $companyId) {
-            $query->where('sales.company_id', $companyId);
+            $query->whereIn('sales.company_id', \App\Services\ReportBranches::ids(Company::findOrFail($companyId), $request));
 
             if ($request->filled('customer_id')) {
                 $query->where('sales.customer_id', (int) $request->customer_id);
             }
             if ($request->filled('from_date') && $request->filled('to_date')) {
-                $query->whereBetween('sales.sale_date', [$request->from_date, $request->to_date]);
+                $query->whereDate('sales.sale_date', '>=', $request->from_date)
+                    ->whereDate('sales.sale_date', '<=', $request->to_date);
             } elseif ($request->filled('from_date')) {
                 $query->whereDate('sales.sale_date', '>=', $request->from_date);
             } elseif ($request->filled('to_date')) {
@@ -1788,7 +1779,7 @@ class ReportApiController extends Controller
             })
             ->leftJoin('customers as ac', 'ac.id', '=', 'ah.customer_id')
             ->leftJoin('users as au', 'au.id', '=', 'ah.employee_id')
-            ->where('sr.company_id', $companyId)
+            ->whereIn('sr.company_id', \App\Services\ReportBranches::ids(Company::findOrFail($companyId), $request))
             ->when($request->filled('customer_id'), function ($q) use ($request) {
                 $customerId = (int) $request->customer_id;
                 $q->where(function ($inner) use ($customerId) {
@@ -1807,6 +1798,7 @@ class ReportApiController extends Controller
             })
             ->groupBy(
                 'sr.id',
+                'sr.company_id',
                 'sr.return_voucher_no',
                 'sr.return_date',
                 'sr.return_total',
@@ -1879,6 +1871,7 @@ class ReportApiController extends Controller
 
         $query->selectRaw("
             sr.id,
+            sr.company_id,
             sr.return_voucher_no,
             sr.return_date,
             COALESCE(NULLIF(sr.return_total, 0), SUM({$totalAmountExpr}), 0) as return_total,
@@ -1918,6 +1911,11 @@ class ReportApiController extends Controller
     private function stockPositionBaseQuery(Request $request, int $companyId)
     {
         $request->validate(['stock_type'=>'nullable|in:raw_material,finished_item,customer_received,scrap,repair']);
+        // A QR label can represent a multi-piece batch. Report only the remaining
+        // pieces and prorate batch-level weights/charges after partial sales.
+        $availableQtySql = 'GREATEST(COALESCE(item_sets.available_quantity, CASE WHEN item_sets.is_sold = 1 THEN 0 ELSE COALESCE(item_sets.quantity, 1) END), 0)';
+        $batchQtySql = 'GREATEST(COALESCE(NULLIF(item_sets.quantity, 0), 1), 1)';
+        $remainingRatioSql = "({$availableQtySql} / {$batchQtySql})";
         $labelStock = ItemSet::query()
             ->join('items', 'items.id', '=', 'item_sets.item_id')
             ->leftJoin('customers as supplier_customers', function ($join) use ($companyId) {
@@ -1940,13 +1938,13 @@ class ReportApiController extends Controller
                 DB::raw("'Finished Item' as stock_type_name"),
                 DB::raw('supplier_customers.id as customer_id'),
                 DB::raw("COALESCE(NULLIF(item_sets.supplier_person, ''), '-') as customer_name"),
-                DB::raw('COUNT(item_sets.id) as qty_pcs'),
-                DB::raw('SUM(COALESCE(item_sets.gross_weight,0)) as gross_weight'),
-                DB::raw('SUM(COALESCE(item_sets.other,0)) as less_weight'),
-                DB::raw('SUM(COALESCE(item_sets.net_weight,0)) as net_weight'),
-                DB::raw('SUM(COALESCE(item_sets.net_weight,0)) as fine_weight'),
-                DB::raw('SUM(COALESCE(item_sets.sale_labour_amount,0)) as labour_amount'),
-                DB::raw('SUM(COALESCE(item_sets.sale_other,0)) as other_amount'),
+                DB::raw("SUM({$availableQtySql}) as qty_pcs"),
+                DB::raw("SUM(COALESCE(item_sets.gross_weight,0) * {$remainingRatioSql}) as gross_weight"),
+                DB::raw("SUM(COALESCE(item_sets.other,0) * {$remainingRatioSql}) as less_weight"),
+                DB::raw("SUM(COALESCE(item_sets.net_weight,0) * {$remainingRatioSql}) as net_weight"),
+                DB::raw("SUM(COALESCE(item_sets.net_weight,0) * {$remainingRatioSql}) as fine_weight"),
+                DB::raw("SUM(COALESCE(item_sets.sale_labour_amount,0) * {$remainingRatioSql}) as labour_amount"),
+                DB::raw("SUM(COALESCE(item_sets.sale_other,0) * {$remainingRatioSql}) as other_amount"),
                 DB::raw('MAX(item_sets.created_at) as created_at'),
             ])
             ->groupBy('item_sets.item_id', 'items.item_name', 'supplier_customers.id', 'item_sets.supplier_person');
@@ -2048,7 +2046,7 @@ class ReportApiController extends Controller
             })
             ->groupBy('stock_rows.item_id', 'stock_rows.item_name', 'stock_rows.stock_type', 'stock_rows.stock_type_name', 'stock_rows.customer_id', 'stock_rows.customer_name');
         return DB::query()->fromSub($grouped, 'stock_group')->select('stock_group.*')
-            ->selectRaw("CASE WHEN stock_type = 'finished_item' THEN (SELECT COUNT(*) FROM item_sets img WHERE img.company_id = ? AND img.item_id = stock_group.item_id AND img.is_final = 1 AND img.is_sold = 0 AND COALESCE(NULLIF(img.supplier_person, ''), '-') = stock_group.customer_name AND NULLIF(TRIM(img.image_path), '') IS NOT NULL) ELSE 0 END as with_image", [$companyId]);
+            ->selectRaw("CASE WHEN stock_type = 'finished_item' THEN (SELECT COALESCE(SUM(GREATEST(COALESCE(img.available_quantity, CASE WHEN img.is_sold = 1 THEN 0 ELSE COALESCE(img.quantity, 1) END), 0)), 0) FROM item_sets img WHERE img.company_id = ? AND img.item_id = stock_group.item_id AND img.is_final = 1 AND img.is_sold = 0 AND COALESCE(NULLIF(img.supplier_person, ''), '-') = stock_group.customer_name AND NULLIF(TRIM(img.image_path), '') IS NOT NULL) ELSE 0 END as with_image", [$companyId]);
     }
 
     private function workerLossBaseQuery(Request $request, int $companyId)
@@ -2102,74 +2100,44 @@ class ReportApiController extends Controller
         return in_array(strtolower((string) $value), ['1', 'true', 'yes', 'on'], true);
     }
 
-    private function approvalOutstandingBaseQuery(Request $request, int $companyId)
+    private function approvalOutstandingRows(Request $request, int $companyId)
     {
-        $query = ApprovalHeader::with(['customer', 'creator'])
-            ->withCount([
-                'items as pending_items_count' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ])
-            ->withSum([
-                'items as pending_gross_weight' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ], 'gross_weight')
-            ->withSum([
-                'items as pending_other_weight' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ], 'other_weight')
-            ->withSum([
-                'items as pending_net_weight' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ], 'net_weight')
-            ->withAvg([
-                'items as pending_purity' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ], 'purity')
-            ->withAvg([
-                'items as pending_waste_percent' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ], 'waste_percent')
-            ->withAvg([
-                'items as pending_metal_rate' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ], 'metal_rate')
-            ->withAvg([
-                'items as pending_labour_rate' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ], 'labour_rate')
-            ->withSum([
-                'items as pending_other_amount' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ], 'other_amount')
-            ->withSum([
-                'items as pending_total_amount' => function ($q) {
-                    $q->where('status', 'pending');
-                }
-            ], 'total_amount')
-            ->where('company_id', $companyId)
+        $dates = [];
+        foreach (['from_date', 'to_date'] as $key) {
+            if (!$request->filled($key)) continue;
+            $value = $request->input($key);
+            foreach (['Y-m-d', 'd-m-Y'] as $format) {
+                try {
+                    $date = Carbon::createFromFormat('!'.$format, $value);
+                    if ($date && $date->format($format) === $value) {
+                        $dates[$key] = $date->format('Y-m-d');
+                        break;
+                    }
+                } catch (\Throwable $e) {}
+            }
+            if (!isset($dates[$key])) throw \Illuminate\Validation\ValidationException::withMessages([$key => 'Use YYYY-MM-DD or DD-MM-YYYY.']);
+        }
+        if (isset($dates['from_date'], $dates['to_date']) && $dates['from_date'] > $dates['to_date']) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['to_date' => 'To date must be on or after from date.']);
+        }
+        $request->merge($dates);
+        $query = ApprovalHeader::with(['customer', 'creator', 'items'])
+            ->whereIn('company_id', \App\Services\ReportBranches::ids(Company::findOrFail($companyId), $request))
             ->whereIn('status', ['open', 'partial']);
 
         if ($request->filled('customer_id')) {
             $query->where('customer_id', (int) $request->customer_id);
         }
         if ($request->filled('from_date') && $request->filled('to_date')) {
-            $query->whereBetween('approval_date', [$request->from_date, $request->to_date]);
+            $query->whereDate('approval_date', '>=', $request->from_date)
+                ->whereDate('approval_date', '<=', $request->to_date);
         } elseif ($request->filled('from_date')) {
             $query->whereDate('approval_date', '>=', $request->from_date);
         } elseif ($request->filled('to_date')) {
             $query->whereDate('approval_date', '<=', $request->to_date);
         }
 
-        return $query;
+        return \App\Services\ApprovalOutstanding::headers($query->latest('approval_date')->get());
     }
 
     private function approvalOutstandingTotals(Collection $rows): array
@@ -2198,154 +2166,7 @@ class ReportApiController extends Controller
         ];
     }
 
-    private function approvalOutstandingVoucherTotals(int $companyId, array $approvalIds): array
-    {
-        $approvalIds = array_values(array_filter(array_unique(array_map('intval', $approvalIds))));
-        if (empty($approvalIds)) {
-            return [];
-        }
 
-        $hasFineWeight = Schema::hasColumn('approval_items', 'fine_weight');
-        $hasTotalFineWeight = Schema::hasColumn('approval_items', 'total_fine_weight');
-        $hasMetalAmount = Schema::hasColumn('approval_items', 'metal_amount');
-        $hasLabourAmount = Schema::hasColumn('approval_items', 'labour_amount');
-        $hasOtherAmount = Schema::hasColumn('approval_items', 'other_amount');
-        $hasTotalAmount = Schema::hasColumn('approval_items', 'total_amount');
-
-        $fineExpr = '0';
-        if ($hasTotalFineWeight && $hasFineWeight) {
-            $fineExpr = 'COALESCE(ai.total_fine_weight, ai.fine_weight, 0)';
-        } elseif ($hasTotalFineWeight) {
-            $fineExpr = 'COALESCE(ai.total_fine_weight, 0)';
-        } elseif ($hasFineWeight) {
-            $fineExpr = 'COALESCE(ai.fine_weight, 0)';
-        }
-
-        $metalExpr = $hasMetalAmount ? 'COALESCE(ai.metal_amount, 0)' : '0';
-        $labourExpr = $hasLabourAmount ? 'COALESCE(ai.labour_amount, 0)' : '0';
-        $otherExpr = $hasOtherAmount ? 'COALESCE(ai.other_amount, 0)' : '0';
-        $totalExpr = $hasTotalAmount ? 'COALESCE(ai.total_amount, 0)' : '0';
-
-        return DB::table('approval_items as ai')
-            ->join('approval_headers as ah', 'ah.id', '=', 'ai.approval_id')
-            ->where('ah.company_id', $companyId)
-            ->whereIn('ai.approval_id', $approvalIds)
-            ->where('ai.status', 'pending')
-            ->groupBy('ai.approval_id')
-            ->selectRaw("
-                ai.approval_id,
-                COUNT(ai.id) as qty_pcs,
-                COALESCE(SUM(COALESCE(ai.gross_weight, 0)), 0) as gross_weight,
-                COALESCE(SUM(COALESCE(ai.other_weight, 0)), 0) as other_weight,
-                COALESCE(SUM(COALESCE(ai.net_weight, 0)), 0) as net_weight,
-                COALESCE(SUM(COALESCE(ai.net_weight, 0) * COALESCE(ai.purity, 0)) / NULLIF(SUM(COALESCE(ai.net_weight, 0)), 0), 0) as purity,
-                COALESCE(SUM(COALESCE(ai.net_weight, 0) * COALESCE(ai.waste_percent, 0)) / NULLIF(SUM(COALESCE(ai.net_weight, 0)), 0), 0) as waste_percent,
-                COALESCE(SUM(COALESCE(ai.net_weight, 0) * COALESCE(ai.metal_rate, 0)) / NULLIF(SUM(COALESCE(ai.net_weight, 0)), 0), 0) as metal_rate,
-                COALESCE(SUM(COALESCE(ai.net_weight, 0) * COALESCE(ai.labour_rate, 0)) / NULLIF(SUM(COALESCE(ai.net_weight, 0)), 0), 0) as labour_rate,
-                COALESCE(SUM({$fineExpr}), 0) as fine_weight,
-                COALESCE(SUM({$metalExpr}), 0) as metal_amount,
-                COALESCE(SUM({$labourExpr}), 0) as labour_amount,
-                COALESCE(SUM({$otherExpr}), 0) as other_amount,
-                COALESCE(SUM({$totalExpr}), 0) as net_total
-            ")
-            ->get()
-            ->mapWithKeys(function ($row) {
-                return [
-                    (int) $row->approval_id => [
-                        'qty_pcs' => (int) ($row->qty_pcs ?? 0),
-                        'gross_weight' => (float) ($row->gross_weight ?? 0),
-                        'other_weight' => (float) ($row->other_weight ?? 0),
-                        'net_weight' => (float) ($row->net_weight ?? 0),
-                        'fine_weight' => (float) ($row->fine_weight ?? 0),
-                        'metal_amount' => (float) ($row->metal_amount ?? 0),
-                        'labour_amount' => (float) ($row->labour_amount ?? 0),
-                        'other_amount' => (float) ($row->other_amount ?? 0),
-                        'net_total' => (float) ($row->net_total ?? 0),
-                    ],
-                ];
-            })
-            ->all();
-    }
-
-    private function approvalOutstandingTotalsDetailed(Request $request, int $companyId): array
-    {
-        $hasFineWeight = Schema::hasColumn('approval_items', 'fine_weight');
-        $hasTotalFineWeight = Schema::hasColumn('approval_items', 'total_fine_weight');
-        $hasMetalAmount = Schema::hasColumn('approval_items', 'metal_amount');
-        $hasLabourAmount = Schema::hasColumn('approval_items', 'labour_amount');
-        $hasOtherAmount = Schema::hasColumn('approval_items', 'other_amount');
-        $hasTotalAmount = Schema::hasColumn('approval_items', 'total_amount');
-
-        $fineExpr = '0';
-        if ($hasTotalFineWeight && $hasFineWeight) {
-            $fineExpr = 'COALESCE(ai.total_fine_weight, ai.fine_weight, 0)';
-        } elseif ($hasTotalFineWeight) {
-            $fineExpr = 'COALESCE(ai.total_fine_weight, 0)';
-        } elseif ($hasFineWeight) {
-            $fineExpr = 'COALESCE(ai.fine_weight, 0)';
-        }
-
-        $metalExpr = $hasMetalAmount ? 'COALESCE(ai.metal_amount, 0)' : '0';
-        $labourExpr = $hasLabourAmount ? 'COALESCE(ai.labour_amount, 0)' : '0';
-        $otherExpr = $hasOtherAmount ? 'COALESCE(ai.other_amount, 0)' : '0';
-        $totalExpr = $hasTotalAmount ? 'COALESCE(ai.total_amount, 0)' : '0';
-
-        $totals = DB::table('approval_items as ai')
-            ->join('approval_headers as ah', 'ah.id', '=', 'ai.approval_id')
-            ->where('ah.company_id', $companyId)
-            ->whereIn('ah.status', ['open', 'partial'])
-            ->where('ai.status', 'pending')
-            ->when($request->filled('customer_id'), function ($q) use ($request) {
-                $q->where('ah.customer_id', (int) $request->customer_id);
-            })
-            ->when($request->filled('from_date') && $request->filled('to_date'), function ($q) use ($request) {
-                $q->whereBetween('ah.approval_date', [$request->from_date, $request->to_date]);
-            })
-            ->when($request->filled('from_date') && !$request->filled('to_date'), function ($q) use ($request) {
-                $q->whereDate('ah.approval_date', '>=', $request->from_date);
-            })
-            ->when(!$request->filled('from_date') && $request->filled('to_date'), function ($q) use ($request) {
-                $q->whereDate('ah.approval_date', '<=', $request->to_date);
-            })
-            ->selectRaw("
-                COUNT(ai.id) as qty_pcs,
-                COALESCE(SUM(COALESCE(ai.gross_weight, 0)), 0) as gross_weight,
-                COALESCE(SUM(COALESCE(ai.other_weight, 0)), 0) as other_weight,
-                COALESCE(SUM(COALESCE(ai.net_weight, 0)), 0) as net_weight,
-                COALESCE(SUM({$fineExpr}), 0) as fine_weight,
-                COALESCE(SUM({$metalExpr}), 0) as metal_amount,
-                COALESCE(SUM({$labourExpr}), 0) as labour_amount,
-                COALESCE(SUM({$otherExpr}), 0) as other_amount,
-                COALESCE(SUM({$totalExpr}), 0) as net_total
-            ")
-            ->first();
-
-        return [
-            'qty_pcs' => (int) ($totals->qty_pcs ?? 0),
-            'gross_weight' => (float) ($totals->gross_weight ?? 0),
-            'other_weight' => (float) ($totals->other_weight ?? 0),
-            'net_weight' => (float) ($totals->net_weight ?? 0),
-            'purity' => (float) ($totals->purity ?? 0),
-            'waste_percent' => (float) ($totals->waste_percent ?? 0),
-            'metal_rate' => (float) ($totals->metal_rate ?? 0),
-            'labour_rate' => (float) ($totals->labour_rate ?? 0),
-            'fine_weight' => (float) ($totals->fine_weight ?? 0),
-            'metal_amount' => (float) ($totals->metal_amount ?? 0),
-            'labour_amount' => (float) ($totals->labour_amount ?? 0),
-            'other_amount' => (float) ($totals->other_amount ?? 0),
-            'net_total' => (float) ($totals->net_total ?? 0),
-            'pending_pcs' => (int) ($totals->qty_pcs ?? 0),
-            'pending_gross_weight' => (float) ($totals->gross_weight ?? 0),
-            'pending_other_weight' => (float) ($totals->other_weight ?? 0),
-            'pending_net_weight' => (float) ($totals->net_weight ?? 0),
-            'pending_purity' => (float) ($totals->purity ?? 0),
-            'pending_waste_percent' => (float) ($totals->waste_percent ?? 0),
-            'pending_metal_rate' => (float) ($totals->metal_rate ?? 0),
-            'pending_labour_rate' => (float) ($totals->labour_rate ?? 0),
-            'pending_other_amount' => (float) ($totals->other_amount ?? 0),
-            'pending_amount' => (float) ($totals->net_total ?? 0),
-        ];
-    }
 
     private function outstandingAmountBaseQuery(Request $request, int $companyId)
     {

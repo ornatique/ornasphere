@@ -67,6 +67,10 @@
                                             <option value="">Select Plan</option>
                                             <option value="trial" {{ old('plan', 'trial') == 'trial' ? 'selected' : '' }}>10-day Trial</option>
                                             <option value="yearly" {{ old('plan') == 'yearly' ? 'selected' : '' }}>Yearly</option>
+                                            @foreach([2, 3, 4, 5] as $years)
+                                                <option value="{{ $years }}_years" {{ old('plan') == $years . '_years' ? 'selected' : '' }}>{{ $years }} Years</option>
+                                            @endforeach
+                                            <option value="custom" {{ old('plan') == 'custom' ? 'selected' : '' }}>Custom Dates</option>
                                         </select>
                                         @error('plan')
                                             <div class="invalid-feedback">{{ $message }}</div>
@@ -95,6 +99,25 @@
                                             <div class="invalid-feedback">{{ $message }}</div>
                                         @enderror
                                         <small class="text-muted">JPG, PNG, WEBP. Max 2MB.</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row" id="customPlanDates" style="display:none">
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <div class="form-group">
+                                            <label for="planStartDate">Plan From Date</label>
+                                            <input type="date" id="planStartDate" name="plan_start_date" value="{{ old('plan_start_date') }}" class="form-control @error('plan_start_date') is-invalid @enderror">
+                                            @error('plan_start_date')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="form-group">
+                                            <label for="planEndDate">Plan To Date</label>
+                                            <input type="date" id="planEndDate" name="plan_end_date" value="{{ old('plan_end_date') }}" class="form-control @error('plan_end_date') is-invalid @enderror">
+                                            @error('plan_end_date')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -209,6 +232,11 @@
                     </div>
 
                     @include('superadmin.auth.company.allowed_modules')
+                    <div class="form-group mt-3">
+                        <input type="hidden" name="wholesale_price_enabled" value="0">
+                        <label><input type="checkbox" name="wholesale_price_enabled" value="1" @checked(old('wholesale_price_enabled', $company->wholesale_price_enabled ?? false))> Enable Wholesale Price</label>
+                        <small class="d-block">Use Wholesale Price for new approvals and sales. Branches inherit this setting. Stickers use Sale Price.</small>
+                    </div>
                     <div class="card-footer d-flex justify-content-end gap-2">
                         <a href="{{ route('superadmin.companies.index') }}" class="btn btn-info">Back</a>
                         <button type="submit" class="btn btn-primary">Save Company</button>
@@ -297,6 +325,23 @@
 @push('scripts')
 <script>
     document.addEventListener('DOMContentLoaded', function () {
+        const planSelect = document.querySelector('select[name="plan"]');
+        const customPlanDates = document.getElementById('customPlanDates');
+        const planStartDate = document.getElementById('planStartDate');
+        const planEndDate = document.getElementById('planEndDate');
+
+        function syncCustomPlanFields() {
+            const isCustom = planSelect && planSelect.value === 'custom';
+            if (customPlanDates) customPlanDates.style.display = isCustom ? '' : 'none';
+            if (planStartDate) planStartDate.required = !!isCustom;
+            if (planEndDate) planEndDate.required = !!isCustom;
+        }
+
+        if (planSelect) {
+            planSelect.addEventListener('change', syncCustomPlanFields);
+            syncCustomPlanFields();
+        }
+
         const input = document.getElementById('companyLogoInput');
         const preview = document.getElementById('companyLogoPreview');
 

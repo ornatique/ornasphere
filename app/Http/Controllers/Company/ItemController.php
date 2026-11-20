@@ -29,7 +29,7 @@ class ItemController extends Controller
         $items = Item::whereIn('company_id', $companies->keys())
             ->when($request->filled('jobwork_item_type'), fn ($q) => $q->where('jobwork_item_type', $request->input('jobwork_item_type')))
             ->select('items.*')
-            ->withCount(['itemSets', 'itemLabels']);
+            ->withCount(['itemSets', 'itemLabels', 'jobworkIssueItems', 'jobworkReceiveItems']);
 
         $table = datatables()->of($items)
             ->addIndexColumn()
@@ -59,7 +59,10 @@ class ItemController extends Controller
 
                 $editUrl = route('company.items.edit', [$company->slug, $encryptedId]);
                 $deleteUrl = route('company.items.destroy', [$company->slug, $encryptedId]);
-                $isInUse = ((int) ($item->item_sets_count ?? 0) + (int) ($item->item_labels_count ?? 0)) > 0;
+                $isInUse = ((int) ($item->item_sets_count ?? 0)
+                    + (int) ($item->item_labels_count ?? 0)
+                    + (int) ($item->jobwork_issue_items_count ?? 0)
+                    + (int) ($item->jobwork_receive_items_count ?? 0)) > 0;
 
                 $deleteButton = $isInUse
                     ? '<span class="btn btn-sm btn-secondary disabled" title="This item is used in label stock">In Use</span>'
@@ -109,10 +112,10 @@ class ItemController extends Controller
             'inward_purity' => 'nullable|numeric',
             'labour_type' => 'nullable|string|max:100',
             'labour_unit' => 'nullable|string|max:100',
-            'jobwork_item_type' => 'nullable|string|max:100',
+            'jobwork_item_type' => 'required|string|in:finish,raw',
             'hsn' => 'nullable|string|max:100',
             'export_hsn' => 'nullable|string|max:100',
-            'numeric_length' => 'nullable|integer',
+            'numeric_length' => 'nullable|numeric|decimal:0,2|between:-999999.99,999999.99',
             'item_group' => 'nullable|string|max:100',
             'remarks' => 'nullable|string|max:1000',
         ]);
@@ -214,12 +217,12 @@ class ItemController extends Controller
             'inward_purity' => 'nullable|numeric',
             'labour_type' => 'nullable|string|max:100',
             'labour_unit' => 'nullable|string|max:100',
-            'jobwork_item_type' => 'nullable|string|max:100',
+            'jobwork_item_type' => 'required|string|in:finish,raw',
             'hsn' => 'nullable|string|max:100',
             'export_hsn' => 'nullable|string|max:100',
             'item_group' => 'nullable|string|max:100',
             'remarks' => 'nullable|string|max:1000',
-            'numeric_length' => 'nullable|integer',
+            'numeric_length' => 'nullable|numeric|decimal:0,2|between:-999999.99,999999.99',
         ]);
 
         $item->update([
@@ -261,10 +264,10 @@ class ItemController extends Controller
             ->where('company_id', $company->id)
             ->firstOrFail();
 
-        if ($item->isInUseInLabelStock()) {
+        if ($item->isInUse()) {
             return response()->json([
                 'status' => false,
-                'message' => 'This item is in use in label stock and cannot be deleted.'
+                'message' => 'This item is already used in label stock or a transaction and cannot be deleted.'
             ], 422);
         }
 

@@ -101,7 +101,7 @@
                 <div class="profile-grid">
                     <div><span>Company Name</span><strong>{{ $company->name ?: '-' }}</strong></div>
                     <div><span>Company Email</span><strong>{{ $company->email ?: '-' }}</strong></div>
-                    <div><span>Plan</span><strong>{{ $company->plan ? ucfirst($company->plan) : '-' }}</strong></div>
+                    <div><span>Plan</span><strong>{{ $company->plan ? ucwords(str_replace('_', ' ', $company->plan)) : '-' }}</strong></div>
                     <div><span>Max Users</span><strong>{{ $company->max_users ?: '-' }}</strong></div>
                     <div><span>Plan Start Date & Time</span><strong>{{ data_get($planStatus, 'started_at_view') ?: '-' }}</strong></div>
                     <div><span>Plan Expire Date & Time</span><strong class="{{ $planExpired ? 'profile-status-inactive' : 'profile-status-active' }}">{{ data_get($planStatus, 'expires_at_view') ?: '-' }}</strong></div>

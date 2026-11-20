@@ -65,7 +65,7 @@
                             <div class="col-md-6">
                                 <div class="form-group row">
                                     <label class="col-sm-3 col-form-label">City</label>
-                                    <div class="col-sm-9"><input type="text" id="city" name="city" value="{{ old('city', $customer->city) }}" class="form-control"></div>
+                                    <div class="col-sm-9"><input type="text" id="city" name="city" value="{{ old('city', $customer->city) }}" class="form-control" placeholder="Type and select a city" autocomplete="address-level2"></div>
                                 </div>
                             </div>
                         </div>

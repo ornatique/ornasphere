@@ -113,6 +113,8 @@ class ApprovalApiController extends Controller
                 return [
                     'id' => $row->id,
                     'approval_no' => $row->approval_no,
+                    'voucher_qr_url' => \App\Services\VoucherQr::approvalUrl((int) $row->id),
+                    'voucher_qr_image_url' => \App\Services\VoucherQr::approvalImageUrl((int) $row->id),
                     'approval_date' => optional($row->approval_date)->format('Y-m-d') ?? null,
                     'remarks' => $row->remarks,
                     'customer_id' => $row->customer_id,
@@ -149,7 +151,7 @@ class ApprovalApiController extends Controller
             ->where('company_id', $companyId)
             ->where('item_id', $itemId)
             ->where('is_final', 1)
-            ->where('is_sold', 0);
+            ->where('available_quantity', '>', 0);
 
         $this->excludeApprovalCartLocks($query, $companyId, $deviceId, $voucherSessionId);
 
@@ -178,7 +180,7 @@ class ApprovalApiController extends Controller
         $itemSetQuery = ItemSet::with('item')
             ->where('company_id', $companyId)
             ->where('is_final', 1)
-            ->where('is_sold', 0)
+            ->where('available_quantity', '>', 0)
             ->where(function ($q) use ($keyword) {
                 $q->where('HUID', 'LIKE', "%{$keyword}%")
                     ->orWhere('qr_code', 'LIKE', "%{$keyword}%")
@@ -259,7 +261,8 @@ class ApprovalApiController extends Controller
                 'sale_labour_rate' => $labourRate,
                 'sale_other' => $otherAmount,
                 'other_amount' => $otherAmount,
-                'total_amount' => $totalAmount,
+                'sale_price' => $set->billing_sale_price,
+                'total_amount' => (float) $set->billing_sale_price > 0 ? (float) $set->billing_sale_price : $totalAmount,
                 'remarks' => '',
                 'is_item_only' => false,
                 'source' => 'itemset',
@@ -301,6 +304,7 @@ class ApprovalApiController extends Controller
                 'sale_labour_rate' => (float) ($item->labour_rate ?? 0),
                 'sale_other' => 0,
                 'other_amount' => 0,
+                'sale_price' => null,
                 'total_amount' => 0,
                 'remarks' => '',
                 'is_item_only' => true,
@@ -415,7 +419,7 @@ class ApprovalApiController extends Controller
                 $row = ItemSet::with('item')
                     ->where('company_id', $companyId)
                     ->where('is_final', 1)
-                    ->where('is_sold', 0)
+                    ->where('available_quantity', '>', 0)
                     ->where('qr_code', $qrCode)
                     ->lockForUpdate()
                     ->first();
@@ -441,6 +445,37 @@ class ApprovalApiController extends Controller
                     ->first();
 
                 if ($existingCart) {
+                    $sameCartSession = (int) $existingCart->user_id === (int) $userId
+                        && (int) $existingCart->customer_id === (int) $customerId
+                        && (string) ($existingCart->device_id ?? '') === (string) ($deviceId ?? '')
+                        && (string) ($existingCart->voucher_session_id ?? '') === (string) ($voucherSessionId ?? '');
+
+                    if ($sameCartSession) {
+                        $nextQty = max(1, (int) ($existingCart->qty ?? 1)) + 1;
+                        $availableQty = max(0, (int) ($row->available_quantity ?? 1));
+                        if ($nextQty > $availableQty) {
+                            return response()->json([
+                                'success' => false,
+                                'message' => "Only {$availableQty} piece(s) remain for this QR label.",
+                                'code' => 'BATCH_QUANTITY_EXCEEDED',
+                                'available_quantity' => $availableQty,
+                            ], 422);
+                        }
+
+                        $existingCart->update(['qty' => $nextQty]);
+                        $cartPayload = $this->approvalCartPayload($existingCart->fresh(), $row);
+
+                        return response()->json([
+                            'success' => true,
+                            'message' => 'Scanned piece added to approval quantity',
+                            'already_added' => true,
+                            'qty' => $nextQty,
+                            'available_quantity' => $availableQty,
+                            'cart_id' => (int) $existingCart->id,
+                            'data' => $cartPayload,
+                        ]);
+                    }
+
                     $lockedItem = $this->approvalCartLockPayload($row, $existingCart);
 
                     Log::warning('Approval scanQr failed: product already scanned in active approval cart.', [
@@ -483,6 +518,7 @@ class ApprovalApiController extends Controller
                     'company_id' => $companyId,
                     'customer_id' => $customerId,
                     'itemset_id' => $row->id,
+                    'qty' => 1,
                 ]);
 
                 $cartPayload = $this->approvalCartPayload($cart, $row);
@@ -585,7 +621,7 @@ class ApprovalApiController extends Controller
                 $itemSet = ItemSet::with('item')
                     ->where('company_id', $companyId)
                     ->where('is_final', 1)
-                    ->where('is_sold', 0)
+                    ->where('available_quantity', '>', 0)
                     ->where('id', (int) $itemPayload['itemset_id'])
                     ->lockForUpdate()
                     ->first();
@@ -643,6 +679,7 @@ class ApprovalApiController extends Controller
                 ]);
 
                 $reservedItems[] = [
+                    'sale_price' => $itemSet->billing_sale_price,
                     'cart_id' => $cart->id,
                     'itemset_id' => $itemSet->id,
                     'already_reserved' => false,
@@ -790,7 +827,7 @@ class ApprovalApiController extends Controller
                     ->where('device_id', $deviceId)
                     ->where('voucher_session_id', $voucherSessionId)
                     ->get()
-                    ->map(fn($c) => ['itemset_id' => (int) $c->itemset_id])
+                    ->map(fn($c) => ['itemset_id' => (int) $c->itemset_id, 'qty' => max(1, (int) ($c->qty ?? 1))])
                     ->all();
             } else {
                 $payloadRows = collect($itemsPayload)
@@ -927,8 +964,14 @@ class ApprovalApiController extends Controller
                     throw new \Exception("Item is not finalized: {$itemSet->qr_code}");
                 }
 
-                $gross = (float) ($row['gross_weight'] ?? $itemSet->gross_weight ?? 0);
-                $otherWeight = (float) ($row['other_weight'] ?? $itemSet->other ?? 0);
+                $qty = max(1, (int) ($row['qty'] ?? 1));
+                $availableQty = max(0, (int) ($itemSet->available_quantity ?? ($itemSet->is_sold ? 0 : 1)));
+                if ($qty > $availableQty) {
+                    throw new \RuntimeException("Only {$availableQty} piece(s) remain for QR label {$itemSet->qr_code}.");
+                }
+                $batchQty = max(1, (int) ($itemSet->quantity ?? 1));
+                $gross = (float) ($row['gross_weight'] ?? ((float) $itemSet->gross_weight / $batchQty));
+                $otherWeight = (float) ($row['other_weight'] ?? ((float) $itemSet->other / $batchQty));
                 $netWeight = (float) ($row['net_weight'] ?? ($gross - $otherWeight));
                 $purity = (float) ($row['purity'] ?? optional($itemSet->item)->outward_purity ?? 0);
                 $wastePercent = (float) ($row['waste_percent'] ?? 0);
@@ -939,7 +982,12 @@ class ApprovalApiController extends Controller
                 $labourRate = (float) ($row['labour_rate'] ?? $itemSet->sale_labour_rate ?? optional($itemSet->item)->labour_rate ?? 0);
                 $labourAmount = (float) ($row['labour_amount'] ?? ($netWeight * $labourRate));
                 $otherAmount = $this->resolveOtherAmount($row['other_amount'] ?? null, $itemSet->sale_other ?? 0);
-                $totalAmount = $this->resolveTotalAmount($row['total_amount'] ?? null, $metalAmount, $labourAmount, $otherAmount);
+                $unitTotalAmount = $this->resolveTotalAmount($row['total_amount'] ?? null, $metalAmount, $labourAmount, $otherAmount);
+                $totalAmount = $unitTotalAmount * $qty;
+                if ((float) ($itemSet->billing_sale_price ?? 0) > 0) {
+                    $metalAmount = $labourAmount = $otherAmount = $totalFineWeight = 0;
+                    $totalAmount = (float) $itemSet->billing_sale_price * $qty;
+                }
 
                 ApprovalItem::create([
                     'approval_id' => $approval->id,
@@ -947,26 +995,28 @@ class ApprovalApiController extends Controller
                     'voucher_session_id' => $voucherSessionId,
                     'itemset_id' => $itemSet->id,
                     'item_id' => $itemSet->item_id,
+                    'qty' => $qty,
+                    'sale_price' => $itemSet->billing_sale_price,
                     'huid' => $row['huid'] ?? $itemSet->HUID,
                     'qr_code' => $row['qr_code'] ?? $itemSet->qr_code,
-                    'gross_weight' => $gross,
-                    'other_weight' => $otherWeight,
-                    'net_weight' => $netWeight,
+                    'gross_weight' => $gross * $qty,
+                    'other_weight' => $otherWeight * $qty,
+                    'net_weight' => $netWeight * $qty,
                     'purity' => $purity,
                     'waste_percent' => $wastePercent,
                     'net_purity' => $netPurity,
-                    'total_fine_weight' => $totalFineWeight,
+                    'total_fine_weight' => $totalFineWeight * $qty,
                     'metal_rate' => $metalRate,
-                    'metal_amount' => $metalAmount,
+                    'metal_amount' => $metalAmount * $qty,
                     'labour_rate' => $labourRate,
-                    'labour_amount' => $labourAmount,
-                    'other_amount' => $otherAmount,
+                    'labour_amount' => $labourAmount * $qty,
+                    'other_amount' => $otherAmount * $qty,
                     'other_charge_details' => $this->normalizeOtherChargeDetails($row['other_charge_details'] ?? $row['other_charges'] ?? null),
                     'total_amount' => $totalAmount,
                     'status' => 'pending',
                 ]);
 
-                $itemSet->update(['is_sold' => 1]);
+                \App\Services\BatchInventory::consume($itemSet, $qty);
                 $processedItemSetIds[] = (int) $itemSet->id;
             }
 
@@ -992,6 +1042,8 @@ class ApprovalApiController extends Controller
                 'data' => [
                     'approval_id' => $approval->id,
                     'approval_no' => $approval->approval_no,
+                    'voucher_qr_url' => \App\Services\VoucherQr::approvalUrl((int) $approval->id),
+                    'voucher_qr_image_url' => \App\Services\VoucherQr::approvalImageUrl((int) $approval->id),
                     'device_id' => $deviceId,
                     'voucher_session_id' => $voucherSessionId,
                     'removed_from_cart' => $removedFromCart,
@@ -1087,9 +1139,13 @@ class ApprovalApiController extends Controller
 
             foreach ($toRemove as $row) {
                 if (!empty($row->itemset_id)) {
-                    ItemSet::where('company_id', $companyId)
+                    $removedSet = ItemSet::where('company_id', $companyId)
                         ->where('id', (int) $row->itemset_id)
-                        ->update(['is_sold' => 0]);
+                        ->lockForUpdate()
+                        ->first();
+                    if ($removedSet) {
+                        \App\Services\BatchInventory::restore($removedSet, max(1, (int) ($row->qty ?? 1)));
+                    }
                 }
                 $row->delete();
             }
@@ -1099,14 +1155,23 @@ class ApprovalApiController extends Controller
                 $itemSet = $pair['itemSet'];
                 $itemSetId = (int) $itemSet->id;
 
-                if (!$pendingByItemset->has($itemSetId) && (int) $itemSet->is_sold === 1) {
+                if (!$pendingByItemset->has($itemSetId) && (int) $itemSet->available_quantity <= 0) {
                     throw new \Exception("Item already used: {$itemSet->qr_code}");
                 }
 
                 $payload = $this->buildApprovalItemPayload($row, $itemSet);
+                $newQty = max(1, (int) ($payload['qty'] ?? 1));
 
                 if ($pendingByItemset->has($itemSetId)) {
-                    $pendingByItemset->get($itemSetId)->update($payload);
+                    $oldRow = $pendingByItemset->get($itemSetId);
+                    $oldQty = max(1, (int) ($oldRow->qty ?? 1));
+                    $availableBefore = max(0, (int) ($itemSet->available_quantity ?? 0));
+                    if ($newQty > $oldQty && ($newQty - $oldQty) > $availableBefore) {
+                        throw new \RuntimeException('Requested approval quantity exceeds available label stock.');
+                    }
+                    $newAvailable = min(max(1, (int) ($itemSet->quantity ?? 1)), $availableBefore + $oldQty - $newQty);
+                    $itemSet->update(['available_quantity' => $newAvailable, 'is_sold' => $newAvailable === 0 ? 1 : 0]);
+                    $oldRow->update($payload);
                 } else {
                     ApprovalItem::create(array_merge($payload, [
                         'approval_id' => $approval->id,
@@ -1114,7 +1179,7 @@ class ApprovalApiController extends Controller
                         'item_id' => $itemSet->item_id,
                         'status' => 'pending',
                     ]));
-                    $itemSet->update(['is_sold' => 1]);
+                    \App\Services\BatchInventory::consume($itemSet, $newQty);
                 }
             }
 
@@ -1146,6 +1211,8 @@ class ApprovalApiController extends Controller
                 'data' => [
                     'approval_id' => $approval->id,
                     'approval_no' => $approval->approval_no,
+                    'voucher_qr_url' => \App\Services\VoucherQr::approvalUrl((int) $approval->id),
+                    'voucher_qr_image_url' => \App\Services\VoucherQr::approvalImageUrl((int) $approval->id),
                     'removed_from_cart' => $removedFromCart,
                 ],
             ]);
@@ -1168,6 +1235,10 @@ class ApprovalApiController extends Controller
 
         $items = $approval->items->map(function ($row) {
             $itemSet = $row->itemSet ?? $row->legacyItemSet;
+            $originalQty = max(1, (int) ($row->qty ?? 1));
+            $availableQty = \App\Services\ApprovalItemAvailability::availableQuantity($row);
+            $soldQty = min($originalQty, \App\Services\ApprovalItemAvailability::soldQuantity($row));
+            $returnedQty = min($originalQty, \App\Services\ApprovalItemAvailability::returnedQuantity($row));
             $gross = (float) $row->gross_weight;
             $otherWeight = (float) $row->other_weight;
             $netWeight = (float) ($row->net_weight ?? max(0, $gross - $otherWeight));
@@ -1175,12 +1246,39 @@ class ApprovalApiController extends Controller
             $wastePercent = (float) $row->waste_percent;
             $netPurity = max(0, $purity + $wastePercent);
             $fineWeight = $netWeight * $netPurity / 100;
+            $metalAmount = (float) $row->metal_amount;
+            $labourAmount = (float) $row->labour_amount;
+            $otherAmount = (float) $row->other_amount;
+            $totalAmount = (float) $row->total_amount;
+            $salePrice = \App\Services\ApprovalItemPricing::unitSalePrice($row);
+            if ($salePrice > 0) $totalAmount = $salePrice * $originalQty;
+
+            // The sale API accepts per-piece values so a client can sell a
+            // subset of a multi-quantity approval row without multiplying the
+            // row's full weight/amount for every piece.
+            $unitValues = [
+                'unit_gross_weight' => $gross / $originalQty,
+                'unit_other_weight' => $otherWeight / $originalQty,
+                'unit_net_weight' => $netWeight / $originalQty,
+                'unit_fine_weight' => $fineWeight / $originalQty,
+                'unit_metal_amount' => $metalAmount / $originalQty,
+                'unit_labour_amount' => $labourAmount / $originalQty,
+                'unit_other_amount' => $otherAmount / $originalQty,
+                'unit_total_amount' => $totalAmount / $originalQty,
+                'unit_sale_price' => $salePrice,
+            ];
 
             return [
                 'id' => $row->id,
                 'itemset_id' => $row->itemset_id ?? optional($itemSet)->id,
                 'item_id' => $row->item_id ?? optional($itemSet)->item_id,
                 'item_name' => optional(optional($itemSet)->item)->item_name ?? '-',
+                'qty' => $originalQty,
+                'available_quantity' => $availableQty,
+                'pending_quantity' => $availableQty,
+                'sold_quantity' => $soldQty,
+                'returned_quantity' => $returnedQty,
+                'unit_values' => $unitValues,
                 'huid' => $row->huid ?? optional($itemSet)->HUID,
                 'qr_code' => $row->qr_code ?? optional($itemSet)->qr_code,
                 'gross_weight' => $gross,
@@ -1191,24 +1289,48 @@ class ApprovalApiController extends Controller
                 'net_purity' => $netPurity,
                 'total_fine_weight' => $fineWeight,
                 'metal_rate' => (float) $row->metal_rate,
-                'metal_amount' => (float) $row->metal_amount,
+                'metal_amount' => $metalAmount,
                 'labour_rate' => (float) $row->labour_rate,
-                'labour_amount' => (float) $row->labour_amount,
-                'other_amount' => (float) $row->other_amount,
-                'total_amount' => (float) $row->total_amount,
-                'status' => $row->status,
+                'labour_amount' => $labourAmount,
+                'other_amount' => $otherAmount,
+                'sale_price' => $salePrice,
+                'total_amount' => $totalAmount,
+                'status' => $availableQty > 0
+                    ? ($soldQty > 0 || $returnedQty > 0 ? 'partial' : 'pending')
+                    : ($returnedQty >= $originalQty && $soldQty === 0 ? 'returned' : 'sold'),
             ];
         });
 
-        $billableItems = $approval->items->where('status', '!=', 'returned');
+        $billableItems = $approval->items->filter(
+            fn ($row) => \App\Services\ApprovalItemAvailability::availableQuantity($row) > 0
+        );
+        $pendingQty = (int) $approval->items->sum(
+            fn ($row) => \App\Services\ApprovalItemAvailability::availableQuantity($row)
+        );
+        $soldQty = (int) $approval->items->sum(
+            fn ($row) => min(max(1, (int) ($row->qty ?? 1)), \App\Services\ApprovalItemAvailability::soldQuantity($row))
+        );
+        $returnedQty = (int) $approval->items->sum(
+            fn ($row) => min(max(1, (int) ($row->qty ?? 1)), \App\Services\ApprovalItemAvailability::returnedQuantity($row))
+        );
         $totals = [
+            'qty_all' => (int) $approval->items->sum(fn ($row) => max(1, (int) ($row->qty ?? 1))),
+            'pending_qty' => $pendingQty,
+            'sold_qty' => $soldQty,
+            'returned_qty' => $returnedQty,
             'gross_weight' => (float) $approval->items->sum('gross_weight'),
             'net_weight' => (float) $approval->items->sum('net_weight'),
-            'amount_all' => (float) $approval->items->sum('total_amount'),
-            'amount_billable' => (float) $billableItems->sum('total_amount'),
-            'pending_count' => (int) $approval->items->where('status', 'pending')->count(),
-            'sold_count' => (int) $approval->items->where('status', 'sold')->count(),
-            'returned_count' => (int) $approval->items->where('status', 'returned')->count(),
+            'amount_all' => (float) $approval->items->sum(fn ($row) => \App\Services\ApprovalItemPricing::totalAmount($row)),
+            'amount_billable' => (float) $billableItems->sum(
+                fn ($row) => \App\Services\ApprovalItemAvailability::remainingValue(
+                    \App\Services\ApprovalItemPricing::totalAmount($row),
+                    max(1, (int) ($row->qty ?? 1)),
+                    \App\Services\ApprovalItemAvailability::availableQuantity($row)
+                )
+            ),
+            'pending_count' => $billableItems->count(),
+            'sold_count' => (int) $items->where('status', 'sold')->count(),
+            'returned_count' => (int) $items->where('status', 'returned')->count(),
         ];
 
         return response()->json([
@@ -1216,6 +1338,8 @@ class ApprovalApiController extends Controller
             'data' => [
                 'id' => $approval->id,
                 'approval_no' => $approval->approval_no,
+                    'voucher_qr_url' => \App\Services\VoucherQr::approvalUrl((int) $approval->id),
+                    'voucher_qr_image_url' => \App\Services\VoucherQr::approvalImageUrl((int) $approval->id),
                 'approval_date' => optional($approval->approval_date)->format('Y-m-d') ?? null,
                 'status' => $approval->status,
                 'remarks' => $approval->remarks,
@@ -1283,9 +1407,6 @@ class ApprovalApiController extends Controller
             ], 422);
         }
 
-        $hasReturnApprovalItemId = Schema::hasColumn('sale_return_items', 'approval_item_id');
-        $hasReturnItemsetId = Schema::hasColumn('sale_return_items', 'itemset_id');
-
         $items = ApprovalItem::with('itemSet.item', 'legacyItemSet.item')
             ->whereHas('approval', function ($q) use ($companyId, $request) {
                 $q->where('company_id', $companyId)
@@ -1293,31 +1414,20 @@ class ApprovalApiController extends Controller
             })
             ->where(function ($q) {
                 $q->whereNull('status')
-                    ->orWhereRaw('LOWER(TRIM(status)) = ?', ['pending']);
-            })
-            ->whereNotExists(function ($sub) use ($hasReturnApprovalItemId, $hasReturnItemsetId) {
-                $sub->select(DB::raw(1))
-                    ->from('sale_return_items');
-
-                if ($hasReturnApprovalItemId && $hasReturnItemsetId) {
-                    $sub->where(function ($q) {
-                        $q->whereColumn('sale_return_items.approval_item_id', 'approval_items.id')
-                            ->orWhereColumn('sale_return_items.itemset_id', 'approval_items.itemset_id');
-                    });
-                } elseif ($hasReturnApprovalItemId) {
-                    $sub->whereColumn('sale_return_items.approval_item_id', 'approval_items.id');
-                } elseif ($hasReturnItemsetId) {
-                    $sub->whereColumn('sale_return_items.itemset_id', 'approval_items.itemset_id');
-                } else {
-                    $sub->whereRaw('1 = 0');
-                }
+                    ->orWhereRaw('LOWER(TRIM(status)) not in (?, ?, ?, ?)', [
+                        'cancelled', 'canceled', 'void', 'deleted',
+                    ]);
             })
             ->orderByDesc('id')
-            ->get();
+            ->get()
+            ->filter(fn ($row) => \App\Services\ApprovalItemAvailability::availableQuantity($row) > 0)
+            ->values();
 
         $rows = $items->map(function ($row) {
             $itemSet = $row->itemSet ?? $row->legacyItemSet;
             $item = optional($itemSet)->item;
+            $originalQty = max(1, (int) ($row->qty ?? 1));
+            $availableQty = \App\Services\ApprovalItemAvailability::availableQuantity($row);
             $gross = (float) $row->gross_weight;
             $otherWeight = (float) $row->other_weight;
             $netWeight = (float) ($row->net_weight ?? max(0, $gross - $otherWeight));
@@ -1325,9 +1435,55 @@ class ApprovalApiController extends Controller
             $wastePercent = (float) $row->waste_percent;
             $netPurity = max(0, $purity + $wastePercent);
             $fineWeight = $netWeight * $netPurity / 100;
+            $metalAmount = (float) $row->metal_amount;
+            $labourAmount = (float) $row->labour_amount;
+            $otherAmount = (float) $row->other_amount;
+            $totalAmount = (float) $row->total_amount;
+            $salePrice = \App\Services\ApprovalItemPricing::unitSalePrice($row);
+            if ($salePrice > 0) $totalAmount = $salePrice * $originalQty;
+
+            // Keep original per-piece values for sale clients. The display
+            // totals below are reduced to the remaining quantity, but the
+            // sale request must multiply unit values by the quantity sold.
+            $unitValues = [
+                'unit_gross_weight' => $gross / $originalQty,
+                'unit_other_weight' => $otherWeight / $originalQty,
+                'unit_net_weight' => $netWeight / $originalQty,
+                'unit_fine_weight' => $fineWeight / $originalQty,
+                'unit_metal_amount' => $metalAmount / $originalQty,
+                'unit_labour_amount' => $labourAmount / $originalQty,
+                'unit_other_amount' => $otherAmount / $originalQty,
+                'unit_total_amount' => $totalAmount / $originalQty,
+                'unit_sale_price' => $salePrice,
+            ];
+
+            foreach ([
+                'gross' => $gross,
+                'otherWeight' => $otherWeight,
+                'netWeight' => $netWeight,
+                'fineWeight' => $fineWeight,
+                'metalAmount' => $metalAmount,
+                'labourAmount' => $labourAmount,
+                'otherAmount' => $otherAmount,
+                'totalAmount' => $totalAmount,
+            ] as $field => $value) {
+                $$field = \App\Services\ApprovalItemAvailability::remainingValue(
+                    $value,
+                    $originalQty,
+                    $availableQty
+                );
+            }
 
             return [
                 'id' => $row->id,
+                'qty' => $availableQty,
+                'available_quantity' => $availableQty,
+                'pending_quantity' => $availableQty,
+                'original_quantity' => $originalQty,
+                'sold_quantity' => min($originalQty, \App\Services\ApprovalItemAvailability::soldQuantity($row)),
+                'returned_quantity' => min($originalQty, \App\Services\ApprovalItemAvailability::returnedQuantity($row)),
+                'unit_values' => $unitValues,
+                'unit_sale_price' => $salePrice,
                 'approval_id' => $row->approval_id,
                 'itemset_id' => $row->itemset_id ?? optional($itemSet)->id,
                 'item_id' => $row->item_id ?? optional($itemSet)->item_id,
@@ -1342,11 +1498,12 @@ class ApprovalApiController extends Controller
                 'net_purity' => $netPurity,
                 'fine_weight' => $fineWeight,
                 'metal_rate' => (float) $row->metal_rate,
-                'metal_amount' => (float) $row->metal_amount,
+                'metal_amount' => $metalAmount,
                 'labour_rate' => (float) $row->labour_rate,
-                'labour_amount' => (float) $row->labour_amount,
-                'other_amount' => (float) $row->other_amount,
-                'total_amount' => (float) $row->total_amount,
+                'labour_amount' => $labourAmount,
+                'other_amount' => $otherAmount,
+                'sale_price' => $salePrice,
+                'total_amount' => $totalAmount,
                 'status' => $row->status,
             ];
         });
@@ -1359,11 +1516,15 @@ class ApprovalApiController extends Controller
 
     public function returnItems(Request $request)
     {
+        $request->validate(['approval_id'=>'required|integer']);
+        \App\Services\VoucherScan::resolve($request->user(), 'approval', $request->integer('approval_id'));
+        $scannedApproval = ApprovalHeader::findOrFail($request->integer('approval_id'));
+        $returnReason = \App\Services\ApprovalScanActions::returnReason($request->user(), $scannedApproval);
+        abort_if($returnReason !== null, 403, $returnReason ?? 'Return unavailable.');
         $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
         $request->validate([
             'approval_id' => 'required|integer',
             'items' => 'required|array|min:1',
-            'items.*' => 'required|integer',
             'remarks' => 'nullable|string',
         ]);
 
@@ -1374,6 +1535,7 @@ class ApprovalApiController extends Controller
 
             $hasItemsetIdColumn = Schema::hasColumn('sale_return_items', 'itemset_id');
             $hasProductIdColumn = Schema::hasColumn('sale_return_items', 'product_id');
+            $hasApprovalItemIdColumn = Schema::hasColumn('sale_return_items', 'approval_item_id');
 
             $return = SaleReturn::create([
                 'company_id' => $companyId,
@@ -1389,22 +1551,37 @@ class ApprovalApiController extends Controller
             $totalAmount = 0;
             $approvalIds = [];
 
-            foreach ($request->items as $id) {
-                $approvalItem = TransactionItemGuard::lockApprovalItemForReturn($companyId, (int) $id)
-                    ->load('itemSet');
+            foreach ($request->items as $selection) {
+                $id = is_array($selection) ? (int) ($selection['approval_item_id'] ?? $selection['id'] ?? 0) : (int) $selection;
+                $approvalItem = TransactionItemGuard::lockApprovalItemForReturn($companyId, $id)
+                    ->load(['itemSet', 'legacyItemSet']);
 
                 if ((int) $approvalItem->approval_id !== (int) $request->approval_id) {
                     throw new \Exception('Approval item does not belong to selected approval voucher.');
                 }
 
-                $itemSet = $approvalItem->itemSet;
-                $amount = (float) $approvalItem->total_amount;
+                $itemSet = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
+                if (!$itemSet) {
+                    throw new \RuntimeException("Item label missing for approval item {$id}.");
+                }
+                $originalQty = max(1, (int) ($approvalItem->qty ?? 1));
+                $returnQty = is_array($selection) ? (int) ($selection['qty'] ?? $originalQty) : $originalQty;
+                if ($returnQty < 1 || $returnQty > $originalQty) {
+                    throw new \InvalidArgumentException("Return quantity for approval item {$id} must be between 1 and {$originalQty}.");
+                }
+                $remainingQty = $originalQty - $returnQty;
+                $amount = round((float) $approvalItem->total_amount * ($returnQty / $originalQty), 2);
 
                 $payload = [
                     'sale_return_id' => $return->id,
                     'sale_item_id' => null,
                     'return_amount' => $amount,
+                    'qty' => $returnQty,
                 ];
+
+                if ($hasApprovalItemIdColumn) {
+                    $payload['approval_item_id'] = $approvalItem->id;
+                }
 
                 if ($hasItemsetIdColumn && $itemSet) {
                     $payload['itemset_id'] = $itemSet->id;
@@ -1417,10 +1594,33 @@ class ApprovalApiController extends Controller
                 SaleReturnItem::create($payload);
 
                 $totalAmount += $amount;
-                $approvalItem->update(['status' => 'returned']);
-                if ($itemSet) {
-                    $itemSet->update(['is_sold' => 0]);
+                $salePrice = \App\Services\ApprovalItemPricing::unitSalePrice($approvalItem);
+                if ($salePrice > 0) $approvalItem->sale_price = $salePrice;
+                if ($remainingQty > 0) {
+                    $attributes = $approvalItem->getAttributes();
+                    unset($attributes['id'], $attributes['created_at'], $attributes['updated_at']);
+                    $returnedRatio = $returnQty / $originalQty;
+                    $remainingRatio = $remainingQty / $originalQty;
+                    $remainder = $attributes;
+                    $remainder['qty'] = $remainingQty;
+                    $remainder['status'] = 'pending';
+                    $attributes['qty'] = $returnQty;
+                    $attributes['status'] = 'returned';
+                    // Sale price is stored per piece. Keep it unchanged on both
+                    // split rows; only row totals are prorated by quantity.
+                    foreach (['gross_weight' => 3, 'other_weight' => 3, 'net_weight' => 3, 'total_fine_weight' => 3, 'metal_amount' => 2, 'labour_amount' => 2, 'other_amount' => 2, 'total_amount' => 2] as $field => $precision) {
+                        if (array_key_exists($field, $attributes) && $attributes[$field] !== null) {
+                            $fullValue = (float) $attributes[$field];
+                            $attributes[$field] = round($fullValue * $returnedRatio, $precision);
+                            $remainder[$field] = round($fullValue * $remainingRatio, $precision);
+                        }
+                    }
+                    $approvalItem->update(array_intersect_key($attributes, array_flip(array_merge(array_keys(['gross_weight' => 3, 'other_weight' => 3, 'net_weight' => 3, 'total_fine_weight' => 3, 'metal_amount' => 2, 'labour_amount' => 2, 'other_amount' => 2, 'total_amount' => 2]), ['qty', 'status']))));
+                    ApprovalItem::create($remainder);
+                } else {
+                    $approvalItem->update(['status' => 'returned']);
                 }
+                \App\Services\BatchInventory::restore($itemSet, $returnQty);
                 $approvalIds[] = $approvalItem->approval_id;
             }
 
@@ -1555,8 +1755,10 @@ class ApprovalApiController extends Controller
 
     private function buildApprovalItemPayload(array $row, ItemSet $itemSet): array
     {
-        $gross = (float) ($row['gross_weight'] ?? $itemSet->gross_weight ?? 0);
-        $otherWeight = (float) ($row['other_weight'] ?? $itemSet->other ?? 0);
+        $qty = max(1, (int) ($row['qty'] ?? 1));
+        $batchQty = max(1, (int) ($itemSet->quantity ?? 1));
+        $gross = (float) ($row['gross_weight'] ?? ((float) $itemSet->gross_weight / $batchQty));
+        $otherWeight = (float) ($row['other_weight'] ?? ((float) $itemSet->other / $batchQty));
         $netWeight = (float) ($row['net_weight'] ?? ($gross - $otherWeight));
         $purity = (float) ($row['purity'] ?? optional($itemSet->item)->outward_purity ?? 0);
         $wastePercent = (float) ($row['waste_percent'] ?? 0);
@@ -1568,31 +1770,41 @@ class ApprovalApiController extends Controller
         $labourAmount = (float) ($row['labour_amount'] ?? ($netWeight * $labourRate));
         $otherAmount = $this->resolveOtherAmount($row['other_amount'] ?? null, $itemSet->sale_other ?? 0);
         $totalAmount = $this->resolveTotalAmount($row['total_amount'] ?? null, $metalAmount, $labourAmount, $otherAmount);
+        if ((float) ($itemSet->billing_sale_price ?? 0) > 0) {
+            $metalAmount = $labourAmount = $otherAmount = $totalFineWeight = 0;
+            $totalAmount = (float) $itemSet->billing_sale_price;
+        }
 
         return [
             'huid' => $row['huid'] ?? $itemSet->HUID,
             'qr_code' => $row['qr_code'] ?? $itemSet->qr_code,
-            'gross_weight' => $gross,
-            'other_weight' => $otherWeight,
-            'net_weight' => $netWeight,
+            'qty' => $qty,
+            'sale_price' => $itemSet->billing_sale_price,
+            'gross_weight' => $gross * $qty,
+            'other_weight' => $otherWeight * $qty,
+            'net_weight' => $netWeight * $qty,
             'purity' => $purity,
             'waste_percent' => $wastePercent,
             'net_purity' => $netPurity,
-            'total_fine_weight' => $totalFineWeight,
+            'total_fine_weight' => $totalFineWeight * $qty,
             'metal_rate' => $metalRate,
-            'metal_amount' => $metalAmount,
+            'metal_amount' => $metalAmount * $qty,
             'labour_rate' => $labourRate,
-            'labour_amount' => $labourAmount,
-            'other_amount' => $otherAmount,
+            'labour_amount' => $labourAmount * $qty,
+            'other_amount' => $otherAmount * $qty,
             'other_charge_details' => $this->normalizeOtherChargeDetails($row['other_charge_details'] ?? $row['other_charges'] ?? null),
-            'total_amount' => $totalAmount,
+            'total_amount' => $totalAmount * $qty,
         ];
     }
 
     private function approvalCartPayload(ApprovalCart $cart, ItemSet $itemSet): array
     {
         $item = $itemSet->item;
-        $calculation = $this->buildApprovalItemPayload([], $itemSet);
+        $cartQty = max(1, (int) ($cart->qty ?? 1));
+        $calculation = $this->buildApprovalItemPayload(['qty' => $cartQty], $itemSet);
+        if ((float) $itemSet->billing_sale_price > 0) {
+            foreach (['total_fine_weight', 'metal_amount', 'labour_amount', 'other_amount'] as $field) $calculation[$field] = 0;
+        }
         $purity = (float) ($calculation['purity'] ?? 0);
 
         return [
@@ -1607,24 +1819,27 @@ class ApprovalApiController extends Controller
             'huid' => $itemSet->HUID,
             'qr_code' => $itemSet->qr_code,
             'item_name' => optional($item)->item_name,
-            'gross_weight' => (float) ($calculation['gross_weight'] ?? 0),
-            'other_weight' => (float) ($calculation['other_weight'] ?? 0),
-            'net_weight' => (float) ($calculation['net_weight'] ?? 0),
+            'qty' => $cartQty,
+            'available_quantity' => max(0, (int) ($itemSet->available_quantity ?? 1)),
+            'gross_weight' => (float) ($calculation['gross_weight'] ?? 0) / $cartQty,
+            'other_weight' => (float) ($calculation['other_weight'] ?? 0) / $cartQty,
+            'net_weight' => (float) ($calculation['net_weight'] ?? 0) / $cartQty,
             'purity' => $purity,
             'item_purity' => $purity,
             'outward_purity' => $purity,
             'waste_percent' => (float) ($calculation['waste_percent'] ?? 0),
             'net_purity' => (float) ($calculation['net_purity'] ?? 0),
-            'fine_weight' => (float) ($calculation['total_fine_weight'] ?? 0),
-            'total_fine_weight' => (float) ($calculation['total_fine_weight'] ?? 0),
+            'fine_weight' => (float) ($calculation['total_fine_weight'] ?? 0) / $cartQty,
+            'total_fine_weight' => (float) ($calculation['total_fine_weight'] ?? 0) / $cartQty,
             'metal_rate' => (float) ($calculation['metal_rate'] ?? 0),
-            'metal_amount' => (float) ($calculation['metal_amount'] ?? 0),
+            'metal_amount' => (float) ($calculation['metal_amount'] ?? 0) / $cartQty,
             'labour_rate' => (float) ($calculation['labour_rate'] ?? 0),
-            'labour_amount' => (float) ($calculation['labour_amount'] ?? 0),
+            'labour_amount' => (float) ($calculation['labour_amount'] ?? 0) / $cartQty,
             'sale_labour_rate' => (float) ($calculation['labour_rate'] ?? 0),
             'sale_other' => (float) ($itemSet->sale_other ?? 0),
-            'other_amount' => (float) ($calculation['other_amount'] ?? 0),
-            'total_amount' => (float) ($calculation['total_amount'] ?? 0),
+            'other_amount' => (float) ($calculation['other_amount'] ?? 0) / $cartQty,
+            'sale_price' => $itemSet->billing_sale_price,
+            'total_amount' => (float) ($calculation['total_amount'] ?? 0) / $cartQty,
             'item' => [
                 'id' => (int) (optional($item)->id ?? 0),
                 'item_name' => (string) (optional($item)->item_name ?? ''),
@@ -1691,11 +1906,18 @@ class ApprovalApiController extends Controller
     {
         $item = $itemSet->item;
         $calculation = $this->buildApprovalItemPayload([], $itemSet);
+        if ((float) $itemSet->billing_sale_price > 0) {
+            $calculation['total_amount'] = (float) $itemSet->billing_sale_price;
+            foreach (['total_fine_weight', 'metal_amount', 'labour_amount', 'other_amount'] as $field) $calculation[$field] = 0;
+        }
         $purity = (float) ($calculation['purity'] ?? 0);
         $label = $itemSet->qr_code
             ?: ($itemSet->barcode ?: ($itemSet->HUID ?: (optional($item)->item_name ?: ('Item ' . $itemSet->id))));
 
         return [
+            'quantity' => max(1, (int) ($itemSet->quantity ?? 1)),
+            'available_quantity' => max(0, (int) ($itemSet->available_quantity ?? 1)),
+            'sale_price' => $itemSet->billing_sale_price,
             'cart_id' => $cart->id,
             'itemset_id' => $itemSet->id,
             'item_id' => $itemSet->item_id,
@@ -1704,9 +1926,9 @@ class ApprovalApiController extends Controller
             'barcode' => $itemSet->barcode,
             'huid' => $itemSet->HUID,
             'item_name' => optional($item)->item_name,
-            'gross_weight' => number_format((float) ($itemSet->gross_weight ?? 0), 3, '.', ''),
-            'other_weight' => number_format((float) ($itemSet->other ?? 0), 3, '.', ''),
-            'net_weight' => number_format((float) ($itemSet->net_weight ?? 0), 3, '.', ''),
+            'gross_weight' => number_format((float) ($itemSet->gross_weight ?? 0) / max(1, (int) ($itemSet->quantity ?? 1)), 3, '.', ''),
+            'other_weight' => number_format((float) ($itemSet->other ?? 0) / max(1, (int) ($itemSet->quantity ?? 1)), 3, '.', ''),
+            'net_weight' => number_format((float) ($itemSet->net_weight ?? 0) / max(1, (int) ($itemSet->quantity ?? 1)), 3, '.', ''),
             'purity' => number_format($purity, 3, '.', ''),
             'item_purity' => number_format($purity, 3, '.', ''),
             'outward_purity' => number_format($purity, 3, '.', ''),

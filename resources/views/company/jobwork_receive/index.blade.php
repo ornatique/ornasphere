@@ -116,8 +116,10 @@
         ajax: {
             url: "{!! route('company.jobwork-receive.index', array_merge(['slug'=>$company->slug], request()->only('management_branches'))) !!}",
             data: function(d) {
-                d.from_date = $('#from_date').val();
-                d.to_date = $('#to_date').val();
+                const scannedIssue = @json(request('issue_id'));
+                if (scannedIssue) d.issue_id = scannedIssue;
+                d.from_date = scannedIssue ? '' : $('#from_date').val();
+                d.to_date = scannedIssue ? '' : $('#to_date').val();
                 d.worker_id = $('#worker_id').val();
                 d.customer_id = $('#customer_id').val();
                 d.status = $('#status').val();

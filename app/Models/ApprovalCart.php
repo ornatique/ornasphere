@@ -19,6 +19,7 @@ class ApprovalCart extends Model
         'company_id',
         'customer_id',
         'itemset_id',
+        'qty',
     ];
 
     public function user()
