@@ -551,6 +551,7 @@ class AuthController extends Controller
 
     private function ensureWebPermissions(): void
     {
+        if (\App\Services\CompanyArchiveGate::readOnlyRequest()) return;
         foreach ($this->defaultPermissionModules() as $module) {
             foreach ($this->actionsForModule($module) as $action) {
                 $permission = Permission::firstOrCreate([

@@ -26,6 +26,8 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->appendToGroup('api', \App\Http\Middleware\NormalizeAuthorizationHeader::class);
+        $middleware->appendToGroup('web', \App\Http\Middleware\CompanyArchiveAccess::class);
+        $middleware->appendToGroup('api', \App\Http\Middleware\CompanyArchiveAccess::class);
 
         $middleware->alias([
             'superadmin.2fa' => \App\Http\Middleware\ForceSuperAdmin2FA::class,
