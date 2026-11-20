@@ -43,6 +43,7 @@ class CategoryPerson extends Model
 
     public static function ensureCompanyDefaults(int $companyId): void
     {
+        if (\App\Services\CompanyArchiveGate::readOnlyRequest()) return;
         foreach (self::systemDefaultNames() as $categoryName) {
             $category = self::where('company_id', $companyId)
                 ->whereIn(DB::raw('LOWER(TRIM(category_name))'), $categoryName === self::DEFAULT_SUPPLIER ? ['bullion', 'supplier'] : [strtolower($categoryName)])

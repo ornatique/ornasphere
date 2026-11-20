@@ -41,10 +41,19 @@ use App\Http\Controllers\Api\VoucherHistoryApiController;
 use App\Http\Controllers\Api\CategoryPersonController;
 use App\Http\Controllers\Api\OfficeAccessController;
 
-Route::post('/company/login', [AuthController::class, 'login']);
-Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp']);
+Route::post('/company/login', [AuthController::class, 'login'])->name('api.company.login');
+Route::post('/company/verify-otp', [AuthController::class, 'verifyOtp'])->name('api.company.verify-otp');
 Route::get('/live-metal-rates', [MetalRateApiController::class, 'index'])
     ->middleware(['auth:sanctum', 'single.api.token', 'company.active', 'worker.office.access']);
+
+Route::prefix('company/archive')->name('api.company.archive.')
+    ->middleware(['auth:sanctum', 'single.api.token', 'company.active', 'worker.office.access', 'throttle:10,1'])
+    ->group(function () {
+        Route::get('/status', [\App\Http\Controllers\Api\CompanyArchiveApiController::class, 'status'])->name('status');
+        foreach (['prepare', 'download', 'verify', 'remove', 'restore', 'cancel'] as $action) {
+            Route::post('/' . $action, [\App\Http\Controllers\Api\CompanyArchiveApiController::class, $action])->name($action);
+        }
+    });
 
 Route::middleware(['auth:sanctum', 'single.api.token', 'company.active', 'worker.office.access'])->group(function () {
     Route::post('/vouchers/resolve-qr', [\App\Http\Controllers\Api\VoucherScanController::class, 'resolve']);
@@ -79,7 +88,7 @@ Route::middleware(['auth:sanctum', 'single.api.token', 'company.active', 'worker
                 ->defaults('operation',$operation)->whereNumber('id');
         }
     });
-    Route::post('/company/logout', [AuthController::class, 'logout']);
+    Route::post('/company/logout', [AuthController::class, 'logout'])->name('api.company.logout');
     Route::get('/company/me', [AuthController::class, 'me']);
     Route::get('/company/profile', [AuthController::class, 'profile']);
     Route::get('/company/opening-balances', [\App\Http\Controllers\Api\CompanyOpeningBalanceController::class, 'show']);

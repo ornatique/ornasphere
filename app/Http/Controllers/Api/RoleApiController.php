@@ -373,6 +373,7 @@ class RoleApiController extends Controller
 
     private function ensureWebPermissions(int $companyId): void
     {
+        if (\App\Services\CompanyArchiveGate::readOnlyRequest()) return;
         foreach ($this->defaultPermissionModules() as $module) {
             foreach ($this->actionsForModule($module) as $action) {
                 $permission = Permission::firstOrCreate([

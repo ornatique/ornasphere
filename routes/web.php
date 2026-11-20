@@ -362,6 +362,7 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
         Route::put('/profile/branches/{branch}', [\App\Http\Controllers\Company\BranchController::class, 'update'])->whereNumber('branch')->name('branches.update');
         Route::get('/profile', [CompanyProfileController::class, 'show'])
             ->name('profile.show');
+        require __DIR__.'/company_archive.php';
         Route::put('/profile/opening-balances', [CompanyProfileController::class, 'openingBalances'])->name('profile.opening-balances');
         Route::put('/profile/voucher-series', [\App\Http\Controllers\Company\VoucherSeriesController::class, 'update'])
             ->name('profile.voucher-series.update');
