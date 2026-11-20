@@ -27,6 +27,8 @@
                             <th><input type="checkbox" id="selectAll"></th>
                             <th>HUID</th>
                             <th>QR</th>
+                            <th>Available Qty</th>
+                            <th>Return Qty</th>
                             <th>Gross</th>
                             <th>Net</th>
                             <th>Status</th>
@@ -37,8 +39,6 @@
 
                         @foreach($approval->items as $item)
 
-                        @if($item->status == 'pending')
-
                         <tr>
                             <td>
                                 <input type="checkbox"
@@ -47,8 +47,18 @@
                                     class="itemCheckbox">
                             </td>
 
-                            <td>{{ optional($item->itemSet)->HUID }}</td>
-                            <td>{{ optional($item->itemSet)->qr_code }}</td>
+                            <td>{{ optional($item->itemSet ?? $item->legacyItemSet)->HUID ?? $item->huid }}</td>
+                            <td>{{ optional($item->itemSet ?? $item->legacyItemSet)->qr_code ?? $item->qr_code }}</td>
+                            <td>{{ (int) $item->available_qty }}</td>
+                            <td>
+                                <input type="number"
+                                    name="quantities[{{ $item->id }}]"
+                                    class="form-control return-qty"
+                                    min="1"
+                                    max="{{ (int) $item->available_qty }}"
+                                    value="{{ (int) $item->available_qty }}"
+                                    style="width: 100px">
+                            </td>
 
                             <td>{{ $item->gross_weight }}</td>
                             <td>{{ $item->net_weight }}</td>
@@ -57,8 +67,6 @@
                                 <span class="badge bg-warning">Approval</span>
                             </td>
                         </tr>
-
-                        @endif
 
                         @endforeach
 
@@ -87,20 +95,53 @@
     });
 
     $('#saveReturn').click(function() {
-
-        if ($('.itemCheckbox:checked').length == 0) {
+        const selected = $('.itemCheckbox:checked');
+        if (selected.length === 0) {
             alert('Select items');
             return;
         }
 
-        $.post("{{ route('company.approval.return.store', $company->slug) }}",
-            $('#returnForm').serialize(),
-            function() {
+        let invalidQty = false;
+        selected.each(function() {
+            const row = $(this).closest('tr');
+            const input = row.find('.return-qty');
+            const qty = Number(input.val());
+            const max = Number(input.attr('max'));
+            if (!Number.isInteger(qty) || qty < 1 || qty > max) {
+                invalidQty = true;
+                input.addClass('is-invalid');
+            } else {
+                input.removeClass('is-invalid');
+            }
+        });
+        if (invalidQty) {
+            alert('Enter a whole return quantity between 1 and the available quantity for each selected item.');
+            return;
+        }
 
-                alert('Return Done');
-                // window.location.href = "{{ route('company.approval.index', $company->slug) }}";
-
-            });
+        const button = $(this).prop('disabled', true);
+        $.ajax({
+            url: "{{ route('company.approval.return.store', $company->slug) }}",
+            type: 'POST',
+            data: $('#returnForm').serialize(),
+            success: function(response) {
+                if (response && response.success === false) {
+                    alert(response.error || response.message || 'Return could not be saved.');
+                    return;
+                }
+                alert(response.message || 'Return saved successfully.');
+                window.location.href = "{{ route('company.approval.index', $company->slug) }}";
+            },
+            error: function(xhr) {
+                const message = xhr.responseJSON?.message
+                    || xhr.responseJSON?.error
+                    || 'Return could not be saved. Please refresh and try again.';
+                alert(message);
+            },
+            complete: function() {
+                button.prop('disabled', false);
+            }
+        });
     });
 </script>
 @endpush

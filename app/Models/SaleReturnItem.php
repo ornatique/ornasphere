@@ -13,6 +13,7 @@ class SaleReturnItem extends Model
         'itemset_id',
         'product_id',
         'return_amount',
+        'qty',
         'remarks',
     ];
 

@@ -36,8 +36,8 @@
             </a>
             <div class="collapse {{ request()->routeIs('superadmin.companies.*') ? 'show' : '' }}" id="ui-basic">
               <ul class="nav flex-column sub-menu">
-                <li class="nav-item"> <a class="nav-link {{ request()->routeIs('superadmin.companies.*') ? 'active' : '' }}" href="{{route('superadmin.companies.index')}}">Company List</a></li>
-                <li class="nav-item"> <a class="nav-link" href="./pages/ui-features/buttons.html">Buttons</a></li>
+                <li class="nav-item"> <a class="nav-link {{ request()->routeIs('superadmin.companies.*') && !request()->routeIs('superadmin.companies.validity-report*') ? 'active' : '' }}" href="{{ route('superadmin.companies.index') }}">Company List</a></li>
+                <li class="nav-item"> <a class="nav-link {{ request()->routeIs('superadmin.companies.validity-report*') ? 'active' : '' }}" href="{{ route('superadmin.companies.validity-report') }}">Validity Report</a></li>
               </ul>
             </div>
           </li>

@@ -15,6 +15,7 @@ class ReturnCart extends Model
         'customer_id',
         'sale_item_id',
         'approval_item_id',
+        'qty',
     ];
 
     public function saleItem()

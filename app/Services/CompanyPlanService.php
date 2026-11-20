@@ -7,6 +7,12 @@ use Carbon\Carbon;
 
 class CompanyPlanService
 {
+    public static function popupAlert(array $status): ?array
+    {
+        $alert = $status['alert'] ?? null;
+        return ($alert['show_popup'] ?? false) === true ? $alert : null;
+    }
+
     public static function status(?Company $company): array
     {
         if (!$company) {
@@ -32,7 +38,7 @@ class CompanyPlanService
 
         $expiresAt = $company->getAttribute('plan_expires_at')
             ? Carbon::parse($company->getAttribute('plan_expires_at'))
-            : ($company->plan === 'trial' ? $startedAt->copy()->addDays(10) : $startedAt->copy()->addYearNoOverflow());
+            : self::fallbackExpiry($company->plan, $startedAt);
         $now = now();
         $expired = $now->greaterThanOrEqualTo($expiresAt);
         $daysRemaining = $expired ? 0 : (int) ceil($now->diffInSeconds($expiresAt) / 86400);
@@ -61,12 +67,30 @@ class CompanyPlanService
         ];
     }
 
+    private static function fallbackExpiry(?string $plan, Carbon $startedAt): Carbon
+    {
+        if ($plan === 'trial') {
+            return $startedAt->copy()->addDays(10);
+        }
+
+        $years = match ($plan) {
+            '2_years' => 2,
+            '3_years' => 3,
+            '4_years' => 4,
+            '5_years' => 5,
+            'custom' => 0,
+            default => 1,
+        };
+
+        return $startedAt->copy()->addYearsNoOverflow($years);
+    }
+
     private static function alert(string $plan, Carbon $expiresAt, bool $expired, int $daysRemaining): array
     {
         if ($plan === 'trial') {
-            return ['show_popup'=>$expired || $daysRemaining <= 3, 'blocking'=>$expired, 'type'=>$expired ? 'expired' : 'trial', 'level'=>$expired ? 'expired' : 'warning', 'title'=>$expired ? 'Trial expired' : 'Trial expires in '.$daysRemaining.' day(s)', 'message'=>$expired ? 'Your 10-day trial has expired. Please contact your administrator to activate your subscription.' : 'Your trial expires on '.$expiresAt->format('d-m-Y h:i A').'. Contact your administrator to activate a one-year plan.'];
+            return ['show_popup'=>$expired || $daysRemaining <= 3, 'blocking'=>$expired, 'type'=>$expired ? 'expired' : 'trial', 'level'=>$expired ? 'expired' : 'warning', 'title'=>$expired ? 'Trial expired' : 'Trial expires in '.$daysRemaining.' day(s)', 'message'=>$expired ? 'Your 10-day trial has expired. Please contact your administrator to activate your subscription.' : 'Your trial expires on '.$expiresAt->format('d-m-Y h:i A').'. Contact your administrator to activate a plan.'];
         }
-        $planName = $plan === 'selected' ? '' : ucfirst($plan) . ' ';
+        $planName = $plan === 'selected' ? '' : ucfirst(str_replace('_', ' ', $plan)) . ' ';
         $expiresAtView = $expiresAt->format('d-m-Y h:i A');
 
         if ($expired) {
@@ -108,11 +132,11 @@ class CompanyPlanService
             ];
         }
 
-        if ($daysRemaining <= 30) {
+        if ($daysRemaining <= 10) {
             return [
                 'show_popup' => true,
                 'blocking' => false,
-                'type' => 'expires_30_days',
+                'type' => 'expires_10_days',
                 'level' => 'notice',
                 'title' => 'Plan expires in ' . $daysRemaining . ' days',
                 'message' => 'Your ' . $planName . 'plan will expire on ' . $expiresAtView . '. Please renew before expiry.',

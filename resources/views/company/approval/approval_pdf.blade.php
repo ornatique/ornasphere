@@ -29,6 +29,15 @@
             font-size: 15px;
             text-align: center;
         }
+        .company-header {
+            width: 100%;
+            border-collapse: collapse;
+            border-bottom: 1px solid #000;
+        }
+        .company-header td { vertical-align: middle; padding: 4px 8px; }
+        .company-header .company-title { border-bottom: none; }
+        .company-header .qr-cell { width: 40px; text-align: right; }
+        .company-header .qr-spacer { width: 40px; }
         .company-meta {
             border-bottom: 1px solid #000;
             padding: 4px 8px 6px;
@@ -57,6 +66,7 @@
             width: 100%;
             border-collapse: collapse;
             table-layout: fixed;
+            font-size: 9px;
         }
 
         .voucher-grid th,
@@ -65,6 +75,12 @@
             padding: 3px;
             vertical-align: top;
             word-wrap: break-word;
+        }
+
+        .voucher-grid td.text-right,
+        .voucher-grid th.text-right {
+            white-space: nowrap;
+            word-wrap: normal;
         }
 
         .voucher-grid .sr-col {
@@ -113,10 +129,11 @@
     $pdfStatus = $pdfStatus ?? 'partial';
     $billableItems = $approval->items
         ->filter(function ($row) use ($pdfStatus) {
-            $status = $row->status ?: 'pending';
-            return $pdfStatus === 'all' || ($pdfStatus === 'partial'
-                ? in_array($status, ['pending', 'sold'], true)
-                : $status === $pdfStatus);
+            if (in_array($pdfStatus, ['partial', 'pending'], true)) {
+                return \App\Services\ApprovalItemAvailability::availableQuantity($row) > 0;
+            }
+
+            return $pdfStatus === 'all' || ($row->status ?: 'pending') === $pdfStatus;
         })
         ->sortBy(function ($row) {
             $itemSet = $row->itemSet ?? $row->legacyItemSet;
@@ -142,7 +159,13 @@
 @endphp
 
 <div class="sheet">
-    <div class="company-title">{{ $company->company_name ?? ($company->name ?? 'Company') }}</div>
+    <table class="company-header">
+        <tr>
+            <td class="qr-spacer"></td>
+            <td class="company-title">{{ $company->company_name ?? ($company->name ?? 'Company') }}</td>
+            <td class="qr-cell"><img src="{{ \App\Services\VoucherQr::approvalDataUri($approval->id) }}" width="40" height="40" alt="Approval voucher QR"></td>
+        </tr>
+    </table>
     @if($companyAddress !== '' || $companyPhones !== '')
         <div class="company-meta">
             @if($companyAddress !== '')
@@ -182,18 +205,19 @@
     <table class="voucher-grid">
         <thead>
             <tr>
-                <th class="sr-col" style="width:5%;">Sr</th>
-                <th style="width:25%; text-align:left;">Item</th>
+                <th style="width:4%;">Sr</th>
+                <th style="width:21%; text-align:left;">Item</th>
                 <th style="width:6%;">Purity</th>
                 <th style="width:6%;">Waste %</th>
                 <th style="width:4%;">Qty</th>
-                <th style="width:8%;">Gross Wt</th>
-                <th style="width:8%;">Less Wt</th>
-                <th style="width:8%;">Net Wt</th>
-                <th style="width:7%;">Rate</th>
-                <th style="width:9%;">Labour Rate</th>
+                <th style="width:7%;">Gross Wt</th>
+                <th style="width:7%;">Less Wt</th>
+                <th style="width:7%;">Net Wt</th>
+                <th style="width:6%;">Rate</th>
+                <th style="width:7%;">Labour Rate</th>
                 <th style="width:7%;">Other</th>
-                <th style="width:7%;">Total Amt</th>
+                <th style="width:9%;">Sale Price</th>
+                <th style="width:9%;">Total Amt</th>
             </tr>
         </thead>
         <tbody>
@@ -206,14 +230,20 @@
                     $itemDisplay = trim(($labelCode ? ($labelCode . ' - ') : '') . $itemName);
                     $purity = (float) ($row->purity ?? optional($item)->outward_purity ?? optional($item)->outward_carat ?? 0);
                     $wastePercent = (float) ($row->waste_percent ?? 0);
-                    $qty = 1;
-                    $gross = (float) ($row->gross_weight ?? 0);
-                    $less = (float) ($row->other_weight ?? 0);
-                    $net = (float) ($row->net_weight ?? ($gross - $less));
+                    $originalQty = max(1, (int) ($row->qty ?? 1));
+                    $qty = in_array($pdfStatus, ['partial', 'pending'], true)
+                        ? min($originalQty, \App\Services\ApprovalItemAvailability::availableQuantity($row))
+                        : $originalQty;
+                    $gross = \App\Services\ApprovalItemAvailability::remainingValue($row->gross_weight ?? 0, $originalQty, $qty);
+                    $less = \App\Services\ApprovalItemAvailability::remainingValue($row->other_weight ?? 0, $originalQty, $qty);
+                    $net = \App\Services\ApprovalItemAvailability::remainingValue($row->net_weight ?? ((float) ($row->gross_weight ?? 0) - (float) ($row->other_weight ?? 0)), $originalQty, $qty);
                     $rate = (float) ($row->metal_rate ?? 0);
                     $labourRate = (float) ($row->labour_rate ?? 0);
-                    $other = (float) ($row->other_amount ?? 0);
-                    $total = (float) ($row->total_amount ?? 0);
+                    $other = \App\Services\ApprovalItemAvailability::remainingValue($row->other_amount ?? 0, $originalQty, $qty);
+                    $salePrice = \App\Services\ApprovalItemPricing::unitSalePrice($row);
+                    $total = $salePrice > 0
+                        ? round($salePrice * $qty, 2)
+                        : \App\Services\ApprovalItemAvailability::remainingValue($row->total_amount ?? 0, $originalQty, $qty);
 
                     $sumQty += $qty;
                     $sumGross += $gross;
@@ -234,12 +264,12 @@
                     <td class="text-right">{{ number_format($rate, 2) }}</td>
                     <td class="text-right">{{ number_format($labourRate, 2) }}</td>
                     <td class="text-right">{{ number_format($other, 2) }}</td>
-                    <td class="text-right">{{ number_format($total, 2) }}</td>
+                    <td class="text-right">{{ $salePrice > 0 ? number_format($salePrice, 2) : "-" }}</td><td class="text-right">{{ number_format($total, 2) }}</td>
                 </tr>
             @endforeach
             @if($billableItems->isEmpty())
                 <tr>
-                    <td colspan="12" class="text-center">No billable items</td>
+                    <td colspan="13" class="text-center">No billable items</td>
                 </tr>
             @endif
         </tbody>
@@ -253,7 +283,7 @@
                 <th></th>
                 <th></th>
                 <th class="text-right">{{ number_format($sumOther, 2) }}</th>
-                <th class="text-right">{{ number_format($sumTotal, 2) }}</th>
+                <th></th><th class="text-right">{{ number_format($sumTotal, 2) }}</th>
             </tr>
         </tfoot>
     </table>

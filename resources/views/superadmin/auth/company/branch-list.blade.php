@@ -1,5 +1,6 @@
 <a href="{{ route('superadmin.companies.branches.show', [$company, $company]) }}" style="color:#c4cfff;font-weight:700;text-decoration:none">{{ $company->name }}</a>
-<div class="mt-2"><a href="{{ route('superadmin.companies.branches.show', [$company, $company]) }}" style="font-size:12px;color:#aebfff">Manage users &amp; branches &rarr;</a></div>
+@php($branchCount = $company->relationLoaded('branches') ? $company->branches->count() : 0)
+<div class="mt-2"><a href="{{ route('superadmin.companies.branches.show', [$company, $company]) }}" style="font-size:12px;color:#aebfff">Manage users &amp; branches ({{ $branchCount }}) &rarr;</a></div>
 @if($company->relationLoaded('branches') && $company->branches->isNotEmpty())
     <details class="company-branches mt-2">
         <summary style="cursor:pointer;color:#8bbaff">View Branches ({{ $company->branches->count() }})</summary>

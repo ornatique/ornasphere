@@ -277,7 +277,11 @@
                 searchable: false
             },
             {
-                data: 'approval_no'
+                data: 'approval_no',
+                render: function (data, type) {
+                    if (type !== 'display') return data;
+                    return $('<span>').text(data || '-').html();
+                }
             },
             {
                 data: 'approval_date'

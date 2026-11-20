@@ -252,6 +252,15 @@
 
         <div class="card-header d-flex justify-content-between align-items-center">
             <h4 class="card-title">{{ isset($return) ? 'Edit Approval Return · '.$return->return_voucher_no : 'Approval Return' }}</h4>
+            @isset($return)
+                @if(\Illuminate\Support\Facades\Route::has('company.returns.scan-actions'))
+                <a href="{{ route('company.returns.scan-actions', [$company->slug, \Illuminate\Support\Facades\Crypt::encryptString((string)$return->id)]) }}" title="View approval return QR and options">
+                    <img src="{{ \App\Services\VoucherQr::dataUri('sale-return', $return->id) }}" width="40" height="40" alt="Approval return QR">
+                </a>
+                @else
+                <img src="{{ \App\Services\VoucherQr::dataUri('sale-return', $return->id) }}" width="40" height="40" alt="Approval return QR" title="Approval return QR">
+                @endif
+            @endisset
 
             <button type="button" class="btn btn-warning" id="openApprovalModal">
                 Add Approval Items
@@ -303,6 +312,7 @@
                                 <tr>
                                     <th>Source</th>
                                     <th>Label</th>
+                                    <th>Qty</th>
                                     <th>Customer</th>
                                     <th>Gross Wt</th>
                                     <th>Other Wt</th>
@@ -316,20 +326,21 @@
                                     <th>Labour Rate</th>
                                     <th>Labour Amt</th>
                                     <th>Other Amt</th>
+                                    <th>Sale Price</th>
                                     <th>Total Amt</th>
                                     <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody id="selectedQrBody">
                                 <tr id="selectedQrEmptyRow">
-                                    <td colspan="17" class="text-center">No item selected</td>
+                                    <td colspan="19" class="text-center">No item selected</td>
                                 </tr>
                             </tbody>
                             <tfoot>
                                 <tr>
-                                    <th colspan="5" class="text-end">Totals</th>
+                                    <th colspan="6" class="text-end">Totals</th>
                                     <th><span id="sumNetWt">0.000</span></th>
-                                    <th colspan="9"></th>
+                                    <th colspan="10"></th>
                                     <th><span id="sumTotalAmt">0.00</span></th>
                                     <th></th>
                                 </tr>
@@ -505,6 +516,7 @@ $(function() {
             const payload = {
                 type: row.type,
                 id: row.record_id,
+                qty: row.qty,
                 other_amount: row.other_amount,
                 total_amount: row.total_amount
             };
@@ -764,6 +776,8 @@ $(function() {
         if (selectedRows[rowId]) return;
 
         const customerName = data.customer || $('#filter_customer option:selected').text() || '-';
+        const originalQty = Math.max(1, parseInt(data.qty ?? data.quantity ?? 1, 10) || 1);
+        const maxReturnQty = Math.max(originalQty, parseInt(data.max_return_qty ?? originalQty, 10) || originalQty);
         const originalOther = toNum(data.other_amount);
         const originalTotal = toNum(data.total_amount);
         const baseTotal = originalTotal - originalOther;
@@ -772,6 +786,10 @@ $(function() {
             type,
             record_id: Number(idKey),
             item_id: Number(data.item_id || 0),
+            original_qty: originalQty,
+            max_qty: maxReturnQty,
+            qty: originalQty,
+            original: { ...data },
             net_weight: toNum(data.net_weight),
             base_total: baseTotal,
             other_amount: originalOther,
@@ -787,24 +805,26 @@ $(function() {
                     <small>${escapeHtml(data.qr_code || '-')}</small><br>
                     <small>${escapeHtml(data.item_name || data.name || '-')}</small>
                 </td>
+                <td><input type="number" min="1" max="${maxReturnQty}" step="1" class="form-control row-return-qty" data-row-id="${rowId}" value="${originalQty}"></td>
                 <td>${escapeHtml(customerName)}</td>
-                <td>${nfix(data.gross_weight, 3)}</td>
-                <td>${nfix(data.other_weight, 3)}</td>
-                <td>${nfix(data.net_weight, 3)}</td>
+                <td class="return-scaled-gross_weight">${nfix(data.gross_weight, 3)}</td>
+                <td class="return-scaled-other_weight">${nfix(data.other_weight, 3)}</td>
+                <td class="return-scaled-net_weight">${nfix(data.net_weight, 3)}</td>
                 <td>${nfix(data.purity, 3)}</td>
                 <td>${nfix(data.waste_percent, 3)}</td>
                 <td>${nfix(data.net_purity, 3)}</td>
-                <td>${nfix(data.fine_weight, 3)}</td>
+                <td class="return-scaled-fine_weight">${nfix(data.fine_weight, 3)}</td>
                 <td>${nfix(data.metal_rate, 2)}</td>
-                <td>${nfix(data.metal_amount, 2)}</td>
+                <td class="return-scaled-metal_amount">${nfix(data.metal_amount, 2)}</td>
                 <td>${nfix(data.labour_rate, 2)}</td>
-                <td>${nfix(data.labour_amount, 2)}</td>
+                <td class="return-scaled-labour_amount">${nfix(data.labour_amount, 2)}</td>
                 <td>
                     <div class="input-group other-amount-wrap">
                         <input type="number" step="0.01" class="form-control row-other-amount" data-row-id="${rowId}" value="${nfix(data.other_amount, 2)}">
                         <button type="button" class="btn btn-info open-other-charge-modal" data-row-id="${rowId}" title="Other Charges">...</button>
                     </div>
                 </td>
+                <td class="return-scaled-sale_price">${toNum(data.sale_price) > 0 ? nfix(type === 'approval' ? toNum(data.sale_price) * originalQty : data.sale_price, 2) : '-'}</td>
                 <td><span class="row-total-amount" data-row-id="${rowId}">${nfix(data.total_amount, 2)}</span></td>
                 <td>
                     <button type="button" class="btn btn-sm btn-secondary removeSelectedRow" data-row-id="${rowId}">Remove</button>
@@ -814,8 +834,39 @@ $(function() {
 
         $('#selectedQrEmptyRow').remove();
         $('#selectedQrBody').append(rowHtml);
+        applyReturnQuantity(rowId, originalQty);
         recalcRowData(rowId);
         updateHiddenInputs();
+    }
+
+    function applyReturnQuantity(rowId, requestedQty) {
+        const row = selectedRows[rowId];
+        if (!row) return;
+        const qty = Math.max(1, Math.min(row.max_qty, parseInt(requestedQty, 10) || 1));
+        const ratio = qty / row.original_qty;
+        const original = row.original;
+        row.qty = qty;
+        ['gross_weight', 'other_weight', 'net_weight', 'fine_weight', 'metal_amount', 'labour_amount'].forEach(function(field) {
+            const value = toNum(original[field]) * ratio;
+            const decimals = ['gross_weight', 'other_weight', 'net_weight', 'fine_weight'].includes(field) ? 3 : 2;
+            const $cell = $(`#${rowId} .return-scaled-${field}`);
+            if ($cell.length) $cell.text(nfix(value, decimals));
+            if (field === 'net_weight') row.net_weight = value;
+        });
+        // Approval sale_price is a per-piece rate; this table shows the total
+        // sale price for the quantity being returned. Keep Sale Return behavior
+        // unchanged because its source sale_price has different semantics.
+        const salePrice = row.type === 'approval'
+            ? toNum(original.sale_price) * qty
+            : toNum(original.sale_price) * ratio;
+        const $salePriceCell = $(`#${rowId} .return-scaled-sale_price`);
+        if ($salePriceCell.length) $salePriceCell.text(salePrice > 0 ? nfix(salePrice, 2) : '-');
+        row.other_amount = toNum(original.other_amount) * ratio;
+        row.total_amount = toNum(original.total_amount) * ratio;
+        row.base_total = row.total_amount - row.other_amount;
+        $(`.row-return-qty[data-row-id="${rowId}"]`).val(qty);
+        $(`.row-other-amount[data-row-id="${rowId}"]`).val(nfix(row.other_amount, 2));
+        $(`.row-total-amount[data-row-id="${rowId}"]`).text(nfix(row.total_amount, 2));
     }
 
     function clearSelectionGrid() {
@@ -824,7 +875,7 @@ $(function() {
 
         $('#selectedQrBody').html(`
             <tr id="selectedQrEmptyRow">
-                <td colspan="17" class="text-center">No item selected</td>
+                <td colspan="19" class="text-center">No item selected</td>
             </tr>
         `);
 
@@ -906,7 +957,7 @@ $(function() {
         $row.remove();
 
         if ($('#selectedQrBody tr').length === 0) {
-            $('#selectedQrBody').html('<tr id="selectedQrEmptyRow"><td colspan="17" class="text-center">No item selected</td></tr>');
+            $('#selectedQrBody').html('<tr id="selectedQrEmptyRow"><td colspan="19" class="text-center">No item selected</td></tr>');
         }
 
         recalcTotals();
@@ -915,6 +966,14 @@ $(function() {
 
     $(document).on('input', '.row-other-amount', function() {
         recalcRowData($(this).data('row-id'));
+    });
+
+    $(document).on('input change', '.row-return-qty', function() {
+        const rowId = $(this).data('row-id');
+        const row = selectedRows[rowId];
+        if (!row) return;
+        applyReturnQuantity(rowId, $(this).val());
+        recalcRowData(rowId);
     });
 
     $(document).on('click', '.open-other-charge-modal', function () {
@@ -1119,7 +1178,8 @@ $(function() {
         let gross = 0;
 
         $('#rightReturn tr.rightItem').each(function() {
-            count++;
+            const item = $(this).data('row') || {};
+            count += Math.max(1, parseInt(item.qty ?? item.quantity ?? 1, 10) || 1);
             gross += toNum($(this).data('gross'));
         });
 

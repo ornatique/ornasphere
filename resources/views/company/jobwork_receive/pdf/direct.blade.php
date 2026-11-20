@@ -19,6 +19,7 @@
     </style>
 </head>
 <body>
+<div style="text-align:right"><img src="{{ \App\Services\VoucherQr::dataUri('jobwork-receive', $receive->id) }}" width="40" height="40" alt="Jobwork receive voucher QR"></div>
 @php
     $totalQty = 0;
     $totalGross = 0;

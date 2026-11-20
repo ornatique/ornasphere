@@ -58,7 +58,54 @@
                 componentRestrictions: { country: 'in' },
             });
 
+            // City suggestions stay city-only; the Address field keeps its existing
+            // full-address autocomplete below.
+            const cityAutocomplete = new google.maps.places.Autocomplete(cityInput, {
+                types: ['(cities)'],
+                fields: ['address_components', 'name'],
+                componentRestrictions: { country: 'in' },
+            });
             const geocoder = new google.maps.Geocoder();
+            let cityLookupSequence = 0;
+
+            function lookupCityPostcode(cityName) {
+                const sequence = ++cityLookupSequence;
+                const city = (cityName || '').trim();
+                if (!city) return;
+
+                geocoder.geocode({ address: city + ', India' }, function (results, status) {
+                    if (sequence !== cityLookupSequence || status !== 'OK' || !results) return;
+
+                    // A city can contain many postcodes. Use a postcode only when
+                    // Google returns one for the selected city/geocoding result.
+                    for (const result of results) {
+                        const parsed = parseAddressComponents(result.address_components || []);
+                        if (parsed.pincode) {
+                            pincodeInput.value = parsed.pincode;
+                            return;
+                        }
+                    }
+                });
+            }
+
+            cityInput.addEventListener('input', function () {
+                cityLookupSequence++;
+                pincodeInput.value = '';
+            });
+
+            cityAutocomplete.addListener('place_changed', function () {
+                const place = cityAutocomplete.getPlace();
+                if (!place) return;
+
+                const parsed = parseAddressComponents(place.address_components || []);
+                cityInput.value = parsed.city || place.name || '';
+                pincodeInput.value = parsed.pincode || '';
+                if (!parsed.pincode) lookupCityPostcode(cityInput.value);
+            });
+
+            cityInput.addEventListener('blur', function () {
+                if (!pincodeInput.value.trim()) lookupCityPostcode(cityInput.value);
+            });
 
             autocomplete.addListener('place_changed', function () {
                 const place = autocomplete.getPlace();

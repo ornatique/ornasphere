@@ -80,6 +80,7 @@
     </style>
 </head>
 <body>
+    <div style="text-align:right"><img src="{{ \App\Services\VoucherQr::dataUri('casting', $data->id) }}" width="48" height="48" alt="Scan casting voucher"></div>
     <div class="title">Vacuum Voucher</div>
     <div class="company">{{ $company->name }}</div>
 

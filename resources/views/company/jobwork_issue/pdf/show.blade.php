@@ -130,7 +130,7 @@
             @for($c = 1; $c <= 2; $c++)
                 <td>
                     <div class="copy">
-                <div class="title">Jobwork Issue</div>
+                <table style="width:100%;border-collapse:collapse"><tr><td style="width:40px"></td><td class="title">Jobwork Issue</td><td style="width:40px;text-align:right"><img src="{{ \App\Services\VoucherQr::dataUri('jobwork-issue', $row->id) }}" width="40" height="40" alt="Jobwork issue QR"></td></tr></table>
 
                 <table class="meta-grid">
                     <tr>

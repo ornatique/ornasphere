@@ -22,11 +22,15 @@ class TreeCuttingReceiveApiController extends Controller
 
     private function listForCompany(Request $request, int $companyId)
     {
-        $fromDate = $request->input('from_date', now()->toDateString());
-        $toDate = $request->input('to_date', now()->toDateString());
+        // A voucher-specific list is opened from its QR and should include the
+        // voucher regardless of when its receive entries were recorded.
+        $voucherId = $request->integer('voucher_id') ?: null;
+        $fromDate = $request->input('from_date', $voucherId ? null : now()->toDateString());
+        $toDate = $request->input('to_date', $voucherId ? null : now()->toDateString());
 
         $rows = VacuumVoucher::query()
             ->where('company_id', $companyId)
+            ->when($voucherId, fn($query) => $query->whereKey($voucherId))
             ->whereExists(function ($query) use ($companyId, $fromDate, $toDate) {
                 $query->selectRaw('1')
                     ->from('tree_cutting_issue_items')

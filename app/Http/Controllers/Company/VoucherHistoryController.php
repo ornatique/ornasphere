@@ -17,6 +17,15 @@ use Illuminate\Http\Request;
 
 class VoucherHistoryController extends Controller
 {
+    public function scanActions(Request $request, $slug, int $voucher)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $destination = \App\Services\VoucherScan::resolve($request->user(), 'casting', $voucher);
+        abort_unless((int)$destination['company_id'] === (int)$company->id, 404);
+        $menu = \App\Services\CastingScanActions::menu($request->user(), $destination);
+        return view('company.voucher_history.scan_actions', compact('company','menu'));
+    }
+
     public function index(Request $request, $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();

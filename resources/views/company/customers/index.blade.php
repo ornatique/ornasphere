@@ -123,7 +123,7 @@ $(function () {
     });
 
     $(document).on('click', '.deleteBtn', function () {
-        if (!confirm('Are you sure? Person will be set inactive (not deleted).')) return;
+        if (!confirm('Delete this person if unused? Persons linked to transactions will be kept and marked inactive.')) return;
 
         $.ajax({
             url: $(this).data('url'),

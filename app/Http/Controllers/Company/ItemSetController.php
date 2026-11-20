@@ -117,7 +117,7 @@ class ItemSetController extends Controller
                         DATE(item_sets.created_at) as batch_date,
                         item_sets.item_id,
                         items.item_name,
-                        COUNT(item_sets.id) as total_pcs,
+                        COALESCE(SUM(item_sets.quantity), COUNT(item_sets.id)) as total_pcs,
                         COALESCE(SUM(item_sets.gross_weight), 0) as total_gross_weight,
                         COALESCE(SUM(item_sets.net_weight), 0) as total_net_weight
                     ')
@@ -202,9 +202,11 @@ class ItemSetController extends Controller
                 ->addColumn('gross_weight', fn($row) => $row->gross_weight)
                 ->addColumn('other_weight', fn($row) => number_format((float) $row->other, 3, '.', ''))
                 ->addColumn('other_charges', fn($row) => $row->sale_other)
+                ->editColumn('sale_price', fn($row) => $row->sale_price === null ? '-' : number_format((float) $row->sale_price, 2, '.', ''))
+                ->addColumn('wholesale_price', fn($row) => \App\Services\WholesalePrice::enabled($companies[$row->company_id]) && $row->wholesale_price !== null ? number_format((float) $row->wholesale_price, 2, '.', '') : '-')
                 ->addColumn('net_weight', fn($row) => $row->net_weight)
                 ->addColumn('qr_code', fn($row) => $row->qr_code)
-                ->addColumn('qty_pcs', fn($row) => 1)
+                ->addColumn('qty_pcs', fn($row) => max(1, (int) ($row->quantity ?? 1)))
                 ->addColumn('printed_at', function ($row) {
                     return $row->printed_at
                         ? $row->printed_at->format('d-m-Y h:i A')
@@ -244,6 +246,13 @@ class ItemSetController extends Controller
                     $query->where(function ($q) use ($keyword) {
                         $q->whereRaw('CAST(item_sets.sale_other AS CHAR) LIKE ?', ["%{$keyword}%"])
                             ->orWhereRaw('FORMAT(item_sets.sale_other, 2) LIKE ?', ["%{$keyword}%"]);
+                    });
+                })
+
+                ->filterColumn('sale_price', function ($query, $keyword) {
+                    $query->where(function ($q) use ($keyword) {
+                        $q->whereRaw('CAST(item_sets.sale_price AS CHAR) LIKE ?', ["%{$keyword}%"])
+                            ->orWhereRaw('FORMAT(item_sets.sale_price, 2) LIKE ?', ["%{$keyword}%"]);
                     });
                 })
 
@@ -381,8 +390,17 @@ class ItemSetController extends Controller
         $defaultLabourFormula = $this->labourFormulaLabel(optional($item)->labour_type);
         $requestedLabourFormula = $this->normalizeLabourFormulaValue($request->input('sale_labour_formula'));
 
+        if (in_array($request->column, ['sale_price', 'wholesale_price'], true)) {
+            $request->validate(['value' => 'nullable|numeric|gt:0']);
+            if (trim((string) $request->value) === '') $request->merge(['value' => null]);
+        }
+
+        if ($request->column === 'quantity') {
+            $request->validate(['value' => 'required|integer|min:1|max:100000']);
+        }
+
         // prevent blank save
-        if (trim($request->value) == "") {
+        if (trim((string) $request->value) == "" && !in_array($request->column, ['sale_price', 'wholesale_price'], true)) {
             return response()->json([
                 'id' => $request->id
             ]);
@@ -403,6 +421,9 @@ class ItemSetController extends Controller
                     $set->{$request->column} = $this->normalizeLabourFormulaValue($request->value);
                 } else {
                     $set->{$request->column} = $request->value;
+                }
+                if ($request->column === 'quantity') {
+                    $set->available_quantity = (int) $request->value;
                 }
 
                 // Keep net_weight always in sync with gross_weight and other.
@@ -439,12 +460,18 @@ class ItemSetController extends Controller
             'updated_by' => $userId,
             'item_id' => $request->item_id,
             $request->column => $request->value,
+            'quantity' => 1,
+            'available_quantity' => 1,
             'sale_labour_formula' => $requestedLabourFormula ?: $defaultLabourFormula,
             'is_final' => 0
         ];
 
         if ($request->column === 'sale_labour_formula') {
             $payload[$request->column] = $this->normalizeLabourFormulaValue($request->value);
+        }
+        if ($request->column === 'quantity') {
+            $payload['quantity'] = (int) $request->value;
+            $payload['available_quantity'] = (int) $request->value;
         }
 
         // On first cell save also store computed net_weight if gross/other entered.
@@ -574,6 +601,9 @@ class ItemSetController extends Controller
                     'qr_code'   => $qrText,
                     'barcode'   => $qrText,
                     'net_weight' => $net,
+                    'quantity' => max(1, (int) ($set->quantity ?? 1)),
+                    'available_quantity' => max(1, (int) ($set->quantity ?? 1)),
+                    'is_sold' => 0,
                     'is_final'  => 1,
                     'created_by' => $set->created_by ?: $userId,
                     'updated_by' => $userId,
@@ -688,6 +718,14 @@ class ItemSetController extends Controller
                 ->addColumn('sale_other', function ($row) {
                     return number_format((float) $row->sale_other, 2);
                 })
+                ->editColumn('sale_price', fn($row) => $row->sale_price === null ? '-' : number_format((float) $row->sale_price, 2, '.', ''))
+                ->addColumn('wholesale_price', fn($row) => \App\Services\WholesalePrice::enabled($companies[$row->company_id]) && $row->wholesale_price !== null ? number_format((float) $row->wholesale_price, 2, '.', '') : '-')
+                ->filterColumn('sale_price', function ($query, $keyword) {
+                    $query->where(function ($q) use ($keyword) {
+                        $q->whereRaw('CAST(item_sets.sale_price AS CHAR) LIKE ?', ["%{$keyword}%"])
+                            ->orWhereRaw('FORMAT(item_sets.sale_price, 2) LIKE ?', ["%{$keyword}%"]);
+                    });
+                })
                 ->addColumn('date_time', function ($row) {
                     if ($row->printed_at) {
                         return $row->printed_at->format('d-m-Y h:i A');
@@ -783,7 +821,10 @@ class ItemSetController extends Controller
         $printPages = $this->buildPrintPages($itemSets, $startPosition);
 
         $view = 'company.item_sets.print_pdf';
-        if ($labelFormat === 'double_barcode') {
+        if ($labelFormat === 'double_details') {
+            $view = 'company.item_sets.print_pdf_double_details';
+        }
+        if (in_array($labelFormat, ['double_barcode', 'double_barcode_price'], true)) {
             $view = 'company.item_sets.print_pdf_double_barcode';
         }
 
@@ -792,7 +833,7 @@ class ItemSetController extends Controller
             compact('itemSets', 'labelFormat', 'requestedCount', 'loadedCount', 'startPosition', 'printPages')
         );
 
-        if ($labelFormat === 'double_barcode') {
+        if (in_array($labelFormat, ['double_barcode', 'double_barcode_price', 'double_details'], true)) {
             $pdfBuilder->setPaper('a4', 'portrait');
         } else {
             $pdfBuilder->setPaper([0, 0, 311.81, 550.11]);
@@ -836,6 +877,13 @@ class ItemSetController extends Controller
         }
 
         $printPages = $this->buildPrintPages($itemSets, $startPosition);
+
+        if ($labelFormat === 'double_details') {
+            return \Barryvdh\DomPDF\Facade\Pdf::loadView(
+                'company.item_sets.print_direct',
+                compact('itemSets', 'labelFormat', 'startPosition', 'printPages')
+            )->setPaper('a4', 'portrait')->stream('label-print-preview.pdf');
+        }
 
         return view('company.item_sets.print_preview', compact('company', 'itemSets', 'labelFormat', 'ids', 'startPosition', 'printPages'));
     }
@@ -897,7 +945,7 @@ class ItemSetController extends Controller
 
     private function resolveLabelFormat(string $labelFormat): string
     {
-        if (!in_array($labelFormat, ['compact', 'double_barcode', 'double_details'], true)) {
+        if (!in_array($labelFormat, ['compact', 'double_barcode', 'double_barcode_price', 'double_details'], true)) {
             return 'compact';
         }
 
@@ -1119,6 +1167,8 @@ class ItemSetController extends Controller
             'other' => $item->other,
             'size' => $item->size,
             'sale_other' => $item->sale_other,
+            'sale_price' => $item->sale_price,
+            ... (\App\Services\WholesalePrice::enabled($item->pricingCompany) ? ['wholesale_price' => $item->wholesale_price] : []),
             'HUID' => $item->HUID,
         ]);
     }
@@ -1161,6 +1211,8 @@ class ItemSetController extends Controller
                 'size' => $request->size,
                 'other' => $otherWeight,
                 'sale_other' => $saleOther,
+                'sale_price' => $request->has('sale_price') ? $request->sale_price : $item->sale_price,
+                ...($request->has('wholesale_price') ? ['wholesale_price' => $request->input('wholesale_price')] : []),
                 'updated_by' => $userId,
             ]);
 

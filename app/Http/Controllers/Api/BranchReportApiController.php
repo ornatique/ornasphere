@@ -71,7 +71,18 @@ class BranchReportApiController extends Controller
     {
         abort_unless(isset(self::REPORTS[$report]), 404);
         $company = $request->user()->company;
-        ReportBranches::ids($company, $request);
+        $companyIds = ReportBranches::ids($company, $request);
+        // Mobile clients use numeric IDs; the shared web controller uses encrypted filters.
+        if ($report === 'approval-return-register' && $request->filled('customer_id')
+            && ctype_digit((string) $request->input('customer_id'))) {
+            $customerId = (int) $request->input('customer_id');
+            if (!\App\Models\Customer::whereIn('company_id', $companyIds)->whereKey($customerId)->exists()) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'customer_id' => 'Select a customer belonging to the selected companies / branches.',
+                ]);
+            }
+            $request->merge(['customer_id' => \Illuminate\Support\Facades\Crypt::encryptString((string) $customerId)]);
+        }
         $request->validate(['export'=>in_array($report, ['approval-summary', 'barcode-history'], true) ? 'nullable|in:pdf,csv,xlsx,excel' : 'nullable|in:pdf,csv', 'start'=>'nullable|integer|min:0', 'length'=>'nullable|integer|min:1|max:100']);
         $method = self::REPORTS[$report];
         $export = $request->input('export');
@@ -91,14 +102,14 @@ class BranchReportApiController extends Controller
             if ($report === 'approval-return-register') {
                 $viewData = $result->getData();
                 $pending = $viewData['pendingItems']->values();
-                $counts = $pending->groupBy('voucher_id')->map->count();
+                $counts = $pending->groupBy('voucher_id')->map(fn ($items) => $items->sum(fn ($item) => max(1, (int) ($item->qty ?? 1))));
                 $data['rows']->getCollection()->transform(function ($row) use ($counts) {
                     $row->pending_qty = $row->entry_type === 'Approval' ? (int) ($counts[$row->voucher_id] ?? 0) : null;
                     $row->branch_name = ReportBranches::name($row->company_id);
                     return $row;
                 });
                 $data['pending_items'] = $pending;
-                $data['pending_count'] = $pending->count();
+                $data['pending_count'] = $pending->sum(fn ($item) => max(1, (int) ($item->qty ?? 1)));
                 $data['pending_scope'] = 'Current pending items for approvals matching customer, voucher, search and issue-date filters; independent of entry_type.';
                 $data['customers'] = $viewData['customers']->map(fn ($customer) => [
                     'id' => $customer->id,

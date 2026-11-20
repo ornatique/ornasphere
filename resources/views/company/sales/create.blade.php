@@ -188,6 +188,7 @@
                                 <th>Apply <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="apply_labour" title="Apply first visible row labour checkbox to visible rows">All</button></th>
                                 <th>Labour Amt</th>
                                 <th>Other Amt <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="other_amount" title="Apply first visible row other amount to visible rows">All</button></th>
+                                <th>Sale Price</th>
                                 <th>Total Amt</th>
                                 <th>Remarks</th>
                                 <th>Action</th>
@@ -212,6 +213,7 @@
                                 <th></th>
                                 <th><span id="totalLabourAmt">0.00</span></th>
                                 <th><span id="totalOtherAmt">0.00</span></th>
+                                <th></th>
                                 <th>Rs <span id="grandTotal">0.00</span></th>
                                 <th></th>
                                 <th></th>
@@ -263,6 +265,7 @@
                                     <th>#</th>
                                     <th>Code</th>
                                     <th>Item</th>
+                                    <th>Qty</th>
                                     <th>Gross</th>
                                 </tr>
                             </thead>
@@ -281,6 +284,7 @@
                                     <th>#</th>
                                     <th>Code</th>
                                     <th>Item</th>
+                                    <th>Qty</th>
                                     <th>Gross</th>
                                 </tr>
                             </thead>
@@ -290,7 +294,7 @@
                 </div>
 
                 <div class="mt-2 d-flex justify-content-between approval-total-bar">
-                    <div>Total Items: <b id="totalItems">0</b></div>
+                    <div>Total Qty: <b id="totalItems">0</b></div>
                     <div>Total Gross: <b id="totalGross">0</b></div>
                 </div>
 
@@ -1136,10 +1140,15 @@ $(function () {
     }
 
     function normalizeSaleRowFromItem(item) {
-        const gross = toNum(item.gross_weight ?? item.gross ?? 0);
-        const qty = Math.max(1, Math.floor(toNum(item.qty ?? item.quantity ?? 1, 1)));
-        const otherWeight = toNum(item.other_weight ?? item.other ?? 0);
-        const net = toNum(item.net_weight ?? (gross - otherWeight));
+        const batchQty = Math.max(1, Math.floor(toNum(item.quantity ?? 1, 1)));
+        const availableQty = Math.max(0, Math.floor(toNum(item.available_quantity ?? batchQty, batchQty)));
+        const divisor = batchQty;
+        const gross = toNum(item.gross_weight ?? item.gross ?? 0) / divisor;
+        const qty = Math.max(1, Math.min(availableQty || batchQty, Math.floor(toNum(item.sale_qty ?? item.qty ?? batchQty, batchQty))));
+        const otherWeight = toNum(item.other_weight ?? item.other ?? 0) / divisor;
+        const net = item.net_weight !== undefined && item.net_weight !== null
+            ? toNum(item.net_weight) / divisor
+            : (gross - otherWeight);
         const purity = positiveOr(item.purity, item.item_purity ?? item.outward_purity ?? 0);
         const wastePercent = toNum(item.waste_percent ?? 0);
         const netPurity = positiveOr(item.net_purity, purity + wastePercent);
@@ -1166,6 +1175,8 @@ $(function () {
             code: item.code ?? item.qr_code ?? '',
             huid: item.huid ?? item.HUID ?? '',
             qty,
+            available_quantity: availableQty,
+            sale_price: toNum(item.billing_sale_price ?? item.sale_price),
             gross_weight: gross,
             other_weight: otherWeight,
             net_weight: net,
@@ -1195,7 +1206,7 @@ $(function () {
                 return;
             }
 
-            const row = normalizeSaleRowFromItem(resp.data);
+            const row = normalizeSaleRowFromItem({ ...resp.data, sale_qty: 1 });
             if (!row.itemset_id) {
                 alert('Invalid scanned item');
                 return;
@@ -1438,13 +1449,20 @@ $(function () {
         return Array.from(merged.values()).filter(line => Number(line.charge_id));
     }
 
-    function recalcRow(itemsetId) {
+    function recalcRow(itemsetId, changedField = '') {
         const row = selectedRows[itemsetId];
         if (!row) return;
 
-        row.gross_weight = toNum($(`.gross[data-id="${itemsetId}"]`).val());
-        row.qty = Math.max(1, Math.floor(toNum($(`.sale-qty[data-id="${itemsetId}"]`).val(), 1)));
-        row.other_weight = toNum($(`.other-weight[data-id="${itemsetId}"]`).val());
+        const quantityInput = $(`.sale-qty[data-id="${itemsetId}"]`);
+        const maxQty = Math.max(1, Math.floor(toNum(row.available_quantity, 1)));
+        const enteredQty = Math.floor(toNum(quantityInput.val(), 1));
+        row.qty = Math.max(1, Math.min(maxQty, enteredQty));
+        if (changedField === 'gross') {
+            row.gross_weight = toNum($(`.gross[data-id="${itemsetId}"]`).val()) / row.qty;
+        }
+        if (changedField === 'other-weight') {
+            row.other_weight = toNum($(`.other-weight[data-id="${itemsetId}"]`).val()) / row.qty;
+        }
         row.purity = toNum($(`.purity[data-id="${itemsetId}"]`).val());
         row.waste_percent = toNum($(`.waste-percent[data-id="${itemsetId}"]`).val());
         row.metal_rate = toNum($(`.metal-rate[data-id="${itemsetId}"]`).val());
@@ -1459,12 +1477,18 @@ $(function () {
         row.fine_weight = (row.net_weight * row.net_purity) / 100;
         row.metal_amount = row.apply_metal ? (row.fine_weight * row.metal_rate) : 0;
         row.labour_amount = row.apply_labour ? (row.net_weight * row.labour_rate) : 0;
-        row.total_amount = row.metal_amount + row.labour_amount + row.other_amount;
+        row.total_amount = (row.metal_amount + row.labour_amount + row.other_amount) * Math.max(1, Math.floor(toNum(row.qty, 1)));
+        if (toNum(row.sale_price) > 0) {
+            row.metal_amount = row.labour_amount = row.other_amount = row.fine_weight = 0;
+            row.total_amount = toNum(row.sale_price) * Math.max(1, toNum(row.qty));
+        }
 
         $(`.sale-qty[data-id="${itemsetId}"]`).val(row.qty);
-        $(`#net_${itemsetId}`).val(nfix(row.net_weight, 3));
+        $(`.gross[data-id="${itemsetId}"]`).val(nfix(row.gross_weight * row.qty, 3));
+        $(`.other-weight[data-id="${itemsetId}"]`).val(nfix(row.other_weight * row.qty, 3));
+        $(`#net_${itemsetId}`).val(nfix(row.net_weight * row.qty, 3));
         $(`#net_purity_${itemsetId}`).val(nfix(row.net_purity, 3));
-        $(`#fine_${itemsetId}`).val(nfix(row.fine_weight, 3));
+        $(`#fine_${itemsetId}`).val(nfix(row.fine_weight * row.qty, 3));
         $(`#metal_amt_${itemsetId}`).val(nfix(row.metal_amount, 2));
         $(`#labour_amt_${itemsetId}`).val(nfix(row.labour_amount, 2));
         $(`#total_amt_${itemsetId}`).val(nfix(row.total_amount, 2));
@@ -1502,7 +1526,11 @@ $(function () {
             if (rateValue > 0) {
                 $(`.apply-labour[data-id="${rowKey}"]`).prop('checked', true);
             }
-            recalcRow(rowKey);
+            if (toNum(row.sale_price) > 0) {
+            $(`#row_${rowKey}`).find('.metal-rate, .labour-rate, .other-amount').prop('readonly', true).val(0);
+            $(`#row_${rowKey}`).find('.open-other-charge-modal, .apply-metal, .apply-labour').prop('disabled', true);
+        }
+        recalcRow(rowKey);
         });
     }
 
@@ -1566,15 +1594,16 @@ $(function () {
         let totalCount = 0;
 
         Object.values(selectedRows).forEach(row => {
-            totalCount += Math.max(1, Math.floor(toNum(row.qty, 1)));
+            const qty = Math.max(1, Math.floor(toNum(row.qty, 1)));
+            totalCount += qty;
             totalAmount += toNum(row.total_amount);
-            totalGross += toNum(row.gross_weight);
-            totalOther += toNum(row.other_weight);
-            totalNet += toNum(row.net_weight);
-            totalFine += toNum(row.fine_weight);
-            totalMetal += toNum(row.metal_amount);
-            totalLabour += toNum(row.labour_amount);
-            totalOtherAmount += toNum(row.other_amount);
+            totalGross += toNum(row.gross_weight) * qty;
+            totalOther += toNum(row.other_weight) * qty;
+            totalNet += toNum(row.net_weight) * qty;
+            totalFine += toNum(row.fine_weight) * qty;
+            totalMetal += toNum(row.metal_amount) * qty;
+            totalLabour += toNum(row.labour_amount) * qty;
+            totalOtherAmount += toNum(row.other_amount) * qty;
         });
 
         $('#grandTotal').text(nfix(totalAmount, 2));
@@ -1608,6 +1637,7 @@ $(function () {
         let cashTotal = 0;
 
         Object.values(selectedRows).forEach(row => {
+            if (toNum(row.sale_price) > 0) { cashTotal += toNum(row.sale_price) * Math.max(1, toNum(row.qty)); return; }
             cashTotal += toNum(row.labour_amount) + toNum(row.other_amount);
 
             const fine = Math.max(0, toNum(row.fine_weight));
@@ -1672,10 +1702,12 @@ $(function () {
         const itemsetId = toNum(item.itemset_id ?? item.id);
         const itemId = toNum(item.item_id);
         const approvalItemId = item.approval_item_id ?? item.approval_id ?? '';
-        const gross = toNum(item.gross_weight);
-        const qty = Math.max(1, Math.floor(toNum(item.qty ?? item.quantity ?? 1, 1)));
-        const otherWeight = toNum(item.other_weight);
-        const net = toNum(item.net_weight, gross - otherWeight);
+        const batchQty = Math.max(1, Math.floor(toNum(item.quantity ?? item.qty ?? 1, 1)));
+        const availableQty = Math.max(0, Math.floor(toNum(item.available_quantity ?? batchQty, batchQty)));
+        const qty = Math.max(1, Math.min(availableQty || batchQty, Math.floor(toNum(item.sale_qty ?? item.qty ?? batchQty, batchQty))));
+        const gross = toNum(item.gross_weight) / batchQty;
+        const otherWeight = toNum(item.other_weight) / batchQty;
+        const net = toNum(item.net_weight, gross * batchQty - otherWeight * batchQty) / batchQty;
         const purity = positiveOr(item.purity, item.item_purity ?? item.outward_purity ?? 0);
         const wastePercent = toNum(item.waste_percent);
         const netPurity = positiveOr(item.net_purity, purity + wastePercent);
@@ -1701,6 +1733,8 @@ $(function () {
             code: item.code || '',
             huid: item.huid || '',
             qty,
+            available_quantity: availableQty,
+            sale_price: toNum(item.billing_sale_price ?? item.sale_price),
             gross_weight: gross,
             other_weight: otherWeight,
             net_weight: net,
@@ -1769,7 +1803,7 @@ $(function () {
                         <div class="grid-label-suggestion-box list-group"></div>
                     </div>
                 </td>
-                <td colspan="18" class="sale-grid-placeholder-cell">Select label or item from Label column</td>
+                <td colspan="19" class="sale-grid-placeholder-cell">Select label or item from Label column</td>
             </tr>
         `);
     }
@@ -1845,7 +1879,20 @@ $(function () {
 
     function appendSaleRow(row, options = {}) {
         const rowKey = resolveRowKey(row);
-        if (!rowKey || selectedRows[rowKey]) {
+        if (!rowKey) {
+            return;
+        }
+
+        if (selectedRows[rowKey]) {
+            const existing = selectedRows[rowKey];
+            const nextQty = Math.max(1, Math.floor(toNum(existing.qty, 1))) + 1;
+            if (nextQty > Math.max(1, Math.floor(toNum(existing.available_quantity, 1)))) {
+                alert(`Only ${existing.available_quantity} piece(s) are available for this label.`);
+                return;
+            }
+            existing.qty = nextQty;
+            $(`.sale-qty[data-id="${rowKey}"]`).val(nextQty);
+            recalcRow(rowKey);
             return;
         }
 
@@ -1888,14 +1935,14 @@ $(function () {
                 <input type="hidden" name="other_charge_details[]" class="other-charge-details" data-id="${rowKey}" value="">
             </td>
 
-            <td><input type="number" step="0.001" class="form-control gross" name="gross_weight[]" data-id="${rowKey}" value="${nfix(row.gross_weight,3)}"></td>
-            <td><input type="number" step="0.001" class="form-control other-weight" name="other_weight[]" data-id="${rowKey}" value="${nfix(row.other_weight,3)}"></td>
-            <td><input type="number" step="0.001" class="form-control" id="net_${rowKey}" readonly value="${nfix(row.net_weight,3)}"></td>
-            <td><input type="number" step="1" min="1" class="form-control sale-qty" data-id="${rowKey}" value="${Math.max(1, Math.floor(toNum(row.qty, 1)))}"></td>
+            <td><input type="number" step="0.001" class="form-control gross" name="gross_weight[]" data-id="${rowKey}" value="${nfix(row.gross_weight * Math.max(1, toNum(row.qty, 1)),3)}"></td>
+            <td><input type="number" step="0.001" class="form-control other-weight" name="other_weight[]" data-id="${rowKey}" value="${nfix(row.other_weight * Math.max(1, toNum(row.qty, 1)),3)}"></td>
+            <td><input type="number" step="0.001" class="form-control" id="net_${rowKey}" readonly value="${nfix(row.net_weight * Math.max(1, toNum(row.qty, 1)),3)}"></td>
+            <td><input type="number" step="1" min="1" max="${Math.max(1, Math.floor(toNum(row.available_quantity, 1)))}" class="form-control sale-qty" data-id="${rowKey}" value="${Math.max(1, Math.floor(toNum(row.qty, 1)))}"></td>
             <td><input type="number" step="0.001" class="form-control purity" name="purity[]" data-id="${rowKey}" value="${nfix(row.purity,3)}"></td>
             <td><input type="number" step="0.001" class="form-control waste-percent" name="waste_percent[]" data-id="${rowKey}" value="${nfix(row.waste_percent,3)}"></td>
             <td><input type="number" step="0.001" class="form-control" id="net_purity_${rowKey}" readonly value="${nfix(row.net_purity,3)}"></td>
-            <td><input type="number" step="0.001" class="form-control" id="fine_${rowKey}" readonly value="${nfix(row.fine_weight,3)}"></td>
+            <td><input type="number" step="0.001" class="form-control" id="fine_${rowKey}" readonly value="${nfix(row.fine_weight * Math.max(1, toNum(row.qty, 1)),3)}"></td>
             <td><input type="number" step="0.01" class="form-control metal-rate" name="metal_rate[]" data-id="${rowKey}" value="${nfix(row.metal_rate,2)}"></td>
             <td class="text-center"><input type="checkbox" class="form-check-input apply-metal" data-id="${rowKey}" ${row.apply_metal ? 'checked' : ''}></td>
             <td><input type="number" step="0.01" class="form-control" id="metal_amt_${rowKey}" readonly value="${nfix(row.metal_amount,2)}"></td>
@@ -1908,7 +1955,8 @@ $(function () {
                     <button type="button" class="btn btn-info open-other-charge-modal" data-id="${rowKey}" title="Other Charges">...</button>
                 </div>
             </td>
-            <td><input type="number" step="0.01" class="form-control" id="total_amt_${rowKey}" readonly value="${nfix(row.total_amount,2)}"></td>
+            <td>${toNum(row.sale_price) > 0 ? nfix(row.sale_price, 2) : "-"}</td>
+                <td><input type="number" step="0.01" class="form-control" id="total_amt_${rowKey}" readonly value="${nfix(row.total_amount,2)}"></td>
             <td><input type="text" class="form-control remarks" data-id="${rowKey}" value="${esc(row.remarks || '')}"></td>
             <td><button type="button" class="btn btn-danger removeRow" data-id="${rowKey}">X</button></td>
         </tr>`;
@@ -1922,12 +1970,15 @@ $(function () {
         ensureGridSearchRow();
     }
 
-    $('#customerSelect').change(function() {
-        $('#item_search').prop('disabled', !$(this).val());
-        loadCustomerAdvance($(this).val());
-        if ($(this).val() && !$('#approvalPersonSelect').val()) {
-            $('#approvalPersonSelect').val($(this).val()).trigger('change.select2');
-        }
+    $('#customerSelect').on('change.approvalPersonSync', function() {
+        const nextCustomerId = String($(this).val() || '');
+        $('#item_search').prop('disabled', !nextCustomerId);
+        loadCustomerAdvance(nextCustomerId);
+
+        // Approval items belong to the sale customer. Always sync this selector
+        // when the sale customer changes so a stale approval-party ID cannot
+        // silently load another customer's pending approvals.
+        $('#approvalPersonSelect').val(nextCustomerId).trigger('change.select2');
     });
 
     $('#item_search').on('keyup', function() {
@@ -2026,15 +2077,10 @@ $(function () {
         $('.grid-label-suggestion-box').hide().empty();
 
         const saleCustomerId = $('#customerSelect').val();
-        const approvalCustomerId = $('#approvalPersonSelect').val();
+        const approvalCustomerId = $('#approvalPersonSelect').val() || saleCustomerId;
 
         if (!saleCustomerId) {
             alert('Select sale customer first');
-            return;
-        }
-
-        if (!approvalCustomerId) {
-            alert('Select approval person first');
             return;
         }
 
@@ -2045,7 +2091,11 @@ $(function () {
         $.ajax({
             url: "{{ route('company.sales.approval.items', $company->slug) }}",
             type: 'GET',
-            data: { customer_id: approvalCustomerId, sale_id: currentSaleId },
+            data: {
+                customer_id: approvalCustomerId,
+                approval_customer_id: approvalCustomerId,
+                sale_id: currentSaleId
+            },
             success: function(resp) {
                 renderApprovalRows(resp);
             },
@@ -2054,7 +2104,7 @@ $(function () {
                     ? xhr.responseJSON.message
                     : 'Approval items could not be loaded. Please try again.';
 
-                $('#leftTable').html(`<tr class="approval-state-row approval-error-row"><td colspan="4" class="text-center">${esc(message)}</td></tr>`);
+                $('#leftTable').html(`<tr class="approval-state-row approval-error-row"><td colspan="5" class="text-center">${esc(message)}</td></tr>`);
                 $('#rightTable').html('');
                 updateModalTotals();
             },
@@ -2070,7 +2120,7 @@ $(function () {
         $('#addToSale').prop('disabled', isLoading);
 
         if (isLoading) {
-            $('#leftTable').html(`<tr class="approval-state-row"><td colspan="4" class="text-center">Loading approval items...</td></tr>`);
+            $('#leftTable').html(`<tr class="approval-state-row"><td colspan="5" class="text-center">Loading approval items...</td></tr>`);
             $('#rightTable').html('');
             $('#totalItems').text(0);
             $('#totalGross').text(nfix(0, 3));
@@ -2089,11 +2139,13 @@ $(function () {
 
         let html = '';
         if (!data.length) {
-            html = `<tr class="approval-state-row"><td colspan="4" class="text-center">No Data</td></tr>`;
+            html = `<tr class="approval-state-row"><td colspan="5" class="text-center">No Data</td></tr>`;
         } else {
             data.forEach((item, i) => {
                 const itemsetId = toNum(item.itemset_id ?? item.itemsetId ?? 0);
                 const approvalItemId = item.approval_item_id ?? item.approval_id ?? item.id ?? '';
+                const qty = Math.max(1, Math.floor(toNum(item.qty ?? item.quantity ?? 1, 1)));
+                const availableQty = Math.max(0, Math.floor(toNum(item.available_quantity ?? qty, qty)));
                 const code = item.code ?? item.qr_code ?? '';
                 const grossWeight = toNum(item.gross_weight ?? item.gross_wt ?? item.gross ?? 0);
                 const otherWeight = toNum(item.other_weight ?? item.other_wt ?? 0);
@@ -2112,7 +2164,7 @@ $(function () {
                 const searchableText = `${code} ${itemName} ${item.huid || ''}`.toLowerCase();
                 const rowKey = approvalItemId ? `approval_${approvalItemId}` : `set_${itemsetId}`;
 
-                if (!itemsetId || selectedRows[rowKey]) return;
+                if ((!itemsetId && !approvalItemId) || selectedRows[rowKey]) return;
                 html += `
                 <tr class="leftRow"
                     data-search="${esc(searchableText)}"
@@ -2123,6 +2175,8 @@ $(function () {
                     data-metal-type="${esc(item.metal_type || '')}"
                     data-code="${esc(code)}"
                     data-huid="${esc(item.huid || '')}"
+                    data-qty="${qty}"
+                    data-available-quantity="${availableQty}"
                     data-gross-weight="${nfix(grossWeight,3)}"
                     data-other-weight="${nfix(otherWeight,3)}"
                     data-net-weight="${nfix(netWeight,3)}"
@@ -2138,17 +2192,18 @@ $(function () {
                     data-labour-amount="${nfix(labourAmount,2)}"
                     data-other-amount="${nfix(otherAmount,2)}"
                     data-remarks="${esc(item.remarks || '')}"
-                    data-total-amount="${nfix(totalAmount,2)}">
+                    data-sale-price="${toNum(item.billing_sale_price ?? item.sale_price)}" data-total-amount="${nfix(totalAmount,2)}">
                     <td>${i + 1}</td>
                     <td>${esc(code)}</td>
                     <td>${esc(itemName)}</td>
+                    <td>${qty}</td>
                     <td>${nfix(grossWeight,3)}</td>
                 </tr>`;
             });
         }
 
         if (!html.trim()) {
-            html = `<tr class="approval-state-row"><td colspan="4" class="text-center">No Data</td></tr>`;
+            html = `<tr class="approval-state-row"><td colspan="5" class="text-center">No Data</td></tr>`;
         }
 
         $('#leftTable').html(html);
@@ -2174,7 +2229,7 @@ $(function () {
         });
 
         if ($('#leftTable tr.leftRow').length > 0 && visibleCount === 0) {
-            $('#leftTable').append(`<tr class="approval-empty-row"><td colspan="4" class="text-center">No matching item</td></tr>`);
+            $('#leftTable').append(`<tr class="approval-empty-row"><td colspan="5" class="text-center">No matching item</td></tr>`);
         }
     }
 
@@ -2221,7 +2276,7 @@ $(function () {
     function updateModalTotals() {
         let count = 0, gross = 0;
         $('#rightTable tr.rightRow').each(function() {
-            count++;
+            count += Math.max(1, Math.floor(toNum($(this).data('qty'), 1)));
             gross += toNum($(this).data('gross-weight'));
         });
         $('#totalItems').text(count);
@@ -2230,7 +2285,9 @@ $(function () {
 
     $('#addToSale').click(function() {
         $('#rightTable tr.rightRow').each(function() {
+            const qty = Math.max(1, Math.floor(toNum($(this).data('qty'), 1)));
             appendSaleRow({
+                row_key: `approval_${$(this).data('approval-id')}`,
                 itemset_id: toNum($(this).data('itemset-id')),
                 item_id: toNum($(this).data('item-id')),
                 approval_item_id: $(this).data('approval-id'),
@@ -2239,22 +2296,24 @@ $(function () {
                 metal_type: normalizeMetalType($(this).data('metal-type')),
                 code: $(this).data('code'),
                 huid: $(this).data('huid'),
-                qty: Math.max(1, Math.floor(toNum($(this).data('qty'), 1))),
-                gross_weight: toNum($(this).data('gross-weight')),
-                other_weight: toNum($(this).data('other-weight')),
-                net_weight: toNum($(this).data('net-weight')),
+                qty,
+                available_quantity: Math.max(0, Math.floor(toNum($(this).data('available-quantity'), qty))),
+                gross_weight: toNum($(this).data('gross-weight')) / qty,
+                other_weight: toNum($(this).data('other-weight')) / qty,
+                net_weight: toNum($(this).data('net-weight')) / qty,
                 purity: toNum($(this).data('purity')),
                 waste_percent: toNum($(this).data('waste-percent')),
                 net_purity: toNum($(this).data('net-purity')),
-                fine_weight: toNum($(this).data('fine-weight')),
+                fine_weight: toNum($(this).data('fine-weight')) / qty,
                 metal_rate: toNum($(this).data('metal-rate')),
                 apply_metal: toBool($(this).data('apply-metal'), true),
-                metal_amount: toNum($(this).data('metal-amount')),
+                metal_amount: toNum($(this).data('metal-amount')) / qty,
                 labour_rate: toNum($(this).data('labour-rate')),
                 apply_labour: toBool($(this).data('apply-labour'), true),
-                labour_amount: toNum($(this).data('labour-amount')),
-                other_amount: toNum($(this).data('other-amount')),
+                labour_amount: toNum($(this).data('labour-amount')) / qty,
+                other_amount: toNum($(this).data('other-amount')) / qty,
                 remarks: $(this).data('remarks') || '',
+                sale_price: toNum($(this).data('sale-price')),
                 total_amount: toNum($(this).data('total-amount')),
                 other_charges: [],
             });
@@ -2264,7 +2323,8 @@ $(function () {
     });
 
     $(document).on('input', '.sale-qty, .gross, .other-weight, .purity, .waste-percent, .metal-rate, .labour-rate, .other-amount', function() {
-        recalcRow($(this).data('id'));
+        const changedField = $(this).hasClass('gross') ? 'gross' : ($(this).hasClass('other-weight') ? 'other-weight' : '');
+        recalcRow($(this).data('id'), changedField);
     });
 
     $(document).on('change', '.labour-rate', function() {
@@ -2410,6 +2470,7 @@ $(function () {
                 approval_item_id: row.approval_item_id || row.approval_id || null,
                 metal_type: normalizeMetalType(row.metal_type || ''),
                 qty: Math.max(1, Math.floor(toNum(row.qty, 1))),
+                sale_price: toNum(row.sale_price),
                 gross_weight: toNum(row.gross_weight),
                 other_weight: toNum(row.other_weight),
                 net_weight: toNum(row.net_weight),

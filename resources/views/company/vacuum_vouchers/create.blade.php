@@ -176,12 +176,26 @@
     }
 
     .vacuum-voucher-grid .form-control,
-    .vacuum-voucher-grid .form-select,
-    .vacuum-voucher-grid .select2-container--bootstrap4 .select2-selection {
+    .vacuum-voucher-grid .form-select {
         min-height: 34px;
         padding-top: 0.25rem;
         padding-bottom: 0.25rem;
         font-size: 0.875rem;
+    }
+
+    .vacuum-voucher-grid .select2-container--bootstrap4 .select2-selection--single {
+        display: flex;
+        align-items: center;
+        min-height: 34px;
+        height: 34px !important;
+        padding: 0;
+        font-size: 0.875rem;
+    }
+
+    .vacuum-voucher-grid .select2-container--bootstrap4 .select2-selection--single .select2-selection__rendered {
+        width: 100%;
+        line-height: 1.25;
+        padding-block: 0;
     }
 
     .vacuum-voucher-grid .btn-sm {

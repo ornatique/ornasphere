@@ -28,7 +28,6 @@
 
                 {{-- ================= BASIC DETAILS ================= --}}
                 <h5 class="mb-3">Item Details</h5>
-                @include('company.stock_gallery.category')
 
                 <div class="row">
 
@@ -260,8 +259,8 @@
 
                     <div class="col-md-6">
                         <div class="form-group">
-                            <label>Jobwork Item Type</label>
-                            <select name="jobwork_item_type" class="form-select">
+                            <label for="jobwork_item_type">Jobwork Item Type *</label>
+                            <select id="jobwork_item_type" name="jobwork_item_type" class="form-select" required>
 
                                 <option value="">Select Value</option>
 
@@ -378,6 +377,7 @@
                             <label>Numeric Length</label>
                             <input type="number"
                                 name="numeric_length"
+                                step="0.01"
                                 value="{{ old('numeric_length', $item->numeric_length) }}"
                                 class="form-control">
                         </div>

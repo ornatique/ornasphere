@@ -216,16 +216,6 @@
 
                     <div class="col-md-6">
                         <div class="form-group">
-                            <label>Other Charge OL</label>
-                            <input type="number"
-                                step="0.01"
-                                name="other_charge_ol"
-                                class="form-control"
-                                value="{{ $data->other_charge_ol ?? '' }}">
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-group">
                             <label>Purity</label>
                             <input type="number"
                                 step="0.01"

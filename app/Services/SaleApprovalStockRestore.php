@@ -13,7 +13,10 @@ class SaleApprovalStockRestore
         $approval->update(['status' => 'returned']);
         $itemSetId = $saleItem->itemset_id ?: $approval->itemset_id;
         if ($itemSetId) {
-            ItemSet::where('company_id', $companyId)->whereKey($itemSetId)->update(['is_sold' => 0]);
+            $itemSet = ItemSet::where('company_id', $companyId)->whereKey($itemSetId)->lockForUpdate()->first();
+            if ($itemSet) {
+                BatchInventory::restore($itemSet, max(1, (int) ($saleItem->qty ?? $approval->qty ?? 1)));
+            }
         }
     }
 }

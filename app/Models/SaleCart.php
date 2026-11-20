@@ -16,6 +16,7 @@ class SaleCart extends Model
         'company_id',
         'customer_id',
         'itemset_id',
+        'qty',
         'approval_item_id',
     ];
 

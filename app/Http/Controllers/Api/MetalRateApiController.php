@@ -14,6 +14,12 @@ class MetalRateApiController extends Controller
         $rates = $payload['rates'] ?? [];
         $user = $request->user();
         $officeAccess = $request->attributes->get('office_access_decision');
+        $deviceId = $officeAccess['device_id'] ?? $request->input('device_id') ?? $request->input('deviceId')
+            ?? $request->input('X-Device-Id') ?? $request->header('X-Device-Id') ?? $request->header('Device-Id');
+        $latitude = $officeAccess['latitude'] ?? $request->input('latitude') ?? $request->input('X-Latitude')
+            ?? $request->header('X-Latitude') ?? $request->header('Latitude');
+        $longitude = $officeAccess['longitude'] ?? $request->input('longitude') ?? $request->input('X-Longitude')
+            ?? $request->header('X-Longitude') ?? $request->header('Longitude');
 
         return response()
             ->json([
@@ -23,9 +29,9 @@ class MetalRateApiController extends Controller
                 'updated_at' => $payload['updated_at'] ?? null,
                 'user_id' => $user?->id,
                 'company_id' => $user?->company_id,
-                'request_device_id' => $request->input('device_id') ?: $request->input('deviceId') ?: $request->header('X-Device-Id') ?: $request->header('Device-Id') ?: $request->header('DeviceId'),
-                'request_latitude' => $request->input('latitude') ?: $request->header('X-Latitude') ?: $request->header('Latitude'),
-                'request_longitude' => $request->input('longitude') ?: $request->header('X-Longitude') ?: $request->header('Longitude'),
+                'request_device_id' => $deviceId,
+                'request_latitude' => $latitude,
+                'request_longitude' => $longitude,
                 'office_access' => $officeAccess ? [
                     'allowed' => (bool) ($officeAccess['allowed'] ?? false),
                     'reason' => $officeAccess['reason'] ?? null,

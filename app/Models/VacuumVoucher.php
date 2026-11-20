@@ -6,6 +6,16 @@ use Illuminate\Database\Eloquent\Model;
 
 class VacuumVoucher extends Model
 {
+    public function scopeWithSavedSorting($query, ?string $fromDate = null, ?string $toDate = null)
+    {
+        return $query->whereExists(function ($sorting) use ($fromDate, $toDate) {
+            $sorting->selectRaw('1')->from('casting_sorting_items')
+                ->whereColumn('casting_sorting_items.company_id', 'vacuum_vouchers.company_id')
+                ->whereColumn('casting_sorting_items.vacuum_voucher_id', 'vacuum_vouchers.id')
+                ->when($fromDate, fn ($q) => $q->whereDate(\Illuminate\Support\Facades\DB::raw('COALESCE(casting_sorting_items.sorted_at, casting_sorting_items.created_at)'), '>=', $fromDate))
+                ->when($toDate, fn ($q) => $q->whereDate(\Illuminate\Support\Facades\DB::raw('COALESCE(casting_sorting_items.sorted_at, casting_sorting_items.created_at)'), '<=', $toDate));
+        });
+    }
     protected $fillable = [
         'company_id',
         'voucher_no',

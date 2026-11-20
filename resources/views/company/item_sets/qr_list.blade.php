@@ -55,6 +55,7 @@
                         <select id="label_format" class="form-select searchable-label-print-select">
                             <option value="compact" selected>Compact (Default)</option>
                             <option value="double_barcode">Two Barcode + Name/Gross</option>
+                            <option value="double_barcode_price">Two Barcode + Name/Sale Price</option>
                             <option value="double_details">50%-50% QR + Details</option>
                         </select>
                     </div>
@@ -79,6 +80,7 @@
                             <th>Other Wt</th>
                             <th>Net Wt</th>
                             <th>Sale Other</th>
+                            <th>Sale Price</th>
                             <th>Printed Date Time</th><th>Company / Branch</th>
                         </tr>
                     </thead>
@@ -168,10 +170,11 @@ const table = $('#labelListTable').DataTable({
         { data: 'other_weight', name: 'other' },
         { data: 'net_weight', name: 'net_weight' },
         { data: 'sale_other', name: 'sale_other' },
+        { data: 'sale_price', name: 'sale_price' },
         { data: 'date_time', name: 'printed_at' },
         { data: 'company_name', orderable: false, searchable: false }
     ],
-    order: [[7, 'desc']],
+    order: [[8, 'desc']],
     drawCallback: function(settings) {
         $('#totalLabels').text(settings.json ? settings.json.recordsFiltered : 0);
         bindSelectionState();

@@ -74,8 +74,12 @@
                                         <label>Plan <span class="text-danger">*</span></label>
                                         <select name="plan" class="form-select @error('plan') is-invalid @enderror">
                                             <option value="">Select Plan</option>
-                                            @if($company->plan === 'trial')<option value="trial" selected>10-day Trial (use Renew Plan to activate one year)</option>@endif
-                                            <option value="yearly" {{ old('plan', $company->plan) == 'yearly' ? 'selected' : '' }}>Yearly</option>
+                                            <option value="trial" {{ old('plan', $company->plan) === 'trial' ? 'selected' : '' }}>10-day Trial</option>
+                                            <option value="yearly" {{ old('plan', $company->plan) === 'yearly' ? 'selected' : '' }}>Yearly</option>
+                                            @foreach([2, 3, 4, 5] as $years)
+                                                <option value="{{ $years }}_years" {{ old('plan', $company->plan) === $years . '_years' ? 'selected' : '' }}>{{ $years }} Years</option>
+                                            @endforeach
+                                            <option value="custom" {{ old('plan', $company->plan) === 'custom' ? 'selected' : '' }}>Custom Dates</option>
                                         </select>
                                         @error('plan')
                                             <div class="invalid-feedback">{{ $message }}</div>
@@ -104,6 +108,23 @@
                                             <div class="invalid-feedback">{{ $message }}</div>
                                         @enderror
                                         <small class="text-muted">Leave blank to keep current logo. JPG, PNG, WEBP. Max 2MB.</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row" id="customPlanDates" style="display:none">
+                                <div class="col-md-3">
+                                    <div class="form-group">
+                                        <label for="planStartDate">Plan From Date</label>
+                                        <input type="date" id="planStartDate" name="plan_start_date" value="{{ old('plan_start_date', optional($company->plan_started_at)->format('Y-m-d')) }}" class="form-control @error('plan_start_date') is-invalid @enderror">
+                                        @error('plan_start_date')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="form-group">
+                                        <label for="planEndDate">Plan To Date</label>
+                                        <input type="date" id="planEndDate" name="plan_end_date" value="{{ old('plan_end_date', optional($company->plan_expires_at)->format('Y-m-d')) }}" class="form-control @error('plan_end_date') is-invalid @enderror">
+                                        @error('plan_end_date')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                     </div>
                                 </div>
                             </div>
@@ -234,6 +255,11 @@
                     </div>
 
                     @include('superadmin.auth.company.allowed_modules')
+                    <div class="form-group mt-3">
+                        <input type="hidden" name="wholesale_price_enabled" value="0">
+                        <label><input type="checkbox" name="wholesale_price_enabled" value="1" @checked(old('wholesale_price_enabled', $company->wholesale_price_enabled ?? false))> Enable Wholesale Price</label>
+                        <small class="d-block">Use Wholesale Price for new approvals and sales. Branches inherit this setting. Stickers use Sale Price.</small>
+                    </div>
                     <div class="card-footer d-flex justify-content-end gap-2">
                         <a href="{{ route('superadmin.companies.index') }}" class="btn btn-info">Back</a>
                         <button type="submit" class="btn btn-primary">Update Company</button>
@@ -322,6 +348,23 @@
 @push('scripts')
 <script>
     document.addEventListener('DOMContentLoaded', function () {
+        const planSelect = document.querySelector('select[name="plan"]');
+        const customPlanDates = document.getElementById('customPlanDates');
+        const planStartDate = document.getElementById('planStartDate');
+        const planEndDate = document.getElementById('planEndDate');
+
+        function syncCustomPlanFields() {
+            const isCustom = planSelect && planSelect.value === 'custom';
+            if (customPlanDates) customPlanDates.style.display = isCustom ? '' : 'none';
+            if (planStartDate) planStartDate.required = !!isCustom;
+            if (planEndDate) planEndDate.required = !!isCustom;
+        }
+
+        if (planSelect) {
+            planSelect.addEventListener('change', syncCustomPlanFields);
+            syncCustomPlanFields();
+        }
+
         const input = document.getElementById('companyLogoInput');
         const preview = document.getElementById('companyLogoPreview');
         const fallbackLogo = @json($defaultCompanyLogo);

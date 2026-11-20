@@ -129,10 +129,11 @@
                                         <th>Receive Wt</th>
                                         <th>Bhuko</th>
                                         <th>Loss</th>
-                                    <th>Branch</th></tr>
+                                        <th>Branch</th>
+                                    </tr>
                                 </thead>
                                 <tbody id="worker_summary_rows">
-                                    <tr><td colspan="6" class="text-center">No data available</td></tr>
+                                    <tr><td colspan="7" class="text-center">No data available</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -178,6 +179,7 @@
                             <th>Receive Wt</th>
                             <th>Bhuko</th>
                             <th>Loss</th>
+                            <th>Branch</th>
                         </tr>
                     </thead>
                 </table>
@@ -408,7 +410,7 @@
     }
 
     .worker-loss-report #workerLossTable {
-        table-layout: fixed;
+        table-layout: auto;
     }
 
     .worker-loss-report #workerLossTable th:nth-child(1),
@@ -445,6 +447,13 @@
     .worker-loss-report #workerLossTable td:nth-child(10) {
         width: 95px;
         text-align: right;
+    }
+
+    .worker-loss-report #workerLossTable .worker-loss-branch {
+        min-width: 140px;
+        width: 160px;
+        white-space: normal;
+        overflow-wrap: anywhere;
     }
 
     .voucher-search-wrapper {
@@ -572,7 +581,7 @@ $(function () {
             { data: 'receive_wt', name: 'receive_wt', orderable: false, searchable: false },
             { data: 'bhuko', name: 'bhuko', orderable: false, searchable: false },
             { data: 'loss', name: 'loss', orderable: false, searchable: false },
-            { data: 'branch_name', orderable: false, searchable: false, defaultContent: '' },
+            { data: 'branch_name', className: 'worker-loss-branch', orderable: false, searchable: false, defaultContent: '' },
         ]
     });
 
@@ -705,8 +714,9 @@ $(function () {
     }
 
     function renderSummaryRows(target, rows, emptyLabel) {
+        const showBranch = target === '#worker_summary_rows';
         if (!rows.length) {
-            $(target).html(`<tr><td colspan="6" class="text-center">No ${emptyLabel.toLowerCase()} summary</td></tr>`);
+            $(target).html(`<tr><td colspan="${showBranch ? 7 : 6}" class="text-center">No ${emptyLabel.toLowerCase()} summary</td></tr>`);
             return;
         }
 
@@ -720,6 +730,7 @@ $(function () {
                     <td>${formatWeight(row.receive_wt)}</td>
                     <td>${formatWeight(row.bhuko)}</td>
                     <td>${formatWeight(row.loss)}</td>
+                    ${showBranch ? `<td class="text-wrap">${escapeHtml(row.branch_name || '-')}</td>` : ''}
                 </tr>
             `;
         });

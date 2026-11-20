@@ -71,6 +71,8 @@
                             <th>Gross Wt</th>
                             <th>Other Wt</th>
                             <th>Other Charges</th>
+                            <th>Sale Price</th>
+                            @if(\App\Services\WholesalePrice::enabled($company))<th>Wholesale Price</th>@endif
                             <th>Net Wt</th>
                             <th>Qty Pcs</th>
                             <th>Print Date Time</th>
@@ -139,6 +141,9 @@
                     <div class="col-md-6 mb-3">
                         <label>Other Charges</label>
                         <input type="text" id="other_charges" class="form-control  text-white border-0">
+                        <label class="mt-3" for="edit_sale_price">Sale Price (INR)</label>
+                        <input type="number" min="0.01" step="0.01" id="edit_sale_price" class="form-control text-white" placeholder="Blank for weight-based billing">
+                        @if(\App\Services\WholesalePrice::enabled($company))<label class="mt-3" for="edit_wholesale_price">Wholesale Price (INR)</label><input type="number" min="0.01" step="0.01" id="edit_wholesale_price" class="form-control text-white" placeholder="Optional">@endif
                     </div>
 
                 </div>
@@ -427,6 +432,14 @@
                 searchable: true
             },
             {
+                data: 'sale_price',
+                name: 'sale_price',
+                searchable: true
+            },
+            @if(\App\Services\WholesalePrice::enabled($company))
+            { data: 'wholesale_price', name: 'wholesale_price', searchable: true },
+            @endif
+            {
                 data: 'net_weight',
                 name: 'net_weight',
                 searchable: true
@@ -620,6 +633,9 @@
             $('#other').val(data.other);
             $('#size').val(data.size);
             $('#other_charges').val(data.sale_other);
+            $('#edit_sale_price').val(data.sale_price);
+            @if(\App\Services\WholesalePrice::enabled($company)) $('#edit_wholesale_price').val(data.wholesale_price); @endif
+            @if(\App\Services\WholesalePrice::enabled($company)) $('#edit_wholesale_price').val(data.wholesale_price); @endif
 
             $('#editModal').modal('show');
         });
@@ -645,6 +661,9 @@
             other: $('#other').val(),
             size: $('#size').val(),
             other_charges: $('#other_charges').val(),
+            sale_price: $('#edit_sale_price').val() || null,
+            @if(\App\Services\WholesalePrice::enabled($company)) wholesale_price: $('#edit_wholesale_price').val() || null, @endif
+            @if(\App\Services\WholesalePrice::enabled($company)) wholesale_price: $('#edit_wholesale_price').val() || null, @endif
         }, function() {
 
             $('#editModal').modal('hide');

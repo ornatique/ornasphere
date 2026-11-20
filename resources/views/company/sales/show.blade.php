@@ -157,7 +157,7 @@
                             <th>Other Wt</th>
                             <th>Net Wt</th>
                             <th>Fine Wt</th>
-                            <th>Total Amt</th>
+                            <th>Total Amt</th><th>Sale Price</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -177,11 +177,11 @@
                                 <td>{{ number_format((float) ($row->other_weight ?? 0), 3) }}</td>
                                 <td>{{ number_format((float) ($row->net_weight ?? 0), 3) }}</td>
                                 <td>{{ number_format((float) ($row->fine_weight ?? 0), 3) }}</td>
-                                <td>{{ number_format((float) ($row->total_amount ?? 0), 2) }}</td>
+                                <td>{{ number_format((float) ($row->total_amount ?? 0), 2) }}</td><td>{{ $row->sale_price ? number_format($row->sale_price, 2) : "-" }}</td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="10" class="text-center">No sale items found</td>
+                                <td colspan="11" class="text-center">No sale items found</td>
                             </tr>
                         @endforelse
                     </tbody>

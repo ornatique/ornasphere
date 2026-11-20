@@ -276,6 +276,10 @@ Route::middleware([
     Route::post('/notifications/read', [SuperAdminNotificationController::class, 'markAllRead'])
         ->name('notifications.read');
 
+    Route::get('company-validity-report', [CompanyController::class, 'validityReport'])->name('companies.validity-report');
+    Route::get('company-validity-report/excel', [CompanyController::class, 'validityReportExcel'])->name('companies.validity-report.excel');
+    Route::get('company-validity-report/pdf', [CompanyController::class, 'validityReportPdf'])->name('companies.validity-report.pdf');
+
     Route::resource('companies', CompanyController::class);
     Route::get('companies/{company}/branches/{branch}', [\App\Http\Controllers\SuperAdmin\BranchManagementController::class, 'show'])->name('companies.branches.show');
     Route::put('companies/{company}/branches/{branch}/status', [\App\Http\Controllers\SuperAdmin\BranchManagementController::class, 'status'])->name('companies.branches.status');
@@ -297,9 +301,9 @@ Route::middleware([
     )->name('companies.plan-history');
 
     Route::post(
-        'companies/{company}/resend-login',
-        [CompanyController::class, 'resendLogin']
-    )->name('companies.resend');
+        'companies/{company}/regenerate-password-link',
+        [CompanyController::class, 'regeneratePasswordLink']
+    )->name('companies.regenerate-password-link');
 
     Route::post(
         'companies/{company}/reset-2fa',
@@ -434,6 +438,7 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
             ->name('jobwork-issue.export-single.excel');
         Route::get('/jobwork-issue/{encryptedId}/export/pdf', [JobworkIssueController::class, 'exportSinglePdf'])
             ->name('jobwork-issue.export-single.pdf');
+        Route::get('/jobwork-issue/{encryptedId}/scan-actions', [JobworkIssueController::class, 'scanActions'])->name('jobwork-issue.scan-actions');
         Route::get('/jobwork-issue/{encryptedId}/view', [JobworkIssueController::class, 'show'])
             ->name('jobwork-issue.show');
         Route::get('/jobwork-issue/{encryptedId}/edit', [JobworkIssueController::class, 'edit'])
@@ -461,6 +466,7 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
             ->name('jobwork-receive.direct.destroy');
         Route::get('/jobwork-receive/direct/{encryptedId}/pdf', [JobworkReceiveController::class, 'directPdf'])
             ->name('jobwork-receive.direct.pdf');
+        Route::get('/jobwork-receive/{encryptedId}/scan-actions', [JobworkReceiveController::class, 'scanActions'])->name('jobwork-receive.scan-actions');
         Route::get('/jobwork-receive/{encryptedId}/view', [JobworkReceiveController::class, 'show'])
             ->name('jobwork-receive.show');
         Route::put('/jobwork-receive/{encryptedId}', [JobworkReceiveController::class, 'update'])
@@ -802,6 +808,9 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
         Route::get('tree-cutting-issue/{id}/view', [TreeCuttingIssueController::class, 'show'])
             ->name('tree-cutting-issue.show');
 
+        Route::get('tree-cutting-issue/{voucher}/scan-actions', [TreeCuttingIssueController::class, 'scanActions'])
+            ->name('tree-cutting-issue.scan-actions');
+
         Route::get('tree-cutting-issue/{id}/pdf', [TreeCuttingIssueController::class, 'pdf'])
             ->name('tree-cutting-issue.pdf');
 
@@ -834,6 +843,8 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
 
         Route::post('casting-sorting/{id}/update', [CastingSortingController::class, 'update'])
             ->name('casting-sorting.update');
+
+        Route::get('voucher-history/{voucher}/scan-actions', [VoucherHistoryController::class, 'scanActions'])->name('voucher-history.scan-actions');
 
         Route::get('voucher-history/data/{voucher}', [VoucherHistoryController::class, 'data'])
             ->name('voucher-history.data');
@@ -1035,6 +1046,7 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
         Route::get('sales/{encryptedId}', [SaleController::class, 'show'])
             ->name('sales.show');
 
+        Route::get('/sales/{encryptedId}/scan-actions', [SaleController::class, 'scanActions'])->name('sales.scan-actions');
         Route::get('/sales/{encryptedId}/pdf', [SaleController::class, 'viewPdf'])
             ->name('sales.pdf');
 
@@ -1082,6 +1094,7 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
             '/returns/{encryptedReturnId}/view',
             [SaleReturnController::class, 'show']
         )->name('returns.show');
+        Route::get('/returns/{encryptedReturnId}/scan-actions', [SaleReturnController::class, 'scanActions'])->name('returns.scan-actions');
         Route::put('/returns/{encryptedReturnId}', [SaleReturnController::class, 'update'])->name('returns.update');
 
         Route::delete(
@@ -1368,3 +1381,9 @@ Route::post('/set-password/{token}', [PasswordSetController::class, 'update'])
 
 Route::post('/company/2fa/enable', [CompanySecurityController::class, 'enable']);
 Route::post('/company/2fa/disable', [CompanySecurityController::class, 'disable']);
+
+// Signed voucher QR links disclose no voucher details before normal authorization.
+Route::get('/vouchers/approval/{id}', [\App\Http\Controllers\ApprovalQrController::class, 'scan'])->whereNumber('id')->middleware('signed')->name('voucher.approval.scan');
+Route::get('/vouchers/approval/{id}/qr.png', [\App\Http\Controllers\ApprovalQrController::class, 'image'])->whereNumber('id')->middleware('signed')->name('voucher.approval.image');
+
+Route::get('/vouchers/{type}/{id}', [\App\Http\Controllers\VoucherScanController::class, 'scan'])->whereIn('type', ['sale', 'sale-return', 'jobwork-issue', 'jobwork-receive', 'casting', 'casting-metal-issue', 'tree-cutting-receive', 'tree-cutting-issue'])->whereNumber('id')->middleware('signed')->name('voucher.scan');

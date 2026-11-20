@@ -21,6 +21,14 @@ use Yajra\DataTables\Facades\DataTables;
 
 class JobworkReceiveController extends Controller
 {
+    public function scanActions($slug, $encryptedId)
+    {
+        $company = Company::whereSlug($slug)->firstOrFail();
+        $receive = JobworkReceive::where('company_id', $company->id)->findOrFail((int) Crypt::decryptString($encryptedId));
+        $menu = \App\Services\JobworkReceiveScanActions::menu(auth()->user(), ['voucher_id'=>$receive->id, 'company_id'=>$company->id, 'url'=>'']);
+        return view('company.jobwork_receive.scan_actions', compact('company', 'receive', 'menu'));
+    }
+
     public function index(Request $request, string $slug)
     {
         $company = Company::whereSlug($slug)->firstOrFail();
@@ -275,7 +283,9 @@ class JobworkReceiveController extends Controller
         $issueNetSql = '(select coalesce(sum(jii.net_wt), 0) from jobwork_issue_items jii where jii.jobwork_issue_id = jobwork_issues.id)';
         $receiveNetSql = '(select coalesce(sum(jri.receive_net_wt), 0) from jobwork_receives jr inner join jobwork_receive_items jri on jri.jobwork_receive_id = jr.id where jr.jobwork_issue_id = jobwork_issues.id)';
 
+        $request->validate(['issue_id'=>'sometimes|required|integer|min:1']);
         return JobworkIssue::query()
+            ->when($request->filled('issue_id'), fn ($q) => $q->whereKey($request->integer('issue_id')))
             ->where('company_id', $company->id)
             ->whereHas('items')
             ->with([
@@ -408,7 +418,7 @@ class JobworkReceiveController extends Controller
                 ->map(fn($row) => $this->formatIssueReceiveListRow($company, $row));
         }
 
-        if ($status === '' || $status === 'direct') {
+        if (!$request->filled('issue_id') && ($status === '' || $status === 'direct')) {
             $directRows = $this->directReceiveBaseQuery($company, $request)
                 ->get()
                 ->map(fn($row) => $this->formatDirectReceiveListRow($company, $row));
