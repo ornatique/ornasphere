@@ -49,6 +49,9 @@
             <div class="alert alert-info">This existing archive keeps its original attachment format. Cloud originals are preserved. Local business records and unshared local attachments can be removed for this test.</div>
         @endif
         <p>Status: <strong>{{ ucwords(str_replace('_', ' ', $archiveStatus)) }}</strong></p>
+        @if($archiveStatus==='active' && isset($archiveSummary['last_prepare_failure']))
+            <div class="alert alert-info">The last backup attempt failed before an archive was saved. Company entries are available. Correct the reported issue before retrying.</div>
+        @endif
         @if(!$archiveManagedByParent && !empty($archiveSummary['missing_optional_images']))
             <div class="alert alert-warning">{{ $archiveSummary['missing_optional_images'] }} optional image(s) were missing when this backup was created and are not included. Existing records are preserved; restore cannot recreate these missing images.
                 <details><summary>Missing optional images</summary>

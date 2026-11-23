@@ -108,6 +108,53 @@ class CompanyArchiveScope
         });
     }
 
+    /** Recover only a recorded, handled failure before a ZIP could be saved. */
+    public static function resumeFailedPreparation(int $companyId, ?string $attempt = null): bool
+    {
+        return DB::transaction(function () use ($companyId, $attempt) {
+            $requested=DB::table('company_archive_states')->where('company_id',$companyId)->first();
+            if (!$requested || !in_array($requested->status,['preparing','building'],true)) return false;
+            $requestedSummary=json_decode($requested->summary ?? '{}',true) ?: [];
+            $rootId=(int)($requestedSummary['group_root_id'] ?? $companyId);
+            $rootBefore=DB::table('company_archive_states')->where('company_id',$rootId)->first();
+            if (!$rootBefore) return false;
+            $summaryBefore=json_decode($rootBefore->summary ?? '{}',true) ?: [];
+            $members=$summaryBefore['companies'] ?? [['id'=>$rootId]]; $ids=self::ids($members);
+            if (!in_array($companyId,$ids,true) || !in_array($rootId,$ids,true)) return false;
+            $states=DB::table('company_archive_states')->whereIn('company_id',$ids)->orderBy('company_id')->lockForUpdate()->get();
+            $root=$states->firstWhere('company_id',$rootId);
+            if (!$root || $states->count()!==count($ids)) return false;
+            $summary=json_decode($root->summary ?? '{}',true) ?: [];
+            if (self::ids($summary['companies'] ?? [['id'=>$rootId]])!==$ids || (int)($summary['group_root_id'] ?? $rootId)!==$rootId) return false;
+            // A background request may recover only a completed failure handler, never a live build.
+            if ($root->status!=='preparing' && !($attempt!==null && $root->status==='building')) return false;
+            $progress=$summary['progress'] ?? [];
+            if (($progress['error_code'] ?? null)!=='BUILD_FAILED' || !\Illuminate\Support\Str::isUuid($progress['attempt'] ?? '')
+                || ($attempt!==null && ($progress['attempt'] ?? null)!==$attempt)
+                || !in_array($progress['stage'] ?? null,['checking_records','reading_schema','exporting_records','checking_images','copying_images','encrypting_zip','verifying_zip'],true)) return false;
+            $rootCompany=Company::find($rootId);
+            if (!$rootCompany || self::ids(self::family($rootCompany))!==$ids) return false;
+            foreach ($states as $state) {
+                $memberSummary=json_decode($state->summary ?? '{}',true) ?: [];
+                if ($state->status!==$root->status || (int)$state->active_requests!==0
+                    || $state->archive_id!==null || $state->archive_path!==null || $state->archive_sha256!==null
+                    || $state->verified_at!==null || $state->downloaded_at!==null
+                    || (int)($memberSummary['group_root_id'] ?? $state->company_id)!==$rootId) return false;
+            }
+            if (Schema::hasTable(CompanyArchiveRequestLeases::TABLE)
+                && DB::table(CompanyArchiveRequestLeases::TABLE)->whereIn('company_id',$ids)->exists()) return false;
+            $failure=array_intersect_key($progress,array_flip(['attempt','stage','detail','error_code','updated_at','php_version','memory_limit','max_execution_time']));
+            $failure['resumed_at']=now()->toIso8601String();
+            foreach ($ids as $id) DB::table('company_archive_states')->where('company_id',$id)->update([
+                'status'=>'active','summary'=>$id===$rootId ? json_encode(['last_prepare_failure'=>$failure],JSON_THROW_ON_ERROR) : null,'updated_at'=>now(),
+            ]);
+            DB::connection()->afterCommit(static fn()=>CompanyArchiveLog::lease('failed_prepare_resumed',$rootId,[
+                'root_company_id'=>$rootId,'state'=>'active','active_requests'=>0,
+            ]));
+            return true;
+        });
+    }
+
     public static function update(int $rootId, array $values): void
     {
         DB::transaction(function () use ($rootId,$values) {

@@ -65,6 +65,12 @@ If a process or server dies in `building`, `verifying`, `removing`, `restoring` 
 
 ## Validation
 
+### Handled prepare failures and normal company access
+
+Relationship/ownership checks now run before company pause and are repeated after the request drain. A handled build failure before `saving_zip` may resume the group automatically only when the locked group still matches the failed request UUID, the recorded error is `BUILD_FAILED` at a known pre-save stage, current hierarchy matches, every counter is zero, the tracked-request registry is empty for the group, and no saved archive ID/path/hash/download/verification metadata exists. Only archive control status and failure diagnostics change; business rows and payment links do not.
+
+For legacy `preparing` rows with that same completed-failure evidence, the business-route middleware applies the guarded recovery before access checks. This prevents a failed backup from repeatedly redirecting Jobwork edit to Profile. Root failure diagnostics move to `last_prepare_failure`; branch ownership/pause markers are released together. Unhandled/fatal operations, `building` operations from other requests, saving/saved ZIPs, missing or mixed group controls, nonzero counters and active tracked leases stay protected for review. Successful `ready`/`verified` archives and removal/restore states remain paused as before. This upgrade requires no migration.
+
 ### Automatic cleanup of terminated HTTP requests
 
 Install the runtime-only request registry with this targeted migration (do not run unrelated pending migrations):

@@ -45,9 +45,13 @@ class CompanyArchiveService
         $this->package->assertAvailable();
         CompanyArchiveLog::step('checking_scope');
         CompanyArchiveScope::stateMembers((int)$company->id);
+        CompanyArchiveScope::resumeFailedPreparation((int)$company->id);
         $members=CompanyArchiveScope::family($company); $ids=CompanyArchiveScope::ids($members);
         CompanyArchiveLog::step('checking_schema_policy');
         $this->inventory->coverage(); $this->inventory->assertTransactional($ids);
+        CompanyArchiveLog::step('checking_dependency_preflight');
+        $preflightOrder=$this->inventory->order();
+        $this->inventory->assertNoForeignDependants($ids,$preflightOrder);
         CompanyArchiveLog::step('checking_queue'); $this->queueIdle($ids);
         CompanyArchiveLog::step('checking_staff');
         $staff = app(CompanyArchiveUsers::class);
@@ -96,7 +100,7 @@ class CompanyArchiveService
             $id = (string) Str::uuid();
             CompanyArchiveLog::archive($id);
             $this->queueIdle($ids);
-            $order = $this->inventory->order();
+            $order = $preflightOrder;
             $this->inventory->assertNoForeignDependants($ids, $order);
             $staffIds = $staff->ids($ids);
             $staff->review($ids, $staffIds);
@@ -189,7 +193,10 @@ class CompanyArchiveService
             // Never overwrite the state of another build if our freeze/transition was rejected.
             if ($building) {
                 try { self::recordBuildProgress((int)$company->id,$attempt,$stage,$detail,'BUILD_FAILED'); } catch (\Throwable) {}
-                $this->update($company->id, ['status' => 'preparing']);
+                // This request caught the failure and has not removed any business data.
+                // Resume only if the locked group still belongs to this exact failed attempt.
+                try { CompanyArchiveScope::resumeFailedPreparation((int)$company->id,$attempt); }
+                catch (\Throwable) { /* Failed recovery stays closed for operator review. */ }
             }
             throw $e;
         } finally { $armed = false; $reserve = null; $this->package->cleanup($work); }
