@@ -183,6 +183,18 @@
             margin-top: 7mm;
         }
 
+        .right-label.first.double-barcode-price {
+            margin-top: 7mm;
+        }
+
+        .right-label.double-barcode-price.first-pair-gap-after {
+            margin-bottom: 2.1mm;
+        }
+
+        .left-label.double-barcode-price.sixth-gap-after {
+            margin-bottom: 1.6mm;
+        }
+
         .clear {
             clear: both;
         }
@@ -237,8 +249,8 @@
             <div class="sheet page">
                 <div class="wrapper">
                     <div class="column">
-                        @foreach($leftItems as $item)
-                        <div class="label left-label {{ $labelFormat === 'double_details' ? 'double-details' : '' }}">
+                        @foreach($leftItems as $index => $item)
+                        <div class="label left-label {{ $labelFormat === 'double_details' ? 'double-details' : '' }} {{ $labelFormat === 'double_barcode_price' ? 'double-barcode-price' : '' }} {{ $labelFormat === 'double_barcode_price' && $index === 5 ? 'sixth-gap-after' : '' }}">
                             @if($item)
                             <div class="label-inner">
                                 @if($labelFormat === 'double_details')
@@ -311,7 +323,7 @@
 
                     <div class="column">
                         @foreach($rightItems as $index => $item)
-                        <div class="label right-label {{ $index === 0 ? 'first' : '' }} {{ $labelFormat === 'double_details' ? 'double-details' : '' }}">
+                        <div class="label right-label {{ $index === 0 ? 'first' : '' }} {{ $labelFormat === 'double_details' ? 'double-details' : '' }} {{ $labelFormat === 'double_barcode_price' ? 'double-barcode-price' : '' }} {{ $labelFormat === 'double_barcode_price' && $index === 1 ? 'first-pair-gap-after' : '' }}">
                             @if($item)
                             <div class="label-inner">
                                 @if($labelFormat === 'double_details')

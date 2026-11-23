@@ -221,9 +221,11 @@ class JobworkIssueController extends Controller
         $issue = JobworkIssue::where('company_id', $company->id)->findOrFail($id);
         $validated = $this->validatePayload($request, $company->id, (int) $issue->id);
 
-        DB::transaction(function () use ($issue, $validated) {
+        DB::transaction(function () use ($issue, $validated, $request) {
             app(JobworkRawStock::class)->lock((int) $issue->company_id);
-            $existingIds = app(JobworkRawStock::class)->guardIssueUpdate($issue, $validated);
+            $actor = $request->user();
+            $isCompanyAdmin = $actor && (strtolower((string) $actor->role) === 'company_admin' || $actor->hasRole('company_admin'));
+            $existingIds = app(JobworkRawStock::class)->guardIssueUpdate($issue, $validated, $isCompanyAdmin);
             $issue->update([
                 'jobwork_date' => $validated['jobwork_date'],
                 'job_worker_id' => $validated['job_worker_id'],
