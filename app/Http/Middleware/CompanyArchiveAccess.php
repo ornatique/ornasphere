@@ -34,6 +34,11 @@ class CompanyArchiveAccess
         try {
             foreach ($ids as $id) {
                 $state = CompanyArchiveGate::state($id);
+                if ($state && $state->status==='preparing') {
+                    try {
+                        if (\App\Services\CompanyArchiveScope::resumeFailedPreparation($id)) $state=CompanyArchiveGate::state($id);
+                    } catch (\Throwable) { /* Keep the original archive protection if recovery cannot be proven safe. */ }
+                }
                 if (!config('company_archive.enabled') && (!$state || $state->status === 'active')) continue;
                 // Retained account authentication and an admin's read-only Profile remain available.
                 $accountRoute = $request->routeIs('company.login*', 'company.logout', 'company.2fa.*', 'api.company.login', 'api.company.verify-otp', 'api.company.logout')

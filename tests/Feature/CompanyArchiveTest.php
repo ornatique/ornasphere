@@ -500,6 +500,80 @@ class CompanyArchiveTest extends TestCase
         $this->assertSame($before,$this->databaseSnapshot());
     }
 
+    private function handledPreparationFailureFixture(): string
+    {
+        $this->branch();$attempt=(string)\Illuminate\Support\Str::uuid();
+        foreach ([1,3] as $id) CompanyArchiveGate::ensure($id);
+        $members=\App\Services\CompanyArchiveScope::family($this->company());
+        $progress=['attempt'=>$attempt,'stage'=>'checking_records','error_code'=>'BUILD_FAILED','updated_at'=>now()->toIso8601String()];
+        DB::table('company_archive_states')->where('company_id',1)->update(['status'=>'preparing','summary'=>json_encode(['group_root_id'=>1,'companies'=>$members,'progress'=>$progress])]);
+        DB::table('company_archive_states')->where('company_id',3)->update(['status'=>'preparing','summary'=>'{"group_root_id":1}']);
+        return $attempt;
+    }
+
+    public function test_old_handled_failure_resumes_jobwork_edit_without_business_changes(): void
+    {
+        $this->handledPreparationFailureFixture();CompanyArchiveGate::ensure(2);
+        $before=$this->databaseSnapshot();$other=(array)CompanyArchiveGate::state(2);
+        $request=Request::create('/company/one/jobwork-issues/1/edit');
+        $route=new \Illuminate\Routing\Route('GET','company/{slug}/jobwork-issues/{id}/edit',[
+            'as'=>'company.jobwork-issues.edit','uses'=>'App\\Http\\Controllers\\Company\\JobworkIssueController@edit',
+        ]);
+        $route->bind($request);$request->setRouteResolver(fn()=>$route);$request->setUserResolver(fn()=>User::find(1));
+        $response=(new \App\Http\Middleware\CompanyArchiveAccess)->handle($request,fn()=>response('jobwork edit opened'));
+        $this->assertSame(200,$response->getStatusCode());$this->assertSame('jobwork edit opened',$response->getContent());
+        foreach ([1,3] as $id) {
+            $this->assertSame('active',CompanyArchiveGate::state($id)->status);
+            $this->assertSame(0,(int)CompanyArchiveGate::state($id)->active_requests);
+        }
+        $this->assertNull(CompanyArchiveGate::state(3)->summary);
+        $this->assertSame($other,(array)CompanyArchiveGate::state(2));
+        $after=$this->databaseSnapshot();unset($before['company_archive_states'],$after['company_archive_states']);
+        $this->assertSame($before,$after);
+    }
+
+    public function test_uncertain_or_saved_archive_failures_are_never_auto_resumed(): void
+    {
+        $attempt=$this->handledPreparationFailureFixture();
+        $baseline=DB::table('company_archive_states')->whereIn('company_id',[1,3])->get()->keyBy('company_id');
+        $changes=[
+            [1,['status'=>'building']],[1,['status'=>'ready']],[1,['archive_id'=>(string)\Illuminate\Support\Str::uuid()]],
+            [1,['archive_path'=>'private/retained.zip']],[1,['archive_sha256'=>str_repeat('a',64)]],
+            [1,['active_requests'=>1]],[3,['active_requests'=>1]],[3,['status'=>'archived']],
+            [1,['verified_at'=>now()->toDateTimeString()]],[1,['downloaded_at'=>now()->toDateTimeString()]],
+        ];
+        foreach ($changes as [$id,$values]) {
+            DB::table('company_archive_states')->where('company_id',$id)->update($values);
+            $before=$this->databaseSnapshot();
+            $this->assertFalse(\App\Services\CompanyArchiveScope::resumeFailedPreparation(1));
+            $this->assertSame($before,$this->databaseSnapshot());
+            DB::table('company_archive_states')->where('company_id',$id)->update((array)$baseline[$id]);
+        }
+        foreach ([['stage'=>'saving_zip'],['error_code'=>'PHP_FATAL'],['attempt'=>'not-a-request-id']] as $patch) {
+            $summary=json_decode($baseline[1]->summary,true);$summary['progress']=array_replace($summary['progress'],$patch);
+            DB::table('company_archive_states')->where('company_id',1)->update(['summary'=>json_encode($summary)]);
+            $before=$this->databaseSnapshot();$this->assertFalse(\App\Services\CompanyArchiveScope::resumeFailedPreparation(1));
+            $this->assertSame($before,$this->databaseSnapshot());
+        }
+        DB::table('company_archive_states')->where('company_id',1)->update((array)$baseline[1]);
+        $this->assertFalse(\App\Services\CompanyArchiveScope::resumeFailedPreparation(1,(string)\Illuminate\Support\Str::uuid()));
+        (require database_path('migrations/2026_11_21_230000_create_company_archive_request_leases_table.php'))->up();
+        DB::table('company_archive_request_leases')->insert(['lease_id'=>(string)\Illuminate\Support\Str::uuid(),'company_id'=>1,
+            'owner'=>str_repeat('0',64),'proof'=>str_repeat('0',64),'file_identity'=>'1:1','created_at'=>now()]);
+        $before=$this->databaseSnapshot();$this->assertFalse(\App\Services\CompanyArchiveScope::resumeFailedPreparation(1));
+        $this->assertSame($before,$this->databaseSnapshot());
+        DB::table('company_archive_request_leases')->delete();
+        $this->assertTrue(\App\Services\CompanyArchiveScope::resumeFailedPreparation(1,$attempt));
+    }
+
+    public function test_invalid_payment_links_fail_before_company_is_paused(): void
+    {
+        $this->crossCompanyPaymentFixture();$before=$this->databaseSnapshot();
+        $this->rejected(fn()=>$this->service()->prepare($this->company(),1,$this->password),'sale_payments.sale_id');
+        $this->assertSame($before,$this->databaseSnapshot());
+        $this->assertSame('active',CompanyArchiveGate::state(1)->status ?? 'active');
+    }
+
     public function test_active_http_request_lease_is_released_on_exception(): void
     {
         $middleware = new \App\Http\Middleware\CompanyArchiveAccess;
@@ -1008,7 +1082,7 @@ class CompanyArchiveTest extends TestCase
         $this->staffFixture(); DB::table('sales')->where('id',2)->update(['created_by'=>3]);
         $this->rejected(fn()=>$this->prepared(),'Another company references');
         $this->assertSame(3,DB::table('users')->count()); $this->assertSame(2,DB::table('sales')->count());
-        $this->service()->cancel($this->company());
+        $this->assertSame('active',CompanyArchiveGate::state(1)->status);
         DB::table('sales')->where('id',2)->update(['created_by'=>null]);
         DB::table('worker_allowed_devices')->where('id',1)->update(['company_id'=>2]);
         $this->rejected(fn()=>$this->prepared(),'Another company has device records');
@@ -1204,12 +1278,11 @@ class CompanyArchiveTest extends TestCase
     {
         $this->branch();
         $inventory=\Mockery::mock(CompanyArchiveInventory::class)->makePartial();
-        $inventory->shouldReceive('order')->once()->andThrow(new \RuntimeException('test-build-failure'));
+        $inventory->shouldReceive('assertNoForeignDependants')->once()->andReturnNull();
+        $inventory->shouldReceive('assertNoForeignDependants')->once()->andThrow(new \RuntimeException('test-build-failure'));
         $service=new CompanyArchiveService($inventory,app(CompanyArchivePackage::class));
         try { $service->prepare($this->company(),1,$this->password); $this->fail('Expected build failure.'); }
         catch (\RuntimeException $e) { $this->assertSame('test-build-failure',$e->getMessage()); }
-        foreach ([1,3] as $id) $this->assertSame('preparing',CompanyArchiveGate::state($id)->status);
-        $this->service()->cancel($this->company());
         foreach ([1,3] as $id) $this->assertSame('active',CompanyArchiveGate::state($id)->status);
         $this->prepared(); $this->rejected(fn()=>$this->service()->prepare($this->company(),1,$this->password),'already has an archive');
         foreach ([1,3] as $id) $this->assertSame('ready',CompanyArchiveGate::state($id)->status);
@@ -1224,16 +1297,16 @@ class CompanyArchiveTest extends TestCase
         try { $service->prepare($this->company(),1,$this->password); $this->fail('Expected ZIP failure.'); }
         catch (\RuntimeException $e) { $this->assertStringContainsString('private-server-path',$e->getMessage()); }
         $state=CompanyArchiveGate::state(1); $summary=json_decode($state->summary,true);
-        $this->assertSame('preparing',$state->status); $this->assertSame('encrypting_zip',$summary['progress']['stage']);
-        $this->assertSame('BUILD_FAILED',$summary['progress']['error_code']); $this->assertNotEmpty($summary['progress']['updated_at']);
+        $this->assertSame('active',$state->status); $this->assertSame('encrypting_zip',$summary['last_prepare_failure']['stage']);
+        $this->assertSame('BUILD_FAILED',$summary['last_prepare_failure']['error_code']); $this->assertNotEmpty($summary['last_prepare_failure']['updated_at']);
         $this->assertStringNotContainsString($this->password,$state->summary); $this->assertStringNotContainsString('private-server-path',$state->summary);
         $html=view('company.profile.archive',['company'=>$this->company(),'user'=>User::find(1)])->with('errors',new \Illuminate\Support\ViewErrorBag)->render();
-        $this->assertStringContainsString('Encrypting ZIP',$html); $this->assertStringContainsString('BUILD_FAILED',$html);
+        $this->assertStringContainsString('Company entries are available',$html); $this->assertStringNotContainsString('Backup error code:',$html);
         $this->assertStringNotContainsString('0 records in the archive',$html);
         $this->apiAdmin();
-        $this->getJson('/api/company/archive/status')->assertOk()->assertJsonPath('data.summary.progress.stage','encrypting_zip');
+        $this->getJson('/api/company/archive/status')->assertOk()->assertJsonPath('data.status','active');
         $this->assertSame(2,DB::table('sales')->count()); $this->assertSame(3,DB::table('users')->count());
-        $this->service()->cancel($this->company()); $this->assertNull(CompanyArchiveGate::state(1)->summary);
+        $this->prepared(); $this->assertSame('ready',CompanyArchiveGate::state(1)->status);
     }
 
     public function test_missing_zip_support_fails_before_any_workspace_is_paused(): void

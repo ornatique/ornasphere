@@ -74,7 +74,7 @@ class CompanyArchiveLog
     public static function lease(string $event, int $companyId, array $metadata): void
     {
         if (!in_array($event, ['request_admitted','request_released','request_denied','requests_not_drained',
-            'request_recovered','request_cleanup_deferred','request_cleanup_failed','stale_request_cleared','untracked_requests_retained'], true)) return;
+            'request_recovered','request_cleanup_deferred','request_cleanup_failed','stale_request_cleared','untracked_requests_retained','failed_prepare_resumed'], true)) return;
         try {
             $context = ['company_id'=>$companyId, 'reference'=>self::reference(), 'process_id'=>getmypid(),
                 'operation'=>'request_lease', 'stage'=>$event];
