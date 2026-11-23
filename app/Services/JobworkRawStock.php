@@ -66,7 +66,7 @@ class JobworkRawStock
         }
     }
 
-    public function guardIssueUpdate(JobworkIssue $issue, array $data): ?array
+    public function guardIssueUpdate(JobworkIssue $issue, array $data, bool $allowAdminWeightChanges = false): ?array
     {
         if (!DB::table('jobwork_receives')->where('jobwork_issue_id', $issue->id)->exists()) return null;
         foreach (['jobwork_date', 'job_worker_id', 'production_step_id'] as $key) {
@@ -77,15 +77,40 @@ class JobworkRawStock
         }
         $submitted = collect($data['items'])->keyBy('id');
         $existing = $issue->items()->get();
+        $weightFields = ['gross_wt', 'other_wt', 'net_wt', 'fine_wt'];
         foreach ($existing as $line) {
             $row = $submitted->get($line->id);
             if (!$row) throw ValidationException::withMessages(['items' => 'Keep existing issue rows and their IDs. Add additional material as a new row.']);
             foreach (['item_id','gross_wt','other_wt','other_amt','purity','net_purity','net_wt','fine_wt','qty_pcs','total_amt'] as $key) {
+                if ($allowAdminWeightChanges && in_array($key, $weightFields, true)) continue;
                 if (abs((float) $line->$key - (float) ($row[$key] ?? 0)) > 0.00001) {
                     throw ValidationException::withMessages(['items' => 'Existing issue quantities cannot change after receipts. Add additional material as a new row.']);
                 }
             }
         }
+
+        if ($allowAdminWeightChanges) {
+            $issuedByItem = collect($data['items'])->groupBy(fn ($row) => (int) $row['item_id'])
+                ->map(fn ($rows) => round($rows->sum(fn ($row) => (float) ($row['net_wt'] ?? 0)), 3));
+            $returnedByItem = DB::table('jobwork_receive_items as ri')
+                ->join('jobwork_receives as r', 'r.id', '=', 'ri.jobwork_receive_id')
+                ->where('r.company_id', $issue->company_id)
+                ->where('r.jobwork_issue_id', $issue->id)
+                ->selectRaw('ri.item_id, SUM(ri.receive_net_wt) as returned_net')
+                ->groupBy('ri.item_id')->get();
+
+            foreach ($returnedByItem as $returned) {
+                $issuedNet = (float) ($issuedByItem->get((int) $returned->item_id) ?? 0);
+                if ((float) $returned->returned_net > $issuedNet + 0.0005) {
+                    $itemName = DB::table('items')->where('id', $returned->item_id)->value('item_name') ?: 'This item';
+                    throw ValidationException::withMessages(['items' => "$itemName: issued net weight cannot be reduced below the already received weight of ".number_format((float) $returned->returned_net, 3, '.', '').' g.']);
+                }
+            }
+
+            // Admin weight edits need the raw-stock allocations rebuilt for the new issue totals.
+            return null;
+        }
+
         return $existing->pluck('id')->all();
     }
 

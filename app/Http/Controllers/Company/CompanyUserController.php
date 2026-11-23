@@ -323,7 +323,7 @@ class CompanyUserController extends Controller
                 'paid_user_created',
                 'New paid user added',
                 $company->name . ': ' . $seatMessage,
-                'superadmin.companies.edit',
+                'superadmin.companies.show',
                 ['company' => $company->id],
                 $user
             );

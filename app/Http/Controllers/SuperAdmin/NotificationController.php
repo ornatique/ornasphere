@@ -21,6 +21,12 @@ class NotificationController extends Controller
     {
         SuperAdminNotificationService::markRead($notification);
 
+        // Older notifications target the company edit form, which is intentionally blocked
+        // while archive/restore is active. Send these clicks to the read-only details page.
+        if ($notification->route_name === 'superadmin.companies.edit' && !empty($notification->route_params['company'])) {
+            return redirect()->route('superadmin.companies.show', ['company' => $notification->route_params['company']]);
+        }
+
         if (!empty($notification->route_name) && Route::has($notification->route_name)) {
             try {
                 return redirect()->to(route($notification->route_name, $notification->route_params ?: []));

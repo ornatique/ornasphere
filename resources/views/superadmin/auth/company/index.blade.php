@@ -29,7 +29,7 @@
                                     <th>Email</th>
                                     <th>Users</th>
                                     <th>Plan Status</th>
-                                    <th>Login setup</th>
+                                    <th>Login URL / setup</th>
                                     <th>Status</th>
                                     <th>Manage company</th>
                                 </tr>
@@ -120,15 +120,15 @@
     #companyTable tbody tr:hover {background:#2c2e44}
     #companyTable td:nth-child(3) {min-width:180px;white-space:normal}
     #companyTable td:nth-child(4) {max-width:230px;white-space:normal;overflow-wrap:anywhere}
-    #companyTable td:nth-child(7) {min-width:165px}
+    #companyTable td:nth-child(7) {min-width:145px}
     #companyTable td:last-child {min-width:245px;white-space:normal}
     #companyTable td:last-child .btn {margin:3px 2px}
     #companyTable .form-switch {margin-left:0!important;padding-left:2.5em}
     #companyTable .form-check-input {width:36px;height:20px;cursor:pointer}
     #companyTable .plan-status-cell small {font-size:11px;font-weight:400}
-    .login-setup-actions {display:flex;flex-direction:column;gap:6px;width:150px;max-width:100%}
+    .login-setup-actions {display:flex;flex-direction:column;gap:4px;width:130px;max-width:100%}
     .login-setup-actions form {display:block;width:100%;margin:0}
-    .login-setup-actions .btn {display:block;width:100%;min-height:36px;margin:0!important;white-space:nowrap}
+    .login-setup-actions .btn {display:block;width:100%;min-height:30px;padding:5px 7px!important;margin:0!important;font-size:10px!important;line-height:1.2!important;white-space:nowrap}
     .setup-link-expiry {font-size:10px;color:#c8c9d5;line-height:1.3}
     .company-list-page .dataTables_filter input,.company-list-page .dataTables_length select {min-height:38px;border:1px solid #565a7a;border-radius:7px;background:#303149;color:#fff;padding:6px 10px}
     .company-list-page .dataTables_filter,.company-list-page .dataTables_length {margin-bottom:20px}
@@ -372,20 +372,32 @@
 </script>
 <script>
 
-$(document).on('click', '.copyBtn', function() {
+$(document).on('click', '.copyBtn', async function() {
+    const button = $(this);
+    const url = String(button.data('url') || '');
+    if (!url) return;
 
-    var url = $(this).data('url');
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(url);
+        } else {
+            const input = document.createElement('textarea');
+            input.value = url;
+            input.setAttribute('readonly', '');
+            input.style.position = 'fixed';
+            input.style.opacity = '0';
+            document.body.appendChild(input);
+            input.select();
+            const copied = document.execCommand('copy');
+            input.remove();
+            if (!copied) throw new Error('Clipboard copy was denied.');
+        }
 
-    navigator.clipboard.writeText(url).then(function() {
-
-       
-
-    }).catch(function(err) {
-
-        console.error('Copy failed', err);
-
-    });
-
+        const label = button.hasClass('copy-login-url') ? 'Company login URL copied.' : 'Password setup link copied.';
+        Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: label, showConfirmButton: false, timer: 1800 });
+    } catch (error) {
+        Swal.fire({ icon: 'error', title: 'Copy failed', text: 'Select and copy the URL manually, or allow clipboard access in your browser.' });
+    }
 });
 
 </script>

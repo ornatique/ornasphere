@@ -77,29 +77,34 @@ class CompanyController extends Controller
                 })
                 ->addColumn('password_set_url', function ($row) {
                     $adminUser = $row->users->first();
-                    $copyButton = '<button type="button" class="btn btn-sm btn-info" disabled>No setup link</button>';
+                    $companyLoginUrl = route('company.login', ['slug' => $row->slug]);
+                    $buttons = '<button type="button" class="btn btn-sm btn-primary copyBtn copy-login-url" data-url="' . e($companyLoginUrl) . '">Copy Login URL</button>';
 
-                    if ($adminUser && $adminUser->password_changed) {
-                        $copyButton = '<button type="button" class="btn btn-sm btn-info" disabled>Password already set</button>';
-                    } elseif ($adminUser && $adminUser->password_set_url && $adminUser->password_setup_expires_at) {
-                        $expiresAt = Carbon::parse($adminUser->password_setup_expires_at);
-                        if ($expiresAt->isFuture()) {
-                            $copyButton = '<button type="button" class="btn btn-sm btn-info copyBtn" data-url="' . e($adminUser->password_set_url) . '">Copy Link</button>'
-                                . '<small class="setup-link-expiry">Expires: ' . e($expiresAt->format('d-m-Y h:i A')) . '</small>';
-                        } else {
-                            $copyButton = '<button type="button" class="btn btn-sm btn-danger" disabled>Link expired</button>'
-                                . '<small class="setup-link-expiry">Expired: ' . e($expiresAt->format('d-m-Y h:i A')) . '</small>';
+                    // Password setup actions only apply while the company admin has not set a password.
+                    if ($adminUser && !$adminUser->password_changed) {
+                        $copySetupButton = '<button type="button" class="btn btn-sm btn-info" disabled>No setup link</button>';
+
+                        if ($adminUser->password_set_url && $adminUser->password_setup_expires_at) {
+                            $expiresAt = Carbon::parse($adminUser->password_setup_expires_at);
+                            if ($expiresAt->isFuture()) {
+                                $copySetupButton = '<button type="button" class="btn btn-sm btn-info copyBtn copy-setup-url" data-url="' . e($adminUser->password_set_url) . '">Copy Setup Link</button>'
+                                    . '<small class="setup-link-expiry">Expires: ' . e($expiresAt->format('d-m-Y h:i A')) . '</small>';
+                            } else {
+                                $copySetupButton = '<button type="button" class="btn btn-sm btn-danger" disabled>Link expired</button>'
+                                    . '<small class="setup-link-expiry">Expired: ' . e($expiresAt->format('d-m-Y h:i A')) . '</small>';
+                            }
+                        } elseif ($adminUser->password_set_url) {
+                            $copySetupButton = '<button type="button" class="btn btn-sm btn-danger" disabled>Link status unknown</button>';
                         }
-                    } elseif ($adminUser && $adminUser->password_set_url) {
-                        $copyButton = '<button type="button" class="btn btn-sm btn-danger" disabled>Link status unknown</button>';
+
+                        $buttons .= $copySetupButton
+                            . '<form method="POST" action="' . route('superadmin.companies.regenerate-password-link', $row->id) . '" onsubmit="return confirm(\'Generate a fresh 24-hour password setup link? The old link will stop working.\')">'
+                            . csrf_field()
+                            . '<button type="submit" class="btn btn-sm btn-warning">Generate New Link</button>'
+                            . '</form>';
                     }
 
-                    return '<div class="login-setup-actions">'
-                        . $copyButton
-                        . '<form method="POST" action="' . route('superadmin.companies.regenerate-password-link', $row->id) . '" onsubmit="return confirm(\'Generate a fresh 24-hour password setup link? The old link will stop working.\')">'
-                        . csrf_field()
-                        . '<button type="submit" class="btn btn-sm btn-warning">Generate New Link</button>'
-                        . '</form></div>';
+                    return '<div class="login-setup-actions">' . $buttons . '</div>';
                 })
                 ->addColumn('logo', function ($row) {
                     $defaultLogo = asset('celestial/assets/images/ornasphere-auth-logo.png') . '?v=' . @filemtime(public_path('celestial/assets/images/ornasphere-auth-logo.png'));
@@ -190,6 +195,18 @@ class CompanyController extends Controller
         }
 
         return view('superadmin.auth.company.index');
+    }
+
+    /** Read-only destination for notifications, including companies paused for archive/restore. */
+    public function show(Company $company)
+    {
+        $company->loadCount(['users', 'branches'])
+            ->load(['users' => fn ($query) => $query->select('id', 'company_id', 'name', 'email', 'role', 'is_active')
+                ->orderBy('name')]);
+
+        $archiveState = \App\Services\CompanyArchiveGate::state((int) $company->id);
+
+        return view('superadmin.auth.company.show', compact('company', 'archiveState'));
     }
 
     public function validityReport(Request $request)
