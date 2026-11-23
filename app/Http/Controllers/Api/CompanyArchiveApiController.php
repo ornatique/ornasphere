@@ -95,12 +95,10 @@ class CompanyArchiveApiController extends Controller
     private function downloadArchive(Company $company)
     {
         \App\Services\CompanyArchiveLog::step('checking_download_state');
-        $state = DB::transaction(function () use ($company) {
-            $state = DB::table('company_archive_states')->where('company_id',$company->id)->lockForUpdate()->first();
-            CompanyArchiveGate::check($state && in_array($state->status,['ready','verified'],true) && $state->archive_path,'No downloadable archive is ready.');
-            DB::table('company_archive_states')->where('company_id',$company->id)->increment('active_requests');
-            return $state;
-        });
+        $leases = [];
+        $release = CompanyArchiveGate::protectRequests($leases);
+        $state = CompanyArchiveGate::enterDownload((int)$company->id);
+        $leases[] = (int)$company->id;
         \App\Services\CompanyArchiveLog::archive($state->archive_id);
         try {
             \App\Services\CompanyArchiveLog::step('checking_download_file');
@@ -109,14 +107,14 @@ class CompanyArchiveApiController extends Controller
             $response = $disk->download($state->archive_path,'company-'.$company->slug.'-'.$state->archive_id.'.zip',
                 ['Cache-Control'=>'private, no-store','X-Content-Type-Options'=>'nosniff']);
             $callback = $response->getCallback();
-            $response->setCallback(function () use ($callback,$company) {
-                try { $callback(); } finally { CompanyArchiveGate::leave((int)$company->id); }
+            $response->setCallback(function () use ($callback,$release) {
+                try { $callback(); } finally { $release(); }
             });
             // Initiation is not proof of a saved file; upload verification remains mandatory.
             DB::table('company_archive_states')->where('company_id',$company->id)->update(['downloaded_at'=>now()]);
             \App\Services\CompanyArchiveLog::step('download_response_prepared',['bytes'=>$disk->size($state->archive_path)]);
             return $response;
-        } catch (\Throwable $e) { CompanyArchiveGate::leave((int)$company->id); throw $e; }
+        } catch (\Throwable $e) { $release(); throw $e; }
     }
 
     public function verify(Request $request, CompanyArchiveService $service)

@@ -89,6 +89,14 @@ class CompanyArchiveScope
             $root=$states->firstWhere('company_id',$rootId);
             CompanyArchiveGate::check($root && $states->count() === count($ids), 'Archive branch controls are incomplete.');
             CompanyArchiveGate::check(self::ids(self::stateMembers($rootId,$root))===$ids,'Archive branch scope changed. Refresh and retry.');
+            foreach ($states as $state) CompanyArchiveGate::reconcile($state);
+            // Log every blocking member, including branches after the first failing check.
+            foreach ($states as $state) {
+                if ((int)$state->active_requests !== 0) CompanyArchiveLog::lease('requests_not_drained', (int)$state->company_id, [
+                    'root_company_id'=>$rootId, 'active_requests'=>(int)$state->active_requests,
+                    'state'=>$state->status, 'state_updated_at'=>$state->updated_at, 'target_state'=>$to,
+                ]);
+            }
             foreach ($states as $state) {
                 CompanyArchiveGate::check(in_array($state->status,$from,true) && $state->archive_id === $root->archive_id, 'Another archive operation is running, or this action is not available. Company/branch states must match.');
                 $summary=json_decode($state->summary??'{}',true)?:[];

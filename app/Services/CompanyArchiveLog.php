@@ -70,6 +70,36 @@ class CompanyArchiveLog
         if ($key !== null && $id && Str::isUuid($id)) self::$stack[$key]['archive_id'] = $id;
     }
 
+    /** Request correlation uses generated IDs and named routes only, never URLs or input. */
+    public static function lease(string $event, int $companyId, array $metadata): void
+    {
+        if (!in_array($event, ['request_admitted','request_released','request_denied','requests_not_drained',
+            'request_recovered','request_cleanup_deferred','request_cleanup_failed','stale_request_cleared','untracked_requests_retained'], true)) return;
+        try {
+            $context = ['company_id'=>$companyId, 'reference'=>self::reference(), 'process_id'=>getmypid(),
+                'operation'=>'request_lease', 'stage'=>$event];
+            $context += array_intersect_key($metadata, array_flip([
+                'root_company_id','active_requests','state','state_updated_at','lease_mode','target_state','lease_id',
+            ]));
+            if (app()->bound('request')) {
+                $request = request();
+                $reference = $request->attributes->get('company_archive_request_reference');
+                if (!is_string($reference) || !Str::isUuid($reference)) {
+                    $reference = (string)Str::uuid();
+                    $request->attributes->set('company_archive_request_reference', $reference);
+                    $request->attributes->set('company_archive_request_started', hrtime(true));
+                }
+                $context['request_reference'] = $reference;
+                $context['method'] = $request->method();
+                $context['route_name'] = $request->route()?->getName();
+                $context['elapsed_ms'] = round((hrtime(true) - $request->attributes->get('company_archive_request_started', hrtime(true))) / 1e6, 2);
+            }
+            self::emit($event, $context, in_array($event,['requests_not_drained','request_cleanup_deferred','request_cleanup_failed','untracked_requests_retained'],true) ? 'warning' : 'info');
+        } catch (\Throwable) {
+            // Diagnostics must never change request admission/release or expose exception details.
+        }
+    }
+
     private static function errorCode(\Throwable $error): string
     {
         if ($error instanceof ValidationException) return 'VALIDATION_REJECTED';
@@ -100,13 +130,18 @@ class CompanyArchiveLog
         $scope = self::$stack[$key] ?? null; if (!$scope) return;
         $context = array_intersect_key($scope,array_flip(['reference','archive_id','company_id','operation','stage']));
         $context += ['elapsed_ms'=>round((hrtime(true)-$scope['started'])/1e6,2),'memory_bytes'=>memory_get_usage(true),'peak_memory_bytes'=>memory_get_peak_usage(true)];
+        self::emit($event, [...$context,...$metadata], $level);
+    }
+
+    private static function emit(string $event, array $context, string $level): void
+    {
         try {
             // Independent of LOG_CHANNEL/LOG_LEVEL; never forwards to Slack or other remote channels.
             Log::build(['driver'=>'daily','path'=>storage_path('logs/company-archive.log'),'days'=>14,'level'=>'debug',
-                'permission'=>0600,'locking'=>true])->log($level,'company_archive.'.$event,[...$context,...$metadata]);
+                'permission'=>0600,'locking'=>true])->log($level,'company_archive.'.$event,$context);
         } catch (\Throwable) {
             // Logging failure must not interrupt an archive or roll back a successful restore.
-            try { @error_log('company_archive.log_unavailable '.json_encode(['event'=>$event,...$context,...$metadata])); } catch (\Throwable) {}
+            try { @error_log('company_archive.log_unavailable '.json_encode(['event'=>$event,...$context])); } catch (\Throwable) {}
         }
     }
 }

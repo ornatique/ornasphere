@@ -51,7 +51,18 @@
         <p>Status: <strong>{{ ucwords(str_replace('_', ' ', $archiveStatus)) }}</strong></p>
         @if(!$archiveManagedByParent && !empty($archiveSummary['missing_optional_images']))
             <div class="alert alert-warning">{{ $archiveSummary['missing_optional_images'] }} optional image(s) were missing when this backup was created and are not included. Existing records are preserved; restore cannot recreate these missing images.
-                <details><summary>Missing optional images</summary>@foreach(($archiveSummary['missing_optional_sources'] ?? []) as $source)<div>{{ $source }}</div>@endforeach</details>
+                <details><summary>Missing optional images</summary>
+                    @foreach(($archiveSummary['missing_optional_sources'] ?? []) as $source)
+                        @php
+                            $displaySource = $source;
+                            if (preg_match('/^companies record #(\d+), field company_logo, storage [^,]+$/D', (string)$source, $sourceMatch)) {
+                                $sourceCompany = collect($archiveMembers)->firstWhere('id', (int)$sourceMatch[1]);
+                                $displaySource = ($sourceCompany['name'] ?? 'Company').' — Company logo missing';
+                            }
+                        @endphp
+                        <div>{{ $displaySource }}</div>
+                    @endforeach
+                </details>
             </div>
         @endif
         @if(!$archiveManagedByParent && isset($archiveSummary['progress']))
@@ -159,9 +170,9 @@
         if (spinner) spinner.hidden = true;
         if (label) label.textContent = label.dataset.originalLabel || label.textContent;
     };
-    const startingNativeDownload = form => {
+    const startingNativeDownload = (form, message = 'Starting download…') => {
         const label = form.querySelector('[data-backup-button-label]');
-        if (label) label.textContent = 'Starting download…';
+        if (label) label.textContent = message;
         // Native large-file downloads expose no completion event. Show startup only;
         // the browser handles transfer progress without buffering a large ZIP in memory.
         let timer;

@@ -278,6 +278,228 @@ class CompanyArchiveTest extends TestCase
         $this->assertSame('restore', $middleware->handle($request,fn()=>response('restore'))->getContent());
     }
 
+    public function test_request_lease_logs_pair_on_exception_without_request_secrets(): void
+    {
+        $this->app->useStoragePath(sys_get_temp_dir().'/archive-lease-'.bin2hex(random_bytes(5)));
+        $request=Request::create('/company/one/items?token=PRIVATE-QUERY-CANARY','POST',[
+            'current_password'=>'PRIVATE-PASSWORD-CANARY',
+        ]);
+        $request->headers->set('Authorization','Bearer PRIVATE-TOKEN-CANARY');
+        $route=new \Illuminate\Routing\Route('POST','company/{slug}/items',['as'=>'company.items.store','uses'=>fn()=>null]);
+        $route->bind($request); $request->setRouteResolver(fn()=>$route);
+        $this->app->instance('request',$request); $request->setUserResolver(fn()=>User::find(1));
+        try {
+            (new \App\Http\Middleware\CompanyArchiveAccess)->handle($request, function () {
+                throw new \RuntimeException('PRIVATE-EXCEPTION-CANARY');
+            });
+            $this->fail('Expected request exception.');
+        } catch (\RuntimeException $e) { $this->assertSame('PRIVATE-EXCEPTION-CANARY',$e->getMessage()); }
+        $events=$this->archiveLogEvents();
+        $this->assertSame(['request_admitted','request_released'],array_column($events,'event'));
+        $this->assertSame([1,0],array_column($events,'active_requests'));
+        $this->assertSame($events[0]['request_reference'],$events[1]['request_reference']);
+        $this->assertTrue(\Illuminate\Support\Str::isUuid($events[0]['request_reference']));
+        $this->assertSame('company.items.store',$events[0]['route_name']);
+        $this->assertSame(0,(int)CompanyArchiveGate::state(1)->active_requests);
+        $log=file_get_contents(storage_path('logs/company-archive-'.date('Y-m-d').'.log'));
+        foreach (['PRIVATE-QUERY-CANARY','PRIVATE-PASSWORD-CANARY','PRIVATE-TOKEN-CANARY','PRIVATE-EXCEPTION-CANARY','one@example.test'] as $secret) $this->assertStringNotContainsString($secret,$log);
+    }
+
+    public function test_busy_group_logs_all_blocking_counters_without_clearing_them(): void
+    {
+        $this->app->useStoragePath(sys_get_temp_dir().'/archive-busy-'.bin2hex(random_bytes(5)));
+        $this->branch(); CompanyArchiveGate::enter(1); CompanyArchiveGate::enter(3);
+        $this->rejected(fn()=>$this->service()->prepare($this->company(),1,$this->password),'requests are still finishing');
+        $events=array_values(array_filter($this->archiveLogEvents(),fn($e)=>$e['event']==='requests_not_drained'));
+        $this->assertSame([1,3],array_column($events,'company_id'));
+        foreach ($events as $event) {
+            $this->assertSame(1,$event['root_company_id']); $this->assertSame(1,$event['active_requests']);
+            $this->assertSame('preparing',$event['state']); $this->assertSame('building',$event['target_state']);
+            $this->assertTrue(\Illuminate\Support\Str::isUuid($event['reference']));
+        }
+        foreach ([1,3] as $id) {
+            $this->assertSame(1,(int)CompanyArchiveGate::state($id)->active_requests);
+            $this->assertSame('preparing',CompanyArchiveGate::state($id)->status);
+            CompanyArchiveGate::leave($id);
+        }
+    }
+
+    public function test_request_cleanup_is_once_only_and_never_clears_other_requests(): void
+    {
+        CompanyArchiveGate::ensure(1);
+        DB::table('company_archive_states')->where('company_id',1)->update(['active_requests'=>2]);
+        $leases=[]; $release=CompanyArchiveGate::protectRequests($leases);
+        $this->assertTrue(CompanyArchiveGate::enter(1)); $leases[]=1;
+        $this->assertSame(3,(int)CompanyArchiveGate::state(1)->active_requests);
+        $release(); $release();
+        $this->assertSame([],$leases);
+        $this->assertSame(2,(int)CompanyArchiveGate::state(1)->active_requests);
+    }
+
+    public function test_shutdown_releases_only_owned_counter_on_exit_fatal_and_abandoned_transaction(): void
+    {
+        foreach (['exit','fatal','transaction_fatal'] as $scenario) {
+            $storage=storage_path('framework/testing/request-shutdown-'.\Illuminate\Support\Str::uuid());
+            \Illuminate\Support\Facades\File::ensureDirectoryExists($storage);
+            $database=$storage.'/fixture.sqlite'; touch($database);
+            $base=base_path();
+            $code='require '.var_export($base.'/vendor/autoload.php',true).'; $app=require '.var_export($base.'/bootstrap/app.php',true).'; '
+                .'$app->useStoragePath('.var_export($storage,true).'); $app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap(); '
+                .'(require '.var_export($base.'/database/migrations/2026_10_31_120000_create_company_archive_states_table.php',true).')->up(); '
+                .'Illuminate\\Support\\Facades\\Schema::create("items",function($t){$t->id(); $t->string("name");}); '
+                .'Illuminate\\Support\\Facades\\DB::table("items")->insert(["name"=>"unchanged"]); '
+                .'App\\Services\\CompanyArchiveGate::ensure(1); Illuminate\\Support\\Facades\\DB::table("company_archive_states")->where("company_id",1)->update(["active_requests"=>2]); '
+                .'$leases=[]; $release=App\\Services\\CompanyArchiveGate::protectRequests($leases); App\\Services\\CompanyArchiveGate::enter(1); $leases[]=1; ';
+            if ($scenario==='transaction_fatal') $code.='Illuminate\\Support\\Facades\\DB::beginTransaction(); Illuminate\\Support\\Facades\\DB::table("items")->insert(["name"=>"must roll back"]); ';
+            $code.=$scenario==='exit' ? 'exit(0);' : 'set_error_handler(static fn()=>false); trigger_error("PRIVATE-FATAL-CANARY",E_USER_ERROR);';
+            $process=new \Symfony\Component\Process\Process([PHP_BINARY,'-d','xdebug.mode=off','-d','xdebug.log=','-r',$code],$base,
+                ['APP_ENV'=>'testing','DB_CONNECTION'=>'sqlite','DB_DATABASE'=>$database,'CACHE_STORE'=>'array','SESSION_DRIVER'=>'array','QUEUE_CONNECTION'=>'sync','LOG_CHANNEL'=>'null','LARAVEL_STORAGE_PATH'=>$storage]);
+            $process->run();
+            if ($scenario==='exit') $this->assertSame(0,$process->getExitCode(),$process->getErrorOutput());
+            else $this->assertNotSame(0,$process->getExitCode());
+            $pdo=new \PDO('sqlite:'.$database);
+            $this->assertSame(2,(int)$pdo->query('SELECT active_requests FROM company_archive_states WHERE company_id=1')->fetchColumn(),$scenario);
+            $this->assertSame(['unchanged'],$pdo->query('SELECT name FROM items')->fetchAll(\PDO::FETCH_COLUMN),$scenario);
+            $log=file_get_contents($storage.'/logs/company-archive-'.date('Y-m-d').'.log');
+            $this->assertStringContainsString('company_archive.request_recovered',$log);
+            $this->assertStringNotContainsString('PRIVATE-FATAL-CANARY',$log);
+        }
+    }
+
+    private function legacyVacuumFixture(): void
+    {
+        Schema::create('vacuum_buchs',function(Blueprint $t){$t->id();$t->unsignedBigInteger('company_id');});
+        Schema::create('vacuum_vouchers',function(Blueprint $t){$t->id();$t->unsignedBigInteger('company_id');});
+        Schema::create('vacuum_voucher_items',function(Blueprint $t){
+            $t->id();$t->unsignedBigInteger('vacuum_voucher_id');$t->unsignedBigInteger('vacuum_buch_id');$t->string('remarks');
+        });
+        DB::table('vacuum_buchs')->insert([['id'=>200,'company_id'=>1],['id'=>201,'company_id'=>2]]);
+        DB::table('vacuum_vouchers')->insert([['id'=>300,'company_id'=>1],['id'=>301,'company_id'=>2]]);
+        DB::table('vacuum_voucher_items')->insert([
+            ['id'=>400,'vacuum_voucher_id'=>999,'vacuum_buch_id'=>200,'remarks'=>'Own legacy orphan'],
+            ['id'=>401,'vacuum_voucher_id'=>1000,'vacuum_buch_id'=>201,'remarks'=>'Other legacy orphan'],
+            ['id'=>402,'vacuum_voucher_id'=>300,'vacuum_buch_id'=>200,'remarks'=>'Own current item'],
+            ['id'=>403,'vacuum_voucher_id'=>301,'vacuum_buch_id'=>201,'remarks'=>'Other current item'],
+        ]);
+    }
+
+    public function test_missing_legacy_voucher_items_round_trip_verbatim_via_owned_buch(): void
+    {
+        $this->legacyVacuumFixture();
+        $before=DB::table('vacuum_voucher_items')->orderBy('id')->get()->map(fn($r)=>(array)$r)->all();
+        $this->assertSame([400,402],app(CompanyArchiveInventory::class)->query('vacuum_voucher_items',1)->orderBy('id')->pluck('id')->all());
+        $path=$this->archived();
+        $this->assertSame([401,403],DB::table('vacuum_voucher_items')->orderBy('id')->pluck('id')->all());
+        $this->assertSame(1,DB::table('vacuum_buchs')->where('company_id',2)->count());
+        $this->service()->restore($this->company(),$path,$this->password);
+        $this->assertSame($before,DB::table('vacuum_voucher_items')->orderBy('id')->get()->map(fn($r)=>(array)$r)->all());
+        $this->assertFalse(DB::table('vacuum_vouchers')->where('id',999)->exists());
+    }
+
+    public function test_existing_other_company_voucher_link_still_blocks_buch_archive(): void
+    {
+        $this->legacyVacuumFixture();
+        DB::table('vacuum_voucher_items')->insert(['id'=>404,'vacuum_voucher_id'=>301,'vacuum_buch_id'=>200,'remarks'=>'Cross-company link must block']);
+        $this->rejected(fn()=>$this->service()->prepare($this->company(),1,$this->password),'Other-company or retained records reference vacuum_buchs');
+        $this->assertSame(5,DB::table('vacuum_voucher_items')->count());
+        $this->assertSame(2,DB::table('vacuum_buchs')->count());
+    }
+
+    public function test_existing_archive_remains_restorable_after_request_tracking_is_installed(): void
+    {
+        $path=$this->archived();
+        $inventory=app(CompanyArchiveInventory::class); $before=$inventory->schema();
+        $policy=hash('sha256',json_encode(config('company_archive')));
+        (require database_path('migrations/2026_11_21_230000_create_company_archive_request_leases_table.php'))->up();
+        $inventory->refreshMetadata();
+        $this->assertSame($before,$inventory->schema());
+        $this->assertSame($policy,hash('sha256',json_encode(config('company_archive'))));
+        $this->assertNotContains('company_archive_request_leases',array_keys($inventory->schema()));
+        $this->service()->restore($this->company(),$path,$this->password);
+        $this->assertSame('active',CompanyArchiveGate::state(1)->status);
+        $this->assertSame(2,DB::table('sales')->count());
+    }
+
+    private function crossCompanyPaymentFixture(): array
+    {
+        Schema::create('sale_payments',function(Blueprint $t){
+            $t->id();$t->foreignId('company_id')->constrained();$t->foreignId('sale_id')->constrained('sales');
+            $t->decimal('amount',12,2);$t->date('paid_on');$t->string('payment_mode');$t->unsignedBigInteger('created_by');
+        });
+        DB::table('sale_payments')->insert([
+            ['id'=>1,'company_id'=>1,'sale_id'=>2,'amount'=>2000,'paid_on'=>'2026-04-16','payment_mode'=>'cash','created_by'=>1],
+            ['id'=>2,'company_id'=>1,'sale_id'=>2,'amount'=>1000,'paid_on'=>'2026-05-27','payment_mode'=>'online','created_by'=>1],
+        ]);
+        return DB::table('sale_payments')->orderBy('id')->get()->map(fn($r)=>CompanyArchiveInventory::encodeRow($r))->all();
+    }
+
+    private function databaseSnapshot(): array
+    {
+        $inventory=app(CompanyArchiveInventory::class);$inventory->refreshMetadata();$out=[];
+        foreach ($inventory->tables() as $table) {
+            $query=DB::table($table);foreach ($inventory->columns($table) as $column) $query->orderBy($column);
+            $out[$table]=$query->get()->map(fn($r)=>(array)$r)->all();
+        }
+        return $out;
+    }
+
+    public function test_copy_only_preserves_invalid_payments_and_every_database_row(): void
+    {
+        $payments=$this->crossCompanyPaymentFixture();
+        CompanyArchiveGate::ensure(1);
+        DB::table('company_archive_states')->where('company_id',1)->update(['status'=>'preparing','active_requests'=>3]);
+        $before=$this->databaseSnapshot();
+        $copy=app(\App\Services\CompanyBackupCopyService::class)->create($this->company(),$this->password);
+        $this->workspaces[]=$copy['work'];
+        $this->assertSame($before,$this->databaseSnapshot());
+        $package=app(CompanyArchivePackage::class);$manifest=$package->inspect($copy['path'],$this->password);
+        $this->assertSame(6,$manifest['version']);$this->assertSame('copy_only',$manifest['purpose']);
+        $rows=[];$package->stream($copy['path'],$this->password,$manifest['tables']['sale_payments']['entry'],function($s)use(&$rows){while(($line=fgets($s))!==false)$rows[]=json_decode($line,true);});
+        $this->assertSame($payments,$rows);
+        Storage::disk('public')->assertExists('item-images/one.png');Storage::disk('public')->assertExists('item-images/two.png');
+        $saleIds=[];$package->stream($copy['path'],$this->password,$manifest['tables']['sales']['entry'],function($s)use(&$saleIds){while(($line=fgets($s))!==false)$saleIds[]=CompanyArchiveInventory::decodeRow(json_decode($line,true))['id'];});
+        $this->assertSame(['1'],$saleIds); // Foreign-company sale 2 is never pulled into the copy.
+        $warnings=array_values(array_filter($manifest['dependency_warnings'],fn($w)=>$w['table']==='sale_payments' && $w['column']==='sale_id'));
+        $this->assertCount(1,$warnings);$this->assertSame(2,$warnings[0]['count']);
+        $this->rejected(fn()=>$this->service()->validated($this->company(),$copy['path'],$this->password),'copy-only backup');
+        $this->assertSame($before,$this->databaseSnapshot());
+    }
+
+    public function test_copy_download_requires_own_admin_and_password_and_streams_encrypted_zip(): void
+    {
+        $this->crossCompanyPaymentFixture();$before=$this->databaseSnapshot();
+        $controller=app(\App\Http\Controllers\Company\CompanyArchiveController::class);
+        $request=Request::create('/company/one/profile/archive/copy','POST',['current_password'=>'wrong','password'=>$this->password,'password_confirmation'=>$this->password]);
+        $request->setUserResolver(fn()=>User::find(1));
+        $this->rejected(fn()=>$controller->copy($request,'one',app(\App\Services\CompanyBackupCopyService::class)),'current account password');
+        $request->merge(['current_password'=>'account-password']);
+        try { $controller->copy($request,'two',app(\App\Services\CompanyBackupCopyService::class));$this->fail('Other company must not be copied.'); }
+        catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {$this->assertSame(403,$e->getStatusCode());}
+        $route=app('router')->getRoutes()->match($request);
+        $this->assertSame('company.profile.archive.copy',$route->getName());$this->assertContains('auth',$route->gatherMiddleware());
+        $response=$controller->copy($request,'one',app(\App\Services\CompanyBackupCopyService::class));
+        $this->assertStringContainsString('attachment',$response->headers->get('Content-Disposition'));
+        ob_start();try{$response->sendContent();$bytes=ob_get_contents();}finally{ob_end_clean();}
+        $this->assertStringStartsWith('PK',$bytes);
+        $this->assertSame($before,$this->databaseSnapshot());
+        $this->assertSame(0,DB::connection()->transactionLevel());
+        $this->assertSame(0,(int)DB::selectOne('PRAGMA query_only')->query_only);
+    }
+
+    public function test_copy_lists_missing_required_files_without_changing_records(): void
+    {
+        $this->requiredDocument('documents/missing-design.pdf');$before=$this->databaseSnapshot();
+        $copy=app(\App\Services\CompanyBackupCopyService::class)->create($this->company(),$this->password);$this->workspaces[]=$copy['work'];
+        $manifest=app(CompanyArchivePackage::class)->inspect($copy['path'],$this->password);
+        $this->assertCount(1,$manifest['missing_required_files']);
+        $missing=array_values($manifest['missing_required_files'])[0];
+        $this->assertSame('documents/missing-design.pdf',$missing['reference']['path']);
+        $this->assertStringContainsString('order_production_files',$missing['source']);
+        $this->assertSame($before,$this->databaseSnapshot());
+        $this->rejected(fn()=>$this->service()->prepare($this->company(),1,$this->password),'attachment is missing');
+        $this->assertSame($before,$this->databaseSnapshot());
+    }
+
     public function test_active_http_request_lease_is_released_on_exception(): void
     {
         $middleware = new \App\Http\Middleware\CompanyArchiveAccess;
@@ -291,6 +513,21 @@ class CompanyArchiveTest extends TestCase
             });
         } catch (\RuntimeException $e) { $this->assertSame('test interruption',$e->getMessage()); }
         $this->assertSame(0,(int)CompanyArchiveGate::state(1)->active_requests);
+    }
+
+    public function test_tracked_http_exception_and_stream_keep_request_accounting(): void
+    {
+        (require database_path('migrations/2026_11_21_230000_create_company_archive_request_leases_table.php'))->up();
+        $this->test_active_http_request_lease_is_released_on_exception();
+        $this->test_streamed_read_only_export_keeps_lease_until_output_and_discards_delayed_updates();
+        $this->assertSame(0,DB::table('company_archive_request_leases')->count());
+    }
+
+    public function test_tracked_api_archive_round_trip_releases_download_lease(): void
+    {
+        (require database_path('migrations/2026_11_21_230000_create_company_archive_request_leases_table.php'))->up();
+        $this->test_archive_api_complete_encrypted_round_trip_keeps_normal_writes_blocked_and_ignores_company_spoofing();
+        $this->assertSame(0,DB::table('company_archive_request_leases')->count());
     }
 
     public function test_file_cleanup_can_be_retried_after_database_removal(): void
