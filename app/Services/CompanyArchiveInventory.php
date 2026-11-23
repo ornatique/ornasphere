@@ -81,7 +81,8 @@ class CompanyArchiveInventory
     public function coverage(): array
     {
         $tables = $this->tables();
-        $known = array_merge(config('company_archive.business'), config('company_archive.retained'), config('company_archive.system'));
+        // Runtime-only controls are excluded without changing the signed archive policy.
+        $known = array_merge(config('company_archive.business'), config('company_archive.retained'), config('company_archive.system'),[CompanyArchiveRequestLeases::TABLE]);
         $unknown = array_values(array_diff($tables, $known));
         CompanyArchiveGate::check(!$unknown, 'Unreviewed database tables: '.implode(', ', $unknown).'. Add an ownership/file policy before archiving.');
         foreach (array_intersect($tables, config('company_archive.business')) as $table) {
@@ -138,6 +139,20 @@ class CompanyArchiveInventory
             CompanyArchiveGate::check(!DB::table($table)->exists(), 'Legacy table '.$table.' has records without a company ownership column. Review ownership before archiving.');
             return $q->whereRaw('1 = 0');
         }
+        if ($table === 'vacuum_voucher_items' && $parent === 'vacuum_vouchers'
+            && in_array('vacuum_buch_id', $this->columns($table), true) && $this->hasTable('vacuum_buchs')) {
+            // Legacy voucher deletion left some items behind. Keep the original missing
+            // voucher ID; an explicitly owned buch can scope these orphan rows without
+            // assigning them to a different existing voucher or changing business data.
+            return $q->where(function ($scope) use ($column, $parent, $companyId) {
+                $scope->whereIn($column, $this->query($parent, $companyId)->select('id'))
+                    ->orWhere(function ($orphan) use ($column, $parent, $companyId) {
+                        $orphan->whereNotNull($column)
+                            ->whereNotIn($column, DB::table($parent)->select('id'))
+                            ->whereIn('vacuum_buch_id', $this->query('vacuum_buchs', $companyId)->select('id'));
+                    });
+            });
+        }
         $q->whereIn($column, $this->query($parent, $companyId)->select('id'));
         if (in_array($table, ['model_has_roles', 'model_has_permissions'], true)) $q->where('model_type', \App\Models\User::class);
         return $q;
@@ -149,7 +164,7 @@ class CompanyArchiveInventory
         $engines = [];
         foreach ($this->tableMetadata() as $metadata) $engines[$metadata['name']] = $metadata['engine'] ?? null;
         foreach ($this->coverage() as $table) {
-            if (in_array($table, config('company_archive.system'), true)) continue;
+            if ($table === CompanyArchiveRequestLeases::TABLE || in_array($table, config('company_archive.system'), true)) continue;
             CompanyArchiveLog::step('reading_table_schema',['table'=>$table]);
             $columns = Schema::getColumns($table);
             $result[$table] = hash('sha256', json_encode([$columns, $this->foreignKeys($table,$legacyForeignKeys), $this->indexes($table), $engines[$table] ?? null], JSON_THROW_ON_ERROR));
@@ -240,6 +255,28 @@ class CompanyArchiveInventory
             CompanyArchiveGate::check($linked->count() === $mine, 'Other-company or retained records reference '.$parent.'. Removal is blocked.');
             }
         }
+    }
+
+    /** Copy-only diagnostics: record link problems, never repair or import other tenants. */
+    public function dependencyWarnings(array $ids, array $order): array
+    {
+        $warnings=[]; $seen=[];
+        foreach ($this->coverage() as $child) foreach ($this->references($child) as $fk) {
+            $parent=$fk['foreign_table'];
+            if (!in_array($parent,$order,true) || count($fk['columns'])!==1 || count($fk['foreign_columns'])!==1) continue;
+            $column=$fk['columns'][0];$parentColumn=$fk['foreign_columns'][0];$key=$child.'.'.$column.'->'.$parent.'.'.$parentColumn;
+            if (isset($seen[$key])) continue;$seen[$key]=true;
+            if (in_array($child,$order,true)) {
+                $outside=$this->query($child,$ids)->whereNotNull($column)->whereNotIn($column,$this->query($parent,$ids)->select($parentColumn));
+                $count=(clone $outside)->count();
+                if ($count) $warnings[]=['type'=>'outside_or_missing_parent','table'=>$child,'column'=>$column,'parent_table'=>$parent,
+                    'count'=>$count,'record_ids'=>in_array('id',$this->columns($child),true) ? (clone $outside)->orderBy('id')->limit(10)->pluck('id')->all() : []];
+            }
+            $linked=DB::table($child)->whereIn($column,$this->query($parent,$ids)->select($parentColumn))->count();
+            $owned=in_array($child,$order,true) ? $this->query($child,$ids)->whereIn($column,$this->query($parent,$ids)->select($parentColumn))->count() : 0;
+            if ($linked!==$owned) $warnings[]=['type'=>'external_dependants','table'=>$child,'column'=>$column,'parent_table'=>$parent,'count'=>$linked-$owned];
+        }
+        return $warnings;
     }
 
     private function references(string $table): array

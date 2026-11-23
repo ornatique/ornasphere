@@ -53,6 +53,26 @@ class CompanyArchiveController extends Controller
         }, 'Encrypted archive created. Download to your pendrive, keep a second copy, then verify the saved file. Company entries are paused.');
     }
 
+    public function copy(Request $request, string $slug, \App\Services\CompanyBackupCopyService $service)
+    {
+        $company=$this->company($request,$slug);
+        $request->validate(['password'=>'required|string|min:12|max:1024|confirmed']);
+        return \App\Services\CompanyArchiveLog::run('copy_download',(int)$company->id,function () use ($company,$request,$service) {
+            $copy=$service->create($company,$request->input('password'));
+            return response()->streamDownload(function () use ($copy) {
+                try {
+                    $input=fopen($copy['path'],'rb');$output=fopen('php://output','wb');
+                    if (!is_resource($input) || !is_resource($output)) {
+                        if (is_resource($input)) fclose($input);if (is_resource($output)) fclose($output);
+                        CompanyArchiveGate::check(false,'Backup download is unavailable.');
+                    }
+                    try { CompanyArchiveGate::check(stream_copy_to_stream($input,$output)===filesize($copy['path']),'Backup download did not finish.'); }
+                    finally { fclose($input);fclose($output); }
+                } finally { app(\App\Services\CompanyArchivePackage::class)->cleanup($copy['work']); }
+            },$copy['filename'],['Content-Type'=>'application/zip','Content-Length'=>(string)filesize($copy['path']),'Cache-Control'=>'private, no-store','X-Content-Type-Options'=>'nosniff']);
+        });
+    }
+
     public function download(Request $request, string $slug)
     {
         $company = $this->company($request, $slug);

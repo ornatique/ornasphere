@@ -229,6 +229,8 @@ class CompanyArchiveService
     {
         $this->inventory->refreshMetadata();
         $manifest = $this->package->inspect($path, $password);
+        CompanyArchiveGate::check(($manifest['purpose'] ?? 'archive')==='archive' && $manifest['version']!==6,
+            'This is a copy-only backup. It cannot remove records or restore automatically. Review unresolved links before a separate recovery.');
         $state = CompanyArchiveGate::state($company->id);
         CompanyArchiveGate::check($state && $manifest['company_id'] === (int) $company->id && $manifest['company_slug'] === $company->slug
             && $state->archive_id === $manifest['archive_id'] && hash_equals($state->archive_sha256 ?? '', hash_file('sha256', $path)),

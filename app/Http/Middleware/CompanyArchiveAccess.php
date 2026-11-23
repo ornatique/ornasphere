@@ -30,6 +30,7 @@ class CompanyArchiveAccess
         }
         $ids = DB::table('companies')->whereIn('id', array_unique(array_filter($ids)))->pluck('id')->map(fn ($id) => (int)$id)->all(); sort($ids);
         $leases = []; $readOnly=false; $deferRelease=false;
+        $release = CompanyArchiveGate::protectRequests($leases);
         try {
             foreach ($ids as $id) {
                 $state = CompanyArchiveGate::state($id);
@@ -62,13 +63,13 @@ class CompanyArchiveAccess
             $response->headers->set('X-Company-Archive-Read-Only','1');
             if ($response instanceof StreamedResponse) {
                 $callback=$response->getCallback(); $deferRelease=true;
-                $response->setCallback(function () use ($callback,$leases) {
+                $response->setCallback(function () use ($callback,$release) {
                     try { $this->rollbackOnly(fn ()=>$callback()); }
-                    finally { foreach ($leases as $id) CompanyArchiveGate::leave($id); }
+                    finally { $release(); }
                 });
             }
             return $response;
-        } finally { if (!$deferRelease) foreach ($leases as $id) CompanyArchiveGate::leave($id); }
+        } finally { if (!$deferRelease) $release(); }
     }
 
     private function isSafeRead(Request $request): bool

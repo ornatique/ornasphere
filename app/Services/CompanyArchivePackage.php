@@ -79,9 +79,12 @@ class CompanyArchivePackage
             CompanyArchiveGate::check(is_array($signed) && isset($signed['manifest'], $signed['mac']), 'Invalid archive manifest.');
             $manifest = $signed['manifest'];
             CompanyArchiveGate::check(hash_equals($this->mac($manifest), (string) $signed['mac']), 'Archive is modified or belongs to a different ERP installation.');
-            CompanyArchiveGate::check(in_array($manifest['version'] ?? null, [1,2,3,4,5], true), 'Unsupported archive format.');
+            CompanyArchiveGate::check(in_array($manifest['version'] ?? null, [1,2,3,4,5,6], true), 'Unsupported archive format.');
+            if ($manifest['version']===6) CompanyArchiveGate::check(($manifest['purpose'] ?? null)==='copy_only'
+                && ($manifest['restore_policy'] ?? null)==='manual_review_required' && isset($manifest['missing_required_files'])
+                && is_array($manifest['missing_required_files']),'Invalid copy-only backup policy.');
             if (in_array($manifest['version'],[3,4,5],true)) CompanyArchiveGate::check(isset($manifest['staff']['ids'], $manifest['staff']['access'], $manifest['staff']['links']), 'Staff archive scope is missing.');
-            if (in_array($manifest['version'],[4,5],true)) {
+            if (in_array($manifest['version'],[4,5,6],true)) {
                 CompanyArchiveGate::check(($manifest['media_policy'] ?? null)==='cloud_paths_only' && isset($manifest['reference_files']) && is_array($manifest['reference_files']), 'Cloud reference policy is missing.');
                 CompanyArchiveGate::check(!array_intersect_key($manifest['reference_files'],$manifest['files'] ?? []), 'A cloud reference cannot also be a copied attachment.');
                 foreach ($manifest['reference_files'] as $key=>$reference) {
@@ -91,7 +94,7 @@ class CompanyArchivePackage
                     CompanyArchiveInventory::safePath($reference['path']);
                 }
             }
-            if ($manifest['version']===5) {
+            if (in_array($manifest['version'],[5,6],true)) {
                 CompanyArchiveGate::check(isset($manifest['missing_optional_files']) && is_array($manifest['missing_optional_files']), 'Optional image inventory is missing.');
                 CompanyArchiveGate::check(!array_intersect_key($manifest['missing_optional_files'],$manifest['files'] ?? [])
                     && !array_intersect_key($manifest['missing_optional_files'],$manifest['reference_files'] ?? []), 'Conflicting optional image entries.');
@@ -100,6 +103,18 @@ class CompanyArchivePackage
                     CompanyArchiveGate::check((bool)preg_match('/^[a-f0-9]{64}$/D',(string)$key) && is_array($reference)
                         && isset($reference['disk'],$reference['path']) && is_string($reference['disk']) && is_string($reference['path'])
                         && !isset($reference['entry']), 'Invalid optional image reference.');
+                    CompanyArchiveInventory::safePath($reference['path']);
+                }
+            }
+            if ($manifest['version']===6) {
+                CompanyArchiveGate::check(!array_intersect_key($manifest['missing_required_files'],$manifest['files'] ?? [])
+                    && !array_intersect_key($manifest['missing_required_files'],$manifest['reference_files'] ?? [])
+                    && !array_intersect_key($manifest['missing_required_files'],$manifest['missing_optional_files'] ?? []),'Conflicting missing attachment entries.');
+                foreach ($manifest['missing_required_files'] as $key=>$missing) {
+                    $reference=$missing['reference'] ?? null;
+                    CompanyArchiveGate::check((bool)preg_match('/^[a-f0-9]{64}$/D',(string)$key) && is_array($reference)
+                        && isset($reference['disk'],$reference['path']) && is_string($reference['disk']) && is_string($reference['path'])
+                        && !isset($reference['entry']),'Invalid missing attachment reference.');
                     CompanyArchiveInventory::safePath($reference['path']);
                 }
             }
