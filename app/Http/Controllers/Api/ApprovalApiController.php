@@ -1653,6 +1653,10 @@ class ApprovalApiController extends Controller
 
     public function pdf(Request $request, $id)
     {
+        $request->validate(['status' => 'nullable|in:all,pending,partial,sold,returned']);
+        // Keep API PDFs consistent with the web voucher PDF: direct links show
+        // the complete original approval unless a status filter is requested.
+        $pdfStatus = $request->query('status') ?: 'all';
         $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
 
         $approval = ApprovalHeader::with('customer', 'items.itemSet.item', 'items.legacyItemSet.item')
@@ -1666,7 +1670,7 @@ class ApprovalApiController extends Controller
             ?? 'System';
         $printedAt = now();
 
-        $pdf = Pdf::loadView('company.approval.approval_pdf', compact('company', 'approval', 'printedBy', 'printedAt'))
+        $pdf = Pdf::loadView('company.approval.approval_pdf', compact('company', 'approval', 'printedBy', 'printedAt', 'pdfStatus'))
             ->setPaper('a4', 'portrait');
 
         return $pdf->stream('Approval-' . $approval->approval_no . '.pdf');

@@ -42,6 +42,8 @@
     <div class="card-header branch-toolbar"><div><h4 class="card-title mb-1">Branch Management</h4><span class="branch-muted">{{ $branches->count() }} branches</span></div>
 <a class="btn btn-info" href="{{ route('company.dashboard', ['slug'=>$company->slug, 'branch'=>'all']) }}">All Branches Dashboard</a></div>
     <div class="card-body">
+        @if(session('success'))<div class="alert alert-success" role="status">{{ session('success') }}</div>@endif
+        @if($errors->has('password'))<div class="alert alert-danger" role="alert">{{ $errors->first('password') }}</div>@endif
         @php($branchLimitReached = $branches->count() >= \App\Services\CompanyBranches::LIMIT)
         @if($branchLimitReached || $errors->has('branch_limit'))
             <div role="alert" class="mb-3 p-3" style="background:#403827;border:1px solid #96763a;border-radius:6px;color:#ffe0a0">
@@ -81,6 +83,8 @@
             <dl class="branch-facts">
                 <div><dt>Branch type</dt><dd>{{ ucfirst($branch->branch_type ?? 'Not specified') }}</dd></div>
                 <div><dt>City</dt><dd>{{ $branch->city ?: 'Not provided' }}</dd></div>
+                <div><dt>Branch admin</dt><dd>{{ $branch->users->first()?->name ?: 'Not found' }}</dd></div>
+                <div><dt>Login email</dt><dd>{{ $branch->users->first()?->email ?: $branch->email ?: 'Not provided' }}</dd></div>
                 <div class="branch-address"><dt>Address</dt><dd>{{ $branch->address_1 ?: 'Not provided' }}</dd></div>
             </dl>
             <div class="branch-login"><span>Login link for branch staff</span><a href="{{ route('company.login', $branch->slug) }}">{{ route('company.login', $branch->slug) }}</a></div>
@@ -94,6 +98,30 @@
                 </form>
             </div>
             <span class="branch-muted branch-copy-message" role="status"></span>
+            @if($branch->users->first())
+                <details class="branch-edit" @if($errors->has('password')) open @endif>
+                    <summary>Change Branch Admin Password</summary>
+                    <form method="POST" action="{{ route('company.branches.admin-password', [$company->slug, $branch->id]) }}" class="mt-3">
+                        @csrf @method('PATCH')
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label>Branch admin login email</label>
+                                <input type="email" class="form-control" value="{{ $branch->users->first()->email }}" readonly>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="branch-{{ $branch->id }}-password">New password (at least 12 characters)</label>
+                                <input id="branch-{{ $branch->id }}-password" type="password" name="password" class="form-control" minlength="12" maxlength="128" required autocomplete="new-password">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="branch-{{ $branch->id }}-password-confirm">Confirm new password</label>
+                                <input id="branch-{{ $branch->id }}-password-confirm" type="password" name="password_confirmation" class="form-control" minlength="12" maxlength="128" required autocomplete="new-password">
+                                @error('password_confirmation')<small class="branch-field-message">{{ $message }}</small>@enderror
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Update Branch Password</button>
+                    </form>
+                </details>
+            @endif
             <details class="branch-edit" @if(old('_branch_form') == (string)$branch->id && $errors->any()) open @endif><summary>Edit Branch Details</summary>
                 <form method="POST" action="{{ route('company.branches.update', [$company->slug,$branch->id]) }}" class="mt-3">@csrf @method('PUT')
                     <input type="hidden" name="_branch_form" value="{{ $branch->id }}">

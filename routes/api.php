@@ -68,6 +68,7 @@ Route::middleware(['auth:sanctum', 'single.api.token', 'company.active', 'worker
     Route::post('/company/branches', [\App\Http\Controllers\Api\CompanyBranchApiController::class, 'store']);
     Route::put('/company/branches/{branch}', [\App\Http\Controllers\Api\CompanyBranchApiController::class, 'update'])->whereNumber('branch');
     Route::patch('/company/branches/{branch}/status', [\App\Http\Controllers\Api\CompanyBranchApiController::class, 'status'])->whereNumber('branch');
+    Route::patch('/company/branches/{branch}/admin-password', [\App\Http\Controllers\Api\CompanyBranchApiController::class, 'updateAdminPassword'])->whereNumber('branch');
     Route::get('/company/branch-dashboard', [\App\Http\Controllers\Api\CompanyBranchApiController::class, 'dashboard']);
     Route::get('/company/branch-report-customers', [\App\Http\Controllers\Api\CompanyBranchApiController::class, 'customers']);
     Route::get('/company/branch-reports/{report}', [\App\Http\Controllers\Api\BranchReportApiController::class, 'show']);

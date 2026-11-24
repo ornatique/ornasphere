@@ -840,11 +840,12 @@ class ReportController extends Controller
         } else {
             abort(404);
         }
+        $voucherCompany = Company::findOrFail($voucher->company_id);
         if ($request->filled('approval_no')) {
             $lines = $lines->filter(fn ($line) => $line['approval']->approval?->approval_no === $request->input('approval_no'));
         }
         abort_if($lines->isEmpty(), 404);
-        return view('company.reports.partials.approval_register_details', compact('lines', 'number', 'date', 'voucher', 'type'));
+        return view('company.reports.partials.approval_register_details', compact('lines', 'number', 'date', 'voucher', 'type', 'voucherCompany'));
     }
 
     public function approvalReturnRegister(Request $request, $slug)

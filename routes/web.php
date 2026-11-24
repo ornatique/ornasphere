@@ -360,6 +360,7 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
         Route::post('/profile/branches', [\App\Http\Controllers\Company\BranchController::class, 'store'])->name('branches.store');
         Route::patch('/profile/branches/{branch}/status', [\App\Http\Controllers\Company\BranchController::class, 'status'])->whereNumber('branch')->name('branches.status');
         Route::put('/profile/branches/{branch}', [\App\Http\Controllers\Company\BranchController::class, 'update'])->whereNumber('branch')->name('branches.update');
+        Route::patch('/profile/branches/{branch}/admin-password', [\App\Http\Controllers\Company\BranchController::class, 'updateAdminPassword'])->whereNumber('branch')->name('branches.admin-password');
         Route::get('/profile', [CompanyProfileController::class, 'show'])
             ->name('profile.show');
         require __DIR__.'/company_archive.php';

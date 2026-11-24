@@ -36,7 +36,16 @@ class CompanyProfileController extends Controller
             ? \App\Services\VoucherSeries::configuration($company) : null;
 
         $canManageBranches = \App\Services\CompanyBranches::canManage($user);
-        $branches = $canManageBranches ? Company::where('parent_company_id', $company->id)->orderBy('name')->get() : collect();
+        $branches = $canManageBranches
+            ? Company::where('parent_company_id', $company->id)
+                ->with(['users' => function ($query) {
+                    $query->where(function ($userQuery) {
+                        $userQuery->where('role', 'admin')
+                            ->orWhereHas('roles', fn ($roleQuery) => $roleQuery->where('name', 'company_admin'));
+                    })->orderBy('id');
+                }])
+                ->orderBy('name')->get()
+            : collect();
         return view('company.profile.show', compact('company', 'user', 'companyPlanStatus', 'voucherConfiguration', 'canManageBranches', 'branches'));
     }
 }
