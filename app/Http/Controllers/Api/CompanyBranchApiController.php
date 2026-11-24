@@ -15,25 +15,42 @@ class CompanyBranchApiController extends Controller
         $user = $request->user();
         $canManage = CompanyBranches::canManage($user);
         $companies = CompanyBranches::visibleCompanies($user);
+        if ($canManage) {
+            $companies->load(['users' => function ($query) {
+                $query->where(function ($userQuery) {
+                    $userQuery->where('role', 'admin')
+                        ->orWhereHas('roles', fn ($roleQuery) => $roleQuery->where('name', 'company_admin'));
+                })->orderBy('id');
+            }]);
+        }
         $count = $canManage ? $companies->where('parent_company_id', $user->company_id)->count() : 0;
         return response()->json(['success'=>true, 'data'=>[
             'can_manage_branches'=>$canManage, 'branch_limit'=>CompanyBranches::LIMIT,
             'branch_count'=>$count, 'can_create_branch'=>$canManage && $count < CompanyBranches::LIMIT,
             'limit_message'=>$canManage && $count >= CompanyBranches::LIMIT ? CompanyBranches::LIMIT_MESSAGE : null,
-            'companies'=>$companies->map(fn ($company)=>[
-                'id'=>$company->id, 'name'=>$company->name, 'slug'=>$company->slug,
-                'parent_company_id'=>$company->parent_company_id, 'branch_type'=>$company->branch_type,
-                'city'=>$company->city, 'address_1'=>$company->address_1,
-                'status'=>(bool)$company->status, 'effective_active'=>CompanyBranches::isActive($company), 'is_main'=>!$company->parent_company_id,
-                'login_url'=>route('company.login', $company->slug),
-                'plan'=>CompanyPlanService::status($company),
-            ])->values(),
+            'companies'=>$companies->map(function ($company) use ($canManage) {
+                $admin = $canManage ? $company->users->first() : null;
+                $loginEmail = $admin?->email ?: ($canManage ? $company->email : null);
+
+                return [
+                    'id'=>$company->id, 'name'=>$company->name, 'slug'=>$company->slug,
+                    'parent_company_id'=>$company->parent_company_id, 'branch_type'=>$company->branch_type,
+                    'city'=>$company->city, 'address_1'=>$company->address_1,
+                    'status'=>(bool)$company->status, 'effective_active'=>CompanyBranches::isActive($company), 'is_main'=>!$company->parent_company_id,
+                    'login_url'=>route('company.login', $company->slug),
+                    'email'=>$loginEmail,
+                    'admin_name'=>$admin?->name,
+                    'admin_email'=>$loginEmail,
+                    'plan'=>CompanyPlanService::status($company),
+                ];
+            })->values(),
         ]]);
     }
 
     public function store(Request $request) { return app(BranchController::class)->store($request, $request->user()->company->slug); }
     public function update(Request $request, $branch) { return app(BranchController::class)->update($request, $request->user()->company->slug, $branch); }
     public function status(Request $request, $branch) { return app(BranchController::class)->status($request, $request->user()->company->slug, $branch); }
+    public function updateAdminPassword(Request $request, $branch) { return app(BranchController::class)->updateAdminPassword($request, $request->user()->company->slug, $branch); }
 
     public function dashboard(Request $request)
     {

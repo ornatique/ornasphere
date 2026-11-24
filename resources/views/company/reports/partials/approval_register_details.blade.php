@@ -5,8 +5,18 @@
         : 1;
     $weightTotal = fn ($field) => $lines->sum(fn ($line) => (float) ($line['source']->$field ?? 0) * $lineRatio($line));
     $fineTotal = $lines->sum(fn ($line) => (float) ($type === 'sale' ? $line['source']->fine_weight : $line['source']->total_fine_weight) * $lineRatio($line));
+    $encryptedVoucherId = \Illuminate\Support\Facades\Crypt::encryptString((string) $voucher->id);
+    $pdfRoute = match ($type) {
+        'approval' => 'company.approval.pdf',
+        'return' => 'company.returns.pdf',
+        'sale' => 'company.sales.pdf',
+    };
+    $pdfUrl = route($pdfRoute, [$voucherCompany->slug, $encryptedVoucherId]);
 @endphp
-<div class="voucher-heading"><strong>{{ $number }}</strong><span>Date: {{ \Carbon\Carbon::parse($date)->format('d-m-Y') }}</span><span>{{ number_format($lines->sum($lineQuantity)) }} pieces</span></div>
+<div class="d-flex justify-content-between align-items-start flex-wrap mb-3" style="gap:10px">
+    <div class="voucher-heading mb-0"><strong>{{ $number }}</strong><span>Date: {{ \Carbon\Carbon::parse($date)->format('d-m-Y') }}</span><span>{{ number_format($lines->sum($lineQuantity)) }} pieces</span></div>
+    <a class="btn btn-primary btn-sm" target="_blank" rel="noopener" href="{{ $pdfUrl }}">View PDF</a>
+</div>
 <div class="row mb-3">
     <div class="col-6 col-lg-3 mb-2"><div class="voucher-stat"><div>Quantity (pieces)</div><strong class="h4">{{ number_format($lines->sum($lineQuantity)) }}</strong></div></div>
     @foreach(['gross_weight'=>'Gross Wt', 'other_weight'=>'Other Wt', 'net_weight'=>'Net Wt'] as $field=>$label)

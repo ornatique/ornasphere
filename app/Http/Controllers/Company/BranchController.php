@@ -78,4 +78,54 @@ class BranchController extends Controller
         if ($request->is('api/*')) return response()->json(['success'=>true, 'message'=>'Branch updated.', 'data'=>['id'=>$branch->id, 'name'=>$branch->name, 'slug'=>$branch->slug, 'status'=>(bool)$branch->status]]);
         return back()->with('success', 'Branch updated.');
     }
+
+    public function updateAdminPassword(Request $request, $slug, $branch)
+    {
+        $parent = $this->parent($request, $slug);
+        $branch = Company::where('parent_company_id', $parent->id)->findOrFail($branch);
+        $data = $request->validate([
+            'password' => 'required|string|min:12|max:128|confirmed',
+        ]);
+
+        $admin = DB::transaction(function () use ($branch, $data) {
+            $admin = $branch->users()
+                ->where(function ($query) {
+                    $query->where('role', 'admin')
+                        ->orWhereHas('roles', fn ($roleQuery) => $roleQuery->where('name', 'company_admin'));
+                })
+                ->orderBy('id')->lockForUpdate()->firstOrFail();
+
+            $admin->forceFill([
+                'password' => Hash::make($data['password']),
+                'password_changed' => true,
+                'password_set_at' => now(),
+                'active_web_session_id' => (string) Str::uuid(),
+                'active_api_token_id' => null,
+                'remember_token' => null,
+            ])->save();
+
+            $admin->tokens()->delete();
+            DB::table('password_set_tokens')->where('user_id', $admin->id)->delete();
+
+            return $admin->fresh();
+        });
+
+        $message = 'Branch admin password updated. The admin must sign in again with the new password.';
+        if ($request->is('api/*')) {
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+                'data' => [
+                    'branch_id' => (int) $branch->id,
+                    'admin_email' => $admin->email,
+                    'password_updated_at' => $admin->password_set_at
+                        ? \Carbon\Carbon::parse($admin->password_set_at)->toIso8601String()
+                        : null,
+                    'sessions_revoked' => true,
+                ],
+            ]);
+        }
+
+        return back()->with('success', $message);
+    }
 }

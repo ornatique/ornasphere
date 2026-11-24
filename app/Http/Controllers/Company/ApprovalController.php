@@ -50,8 +50,9 @@ class ApprovalController extends Controller
             $viewType = $request->input('view_type') === 'item' ? 'item' : 'voucher';
 
             if ($viewType === 'voucher') {
-                // A legacy sale can leave a partially sold approval row marked "sold".
-                // Include it only when linked sale lines prove some approved quantity remains.
+                // Voucher view is the transaction history, so keep approvals visible
+                // after their items are fully sold or returned. The item view below
+                // remains limited to quantities that are still available.
                 $pendingItemFilter = function ($q) {
                     return $this->filterApprovalItemsWithAvailableQuantity($q);
                 };
@@ -59,9 +60,7 @@ class ApprovalController extends Controller
                 $query = ApprovalHeader::with([
                     'customer',
                     'creator',
-                    'items' => function ($q) use ($pendingItemFilter) {
-                        $pendingItemFilter($q)->with(['item', 'itemSet.item', 'legacyItemSet.item']);
-                    },
+                    'items' => fn ($q) => $q->with(['item', 'itemSet.item', 'legacyItemSet.item']),
                 ])
                     ->withCount([
                         'items as active_items_count' => $pendingItemFilter,
@@ -92,7 +91,6 @@ class ApprovalController extends Controller
                         'items as active_item_amount' => $pendingItemFilter,
                     ], 'total_amount')
                     ->whereIn('company_id', $companies->keys())
-                    ->whereHas('items', $pendingItemFilter)
                     ->whereHas('customer', function ($customer) {
                         $customer->saleParties();
                     })
@@ -858,7 +856,11 @@ class ApprovalController extends Controller
     public function pdf(Request $request, $slug, $encryptedId)
     {
         $request->validate(['status' => 'nullable|in:all,pending,partial,sold,returned']);
-        $pdfStatus = $request->input('status') ?: 'partial';
+        // A direct PDF link (for example from the approval list/dashboard)
+        // should print the same complete voucher as the details page's
+        // default "All Items" filter. Status-specific PDFs remain available
+        // when an explicit status query parameter is supplied.
+        $pdfStatus = $request->input('status') ?: 'all';
         $company = Company::whereSlug($slug)->firstOrFail();
         $id = (int) Crypt::decryptString($encryptedId);
 
