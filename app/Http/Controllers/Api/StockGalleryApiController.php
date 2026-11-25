@@ -133,7 +133,7 @@ class StockGalleryApiController extends Controller
     private function galleryQuery(Company $company, Request $request): Builder
     {
         $query = ItemSet::query()
-            ->with('item')
+            ->with(['item', 'pricingCompany.moduleParent'])
             ->whereIn('item_sets.company_id', \App\Services\CompanyBranches::apiManagementSelection($request)->keys())
             ->whereHas('item', fn ($query) => $query->where('jobwork_item_type', 'finish'))
             ->where('item_sets.is_final', 1)
@@ -166,10 +166,13 @@ class StockGalleryApiController extends Controller
 
     private function payload(ItemSet $itemSet): array
     {
+        $quantity = max(1, (int) ($itemSet->quantity ?? 1));
+        $wholesaleEnabled = \App\Services\WholesalePrice::enabled($itemSet->pricingCompany);
+
         return [
             'id' => (int) $itemSet->id,
             'company_id' => (int) $itemSet->company_id,
-            'company_name' => Company::find($itemSet->company_id)?->name,
+            'company_name' => $itemSet->pricingCompany?->name ?? Company::find($itemSet->company_id)?->name,
             'can_manage' => \App\Services\BranchReadOnly::canWrite(request()->user(), $itemSet->company_id),
             'item_name' => optional($itemSet->item)->item_name ?? '-',
             'label_code' => $itemSet->qr_code ?: $itemSet->barcode ?: '-',
@@ -178,6 +181,22 @@ class StockGalleryApiController extends Controller
             'gross_weight' => number_format((float) $itemSet->gross_weight, 3, '.', ''),
             'other_weight' => number_format((float) $itemSet->other, 3, '.', ''),
             'net_weight' => number_format((float) $itemSet->net_weight, 3, '.', ''),
+            // Item-set price columns store batch totals; unit prices are also
+            // exposed for Flutter screens that display a single labelled piece.
+            'sale_price' => $itemSet->sale_price === null ? null : (float) $itemSet->sale_price,
+            'unit_sale_price' => $itemSet->sale_price === null
+                ? null
+                : round((float) $itemSet->sale_price / $quantity, 2),
+            'wholesale_price_enabled' => $wholesaleEnabled,
+            'wholesale_price' => $wholesaleEnabled && $itemSet->wholesale_price !== null
+                ? (float) $itemSet->wholesale_price
+                : null,
+            'unit_wholesale_price' => $wholesaleEnabled && $itemSet->wholesale_price !== null
+                ? round((float) $itemSet->wholesale_price / $quantity, 2)
+                : null,
+            'billing_sale_price' => $itemSet->billing_sale_price === null
+                ? null
+                : (float) $itemSet->billing_sale_price,
             'has_other_weight' => (float) $itemSet->other > 0,
             'stock_status' => ((int) $itemSet->is_sold === 1) ? 'Out Stock' : 'In Stock',
             'is_sold' => (int) $itemSet->is_sold,
