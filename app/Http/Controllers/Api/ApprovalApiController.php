@@ -93,7 +93,8 @@ class ApprovalApiController extends Controller
                 'items as active_item_amount' => $pendingItemFilter
             ], 'total_amount')
             ->where('company_id', $companyId)
-            ->whereHas('items', $pendingItemFilter)
+            // Match the web Voucher Wise list: retain closed vouchers in the
+            // history, with the pending-only counts/totals above resolving to 0.
             ->whereHas('customer', function ($customer) {
                 $customer->saleParties();
             });

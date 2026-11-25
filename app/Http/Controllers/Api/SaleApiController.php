@@ -651,6 +651,32 @@ class SaleApiController extends Controller
                 })
                 ->latest('id')
                 ->first();
+
+            // A QR can exist both in a customer's approval history and as
+            // currently available shop stock. If the approval quantity is
+            // fully consumed, let an implicit QR scan continue to the stock
+            // lookup instead of rejecting the available stock label.
+            if ($approvalItem && $requestedApprovalItemId <= 0
+                && \App\Services\ApprovalItemAvailability::availableQuantity($approvalItem) <= 0) {
+                $stockQuery = ItemSet::query()
+                    ->where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
+                    ->where('is_sold', 0)
+                    ->where('available_quantity', '>', 0);
+
+                if ($requestedItemsetId > 0) {
+                    $stockQuery->where('id', $requestedItemsetId);
+                } else {
+                    $stockQuery->where(function ($match) use ($qrCode) {
+                        $match->where('qr_code', $qrCode)
+                            ->orWhere('barcode', $qrCode)
+                            ->orWhere('HUID', $qrCode);
+                    });
+                }
+
+                if ($stockQuery->exists()) {
+                    $approvalItem = null;
+                }
+            }
                  
             if ($approvalItem) {
                 $availableQty = \App\Services\ApprovalItemAvailability::availableQuantity($approvalItem);
@@ -1027,6 +1053,9 @@ class SaleApiController extends Controller
                 'labour_amount' => (float) ($set->sale_labour_amount ?? 0),
                 'sale_other' => (float) ($set->sale_other ?? 0),
                 'sale_price' => $set->billing_sale_price,
+                // Keep the Flutter label preview in sync with the web's
+                // double_barcode_price format, which prints this value twice.
+                'sticker_number' => \App\Services\WholesalePrice::sticker($set),
                 'is_printed' => (int) ($set->is_printed ?? 0),
                 'created_at' => $set->created_at ? \Carbon\Carbon::parse($set->created_at)->format('d-m-Y h:i A') : null,
                 'printed_at' => $set->printed_at ? \Carbon\Carbon::parse($set->printed_at)->format('d-m-Y h:i A') : null,
@@ -2594,10 +2623,19 @@ class SaleApiController extends Controller
             }
 
             if (!empty($saleItem->itemset_id)) {
-                ItemSet::where('company_id', $companyId)
+                $itemSet = ItemSet::where('company_id', $companyId)
                     ->where('id', (int) $saleItem->itemset_id)
-                    ->update(['is_sold' => 0]);
-                $summary['stock_items']++;
+                    ->lockForUpdate()
+                    ->first();
+                if ($itemSet) {
+                    // Stock APIs use available_quantity as the source of truth;
+                    // clearing is_sold alone leaves a deleted sale unavailable.
+                    \App\Services\BatchInventory::restore(
+                        $itemSet,
+                        max(1, (int) ($saleItem->qty ?? 1))
+                    );
+                    $summary['stock_items']++;
+                }
             }
         }
 
