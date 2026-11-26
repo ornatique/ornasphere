@@ -54,6 +54,9 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    // Some hosting setups expose static files under /public while local artisan serve uses /.
+    'order_management_asset_prefix' => env('ORDER_MANAGEMENT_ASSET_PREFIX', ''),
+
     /*
     |--------------------------------------------------------------------------
     | Application Timezone

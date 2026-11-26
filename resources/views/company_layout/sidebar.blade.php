@@ -720,6 +720,13 @@
         </li>
         @endif
 
+        @if($canModule('order-management'))
+        <li class="nav-item {{ request()->routeIs('company.order-management.*') ? 'active' : '' }}">
+            <a class="nav-link" href="{{ route('company.order-management.index', auth()->user()->company->slug) }}">
+                <i class="typcn typcn-clipboard menu-icon"></i><span class="menu-title">Order Management</span>
+            </a>
+        </li>
+        @endif
         {{-- ================= SALES ================= --}}
         @php
         $salesActive = $isSalesRoute;
