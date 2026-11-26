@@ -200,6 +200,7 @@ class CompanyPermissionController extends Controller
             'bullion',
             'gst-search',
             'qr-making',
+            'order-management',
             // Temporarily disabled: 'customer-order',
             // Temporarily disabled: 'cad-design',
             // Temporarily disabled: 'rpt-production',
@@ -289,6 +290,7 @@ class CompanyPermissionController extends Controller
 
     private function actionsForModule(string $module): array
     {
+        if ($module === 'order-management') return ['view', 'create', 'edit'];
         if ($module === 'bullion') return ['view', 'create'];
         if ($module === 'report-approval-summary') return ['view'];
         if ($module === 'gst-search') return ['view'];
@@ -320,6 +322,7 @@ class CompanyPermissionController extends Controller
         $moduleLabels = [
             'vacuum-live-dashboard' => 'Production Monitor',
             'vacuum-voucher' => 'Vacuum',
+            'order-management' => 'Order Management',
             'approval' => 'Sale on Approval',
             'jobwork-issue' => 'Jobwork',
             'office-access' => 'Office Access',

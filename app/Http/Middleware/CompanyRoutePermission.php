@@ -78,6 +78,7 @@ class CompanyRoutePermission
             'company.customers.gst-search.' => 'gst-search',
             'company.bullion.' => 'bullion',
             'company.qr-making.' => 'qr-making',
+            'company.order-management.' => 'order-management',
             'company.orders.' => 'customer-order',
             'company.cad.' => 'cad-design',
             'company.rpt.' => 'rpt-production',
