@@ -65,6 +65,7 @@ class SaleApiController extends Controller
                 'voucher_no' => $sale->voucher_no,
                 'sale_date' => $sale->sale_date,
                 'remarks' => $sale->remarks,
+                'price_mode' => $sale->price_mode ?: 'sale',
                 'can_edit_today' => true,
                 'can_edit' => true,
                 'qty_pcs' => (int) ($sale->total_qty ?? 0),
@@ -1052,7 +1053,10 @@ class SaleApiController extends Controller
                 'labour_rate' => (float) ($set->sale_labour_rate ?? 0),
                 'labour_amount' => (float) ($set->sale_labour_amount ?? 0),
                 'sale_other' => (float) ($set->sale_other ?? 0),
-                'sale_price' => $set->billing_sale_price,
+                'wholesale_price' => \App\Services\WholesalePrice::enabled($set->pricingCompany)
+                    ? ($set->wholesale_price === null ? null : (float) $set->wholesale_price)
+                    : null,
+                'price_type' => \App\Services\WholesalePrice::enabled($set->pricingCompany) ? 'wholesale' : 'sale',
                 // Keep the Flutter label preview in sync with the web's
                 // double_barcode_price format, which prints this value twice.
                 'sticker_number' => \App\Services\WholesalePrice::sticker($set),
@@ -1168,6 +1172,7 @@ class SaleApiController extends Controller
 
             $request->validate([
                 'customer_id' => 'required|integer',
+                'price_mode' => 'sometimes|in:sale,wholesale',
                 'remarks' => 'nullable|string',
                 'received_amount' => 'nullable|numeric|min:0',
                 'payment_mode' => 'nullable|string|max:30',
@@ -1175,6 +1180,17 @@ class SaleApiController extends Controller
                 'payment_note' => 'nullable|string|max:255',
             'show_previous_bills' => 'sometimes|boolean',
             ]);
+
+            $hasExplicitPriceMode = $request->exists('price_mode');
+            $priceMode = $hasExplicitPriceMode ? (string) $request->input('price_mode') : 'sale';
+            if ($hasExplicitPriceMode && $priceMode === 'wholesale'
+                && !\App\Services\WholesalePrice::enabled(Company::find($companyId))) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Wholesale pricing is not enabled for this company.',
+                ], 422);
+            }
 
             $customerExists = Customer::where('company_id', \App\Services\CompanyBranches::apiManagementCompanyId(request()))
                 ->where('id', (int) $request->customer_id)
@@ -1215,6 +1231,7 @@ class SaleApiController extends Controller
                 'payment_note' => $request->input('payment_note'),
                 'use_silver_balance' => $request->boolean('use_silver_balance'),
                 'show_previous_bills' => $request->boolean('show_previous_bills'),
+                'price_mode' => $priceMode,
                 'employee_id' => $user->id,
                 'modified_count' => 0,
             ]);
@@ -1274,7 +1291,9 @@ class SaleApiController extends Controller
                     $labourAmount = (float) ($approvalItem->labour_amount ?? 0) / $originalQty;
                     $otherAmount = (float) ($approvalItem->other_amount ?? optional($itemSet)->sale_other ?? 0) / $originalQty;
                     $lineTotal = (float) ($approvalItem->total_amount ?? (($metalAmount + $labourAmount + $otherAmount) * $originalQty)) * $scale;
-                    $salePrice = \App\Services\ApprovalItemPricing::unitSalePrice($approvalItem);
+                    $salePrice = $hasExplicitPriceMode
+                        ? $this->apiSalePriceForMode($priceMode, $itemSet, $approvalItem, [])
+                        : \App\Services\ApprovalItemPricing::unitSalePrice($approvalItem);
                     if ($salePrice > 0) {
                         $lineTotal = $salePrice * $qty;
                         $fineWeight = $metalAmount = $labourAmount = $otherAmount = 0;
@@ -1325,7 +1344,9 @@ class SaleApiController extends Controller
                 $net = (float) ($item->net_weight ?? 0) / $batchQty;
                 $labourAmount = (float) ($item->sale_labour_amount ?? (($item->net_weight ?? 0) * ($item->sale_labour_rate ?? 0))) / $batchQty;
                 $otherAmount = (float) ($item->sale_other ?? 0);
-                $salePrice = (float) ($item->billing_sale_price ?? 0);
+                $salePrice = $hasExplicitPriceMode
+                    ? $this->apiSalePriceForMode($priceMode, $item, null, [])
+                    : (float) ($item->billing_sale_price ?? 0);
                 $lineTotal = $salePrice > 0 ? $salePrice * $qty : ($labourAmount + $otherAmount) * $qty;
 
                 SaleItem::create([
@@ -1378,7 +1399,11 @@ class SaleApiController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            $status = str_contains($e->getMessage(), 'remain in this approval item') ? 422 : 500;
+            $status = $e instanceof \Illuminate\Validation\ValidationException
+                ? 422
+                : ((str_contains($e->getMessage(), 'remain in this approval item')
+                    || str_contains($e->getMessage(), 'Wholesale price')) ? 422 : 500);
+
             return response()->json(['success' => false, 'message' => $e->getMessage()], $status);
         }
     }
@@ -1696,6 +1721,7 @@ class SaleApiController extends Controller
 
         $request->validate([
             'items' => 'required|array|min:1',
+            'price_mode' => 'sometimes|in:sale,wholesale',
             'remarks' => 'nullable|string',
             'received_amount' => 'nullable|numeric|min:0',
             'payment_mode' => 'nullable|string|max:30',
@@ -1703,6 +1729,16 @@ class SaleApiController extends Controller
             'payment_note' => 'nullable|string|max:255',
             'show_previous_bills' => 'sometimes|boolean',
         ]);
+
+        $hasExplicitPriceMode = $request->exists('price_mode');
+        $priceMode = $hasExplicitPriceMode ? (string) $request->input('price_mode') : 'sale';
+        if ($hasExplicitPriceMode && $priceMode === 'wholesale'
+            && !\App\Services\WholesalePrice::enabled(Company::find($companyId))) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Wholesale pricing is not enabled for this company.',
+            ], 422);
+        }
 
         if ($customerId <= 0) {
             return response()->json([
@@ -1744,6 +1780,7 @@ class SaleApiController extends Controller
                 'payment_note' => $request->input('payment_note'),
                 'use_silver_balance' => $request->boolean('use_silver_balance'),
                 'show_previous_bills' => $request->boolean('show_previous_bills'),
+                'price_mode' => $priceMode,
                 'employee_id' => $user->id,
                 'modified_count' => 0,
             ]);
@@ -1913,10 +1950,12 @@ class SaleApiController extends Controller
                 $labourAmount = $applyLabour ? $this->positiveOr($unitValues['unit_labour_amount'] ?? $item['labour_amount'] ?? $item['labour_amt'] ?? $item['sale_labour_amount'] ?? null, ((float) ($itemSet?->sale_labour_amount ?? ($netWeight * $labourRate))) / $batchQty) : 0;
                 $otherAmount = (float) ($unitValues['unit_other_amount'] ?? $item['other_amount'] ?? $item['other_amt'] ?? ($approvalItem ? ((float) $approvalItem->other_amount / $approvalQty) : ((float) ($itemSet?->sale_other ?? 0) / $batchQty)));
                 $lineTotal = $this->positiveOr($unitValues['unit_total_amount'] ?? $item['amount'] ?? $item['total_amount'] ?? $item['total_amt'] ?? null, $metalAmount + $labourAmount + $otherAmount) * $qty;
-                $salePrice = $approvalItem
-                    ? \App\Services\ApprovalItemPricing::unitSalePrice($approvalItem)
-                    : (float) ($unitValues['unit_sale_price'] ?? $item['sale_price'] ?? $itemSet?->billing_sale_price ?? 0);
-                if (!$approvalItem && $itemSet && (float) $itemSet->wholesale_price > 0 && \App\Services\WholesalePrice::enabled($itemSet->pricingCompany)) {
+                $salePrice = $hasExplicitPriceMode
+                    ? $this->apiSalePriceForMode($priceMode, $itemSet, $approvalItem, array_merge($item, $unitValues))
+                    : ($approvalItem
+                        ? \App\Services\ApprovalItemPricing::unitSalePrice($approvalItem)
+                        : (float) ($unitValues['unit_sale_price'] ?? $item['sale_price'] ?? $itemSet?->billing_sale_price ?? 0));
+                if (!$hasExplicitPriceMode && !$approvalItem && $itemSet && (float) $itemSet->wholesale_price > 0 && \App\Services\WholesalePrice::enabled($itemSet->pricingCompany)) {
                     $salePrice = (float) $itemSet->billing_sale_price;
                 }
                 if ($salePrice > 0) {
@@ -2010,7 +2049,8 @@ class SaleApiController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage()
-            ], str_contains($e->getMessage(), 'remain in this approval item') ? 422 : 500);
+            ], (str_contains($e->getMessage(), 'remain in this approval item')
+                || str_contains($e->getMessage(), 'Wholesale price')) ? 422 : 500);
         }
     }
 
@@ -2059,6 +2099,7 @@ class SaleApiController extends Controller
             $request->validate([
                 'customer_id' => 'required|integer',
                 'items' => 'required|array|min:1',
+                'price_mode' => 'sometimes|in:sale,wholesale',
                 'remarks' => 'nullable|string',
                 'received_amount' => 'nullable|numeric|min:0',
                 'additional_received_amount' => 'nullable|numeric|min:0',
@@ -2067,6 +2108,17 @@ class SaleApiController extends Controller
                 'payment_note' => 'nullable|string|max:255',
             'show_previous_bills' => 'sometimes|boolean',
             ]);
+
+            $hasExplicitPriceMode = $request->exists('price_mode');
+            $priceMode = $hasExplicitPriceMode ? (string) $request->input('price_mode') : (string) ($sale->price_mode ?: 'sale');
+            if ($hasExplicitPriceMode && $priceMode === 'wholesale'
+                && !\App\Services\WholesalePrice::enabled(Company::find($companyId))) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Wholesale pricing is not enabled for this company.',
+                ], 422);
+            }
 
             $customerExists = Customer::where('company_id', $companyId)
                 ->where('id', (int) $request->customer_id)
@@ -2087,6 +2139,7 @@ class SaleApiController extends Controller
 
             $sale->update([
                 'customer_id' => (int) $request->customer_id,
+                'price_mode' => $hasExplicitPriceMode ? $priceMode : $sale->price_mode,
                 'remarks' => $request->input('remarks', $request->input('remark', $sale->remarks)),
                 'received_amount' => $finalReceived,
                 'payment_mode' => $request->input('payment_mode', $sale->payment_mode),
@@ -2336,9 +2389,11 @@ class SaleApiController extends Controller
                 $labourAmount = $applyLabour ? $this->positiveOr($row['labour_amount'] ?? $row['labour_amt'] ?? null, $netWeight * $labourRate) : 0;
                 $otherAmount = (float) ($row['other_amount'] ?? $row['other_amt'] ?? 0);
                 $lineTotal = $this->positiveOr($row['total_amount'] ?? $row['total_amt'] ?? $row['amount'] ?? null, $metalAmount + $labourAmount + $otherAmount) * $qty;
-                $salePrice = $approvalItem
-                    ? \App\Services\ApprovalItemPricing::unitSalePrice($approvalItem)
-                    : (float) ($row['sale_price'] ?? $itemSet?->billing_sale_price ?? 0);
+                $salePrice = $hasExplicitPriceMode
+                    ? $this->apiSalePriceForMode($priceMode, $itemSet, $approvalItem, $row)
+                    : ($approvalItem
+                        ? \App\Services\ApprovalItemPricing::unitSalePrice($approvalItem)
+                        : (float) ($row['sale_price'] ?? $itemSet?->billing_sale_price ?? 0));
                 if ($salePrice > 0) {
                     $metalAmount = $labourAmount = $otherAmount = $fineWeight = 0;
                     $lineTotal = $salePrice * $qty;
@@ -2374,7 +2429,9 @@ class SaleApiController extends Controller
                     'remarks' => $row['remarks'] ?? $row['remark'] ?? null,
                 ];
 
-                if (isset($row['sale_price'])) {
+                if ($hasExplicitPriceMode) {
+                    $payload['sale_price'] = $salePrice > 0 ? $salePrice : null;
+                } elseif (isset($row['sale_price'])) {
                     $payload['sale_price'] = $row['sale_price'];
                 } elseif (isset($savedPrices) && $savedPrices->has($itemsetId)) {
                     $payload['sale_price'] = $savedPrices->get($itemsetId);
@@ -2433,7 +2490,10 @@ class SaleApiController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
-            ], str_contains($e->getMessage(), 'remain in this approval item') ? 422 : 500);
+            ], $e instanceof \Illuminate\Validation\ValidationException
+                ? 422
+                : ((str_contains($e->getMessage(), 'remain in this approval item')
+                    || str_contains($e->getMessage(), 'Wholesale price')) ? 422 : 500));
         }
     }
 
@@ -2841,6 +2901,46 @@ class SaleApiController extends Controller
             'cash_payable_total' => round((float) ($sale->net_total ?? 0), 2),
             'cash_pending' => round(max(0, (float) ($sale->net_total ?? 0) - ($sale->appliedReceivedAmount())), 2),
         ];
+    }
+
+    /**
+     * Resolve a requested fixed price from the server's item record. The values
+     * stored on ItemSet are batch totals, while SaleItem.sale_price is per piece.
+     */
+    private function apiSalePriceForMode(string $mode, ?ItemSet $itemSet, ?ApprovalItem $approvalItem, array $row): float
+    {
+        $source = $itemSet
+            ?? $approvalItem?->itemSet
+            ?? $approvalItem?->legacyItemSet;
+
+        if ($mode === 'wholesale') {
+            if (!$source || !\App\Services\WholesalePrice::enabled($source->pricingCompany)) {
+                throw new \RuntimeException('Wholesale price is not available for this item or company.');
+            }
+
+            $batchPrice = (float) ($source->wholesale_price ?? 0);
+            if ($batchPrice <= 0) {
+                throw new \RuntimeException('Wholesale price is not set for this item.');
+            }
+
+            return round($batchPrice / max(1, (int) ($source->quantity ?? 1)), 2);
+        }
+
+        if ($source) {
+            if ((float) ($source->sale_price ?? 0) > 0) {
+                return round((float) $source->sale_price / max(1, (int) ($source->quantity ?? 1)), 2);
+            }
+
+            // Never let a client-supplied billing_sale_price leak the wholesale
+            // amount into a Sale Price estimate when the label has no sale price.
+            return 0.0;
+        }
+
+        if ($approvalItem) {
+            return (float) ($approvalItem->sale_price ?? 0);
+        }
+
+        return (float) ($row['unit_sale_price'] ?? $row['sale_price'] ?? 0);
     }
 
     private function saleResponsePayload(Sale $sale): Sale

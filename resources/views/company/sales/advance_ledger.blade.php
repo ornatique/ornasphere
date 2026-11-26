@@ -553,6 +553,7 @@ $(function () {
     let availableCashRaw = 0;
     let availableMetal = { gold: 0, silver: 0, other: 0 };
     let advanceLedgerDt = null;
+    let advanceLedgerRequestId = 0;
     const selectedAdvanceItems = {};
     const advanceItemSearchUrl = "{{ route('company.items.search', $company->slug) }}";
 
@@ -978,6 +979,7 @@ $(function () {
     }
 
     function loadCustomerLedger(customerId) {
+        const requestId = ++advanceLedgerRequestId;
         if (!customerId) {
             currentCustomerPdfKey = '';
             availableCashRaw = 0;
@@ -994,6 +996,7 @@ $(function () {
         setTableMessage('Loading...');
         $.get('{{ route('company.sales.advance.data', $company->slug) }}', { customer_id: customerId })
             .done(function (resp) {
+                if (requestId !== advanceLedgerRequestId || String($('#customer_id').val() || '') !== String(customerId)) return;
                 if (!resp || !resp.success) {
                     setTableMessage('No entries found');
                     return;
@@ -1030,6 +1033,7 @@ $(function () {
                 }
             })
             .fail(function () {
+                if (requestId !== advanceLedgerRequestId || String($('#customer_id').val() || '') !== String(customerId)) return;
                 setTableMessage('Something went wrong. Please try again later.');
             });
     }
@@ -1044,10 +1048,12 @@ $(function () {
 
     $('#customer_id').on('change', function () {
         const cid = $(this).val();
+        advanceLedgerRequestId++;
         $('#entry_customer_id').val(cid).trigger('change.select2');
         $('#convert_customer_id').val(cid);
         currentCustomerPdfKey = '';
         updateHistoryPdfLink('');
+        setTableMessage(cid ? 'Click Load to view this party history' : 'Select party and click Load');
     });
 
     $('#btnAdvanceHistoryPdf').on('click', function (e) {

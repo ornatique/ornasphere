@@ -876,7 +876,7 @@ $(function () {
             item_name: item.item_name || '',
             huid: itemSet.HUID || '',
             qr_code: itemSet.qr_code || '',
-            sale_price: toNum(itemSet.billing_sale_price ?? itemSet.sale_price),
+            sale_price: toNum(itemSet.sale_price) / batchQty,
             qty: 1,
             available_quantity: availableQty,
             gross_weight: toNum(itemSet.gross_weight) / batchQty,
@@ -937,7 +937,7 @@ $(function () {
                        data-item-name="${esc(itemSet.item?.item_name || '')}"
                        data-huid="${esc(itemSet.HUID || '')}"
                        data-qr="${esc(itemSet.qr_code || '')}"
-                       data-sale-price="${toNum(itemSet.billing_sale_price ?? itemSet.sale_price)}" data-batch-qty="${batchQty}" data-available-qty="${availableQty}" data-gross="${(toNum(itemSet.gross_weight) / batchQty).toFixed(3)}"
+                       data-sale-price="${(toNum(itemSet.sale_price) / batchQty).toFixed(2)}" data-batch-qty="${batchQty}" data-available-qty="${availableQty}" data-gross="${(toNum(itemSet.gross_weight) / batchQty).toFixed(3)}"
                        data-other="${(toNum(itemSet.other) / batchQty).toFixed(3)}"
                        data-net="${(toNum(itemSet.net_weight) / batchQty).toFixed(3)}"
                        data-purity="${toNum(itemSet.item?.outward_purity).toFixed(3)}"

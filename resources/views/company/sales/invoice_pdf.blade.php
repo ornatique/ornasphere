@@ -15,11 +15,18 @@
         .meta td:last-child { border-right: none; }
         .summary-grid { width: 100%; border-collapse: collapse; border: 1px solid #000; margin-top: 6px; table-layout: fixed; }
         .summary-grid td { border: 1px solid #000; padding: 5px 7px; font-size: 9px; vertical-align: top; width: 25%; height: 34px; }
+        .account-summary-grid { width: 100%; table-layout: fixed; border-collapse: collapse; border: 1px solid #000; }
+        .account-summary-grid > tbody > tr > td { width: 33.333%; height: auto; min-width: 0; border: 1px solid #000; padding: 5px 7px; }
+        .account-summary-grid .metric-card { width: 100%; min-width: 0; }
+        .account-summary-grid .metric-top { width: 100%; table-layout: fixed; }
+        .account-summary-grid .metric-top td.metric-label { width: 58%; white-space: normal; overflow-wrap: break-word; }
+        .account-summary-grid .metric-top td.metric-value { width: 42%; white-space: nowrap; }
         .metric-card { width: 100%; }
         .metric-top { width: 100%; border-collapse: collapse; table-layout: fixed; }
         .metric-top td { border: 0; padding: 0; height: auto; vertical-align: top; }
         .metric-label { font-weight: 700; white-space: nowrap; width: 58%; }
         .metric-top td.metric-value { text-align: right; white-space: nowrap; width: 42%; font-size: 11px; font-weight: 700; background: #eeeeee; padding: 2px 3px; }
+        .summary-grid.account-summary-grid .metric-top td { border: 0; }
         .metric-status { margin-top: 3px; font-weight: 700; white-space: nowrap; }
         .voucher-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
         .voucher-grid th, .voucher-grid td { border: 1px solid #000; padding: 3px 3px; vertical-align: top; word-break: normal; }
@@ -208,7 +215,7 @@
                 <th style="width:6%;">Metal Rt</th>
                 <th style="width:7%;">Labour Rt</th>
                 <th style="width:7%;">Other</th>
-                <th style="width:8%;">Sale Price</th>
+                <th style="width:8%;">{{ ($sale->price_mode ?? 'sale') === 'wholesale' ? 'W. Price' : 'Sale Price' }}</th>
                 <th style="width:10%;">Total Amt</th>
             </tr>
         </thead>
@@ -351,14 +358,15 @@
         @endif
     </table>
     @endif
-        <table class="summary-grid" style="margin-top:0;">
+        <table class="summary-grid account-summary-grid" style="margin-top:0;">
+            <colgroup><col style="width:33.333%;"><col style="width:33.333%;"><col style="width:33.334%;"></colgroup>
             <tr>
                 <td>
                     <div class="metric-card">
                         <table class="metric-top"><tr><td class="metric-label">Silver Debit / Credit</td><td class="metric-value">{{ number_format($finalGrandFineDebit, 3) }}/0.000</td></tr></table>
                     </div>
                 </td>
-                <td>
+                <td colspan="{{ $advCashAbs > 0.000001 ? 1 : 2 }}">
                     <div class="metric-card">
                         <table class="metric-top">
                             <tr><td class="metric-label">Received</td><td class="metric-value">Rs&nbsp;{{ number_format($receivedAmount, 2) }}</td></tr>
@@ -378,16 +386,14 @@
             </tr>
             @if(count($metalSummaryBoxes))
             <tr>
-                @foreach($metalSummaryBoxes as $box)
-                    <td>
-                        @if($box)
-                            <div class="metric-card">
-                                <table class="metric-top"><tr><td class="metric-label">{{ $box['label'] }}</td><td class="metric-value">{{ $box['value'] }}</td></tr></table>
-                                @if($box['status'] !== '')
-                                    <div class="metric-status">{{ $box['status'] }}</div>
-                                @endif
-                            </div>
-                        @endif
+                @foreach($metalSummaryBoxes as $boxIndex => $box)
+                    <td colspan="{{ count($metalSummaryBoxes) === 1 ? 3 : ($boxIndex === 1 ? 2 : 1) }}">
+                        <div class="metric-card">
+                            <table class="metric-top"><tr><td class="metric-label">{{ $box['label'] }}</td><td class="metric-value">{{ $box['value'] }}</td></tr></table>
+                            @if($box['status'] !== '')
+                                <div class="metric-status">{{ $box['status'] }}</div>
+                            @endif
+                        </div>
                     </td>
                 @endforeach
             </tr>

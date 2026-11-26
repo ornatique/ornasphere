@@ -262,8 +262,8 @@ class ApprovalApiController extends Controller
                 'sale_labour_rate' => $labourRate,
                 'sale_other' => $otherAmount,
                 'other_amount' => $otherAmount,
-                'sale_price' => $set->billing_sale_price,
-                'total_amount' => (float) $set->billing_sale_price > 0 ? (float) $set->billing_sale_price : $totalAmount,
+                'sale_price' => \App\Services\ApprovalItemPricing::itemSetSalePrice($set),
+                'total_amount' => \App\Services\ApprovalItemPricing::itemSetSalePrice($set) > 0 ? \App\Services\ApprovalItemPricing::itemSetSalePrice($set) : $totalAmount,
                 'remarks' => '',
                 'is_item_only' => false,
                 'source' => 'itemset',
@@ -680,7 +680,7 @@ class ApprovalApiController extends Controller
                 ]);
 
                 $reservedItems[] = [
-                    'sale_price' => $itemSet->billing_sale_price,
+                    'sale_price' => \App\Services\ApprovalItemPricing::itemSetSalePrice($itemSet),
                     'cart_id' => $cart->id,
                     'itemset_id' => $itemSet->id,
                     'already_reserved' => false,
@@ -985,9 +985,10 @@ class ApprovalApiController extends Controller
                 $otherAmount = $this->resolveOtherAmount($row['other_amount'] ?? null, $itemSet->sale_other ?? 0);
                 $unitTotalAmount = $this->resolveTotalAmount($row['total_amount'] ?? null, $metalAmount, $labourAmount, $otherAmount);
                 $totalAmount = $unitTotalAmount * $qty;
-                if ((float) ($itemSet->billing_sale_price ?? 0) > 0) {
+                $salePrice = \App\Services\ApprovalItemPricing::itemSetSalePrice($itemSet);
+                if ($salePrice > 0) {
                     $metalAmount = $labourAmount = $otherAmount = $totalFineWeight = 0;
-                    $totalAmount = (float) $itemSet->billing_sale_price * $qty;
+                    $totalAmount = $salePrice * $qty;
                 }
 
                 ApprovalItem::create([
@@ -997,7 +998,7 @@ class ApprovalApiController extends Controller
                     'itemset_id' => $itemSet->id,
                     'item_id' => $itemSet->item_id,
                     'qty' => $qty,
-                    'sale_price' => $itemSet->billing_sale_price,
+                    'sale_price' => $salePrice > 0 ? $salePrice : null,
                     'huid' => $row['huid'] ?? $itemSet->HUID,
                     'qr_code' => $row['qr_code'] ?? $itemSet->qr_code,
                     'gross_weight' => $gross * $qty,
@@ -1775,16 +1776,17 @@ class ApprovalApiController extends Controller
         $labourAmount = (float) ($row['labour_amount'] ?? ($netWeight * $labourRate));
         $otherAmount = $this->resolveOtherAmount($row['other_amount'] ?? null, $itemSet->sale_other ?? 0);
         $totalAmount = $this->resolveTotalAmount($row['total_amount'] ?? null, $metalAmount, $labourAmount, $otherAmount);
-        if ((float) ($itemSet->billing_sale_price ?? 0) > 0) {
+        $salePrice = \App\Services\ApprovalItemPricing::itemSetSalePrice($itemSet);
+        if ($salePrice > 0) {
             $metalAmount = $labourAmount = $otherAmount = $totalFineWeight = 0;
-            $totalAmount = (float) $itemSet->billing_sale_price;
+            $totalAmount = $salePrice;
         }
 
         return [
             'huid' => $row['huid'] ?? $itemSet->HUID,
             'qr_code' => $row['qr_code'] ?? $itemSet->qr_code,
             'qty' => $qty,
-            'sale_price' => $itemSet->billing_sale_price,
+            'sale_price' => $salePrice > 0 ? $salePrice : null,
             'gross_weight' => $gross * $qty,
             'other_weight' => $otherWeight * $qty,
             'net_weight' => $netWeight * $qty,
@@ -1807,7 +1809,7 @@ class ApprovalApiController extends Controller
         $item = $itemSet->item;
         $cartQty = max(1, (int) ($cart->qty ?? 1));
         $calculation = $this->buildApprovalItemPayload(['qty' => $cartQty], $itemSet);
-        if ((float) $itemSet->billing_sale_price > 0) {
+        if (\App\Services\ApprovalItemPricing::itemSetSalePrice($itemSet) > 0) {
             foreach (['total_fine_weight', 'metal_amount', 'labour_amount', 'other_amount'] as $field) $calculation[$field] = 0;
         }
         $purity = (float) ($calculation['purity'] ?? 0);
@@ -1843,7 +1845,7 @@ class ApprovalApiController extends Controller
             'sale_labour_rate' => (float) ($calculation['labour_rate'] ?? 0),
             'sale_other' => (float) ($itemSet->sale_other ?? 0),
             'other_amount' => (float) ($calculation['other_amount'] ?? 0) / $cartQty,
-            'sale_price' => $itemSet->billing_sale_price,
+            'sale_price' => \App\Services\ApprovalItemPricing::itemSetSalePrice($itemSet),
             'total_amount' => (float) ($calculation['total_amount'] ?? 0) / $cartQty,
             'item' => [
                 'id' => (int) (optional($item)->id ?? 0),
@@ -1911,8 +1913,9 @@ class ApprovalApiController extends Controller
     {
         $item = $itemSet->item;
         $calculation = $this->buildApprovalItemPayload([], $itemSet);
-        if ((float) $itemSet->billing_sale_price > 0) {
-            $calculation['total_amount'] = (float) $itemSet->billing_sale_price;
+        $salePrice = \App\Services\ApprovalItemPricing::itemSetSalePrice($itemSet);
+        if ($salePrice > 0) {
+            $calculation['total_amount'] = $salePrice;
             foreach (['total_fine_weight', 'metal_amount', 'labour_amount', 'other_amount'] as $field) $calculation[$field] = 0;
         }
         $purity = (float) ($calculation['purity'] ?? 0);
@@ -1922,7 +1925,7 @@ class ApprovalApiController extends Controller
         return [
             'quantity' => max(1, (int) ($itemSet->quantity ?? 1)),
             'available_quantity' => max(0, (int) ($itemSet->available_quantity ?? 1)),
-            'sale_price' => $itemSet->billing_sale_price,
+            'sale_price' => $salePrice > 0 ? $salePrice : null,
             'cart_id' => $cart->id,
             'itemset_id' => $itemSet->id,
             'item_id' => $itemSet->item_id,

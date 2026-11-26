@@ -390,6 +390,7 @@ class SaleController extends Controller
             'sale' => null,
             'editableItems' => collect(),
             'saleAdvanceUsage' => [],
+            'wholesaleEnabled' => \App\Services\WholesalePrice::enabled($company),
         ]);
     }
 
@@ -443,6 +444,13 @@ class SaleController extends Controller
                 'labour_amount' => (float) ($row->labour_amount ?? 0),
                 'other_amount' => (float) ($row->other_amount ?? 0),
                 'sale_price' => $row->sale_price,
+                'sale_unit_price' => $itemsetId > 0 && $row->itemset
+                    ? ((float) ($row->itemset->sale_price ?? 0) / max(1, (int) ($row->itemset->quantity ?? 1)))
+                    : (float) ($row->sale_price ?? 0),
+                'wholesale_unit_price' => $itemsetId > 0 && $row->itemset && (float) ($row->itemset->wholesale_price ?? 0) > 0
+                    && \App\Services\WholesalePrice::enabled($row->itemset->pricingCompany)
+                    ? ((float) $row->itemset->wholesale_price / max(1, (int) ($row->itemset->quantity ?? 1)))
+                    : 0,
                 'total_amount' => (float) ($row->total_amount ?? 0),
                 'remarks' => (string) ($row->remarks ?? ''),
                 'other_charges' => $this->decodeOtherChargeDetails($row->other_charge_details ?? null),
@@ -458,6 +466,7 @@ class SaleController extends Controller
             'sale' => $sale,
             'editableItems' => $editableItems,
             'saleAdvanceUsage' => $saleAdvanceUsage,
+            'wholesaleEnabled' => \App\Services\WholesalePrice::enabled($company),
         ]);
     }
 
@@ -638,6 +647,13 @@ class SaleController extends Controller
                 'labour_amount' => $labourAmount,
                 'other_amount' => $otherAmount,
                 'sale_price' => $salePrice,
+                'sale_unit_price' => optional($itemSet)->sale_price !== null
+                    ? (float) $itemSet->sale_price / max(1, (int) ($itemSet->quantity ?? 1))
+                    : $salePrice,
+                'wholesale_unit_price' => (float) (optional($itemSet)->wholesale_price ?? 0) > 0
+                    && \App\Services\WholesalePrice::enabled(optional($itemSet)->pricingCompany)
+                    ? (float) $itemSet->wholesale_price / max(1, (int) ($itemSet->quantity ?? 1))
+                    : 0,
                 'total_amount' => $totalAmount,
                 'remarks' => (string) ($approvalItem->remarks ?? ''),
                 'other_charges' => $this->decodeOtherChargeDetails($approvalItem->other_charge_details ?? null),
@@ -704,6 +720,11 @@ class SaleController extends Controller
                 'labour_amount' => $labourAmount,
                 'other_amount' => $otherAmount,
                 'sale_price' => $item->billing_sale_price,
+                'sale_unit_price' => (float) ($item->sale_price ?? 0) / max(1, (int) ($item->quantity ?? 1)),
+                'wholesale_unit_price' => (float) ($item->wholesale_price ?? 0) > 0
+                    && \App\Services\WholesalePrice::enabled($item->pricingCompany)
+                    ? (float) $item->wholesale_price / max(1, (int) ($item->quantity ?? 1))
+                    : 0,
                 'total_amount' => (float) $item->billing_sale_price > 0 ? (float) $item->billing_sale_price : $totalAmount,
                 'remarks' => (string) ($item->remarks ?? ''),
                 'is_item_only' => false,
@@ -734,6 +755,8 @@ class SaleController extends Controller
                 'labour_amount' => 0,
                 'other_amount' => 0,
                 'sale_price' => null,
+                'sale_unit_price' => 0,
+                'wholesale_unit_price' => 0,
                 'total_amount' => 0,
                 'remarks' => '',
                 'is_item_only' => true,
@@ -954,6 +977,8 @@ class SaleController extends Controller
         try {
 
             $company = Company::where('slug', $slug)->firstOrFail();
+            $priceMode = $this->requestedPriceMode($request, $company, 'sale');
+            $useExplicitPriceMode = $request->has('price_mode');
             $request->validate([
                 'customer_id' => 'required|integer',
                 'items_payload' => 'nullable|string',
@@ -989,6 +1014,7 @@ class SaleController extends Controller
                 'payment_note' => $request->input('payment_note'),
                 'use_silver_balance' => $request->boolean('use_silver_balance'),
                 'show_previous_bills' => $request->boolean('show_previous_bills'),
+                'price_mode' => $priceMode,
                 'remarks'     => $request->input('voucher_remarks'),
                 'employee_id' => optional($request->user())->id,
                 'modified_count' => 0,
@@ -1059,9 +1085,11 @@ class SaleController extends Controller
                 $labourAmount = $applyLabour ? $this->positiveOr($row['labour_amount'] ?? null, $item?->sale_labour_amount ?? ($netWeight * $labourRate)) : 0;
                 $otherAmount = (float) ($row['other_amount'] ?? $item?->sale_other ?? 0);
                 $lineTotal = (float) ($row['total_amount'] ?? (($metalAmount + $labourAmount + $otherAmount) * $qty));
-                $salePrice = !empty($approvalItemId)
-                    ? \App\Services\ApprovalItemPricing::unitSalePrice($approvalForSale)
-                    : (float) ($row['sale_price'] ?? $item?->billing_sale_price ?? 0);
+                $salePrice = $useExplicitPriceMode
+                    ? $this->salePriceForMode($priceMode, $company->id, $item, $approvalForSale, $row)
+                    : (!empty($approvalItemId)
+                        ? \App\Services\ApprovalItemPricing::unitSalePrice($approvalForSale)
+                        : (float) ($row['sale_price'] ?? $item?->billing_sale_price ?? 0));
                 if ($salePrice > 0) {
                     $metalAmount = $labourAmount = $otherAmount = $fineWeight = 0;
                     $lineTotal = $salePrice * $qty;
@@ -1162,6 +1190,9 @@ class SaleController extends Controller
                 ->where('company_id', $company->id)
                 ->findOrFail((int) $saleId);
 
+            $priceMode = $this->requestedPriceMode($request, $company, (string) ($sale->price_mode ?? 'sale'));
+            $useExplicitPriceMode = $request->has('price_mode');
+
             if (\App\Models\SaleReturnItem::whereIn('sale_item_id', $sale->saleItems->pluck('id'))->exists()) {
                 throw new \Exception('This sale has returned items and cannot be rewritten.');
             }
@@ -1204,6 +1235,7 @@ class SaleController extends Controller
                 'payment_note' => $request->input('payment_note'),
                 'use_silver_balance' => $request->boolean('use_silver_balance'),
                 'show_previous_bills' => $request->boolean('show_previous_bills'),
+                'price_mode' => $priceMode,
                 'remarks' => $request->input('voucher_remarks'),
             ]);
 
@@ -1327,9 +1359,11 @@ class SaleController extends Controller
                 $labourAmount = $applyLabour ? $this->positiveOr($row['labour_amount'] ?? null, $netWeight * $labourRate) : 0;
                 $otherAmount = (float) ($row['other_amount'] ?? 0);
                 $lineTotal = $this->positiveOr($row['total_amount'] ?? null, $metalAmount + $labourAmount + $otherAmount);
-                $salePrice = !empty($approvalItemId)
-                    ? \App\Services\ApprovalItemPricing::unitSalePrice($approvalForSale)
-                    : (float) ($row['sale_price'] ?? $item?->billing_sale_price ?? 0);
+                $salePrice = $useExplicitPriceMode
+                    ? $this->salePriceForMode($priceMode, $company->id, $item, $approvalForSale, $row)
+                    : (!empty($approvalItemId)
+                        ? \App\Services\ApprovalItemPricing::unitSalePrice($approvalForSale)
+                        : (float) ($row['sale_price'] ?? $item?->billing_sale_price ?? 0));
                 if ($salePrice > 0) {
                     $metalAmount = $labourAmount = $otherAmount = $fineWeight = 0;
                     $lineTotal = $salePrice * $qty;
@@ -1359,7 +1393,7 @@ class SaleController extends Controller
                     'approval_item_id' => $approvalItemId,
                 ];
 
-                if (empty($approvalItemId) && $savedPrices->has($itemsetId)) { $payload['sale_price'] = $savedPrices->get($itemsetId); }
+                if (!$useExplicitPriceMode && empty($approvalItemId) && $savedPrices->has($itemsetId)) { $payload['sale_price'] = $savedPrices->get($itemsetId); }
                 SaleItem::create($payload);
                 $savedRows++;
 
@@ -2012,6 +2046,51 @@ class SaleController extends Controller
         }
 
         return $rows;
+    }
+
+    private function requestedPriceMode(Request $request, Company $company, string $fallback): string
+    {
+        $mode = (string) $request->input('price_mode', $fallback);
+        if (!in_array($mode, ['sale', 'wholesale'], true)) {
+            throw new \InvalidArgumentException('Choose Sale Price or Wholesale Price.');
+        }
+        if ($mode === 'wholesale' && !\App\Services\WholesalePrice::enabled($company)) {
+            throw new \InvalidArgumentException('Wholesale pricing is not enabled for this company.');
+        }
+        return $mode;
+    }
+
+    private function salePriceForMode(string $mode, int $companyId, ?ItemSet $itemSet, ?ApprovalItem $approvalItem, array $row): float
+    {
+        $source = $itemSet;
+        if (!$source && $approvalItem) {
+            $sourceId = (int) ($approvalItem->itemset_id ?: $approvalItem->item_id);
+            if ($sourceId > 0) {
+                $source = ItemSet::where('company_id', $companyId)->find($sourceId);
+            }
+        }
+
+        if ($source) {
+            $quantity = max(1, (int) ($source->quantity ?? 1));
+            if ($mode === 'wholesale') {
+                if ((float) ($source->wholesale_price ?? 0) <= 0 && (float) ($source->sale_price ?? 0) > 0) {
+                    throw new \RuntimeException('Wholesale Price is not set for ' . (optional($source->item)->item_name ?? 'a selected item') . '. Set it first or choose Sale Price.');
+                }
+                if (!\App\Services\WholesalePrice::enabled($source->pricingCompany) || (float) ($source->wholesale_price ?? 0) <= 0) {
+                    return 0.0;
+                }
+                return round((float) $source->wholesale_price / $quantity, 2);
+            }
+            if ((float) ($source->sale_price ?? 0) > 0) {
+                return round((float) $source->sale_price / $quantity, 2);
+            }
+        }
+
+        if ($approvalItem && (float) ($approvalItem->sale_price ?? 0) > 0) {
+            return (float) $approvalItem->sale_price;
+        }
+
+        return max(0, (float) ($row['sale_unit_price'] ?? $row['sale_price'] ?? 0));
     }
 
     private function positiveOr($value, float $fallback): float
