@@ -28,10 +28,16 @@ class WholesalePrice
     /** Stable display padding; never used for billing or the scannable identifier. */
     public static function sticker($item): string
     {
-        if ($item->sale_price === null || $item->sale_price === '') return '-';
-        $price = number_format((float) $item->sale_price, 0, '.', '');
+        // Keep the sticker price source consistent with the company's configured
+        // pricing mode. In wholesale mode, don't silently show retail sale price
+        // when the wholesale value is missing.
+        $useWholesalePrice = self::enabled($item->pricingCompany);
+        $stickerPrice = $useWholesalePrice ? $item->wholesale_price : $item->sale_price;
+        if ($stickerPrice === null || $stickerPrice === '') return '-';
+        $price = number_format((float) $stickerPrice, 0, '.', '');
         if (empty($item->id)) return $price;
-        $hash = hash_hmac('sha256', 'sale-sticker:'.$item->company_id.':'.$item->id, (string) config('app.key'));
+        $priceType = $useWholesalePrice ? 'wholesale' : 'sale';
+        $hash = hash_hmac('sha256', $priceType.'-sticker:'.$item->company_id.':'.$item->id, (string) config('app.key'));
         return (string) (10 + hexdec(substr($hash, 0, 4)) % 90).$price.(string) (10 + hexdec(substr($hash, 4, 4)) % 90);
     }
 }

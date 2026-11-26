@@ -180,6 +180,15 @@ class CustomerAdvanceController extends Controller
         $rows = CustomerAdvanceLedger::with('customer')
             ->where('company_id', $company->id)
             ->where('customer_id', $customerId)
+            // Keep automatic sale settlements in the ledger for balance
+            // calculations, but don't show them as Receive / Return / Purchase
+            // vouchers in this page's activity table.
+            ->where(function ($query) {
+                $query->whereNotIn('entry_type', ['sale_adjust_cash', 'purchase_adjust_metal'])
+                    ->orWhereNull('reference_type')
+                    ->orWhere('reference_type', '!=', 'sale')
+                    ->orWhereNull('reference_id');
+            })
             ->latest('entry_date')
             ->latest('id')
             ->limit(200)

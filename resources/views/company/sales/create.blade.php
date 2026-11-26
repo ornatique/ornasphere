@@ -26,6 +26,27 @@
 
             <div class="card-body">
 
+                <div class="mb-3 px-3 py-2 border rounded d-none" id="salePriceModePanel">
+                    <div class="d-flex align-items-center flex-wrap gap-3">
+                        <strong class="me-1">Estimate price:</strong>
+                        <label class="d-inline-flex align-items-center gap-2 mb-0" for="price_mode_sale">
+                            <input type="radio" name="price_mode" id="price_mode_sale" value="sale"
+                                @checked(old('price_mode', $sale->price_mode ?? 'sale') !== 'wholesale')>
+                            <span>Sale Price</span>
+                        </label>
+                        @if(!empty($wholesaleEnabled))
+                        <label class="d-inline-flex align-items-center gap-2 mb-0" for="price_mode_wholesale">
+                            <input type="radio" name="price_mode" id="price_mode_wholesale" value="wholesale"
+                                @checked(old('price_mode', $sale->price_mode ?? 'sale') === 'wholesale')>
+                            <span>Wholesale Price</span>
+                        </label>
+                        @else
+                        <input type="hidden" name="price_mode" value="sale">
+                        @endif
+                        <small class="ms-md-auto">Choose the fixed price for items that have both prices.</small>
+                    </div>
+                </div>
+
                 <div class="row mb-3">
                     <div class="col-md-4">
                         <label>Customer</label>
@@ -188,7 +209,7 @@
                                 <th>Apply <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="apply_labour" title="Apply first visible row labour checkbox to visible rows">All</button></th>
                                 <th>Labour Amt</th>
                                 <th>Other Amt <button type="button" class="btn btn-info btn-sm apply-first-column" data-column="other_amount" title="Apply first visible row other amount to visible rows">All</button></th>
-                                <th>Sale Price</th>
+                                <th><span id="salePriceColumnHeader">{{ old('price_mode', $sale->price_mode ?? 'sale') === 'wholesale' ? 'Wholesale Price' : 'Sale Price' }}</span></th>
                                 <th>Total Amt</th>
                                 <th>Remarks</th>
                                 <th>Action</th>
@@ -970,6 +991,8 @@
 <script>
 $(function () {
     const initialSaleRows = @json(!empty($editableItems) ? $editableItems : []);
+    const wholesaleEnabled = @json((bool) ($wholesaleEnabled ?? false));
+    let salePriceMode = $('input[name="price_mode"]:checked').val() || 'sale';
     const existingSaleAdvanceUsage = @json($saleAdvanceUsage ?? []);
     const existingSaleCustomerId = '{{ !empty($sale) ? (int)($sale->customer_id ?? 0) : 0 }}';
     const currentSaleId = '{{ !empty($sale) ? (int)($sale->id ?? 0) : 0 }}';
@@ -983,6 +1006,52 @@ $(function () {
     let modalRowId = null;
     let otherChargeOptions = [];
     let modalOtherChargeLines = [];
+
+    function selectedFixedPrice(row, mode = salePriceMode) {
+        return mode === 'wholesale'
+            ? toNum(row.wholesale_unit_price)
+            : toNum(row.sale_unit_price);
+    }
+
+    function applyPriceModeToRows(mode) {
+        Object.keys(selectedRows).forEach(rowKey => {
+            const row = selectedRows[rowKey];
+            row.sale_price = selectedFixedPrice(row, mode);
+            recalcRow(rowKey);
+            const label = mode === 'wholesale' ? 'Wholesale Price' : 'Sale Price';
+            $(`#row_${rowKey}`).find('.sale-fixed-price-label').text(label);
+            $(`#row_${rowKey}`).find('.sale-fixed-price-value').text(row.sale_price > 0 ? nfix(row.sale_price, 2) : '-');
+        });
+    }
+
+    function updatePriceModeVisibility() {
+        const hasDualPriceItem = Object.values(selectedRows).some(row =>
+            toNum(row.sale_unit_price) > 0 && toNum(row.wholesale_unit_price) > 0
+        );
+        $('#salePriceModePanel').toggleClass('d-none', !hasDualPriceItem);
+
+        if (!hasDualPriceItem && salePriceMode === 'wholesale') {
+            salePriceMode = 'sale';
+            $('#price_mode_sale').prop('checked', true);
+            $('#salePriceColumnHeader').text('Sale Price');
+            applyPriceModeToRows('sale');
+        }
+    }
+
+    $(document).on('change', 'input[name="price_mode"]', function () {
+        const nextMode = $(this).val() === 'wholesale' ? 'wholesale' : 'sale';
+        if (nextMode === 'wholesale') {
+            const missing = Object.values(selectedRows).find(row => toNum(row.sale_unit_price) > 0 && toNum(row.wholesale_unit_price) <= 0);
+            if (missing) {
+                alert(`A wholesale price is not set for ${missing.name || 'one selected item'}. Set its wholesale price first, or use Sale Price.`);
+                $('#price_mode_sale').prop('checked', true);
+                return;
+            }
+        }
+        salePriceMode = nextMode;
+        $('#salePriceColumnHeader').text(salePriceMode === 'wholesale' ? 'Wholesale Price' : 'Sale Price');
+        applyPriceModeToRows(salePriceMode);
+    });
 
     if ($.fn.select2) {
         $('#customerSelect').select2({
@@ -1160,6 +1229,12 @@ $(function () {
         const applyMetal = toBool(item.apply_metal, true);
         const applyLabour = toBool(item.apply_labour, true);
         const otherAmount = toNum(item.other_amount ?? item.sale_other ?? 0);
+        const saleUnitPrice = item.sale_unit_price !== undefined
+            ? toNum(item.sale_unit_price)
+            : (item.sale_price !== undefined ? toNum(item.sale_price) / divisor : toNum(item.billing_sale_price));
+        const wholesaleUnitPrice = item.wholesale_unit_price !== undefined
+            ? toNum(item.wholesale_unit_price)
+            : toNum(item.wholesale_price) / divisor;
         const effectiveMetalAmount = applyMetal ? metalAmount : 0;
         const effectiveLabourAmount = applyLabour ? labourAmount : 0;
         const totalAmount = positiveOr(item.total_amount, effectiveMetalAmount + effectiveLabourAmount + otherAmount);
@@ -1176,7 +1251,9 @@ $(function () {
             huid: item.huid ?? item.HUID ?? '',
             qty,
             available_quantity: availableQty,
-            sale_price: toNum(item.billing_sale_price ?? item.sale_price),
+            sale_unit_price: saleUnitPrice,
+            wholesale_unit_price: wholesaleUnitPrice,
+            sale_price: salePriceMode === 'wholesale' ? wholesaleUnitPrice : saleUnitPrice,
             gross_weight: gross,
             other_weight: otherWeight,
             net_weight: net,
@@ -1717,6 +1794,10 @@ $(function () {
         const labourRate = toNum(item.labour_rate);
         const labourAmount = positiveOr(item.labour_amount, net * labourRate);
         const otherAmount = toNum(item.other_amount);
+        const saleUnitPrice = item.sale_unit_price !== undefined
+            ? toNum(item.sale_unit_price)
+            : toNum(item.sale_price);
+        const wholesaleUnitPrice = toNum(item.wholesale_unit_price);
         const rowKey = approvalItemId
             ? `approval_${approvalItemId}`
             : (isItemOnly ? `item_${itemId}` : `set_${itemsetId}`);
@@ -1734,7 +1815,9 @@ $(function () {
             huid: item.huid || '',
             qty,
             available_quantity: availableQty,
-            sale_price: toNum(item.billing_sale_price ?? item.sale_price),
+            sale_unit_price: saleUnitPrice,
+            wholesale_unit_price: wholesaleUnitPrice,
+            sale_price: salePriceMode === 'wholesale' ? wholesaleUnitPrice : saleUnitPrice,
             gross_weight: gross,
             other_weight: otherWeight,
             net_weight: net,
@@ -1883,6 +1966,11 @@ $(function () {
             return;
         }
 
+        if (salePriceMode === 'wholesale' && toNum(row.sale_unit_price) > 0 && toNum(row.wholesale_unit_price) <= 0) {
+            alert(`A wholesale price is not set for ${row.name || 'this item'}. Set its wholesale price first, or use Sale Price.`);
+            return;
+        }
+
         if (selectedRows[rowKey]) {
             const existing = selectedRows[rowKey];
             const nextQty = Math.max(1, Math.floor(toNum(existing.qty, 1))) + 1;
@@ -1955,7 +2043,7 @@ $(function () {
                     <button type="button" class="btn btn-info open-other-charge-modal" data-id="${rowKey}" title="Other Charges">...</button>
                 </div>
             </td>
-            <td>${toNum(row.sale_price) > 0 ? nfix(row.sale_price, 2) : "-"}</td>
+            <td><small class="sale-fixed-price-label">${salePriceMode === 'wholesale' ? 'Wholesale Price' : 'Sale Price'}</small><br><span class="sale-fixed-price-value">${toNum(row.sale_price) > 0 ? nfix(row.sale_price, 2) : "-"}</span></td>
                 <td><input type="number" step="0.01" class="form-control" id="total_amt_${rowKey}" readonly value="${nfix(row.total_amount,2)}"></td>
             <td><input type="text" class="form-control remarks" data-id="${rowKey}" value="${esc(row.remarks || '')}"></td>
             <td><button type="button" class="btn btn-danger removeRow" data-id="${rowKey}">X</button></td>
@@ -1968,6 +2056,7 @@ $(function () {
         }
         recalcRow(rowKey);
         ensureGridSearchRow();
+        updatePriceModeVisibility();
     }
 
     $('#customerSelect').on('change.approvalPersonSync', function() {
@@ -2192,7 +2281,10 @@ $(function () {
                     data-labour-amount="${nfix(labourAmount,2)}"
                     data-other-amount="${nfix(otherAmount,2)}"
                     data-remarks="${esc(item.remarks || '')}"
-                    data-sale-price="${toNum(item.billing_sale_price ?? item.sale_price)}" data-total-amount="${nfix(totalAmount,2)}">
+                    data-sale-price="${toNum(item.sale_unit_price ?? item.sale_price)}"
+                    data-sale-unit-price="${toNum(item.sale_unit_price ?? item.sale_price)}"
+                    data-wholesale-unit-price="${toNum(item.wholesale_unit_price)}"
+                    data-total-amount="${nfix(totalAmount,2)}">
                     <td>${i + 1}</td>
                     <td>${esc(code)}</td>
                     <td>${esc(itemName)}</td>
@@ -2313,7 +2405,11 @@ $(function () {
                 labour_amount: toNum($(this).data('labour-amount')) / qty,
                 other_amount: toNum($(this).data('other-amount')) / qty,
                 remarks: $(this).data('remarks') || '',
-                sale_price: toNum($(this).data('sale-price')),
+                sale_unit_price: toNum($(this).data('sale-unit-price')),
+                wholesale_unit_price: toNum($(this).data('wholesale-unit-price')),
+                sale_price: salePriceMode === 'wholesale'
+                    ? toNum($(this).data('wholesale-unit-price'))
+                    : toNum($(this).data('sale-unit-price')),
                 total_amount: toNum($(this).data('total-amount')),
                 other_charges: [],
             });
@@ -2424,6 +2520,7 @@ $(function () {
         releaseSaleRow(selectedRows[id]);
         delete selectedRows[id];
         $('#row_' + id).remove();
+        updatePriceModeVisibility();
         recalcTotals();
         ensureGridSearchRow();
     });
@@ -2471,6 +2568,8 @@ $(function () {
                 metal_type: normalizeMetalType(row.metal_type || ''),
                 qty: Math.max(1, Math.floor(toNum(row.qty, 1))),
                 sale_price: toNum(row.sale_price),
+                sale_unit_price: toNum(row.sale_unit_price),
+                wholesale_unit_price: toNum(row.wholesale_unit_price),
                 gross_weight: toNum(row.gross_weight),
                 other_weight: toNum(row.other_weight),
                 net_weight: toNum(row.net_weight),

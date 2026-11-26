@@ -668,9 +668,10 @@ class ApprovalController extends Controller
                 $labourAmount = (float) ($row['labour_amount'] ?? ($netWeight * $labourRate));
                 $otherAmount = $this->resolveOtherAmount($row['other_amount'] ?? null, $itemSet->sale_other ?? 0);
                 $totalAmount = (float) ($row['total_amount'] ?? (($metalAmount + $labourAmount + $otherAmount) * $qty));
-                if ((float) ($itemSet->billing_sale_price ?? 0) > 0) {
+                $salePrice = \App\Services\ApprovalItemPricing::itemSetSalePrice($itemSet);
+                if ($salePrice > 0) {
                     $metalAmount = $labourAmount = $otherAmount = $totalFineWeight = 0;
-                    $totalAmount = (float) $itemSet->billing_sale_price * $qty;
+                    $totalAmount = $salePrice * $qty;
                 }
 
                 ApprovalItem::create([
@@ -678,7 +679,7 @@ class ApprovalController extends Controller
                     'itemset_id' => $itemSet->id,
                     'item_id' => $itemSet->item_id,
                     'qty' => $qty,
-                    'sale_price' => $itemSet->billing_sale_price,
+                    'sale_price' => $salePrice > 0 ? $salePrice : null,
                     'huid' => $row['huid'] ?? $itemSet->HUID,
                     'qr_code' => $row['qr_code'] ?? $itemSet->qr_code,
                     'gross_weight' => $gross * $qty,
@@ -1088,16 +1089,17 @@ class ApprovalController extends Controller
         $labourAmount = (float) ($row['labour_amount'] ?? ($netWeight * $labourRate));
         $otherAmount = $this->resolveOtherAmount($row['other_amount'] ?? null, $itemSet->sale_other ?? 0);
         $totalAmount = (float) ($row['total_amount'] ?? (($metalAmount + $labourAmount + $otherAmount) * $qty));
-        if ((float) ($itemSet->billing_sale_price ?? 0) > 0) {
+        $salePrice = \App\Services\ApprovalItemPricing::itemSetSalePrice($itemSet);
+        if ($salePrice > 0) {
             $metalAmount = $labourAmount = $otherAmount = $totalFineWeight = 0;
-            $totalAmount = (float) $itemSet->billing_sale_price * $qty;
+            $totalAmount = $salePrice * $qty;
         }
 
         return [
             'huid' => $row['huid'] ?? $itemSet->HUID,
             'qr_code' => $row['qr_code'] ?? $itemSet->qr_code,
             'qty' => $qty,
-            'sale_price' => $itemSet->billing_sale_price,
+            'sale_price' => $salePrice > 0 ? $salePrice : null,
             'gross_weight' => $gross * $qty,
             'other_weight' => $otherWeight * $qty,
             'net_weight' => $netWeight * $qty,

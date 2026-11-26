@@ -24,6 +24,7 @@ class Sale extends Model
         'payment_note',
         'use_silver_balance',
         'show_previous_bills',
+        'price_mode',
         'net_total',
         'remarks',
         'employee_id',
