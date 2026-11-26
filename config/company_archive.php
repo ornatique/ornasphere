@@ -6,7 +6,7 @@ return [
     'max_bytes' => 2 * 1024 * 1024 * 1024,
     'max_upload_kb' => 2 * 1024 * 1024,
     // Every table needs an explicit policy. Unknown tables block destructive actions.
-    'business' => explode(' ', 'approval_carts approval_headers approval_items audit_logs cad_designs casting_heating_items casting_metal_issue_items casting_release_items casting_sorting_items category_people company_activity_notifications customer_advance_ledgers customer_advance_voucher_items customer_advance_vouchers customer_order_lines customer_order_vouchers customer_orders customers item_labels item_sets items job_workers jobwork_issue_items jobwork_issues jobwork_raw_stock_allocations jobwork_receive_items jobwork_receives label_configs labour_formulas marketing_qrs metal_ledgers order_production_events order_production_files other_charges production_costs production_step_user production_steps return_carts rpt_batches sale_carts sale_items sale_payments sale_return_items sale_returns sales stock_gallery_media tree_cutting_issue_items tree_cutting_office_items tree_cutting_receive_items vacuum_buch_weight_histories vacuum_buchs vacuum_processes vacuum_voucher_items vacuum_vouchers visiting_cards worker_access_logs product_background_removes'),
+    'business' => explode(' ', 'managed_orders managed_order_items approval_carts approval_headers approval_items audit_logs cad_designs casting_heating_items casting_metal_issue_items casting_release_items casting_sorting_items category_people company_activity_notifications customer_advance_ledgers customer_advance_voucher_items customer_advance_vouchers customer_order_lines customer_order_vouchers customer_orders customers item_labels item_sets items job_workers jobwork_issue_items jobwork_issues jobwork_raw_stock_allocations jobwork_receive_items jobwork_receives label_configs labour_formulas marketing_qrs metal_ledgers order_production_events order_production_files other_charges production_costs production_step_user production_steps return_carts rpt_batches sale_carts sale_items sale_payments sale_return_items sale_returns sales stock_gallery_media tree_cutting_issue_items tree_cutting_office_items tree_cutting_receive_items vacuum_buch_weight_histories vacuum_buchs vacuum_processes vacuum_voucher_items vacuum_vouchers visiting_cards worker_access_logs product_background_removes'),
     'retained' => explode(' ', 'companies users roles permissions model_has_roles model_has_permissions role_has_permissions company_app_themes company_office_access_settings company_plan_renewals company_voucher_counters worker_allowed_devices'),
     'system' => explode(' ', 'migrations cache cache_locks jobs job_batches failed_jobs sessions password_reset_tokens password_set_tokens personal_access_tokens super_admin_notifications super_admins company_archive_states'),
     // The legacy controller exposes these records globally when no ownership column exists.
@@ -14,6 +14,7 @@ return [
     'shared_without_owner' => ['product_background_removes'],
     // Logical relationships also cover legacy tables without declared foreign keys.
     'parents' => [
+        'managed_order_items' => ['managed_order_id', 'managed_orders'],
         'approval_items' => ['approval_id', 'approval_headers'],
         'customer_advance_voucher_items' => ['voucher_id', 'customer_advance_vouchers'],
         'customer_order_lines' => ['customer_order_id', 'customer_orders'],
@@ -32,6 +33,7 @@ return [
         'vacuum_buch_weight_histories' => ['vacuum_buch_id', 'vacuum_buchs'],
     ],
     'references' => [
+        'managed_order_id'=>'managed_orders',
         'customer_id'=>'customers', 'item_id'=>'items', 'product_id'=>'items', 'itemset_id'=>'item_sets', 'item_set_id'=>'item_sets',
         'sale_id'=>'sales', 'sale_item_id'=>'sale_items', 'sale_return_id'=>'sale_returns',
         'approval_id'=>'approval_headers', 'approval_item_id'=>'approval_items',

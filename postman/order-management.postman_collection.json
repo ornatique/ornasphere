@@ -1,0 +1,466 @@
+{
+  "info": {
+    "name": "Ornasphere - Order Management",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Order Management API only. Login already exists: paste its Bearer token into token and set baseUrl to the application root without /api or a trailing slash. All endpoints use the token's company; a different company_id is forbidden. No login credentials or tokens are included. Permissions: view for list/PDF, create for store, edit for update; options/item-search accept any of these permissions. Company archive restrictions remain active. Error responses use the existing API envelope (401 login/session, 403 permission/company/module, 404 order, 422 validation, 423 archive lock)."
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "customerId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "itemId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "itemSetId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "orderId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "keyword",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "orderDate",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "fromDate",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "toDate",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (!pm.variables.get('orderDate')) { const d = new Date(); pm.collectionVariables.set('orderDate', [d.getFullYear(), String(d.getMonth()+1).padStart(2,'0'), String(d.getDate()).padStart(2,'0')].join('-')); }"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "01 - Customer and Item Options",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/order-management/options",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "order-management",
+            "options"
+          ]
+        },
+        "description": "Lists this token company's customers and item types. Use active customers for new orders. Copy a customer id into customerId. No login request is included in this collection."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Successful response', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+              "if (pm.response.code < 300) { pm.test('API success', function () { pm.expect(pm.response.json().success).to.eql(true); }); }"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "02 - Order List and Filters",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/order-management?page=1&per_page=20",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "order-management"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": "1",
+              "disabled": false
+            },
+            {
+              "key": "per_page",
+              "value": "20",
+              "disabled": false
+            },
+            {
+              "key": "search",
+              "value": "om",
+              "disabled": true
+            },
+            {
+              "key": "customer_id",
+              "value": "{{customerId}}",
+              "disabled": true
+            },
+            {
+              "key": "from_date",
+              "value": "{{fromDate}}",
+              "disabled": true
+            },
+            {
+              "key": "to_date",
+              "value": "{{toDate}}",
+              "disabled": true
+            }
+          ]
+        },
+        "description": "Enable optional query parameters in Postman. search accepts customer name or any part of a displayed order number: om, OM-, OM-000001. Dates are YYYY-MM-DD and inclusive. All filters combine. Paginated JSON is under data, with records in data.data."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Successful response', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+              "if (pm.response.code < 300) { pm.test('API success', function () { pm.expect(pm.response.json().success).to.eql(true); }); }"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "03 - Scan / Search Items (HUID / QR)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/order-management/item-search?keyword={{keyword}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "order-management",
+            "item-search"
+          ],
+          "query": [
+            {
+              "key": "keyword",
+              "value": "{{keyword}}",
+              "disabled": false
+            },
+            {
+              "key": "item_id",
+              "value": "{{itemId}}",
+              "disabled": true
+            },
+            {
+              "key": "exclude[]",
+              "value": "{{itemSetId}}",
+              "disabled": true
+            }
+          ]
+        },
+        "description": "Search HUID, QR, barcode or item name; returns up to 50 available final labels from your company. Copy item_set_id to itemSetId. Repeat exclude[] for already selected label IDs so they do not reappear."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Successful response', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+              "if (pm.response.code < 300) { pm.test('API success', function () { pm.expect(pm.response.json().success).to.eql(true); }); }"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "04 - Order Details / Edit Data",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/order-management/{{orderId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "order-management",
+            "{{orderId}}"
+          ]
+        },
+        "description": "Returns the saved order, customer, items, current available_quantity and totals. orderId is the numeric database ID; number is the display number OM-000001."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Successful response', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+              "if (pm.response.code < 300) { pm.test('API success', function () { pm.expect(pm.response.json().success).to.eql(true); }); }"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "05 - Create Order - Existing Customer",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/order-management",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "order-management"
+          ]
+        },
+        "description": "Set customerId and itemSetId before sending. Set real weights/rates or remove optional pricing fields to use label defaults. At least one item is required; up to 200 distinct labels. Does not reserve or reduce stock. Returns 201 and automatically stores the returned ID in the collection orderId variable. Set price_mode to sale or wholesale. Default is sale for new orders; the selection is saved and returned. Missing selected prices use the other available price.",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"order_date\": \"{{orderDate}}\",\n  \"remarks\": \"Order from API\",\n  \"items\": [\n    {\n      \"item_set_id\": \"{{itemSetId}}\",\n      \"quantity\": 1,\n      \"gross_weight\": 50,\n      \"other_weight\": 0,\n      \"purity\": 94,\n      \"waste_percent\": 0,\n      \"metal_rate\": 0,\n      \"labour_rate\": 0,\n      \"other_amount\": 0,\n      \"remarks\": \"\"\n    }\n  ],\n  \"price_mode\": \"sale\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Successful response', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+              "if (pm.response.code < 300) { pm.test('API success', function () { pm.expect(pm.response.json().success).to.eql(true); }); }",
+              "if (pm.response.code === 201) { pm.collectionVariables.set('orderId', String(pm.response.json().data.id)); }"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "06 - Create Order - Other / New Customer",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/order-management",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "order-management"
+          ]
+        },
+        "description": "Creates a customer and its order atomically. Only new_customer.name is required. Optional mobile_no must be 10 digits, pincode 6 digits and email unique within the company. No account/login is created and no email is sent. Set price_mode to sale or wholesale. Default is sale for new orders; the selection is saved and returned. Missing selected prices use the other available price.",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customer_id\": \"other\",\n  \"order_date\": \"{{orderDate}}\",\n  \"remarks\": \"Order from API\",\n  \"items\": [\n    {\n      \"item_set_id\": \"{{itemSetId}}\",\n      \"quantity\": 1,\n      \"gross_weight\": 50,\n      \"other_weight\": 0,\n      \"purity\": 94,\n      \"waste_percent\": 0,\n      \"metal_rate\": 0,\n      \"labour_rate\": 0,\n      \"other_amount\": 0,\n      \"remarks\": \"\"\n    }\n  ],\n  \"new_customer\": {\n    \"name\": \"New customer name\",\n    \"email\": \"\",\n    \"mobile_no\": \"\",\n    \"city\": \"\",\n    \"address\": \"\",\n    \"pincode\": \"\"\n  },\n  \"price_mode\": \"sale\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Successful response', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+              "if (pm.response.code < 300) { pm.test('API success', function () { pm.expect(pm.response.json().success).to.eql(true); }); }",
+              "if (pm.response.code === 201) { pm.collectionVariables.set('orderId', String(pm.response.json().data.id)); }"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "07 - Update Order",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/order-management/{{orderId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "order-management",
+            "{{orderId}}"
+          ]
+        },
+        "description": "Full update: send the complete desired items array. Removed array rows are removed from this order only. Existing customer can be changed, or send customer_id=other with new_customer to create one. Server calculates net weight, fine weight and amounts; supplied derived totals are ignored. Fixed label sale prices cannot be overridden. Set price_mode to sale or wholesale. Default is sale for new orders; the selection is saved and returned. Missing selected prices use the other available price.",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"order_date\": \"{{orderDate}}\",\n  \"remarks\": \"Updated order from API\",\n  \"items\": [\n    {\n      \"item_set_id\": \"{{itemSetId}}\",\n      \"quantity\": 1,\n      \"gross_weight\": 50,\n      \"other_weight\": 0,\n      \"purity\": 94,\n      \"waste_percent\": 0,\n      \"metal_rate\": 0,\n      \"labour_rate\": 0,\n      \"other_amount\": 0,\n      \"remarks\": \"\"\n    }\n  ],\n  \"price_mode\": \"sale\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Successful response', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+              "if (pm.response.code < 300) { pm.test('API success', function () { pm.expect(pm.response.json().success).to.eql(true); }); }"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "08 - Order PDF - Send and Download",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/pdf"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/order-management/{{orderId}}/pdf",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "order-management",
+            "{{orderId}}",
+            "pdf"
+          ]
+        },
+        "description": "Use Postman Send and Download to save the PDF. Includes customer name/mobile and saved order details. Uses the same login token and requires order-management-view permission."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Successful response', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+              "pm.test('PDF response', function () { pm.expect(pm.response.headers.get('Content-Type')).to.include('application/pdf'); });"
+            ]
+          }
+        }
+      ],
+      "response": []
+    }
+  ]
+}

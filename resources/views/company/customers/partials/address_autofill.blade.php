@@ -5,11 +5,11 @@
 @push('scripts')
 <script>
     (function () {
-        const addressInput = document.getElementById('address');
-        const cityInput = document.getElementById('city');
+        const addressInput = document.getElementById(@json($addressFieldId ?? 'address'));
+        const cityInput = document.getElementById(@json($cityFieldId ?? 'city'));
         const areaInput = document.getElementById('area');
         const landmarkInput = document.getElementById('landmark');
-        const pincodeInput = document.getElementById('pincode');
+        const pincodeInput = document.getElementById(@json($pincodeFieldId ?? 'pincode'));
 
         if (!addressInput || !cityInput || !pincodeInput) {
             return;

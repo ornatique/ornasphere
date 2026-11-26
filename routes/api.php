@@ -56,6 +56,16 @@ Route::prefix('company/archive')->name('api.company.archive.')
     });
 
 Route::middleware(['auth:sanctum', 'single.api.token', 'company.active', 'worker.office.access'])->group(function () {
+    Route::prefix('order-management')->name('api.order-management.')->group(function () {
+        $controller = \App\Http\Controllers\Api\OrderManagementApiController::class;
+        Route::get('/', [$controller,'index'])->name('index');
+        Route::get('/options', [$controller,'options'])->name('options');
+        Route::get('/item-search', [$controller,'search'])->name('search');
+        Route::post('/', [$controller,'store'])->name('store');
+        Route::get('/{id}', [$controller,'show'])->whereNumber('id')->name('show');
+        Route::put('/{id}', [$controller,'update'])->whereNumber('id')->name('update');
+        Route::get('/{id}/pdf', [$controller,'pdf'])->whereNumber('id')->name('pdf');
+    });
     Route::post('/vouchers/resolve-qr', [\App\Http\Controllers\Api\VoucherScanController::class, 'resolve']);
     Route::get('/vouchers/{type}/{id}/qr', [\App\Http\Controllers\Api\VoucherScanController::class, 'qr'])->whereIn('type', ['approval', 'sale', 'sale-return', 'jobwork-issue', 'jobwork-receive', 'casting', 'casting-metal-issue', 'tree-cutting-receive', 'tree-cutting-issue'])->whereNumber('id');
     Route::get('/bullion/persons', [\App\Http\Controllers\Api\BullionApiController::class, 'persons']);

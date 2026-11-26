@@ -968,6 +968,7 @@ Route::middleware(['auth', 'single.web.session', 'company.active', 'company.2fa'
         Route::get('qr-making/{id}/pdf', [QrMakingController::class, 'pdf'])->whereNumber('id')->name('qr-making.pdf');
         // Temporarily disabled: Customer Orders, CAD Design and RPT Production.
         // require __DIR__.'/order_production.php';
+        require __DIR__.'/order_management.php';
 
         Route::get('/stock-gallery', [StockGalleryController::class, 'index'])
             ->name('stock-gallery.index');
