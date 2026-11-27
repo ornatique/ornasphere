@@ -24,6 +24,9 @@ class CompanyArchiveGate
 
     public static function ensure(int $id): void
     {
+        // INSERT IGNORE on an existing InnoDB row can take a shared duplicate-key lock.
+        // Concurrent requests then deadlock when both try to upgrade it to FOR UPDATE.
+        if (DB::table('company_archive_states')->where('company_id', $id)->exists()) return;
         DB::table('company_archive_states')->insertOrIgnore(['company_id' => $id, 'status' => 'active',
             'active_requests' => 0, 'created_at' => now(), 'updated_at' => now()]);
     }
@@ -43,14 +46,16 @@ class CompanyArchiveGate
             $row->active_requests++;
             self::trace('request_admitted', $id, 'active', $row);
             return true;
-        });
+        }, 5);
     }
 
     public static function leave(int $id): void
     {
         if (self::tracker()->available()) { self::tracker()->leave($id); return; }
         if (self::ready()) {
-            DB::table('company_archive_states')->where('company_id', $id)->where('active_requests', '>', 0)->decrement('active_requests');
+            DB::transaction(function () use ($id) {
+                DB::table('company_archive_states')->where('company_id', $id)->where('active_requests', '>', 0)->decrement('active_requests');
+            }, 5);
             // The release is already complete; diagnostic reads may not fail the request.
             try { self::trace('request_released', $id, 'release', self::state($id)); } catch (\Throwable) {}
         }
@@ -67,7 +72,7 @@ class CompanyArchiveGate
             $row->active_requests++;
             self::trace('request_admitted', $id, 'read_only', $row);
             return true;
-        });
+        }, 5);
     }
 
     public static function enterDownload(int $id): object
@@ -82,7 +87,7 @@ class CompanyArchiveGate
             self::check($state && in_array($state->status,['ready','verified'],true) && $state->archive_path,'No downloadable archive is ready.');
             DB::table('company_archive_states')->where('company_id',$id)->increment('active_requests');
             return $state;
-        });
+        }, 5);
     }
 
     public static function reconcile(object $state): void { self::tracker()->reconcile($state); }

@@ -33,9 +33,12 @@ class CompanyArchiveRequestLeases
         $lease = $this->newLock();
         try {
             $state = $this->connection->transaction(function () use ($companyId, $states, $download, $lease) {
-                $this->connection->table('company_archive_states')->insertOrIgnore([
-                    'company_id'=>$companyId,'status'=>'active','active_requests'=>0,'created_at'=>now(),'updated_at'=>now(),
-                ]);
+                // Avoid the duplicate-key shared lock before upgrading to the state row's exclusive lock.
+                if (!$this->connection->table('company_archive_states')->where('company_id',$companyId)->exists()) {
+                    $this->connection->table('company_archive_states')->insertOrIgnore([
+                        'company_id'=>$companyId,'status'=>'active','active_requests'=>0,'created_at'=>now(),'updated_at'=>now(),
+                    ]);
+                }
                 $state = $this->connection->table('company_archive_states')->where('company_id',$companyId)->lockForUpdate()->first();
                 if (!in_array($state->status,$states,true) || ($download && !$state->archive_path)) return false;
                 $this->connection->table(self::TABLE)->insert([
@@ -45,7 +48,7 @@ class CompanyArchiveRequestLeases
                 $this->connection->table('company_archive_states')->where('company_id',$companyId)->increment('active_requests');
                 $state->active_requests++;
                 return $state;
-            });
+            }, 5); // Retry only rolled-back bookkeeping; never replay the controller operation.
             if (!$state) { $this->close($lease); return false; }
             $this->owned[$companyId][] = $lease;
             CompanyArchiveLog::lease('request_admitted',$companyId,[
@@ -66,7 +69,7 @@ class CompanyArchiveRequestLeases
             $this->connection->table('company_archive_states')->where('company_id',$companyId)->lockForUpdate()->first();
             $deleted = $this->connection->table(self::TABLE)->where('lease_id',$lease->id)->where('company_id',$companyId)->delete();
             if ($deleted) $this->connection->table('company_archive_states')->where('company_id',$companyId)->where('active_requests','>',0)->decrement('active_requests');
-        });
+        }, 5);
         unset($this->owned[$companyId][$key]);
         $this->close($lease);
         try {
