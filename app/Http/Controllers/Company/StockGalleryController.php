@@ -167,6 +167,16 @@ class StockGalleryController extends Controller
             $query->where('item_sets.is_sold', 1);
         }
 
+        $approvalFilter = (string) $request->input('approval_status', '');
+        if (in_array($approvalFilter, ['pending', 'none'], true)) {
+            $pendingItemSetIds = $this->pendingApprovalItemSetIds($company, $request);
+            if ($approvalFilter === 'pending') {
+                $query->whereIn('item_sets.id', $pendingItemSetIds);
+            } elseif ($pendingItemSetIds !== []) {
+                $query->whereNotIn('item_sets.id', $pendingItemSetIds);
+            }
+        }
+
         if ($request->input('image_status') === 'with') {
             $query->whereNotNull('item_sets.image_path');
         } elseif ($request->input('image_status') === 'without') {
@@ -223,6 +233,7 @@ class StockGalleryController extends Controller
         $cutoutUrl = $ready && $media->approved
             ? route('company.stock-gallery.media.asset', [$company->slug, Crypt::encryptString((string) $itemSet->id), 'cutout']) . '?v=' . $media->revision
             : null;
+        $approvalPendingQty = $this->pendingApprovalQuantity($itemSet);
         return [
             'company_id' => (int) $company->id,
             'company_name' => $company->name,
@@ -242,6 +253,8 @@ class StockGalleryController extends Controller
             'net_weight' => number_format((float) $itemSet->net_weight, 3, '.', ''),
             'has_other_weight' => (float) $itemSet->other > 0,
             'stock_status' => ((int) $itemSet->is_sold === 1) ? 'Out Stock' : 'In Stock',
+            'approval_pending_qty' => $approvalPendingQty,
+            'approval_status' => $approvalPendingQty > 0 ? 'On Approval' : 'Not on Approval',
             'is_sold' => (int) $itemSet->is_sold,
             'image_url' => $cutoutUrl ?: $this->itemImageUrl($itemSet),
             'has_image' => !empty($itemSet->image_path),
@@ -250,6 +263,23 @@ class StockGalleryController extends Controller
                 Crypt::encryptString((string) $itemSet->id),
             ]),
         ];
+    }
+
+    private function pendingApprovalItemSetIds(Company $company, Request $request): array
+    {
+        $companyIds = \App\Services\CompanyBranches::managementSelection($request, $company)->keys();
+        return \App\Models\ApprovalItem::query()
+            ->whereIn('approval_id', \App\Models\ApprovalHeader::query()->select('id')->whereIn('company_id', $companyIds))
+            ->whereNotNull('itemset_id')
+            ->get()
+            ->filter(fn ($approvalItem) => \App\Services\ApprovalItemAvailability::availableQuantity($approvalItem) > 0)
+            ->pluck('itemset_id')->map(fn ($id) => (int) $id)->unique()->values()->all();
+    }
+
+    private function pendingApprovalQuantity(ItemSet $itemSet): int
+    {
+        return \App\Models\ApprovalItem::query()->where('itemset_id', $itemSet->id)->get()
+            ->sum(fn ($approvalItem) => \App\Services\ApprovalItemAvailability::availableQuantity($approvalItem));
     }
 
     private function selectedIds(Request $request): array

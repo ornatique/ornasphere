@@ -939,12 +939,19 @@ class ReportController extends Controller
             'voucher' => 'nullable|string|max:100',
         ]);
         $query = \App\Services\ApprovalSummaryReport::query(\App\Services\ReportBranches::ids($company), $filters);
+        $query->addSelect(\Illuminate\Support\Facades\DB::raw('(SELECT COALESCE(SUM(ai.other_amount), 0) FROM approval_items ai WHERE ai.approval_id = h.id) AS issued_other_amount'));
         $metrics = \App\Services\ApprovalSummaryReport::metrics();
         $totals = (clone $query)->reorder()->get()->reduce(function ($total, $row) use ($metrics) {
             $total['vouchers']++;
             foreach ($metrics as $key => $label) $total[$key] += (float) ($row->$key ?? 0);
+            $total['issued_other_amount'] += (float) ($row->issued_other_amount ?? 0);
             return $total;
-        }, array_merge(['vouchers' => 0], array_fill_keys(array_keys($metrics), 0)));
+        }, array_merge(['vouchers' => 0, 'issued_other_amount' => 0], array_fill_keys(array_keys($metrics), 0)));
+        foreach (['issued', 'returned', 'sold', 'pending'] as $status) {
+            $net = (float) ($totals[$status . '_net'] ?? 0);
+            $totals[$status . '_metal_rate'] = $net > 0 ? (float) $totals[$status . '_metal_amount'] / $net : 0;
+            $totals[$status . '_labour_rate'] = $net > 0 ? (float) $totals[$status . '_labour_amount'] / $net : 0;
+        }
         if ($request->input('export') === 'pdf') {
             $rows = $query->get();
             return Pdf::loadView('company.reports.pdf.approval_summary', compact('company','rows','metrics','totals','filters'))

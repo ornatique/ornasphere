@@ -63,8 +63,8 @@
         <div class="table-responsive summary-table" tabindex="0" aria-label="Approval summary entries">
             <table class="table table-bordered text-nowrap">
                 <thead><tr><th>Voucher</th><th>Date</th><th>Customer</th><th>Branch</th>@foreach($metrics as $label)<th>{{ $label }}</th>@endforeach</tr></thead>
-                <tbody>@forelse($rows as $row)<tr><td>{{ $row->approval_no }}</td><td>{{ \Carbon\Carbon::parse($row->approval_date)->format('d-m-Y') }}</td><td>{{ $row->customer_name ?? '-' }}</td><td>{{ \App\Services\ReportBranches::name($row->company_id) }}</td>@foreach($metrics as $key => $label)<td class="text-end">{{ number_format($row->$key, str_ends_with($key, '_qty') ? 0 : 3) }}</td>@endforeach</tr>@empty<tr><td colspan="24" class="text-center">No approvals match these filters.</td></tr>@endforelse</tbody>
-                <tfoot><tr><th colspan="4">Total (all matching vouchers)</th>@foreach($metrics as $key => $label)<th>{{ number_format($totals[$key], str_ends_with($key, '_qty') ? 0 : 3) }}</th>@endforeach</tr></tfoot>
+                <tbody>@forelse($rows as $row)<tr><td>{{ $row->approval_no }}</td><td>{{ \Carbon\Carbon::parse($row->approval_date)->format('d-m-Y') }}</td><td>{{ $row->customer_name ?? '-' }}</td><td>{{ \App\Services\ReportBranches::name($row->company_id) }}</td>@foreach($metrics as $key => $label)<td class="text-end">{{ number_format($row->$key, str_ends_with($key, '_qty') ? 0 : (str_ends_with($key, '_rate') || str_ends_with($key, '_amount') ? 2 : 3)) }}</td>@endforeach</tr>@empty<tr><td colspan="24" class="text-center">No approvals match these filters.</td></tr>@endforelse</tbody>
+                <tfoot><tr><th colspan="4">Total (all matching vouchers)</th>@foreach($metrics as $key => $label)<th>{{ number_format($totals[$key], str_ends_with($key, '_qty') ? 0 : (str_ends_with($key, '_rate') || str_ends_with($key, '_amount') ? 2 : 3)) }}</th>@endforeach</tr></tfoot>
             </table>
         </div>
         <div class="mt-3">{{ $rows->links('pagination::bootstrap-4') }}</div>

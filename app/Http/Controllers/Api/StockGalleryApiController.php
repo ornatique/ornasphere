@@ -149,6 +149,16 @@ class StockGalleryApiController extends Controller
             $query->where('item_sets.is_sold', 1);
         }
 
+        $approvalFilter = (string) $request->input('approval_status', '');
+        if (in_array($approvalFilter, ['pending', 'none'], true)) {
+            $pendingItemSetIds = $this->pendingApprovalItemSetIds($request);
+            if ($approvalFilter === 'pending') {
+                $query->whereIn('item_sets.id', $pendingItemSetIds);
+            } elseif ($pendingItemSetIds !== []) {
+                $query->whereNotIn('item_sets.id', $pendingItemSetIds);
+            }
+        }
+
         $search = trim((string) $request->input('search', ''));
         if ($search !== '') {
             $query->where(function (Builder $q) use ($search) {
@@ -168,6 +178,7 @@ class StockGalleryApiController extends Controller
     {
         $quantity = max(1, (int) ($itemSet->quantity ?? 1));
         $wholesaleEnabled = \App\Services\WholesalePrice::enabled($itemSet->pricingCompany);
+        $approvalPendingQty = $this->pendingApprovalQuantity($itemSet);
 
         return [
             'id' => (int) $itemSet->id,
@@ -199,11 +210,30 @@ class StockGalleryApiController extends Controller
                 : (float) $itemSet->billing_sale_price,
             'has_other_weight' => (float) $itemSet->other > 0,
             'stock_status' => ((int) $itemSet->is_sold === 1) ? 'Out Stock' : 'In Stock',
+            'approval_pending_qty' => $approvalPendingQty,
+            'approval_status' => $approvalPendingQty > 0 ? 'On Approval' : 'Not on Approval',
             'is_sold' => (int) $itemSet->is_sold,
             'image_url' => $this->itemImageUrl($itemSet),
             'has_image' => !empty($itemSet->image_path),
             'image_download_url' => url('/api/stock-gallery/' . $itemSet->id . '/download-image') . '?company_id=' . $itemSet->company_id,
         ];
+    }
+
+    private function pendingApprovalItemSetIds(Request $request): array
+    {
+        $companyIds = \App\Services\CompanyBranches::apiManagementSelection($request)->keys();
+        return \App\Models\ApprovalItem::query()
+            ->whereIn('approval_id', \App\Models\ApprovalHeader::query()->select('id')->whereIn('company_id', $companyIds))
+            ->whereNotNull('itemset_id')
+            ->get()
+            ->filter(fn ($approvalItem) => \App\Services\ApprovalItemAvailability::availableQuantity($approvalItem) > 0)
+            ->pluck('itemset_id')->map(fn ($id) => (int) $id)->unique()->values()->all();
+    }
+
+    private function pendingApprovalQuantity(ItemSet $itemSet): int
+    {
+        return \App\Models\ApprovalItem::query()->where('itemset_id', $itemSet->id)->get()
+            ->sum(fn ($approvalItem) => \App\Services\ApprovalItemAvailability::availableQuantity($approvalItem));
     }
 
     private function selectedIds(Request $request): array
@@ -280,6 +310,7 @@ class StockGalleryApiController extends Controller
             'scope' => $request->input('scope', $selectedIds ? 'selected' : 'filtered'),
             'item_id' => $request->input('item_id'),
             'stock_status' => $request->input('stock_status'),
+            'approval_status' => $request->input('approval_status'),
             'search' => $request->input('search'),
         ];
 
