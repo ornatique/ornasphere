@@ -10,7 +10,11 @@ class ApprovalSummaryReport
     {
         $metrics = [];
         foreach (['issued', 'returned', 'sold', 'pending'] as $status) {
-            foreach (['qty' => 'Qty', 'gross' => 'Gross Wt', 'other' => 'Other Wt', 'net' => 'Net Wt', 'fine' => 'Fine Wt'] as $key => $label) {
+            foreach ([
+                'qty' => 'Qty', 'gross' => 'Gross Wt', 'other' => 'Other Wt', 'net' => 'Net Wt', 'fine' => 'Fine Wt',
+                'metal_rate' => 'Metal Rate', 'labour_rate' => 'Labour Rate',
+                'metal_amount' => 'Metal Amount', 'labour_amount' => 'Labour Amount', 'total_amount' => 'Total Amount',
+            ] as $key => $label) {
                 $metrics[$status.'_'.$key] = ucfirst($status).' '.$label;
             }
         }
@@ -25,6 +29,11 @@ class ApprovalSummaryReport
             foreach (['qty' => '1', 'gross' => 'gross_weight', 'other' => 'other_weight', 'net' => 'net_weight', 'fine' => 'total_fine_weight'] as $key => $column) {
                 $items->selectRaw("SUM(CASE WHEN $condition THEN COALESCE($column, 0) ELSE 0 END) AS {$status}_{$key}");
             }
+            foreach (['metal_amount' => 'metal_amount', 'labour_amount' => 'labour_amount', 'total_amount' => 'total_amount'] as $key => $column) {
+                $items->selectRaw("SUM(CASE WHEN $condition THEN COALESCE($column, 0) ELSE 0 END) AS {$status}_{$key}");
+            }
+            $items->selectRaw("CASE WHEN SUM(CASE WHEN $condition THEN COALESCE(net_weight, 0) ELSE 0 END) > 0 THEN SUM(CASE WHEN $condition THEN COALESCE(metal_amount, 0) ELSE 0 END) / SUM(CASE WHEN $condition THEN COALESCE(net_weight, 0) ELSE 0 END) ELSE 0 END AS {$status}_metal_rate")
+                ->selectRaw("CASE WHEN SUM(CASE WHEN $condition THEN COALESCE(net_weight, 0) ELSE 0 END) > 0 THEN SUM(CASE WHEN $condition THEN COALESCE(labour_amount, 0) ELSE 0 END) / SUM(CASE WHEN $condition THEN COALESCE(net_weight, 0) ELSE 0 END) ELSE 0 END AS {$status}_labour_rate");
         }
         $query = DB::table('approval_headers as h')
             ->leftJoinSub($items, 'm', 'm.approval_id', '=', 'h.id')

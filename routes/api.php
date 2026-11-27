@@ -495,6 +495,7 @@ Route::middleware(['auth:sanctum', 'single.api.token', 'company.active', 'worker
     Route::get('/returns/customers', [SaleReturnApiController::class, 'getSalesForReturn']);
     Route::get('/returns/sale/{saleId}', [SaleReturnApiController::class, 'saleDetails']);
     Route::get('/returns/{id}', [SaleReturnApiController::class, 'show'])->whereNumber('id');
+    Route::put('/returns/{id}', [SaleReturnApiController::class, 'updateApprovalReturn'])->whereNumber('id');
     Route::delete('/returns/{id}', [SaleReturnApiController::class, 'destroy'])->whereNumber('id');
     Route::post('/returns/store', [SaleReturnApiController::class, 'store']);
     Route::get('/returns/pdf/{returnId}', [SaleReturnApiController::class, 'pdf']);

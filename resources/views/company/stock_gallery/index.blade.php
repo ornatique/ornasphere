@@ -40,6 +40,15 @@
                         </select>
                     </div>
 
+                    <div class="col-md-2">
+                        <label>Approval Status</label>
+                        <select id="approvalStatusFilter" class="form-select stock-gallery-search-select">
+                            <option value="">All Items</option>
+                            <option value="pending">Approval Items</option>
+                            <option value="none">Not on Approval</option>
+                        </select>
+                    </div>
+
                     <div class="col-md-3">
                         <label>Search</label>
                         <input type="text" id="searchFilter" class="form-control" placeholder="Item, label, QR, HUID">
@@ -577,7 +586,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         jQuery('#itemFilter').trigger('change');
 
-        jQuery('#stockStatusFilter, #imageStatusFilter').select2({
+        jQuery('#stockStatusFilter, #imageStatusFilter, #approvalStatusFilter').select2({
             theme: 'bootstrap4',
             width: '100%',
             minimumResultsForSearch: 0,
@@ -589,6 +598,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const params = new URLSearchParams({
             stock_status: document.getElementById('stockStatusFilter').value,
             image_status: document.getElementById('imageStatusFilter').value,
+            approval_status: document.getElementById('approvalStatusFilter').value,
             search: document.getElementById('searchFilter').value.trim(),
             page: targetPage,
             per_page: 24,
@@ -675,6 +685,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     </div>
                     <div class="gallery-footer">
                         <span class="stock-badge ${badgeClass}">${escapeHtml(item.stock_status)}</span>
+                        ${Number(item.approval_pending_qty || 0) > 0 ? `<span class="badge bg-warning text-dark">On Approval · ${escapeHtml(item.approval_pending_qty)} pending</span>` : ''}
                         <label class="d-flex align-items-center gap-2 mb-0">
                             <input type="checkbox" class="gallery-check" value="${item.id}" ${checked} ${canSelect} ${selectTitle}>
                             Select
@@ -1638,10 +1649,12 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         document.getElementById('stockStatusFilter').value = 'in';
         document.getElementById('imageStatusFilter').value = '';
+        document.getElementById('approvalStatusFilter').value = '';
         if (window.jQuery && jQuery.fn.select2) {
             jQuery('#itemFilter').val(null).trigger('change');
             jQuery('#stockStatusFilter').val('in').trigger('change');
             jQuery('#imageStatusFilter').val('').trigger('change');
+            jQuery('#approvalStatusFilter').val('').trigger('change');
         }
         document.getElementById('searchFilter').value = '';
         selectedIds.clear();
