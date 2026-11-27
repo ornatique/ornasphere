@@ -166,4 +166,83 @@ class CompanyArchiveRequestLeaseTest extends TestCase
         $this->expectException(\Illuminate\Validation\ValidationException::class);
         $this->reconcile();
     }
+
+    private function deadlock(string $sql): \Illuminate\Database\QueryException
+    {
+        return new \Illuminate\Database\QueryException('sqlite',$sql,[],new \PDOException('Deadlock found when trying to get lock; try restarting transaction',40001));
+    }
+
+    public function test_admission_retries_deadlocks_without_duplicate_leases_or_touching_other_counts(): void
+    {
+        CompanyArchiveGate::ensure(1); CompanyArchiveGate::ensure(2);
+        DB::table('company_archive_states')->where('company_id',1)->update(['active_requests'=>3]);
+        DB::table('company_archive_states')->where('company_id',2)->update(['active_requests'=>7]);
+        $attempts=0; $inserts=0;
+        DB::connection()->beforeExecuting(function ($sql) use (&$attempts,&$inserts) {
+            if (str_contains($sql,'company_archive_states') && str_starts_with($sql,'insert')) $inserts++;
+            if (str_contains($sql,'company_archive_states') && str_starts_with($sql,'select *')) {
+                $attempts++; if ($attempts<=2) throw $this->deadlock($sql);
+            }
+        });
+        $this->assertTrue(CompanyArchiveGate::enter(1));
+        $this->assertSame(3,$attempts);
+        $this->assertSame(0,$inserts);
+        $this->assertSame(1,DB::table(CompanyArchiveRequestLeases::TABLE)->count());
+        $this->assertSame(4,(int)DB::table('company_archive_states')->where('company_id',1)->value('active_requests'));
+        CompanyArchiveGate::leave(1);
+        $this->assertSame(3,(int)DB::table('company_archive_states')->where('company_id',1)->value('active_requests'));
+        $this->assertSame(7,(int)DB::table('company_archive_states')->where('company_id',2)->value('active_requests'));
+    }
+
+    public function test_release_retries_a_rolled_back_delete_and_decrements_exactly_once(): void
+    {
+        CompanyArchiveGate::ensure(1);
+        DB::table('company_archive_states')->where('company_id',1)->update(['active_requests'=>3]);
+        $this->assertTrue(CompanyArchiveGate::enter(1));
+        $attempts=0;
+        DB::connection()->beforeExecuting(function ($sql) use (&$attempts) {
+            if (str_contains($sql,CompanyArchiveRequestLeases::TABLE) && str_starts_with($sql,'delete')) {
+                $attempts++; if ($attempts===1) throw $this->deadlock($sql);
+            }
+        });
+        CompanyArchiveGate::leave(1); CompanyArchiveGate::leave(1);
+        $this->assertSame(2,$attempts);
+        $this->assertSame(0,DB::table(CompanyArchiveRequestLeases::TABLE)->count());
+        $this->assertSame(3,(int)DB::table('company_archive_states')->where('company_id',1)->value('active_requests'));
+    }
+
+    public function test_exhausted_deadlock_retries_leave_no_admission_or_lock_file(): void
+    {
+        CompanyArchiveGate::ensure(1);
+        $attempts=0;
+        DB::connection()->beforeExecuting(function ($sql) use (&$attempts) {
+            if (str_contains($sql,'company_archive_states') && str_starts_with($sql,'select *')) {
+                $attempts++; throw $this->deadlock($sql);
+            }
+        });
+        try { CompanyArchiveGate::enter(1); $this->fail('Expected exhausted retry failure'); }
+        catch (\Illuminate\Database\QueryException $e) { $this->assertStringContainsString('Deadlock',$e->getMessage()); }
+        $this->assertSame(5,$attempts);
+        $this->assertSame(0,DB::connection()->transactionLevel());
+        $this->assertSame(0,DB::table(CompanyArchiveRequestLeases::TABLE)->count());
+        $this->assertSame(0,(int)DB::table('company_archive_states')->where('company_id',1)->value('active_requests'));
+        $this->assertSame([],glob(storage_path('app/private/company-archive-request-leases/*.lock')));
+    }
+
+    public function test_legacy_counter_admission_also_retries_without_reinserting_existing_state(): void
+    {
+        \Illuminate\Support\Facades\Schema::drop(CompanyArchiveRequestLeases::TABLE);
+        CompanyArchiveGate::ensure(1);
+        DB::table('company_archive_states')->where('company_id',1)->update(['active_requests'=>3]);
+        $attempts=0;
+        DB::connection()->beforeExecuting(function ($sql) use (&$attempts) {
+            if (str_contains($sql,'company_archive_states') && str_starts_with($sql,'select *')) {
+                $attempts++; if ($attempts===1) throw $this->deadlock($sql);
+            }
+        });
+        $this->assertTrue(CompanyArchiveGate::enter(1));
+        $this->assertSame(4,(int)DB::table('company_archive_states')->where('company_id',1)->value('active_requests'));
+        CompanyArchiveGate::leave(1);
+        $this->assertSame(3,(int)DB::table('company_archive_states')->where('company_id',1)->value('active_requests'));
+    }
 }

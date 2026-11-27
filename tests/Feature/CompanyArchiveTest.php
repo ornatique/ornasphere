@@ -139,6 +139,55 @@ class CompanyArchiveTest extends TestCase
         $this->assertSame([], Storage::disk('local')->allFiles());
     }
 
+    private function seedCastingBhukoIssues(): void
+    {
+        Schema::create('vacuum_vouchers', function (Blueprint $t) { $t->id(); $t->foreignId('company_id')->constrained(); });
+        Schema::create('job_workers', function (Blueprint $t) { $t->id(); $t->foreignId('company_id')->constrained(); });
+        Schema::create('casting_bhuko_issues', function (Blueprint $t) {
+            $t->id(); $t->foreignId('company_id')->constrained();
+            $t->foreignId('vacuum_voucher_id')->constrained('vacuum_vouchers');
+            $t->foreignId('job_worker_id')->constrained('job_workers');
+            $t->decimal('bhuko_used', 12, 3)->default(0);
+            $t->foreignId('issued_by')->nullable()->constrained('users');
+            $t->timestamp('issued_at')->nullable(); $t->timestamps();
+            $t->unique(['company_id', 'vacuum_voucher_id']);
+        });
+        foreach ([1, 2] as $id) {
+            DB::table('vacuum_vouchers')->insert(['id'=>$id, 'company_id'=>$id]);
+            DB::table('job_workers')->insert(['id'=>$id, 'company_id'=>$id]);
+            DB::table('casting_bhuko_issues')->insert([
+                'id'=>$id, 'company_id'=>$id, 'vacuum_voucher_id'=>$id,
+                'job_worker_id'=>$id, 'issued_by'=>$id, 'bhuko_used'=>'1.234',
+                'issued_at'=>'2026-11-27 12:00:00',
+            ]);
+        }
+    }
+
+    public function test_casting_bhuko_archive_round_trip_preserves_other_company(): void
+    {
+        $this->seedCastingBhukoIssues();
+        $before = DB::table('casting_bhuko_issues')->orderBy('id')->get()->toArray();
+        $path = $this->prepared();
+        $this->assertEquals($before, DB::table('casting_bhuko_issues')->orderBy('id')->get()->toArray());
+        $this->service()->verify($this->company(), $path, $this->password);
+        $this->service()->remove($this->company(), $path, $this->password);
+        $this->assertFalse(DB::table('casting_bhuko_issues')->where('company_id', 1)->exists());
+        $this->assertEquals($before[1], DB::table('casting_bhuko_issues')->where('company_id', 2)->first());
+        $this->service()->restore($this->company(), $path, $this->password);
+        $this->assertEquals($before, DB::table('casting_bhuko_issues')->orderBy('id')->get()->toArray());
+    }
+
+    public function test_casting_bhuko_cross_company_references_block_backup(): void
+    {
+        $this->seedCastingBhukoIssues();
+        foreach (['vacuum_voucher_id', 'job_worker_id'] as $column) {
+            DB::table('casting_bhuko_issues')->where('id', 1)->update([$column=>2]);
+            $this->rejected(fn()=>$this->service()->prepare($this->company(), 1, $this->password), 'ownership');
+            $this->assertSame(2, DB::table('casting_bhuko_issues')->count());
+            DB::table('casting_bhuko_issues')->where('id', 1)->update([$column=>1]);
+        }
+    }
+
     public function test_unknown_future_table_and_new_attachment_column_fail_closed(): void
     {
         Schema::create('new_feature_records', fn(Blueprint $t) => $t->id());
