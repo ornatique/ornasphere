@@ -861,6 +861,155 @@ class SaleReturnApiController extends Controller
         }
     }
 
+    /** Update an existing approval-return voucher (add/remove approval rows). */
+    public function updateApprovalReturn(Request $request, int $id)
+    {
+        $companyId = (int) \App\Services\CompanyBranches::apiManagementCompanyId($request);
+        $data = $request->validate([
+            'return_date' => ['sometimes', 'date'],
+            'remarks' => ['sometimes', 'nullable', 'string', 'max:2000'],
+            'removal_reason' => ['required_with:remove_items', 'nullable', 'string', 'max:500'],
+            'remove_items' => ['sometimes', 'array'],
+            'remove_items.*' => ['integer', 'distinct', 'min:1'],
+            'approval_item_ids' => ['sometimes', 'array'],
+            'approval_item_ids.*' => ['integer', 'distinct', 'min:1'],
+        ]);
+
+        try {
+            $result = DB::transaction(function () use ($companyId, $id, $data) {
+                $return = SaleReturn::where('company_id', $companyId)
+                    ->where('source_type', 'approval')->lockForUpdate()->findOrFail($id);
+                $rows = $return->items()->lockForUpdate()->get();
+                if ($rows->isEmpty()) {
+                    throw \Illuminate\Validation\ValidationException::withMessages(['return' => 'Return voucher has no items.']);
+                }
+                $selectedIds = array_key_exists('approval_item_ids', $data)
+                    ? collect($data['approval_item_ids'])->map(fn ($v) => (int) $v)->unique()->values()
+                    : null;
+                $removeIds = collect($data['remove_items'] ?? [])->map(fn ($v) => (int) $v)->unique()->values();
+                $addedApprovalIds = collect();
+                if ($selectedIds !== null) {
+                    $removeIds = $rows->filter(function ($row) use ($selectedIds, $companyId) {
+                        $approvalId = (int) ($row->approval_item_id ?? 0);
+                        if (!$approvalId && $row->itemset_id) {
+                            $approvalId = (int) (ApprovalItem::where('itemset_id', $row->itemset_id)
+                                ->where('status', 'returned')
+                                ->whereHas('approval', fn ($q) => $q->where('company_id', $companyId))
+                                ->latest('id')->value('id') ?? 0);
+                        }
+                        return !$selectedIds->contains($approvalId);
+                    })->pluck('id')->values();
+                }
+                // Clients may identify a line by its return-item ID or the source approval-item ID.
+                $removeIds = $removeIds->map(function ($requestedId) use ($rows) {
+                    $requestedId = (int) $requestedId;
+                    $row = $rows->first(fn ($candidate) => (int) $candidate->id === $requestedId
+                        || (int) ($candidate->approval_item_id ?? 0) === $requestedId);
+                    return $row ? (int) $row->id : $requestedId;
+                })->unique()->values();
+                if ($removeIds->diff($rows->pluck('id')->map(fn ($v) => (int) $v))->isNotEmpty()
+                    || $removeIds->count() >= $rows->count()) {
+                    throw \Illuminate\Validation\ValidationException::withMessages(['remove_items' => 'Invalid removal. Keep at least one item in the return.']);
+                }
+
+                foreach ($rows->whereIn('id', $removeIds) as $row) {
+                    $approvalQuery = ApprovalItem::query();
+                    if ($row->approval_item_id) {
+                        $approvalQuery->whereKey($row->approval_item_id);
+                    } elseif ($row->itemset_id) {
+                        $approvalQuery->where('itemset_id', $row->itemset_id)->where('status', 'returned')->latest('id');
+                    } else {
+                        $approvalQuery->whereRaw('1 = 0');
+                    }
+                    $approvalItem = $approvalQuery
+                        ->whereHas('approval', fn ($q) => $q->where('company_id', $companyId))
+                        ->lockForUpdate()->first();
+                    if (!$approvalItem || strtolower((string) $approvalItem->status) !== 'returned') {
+                        throw \Illuminate\Validation\ValidationException::withMessages(['remove_items' => 'Return item is no longer removable. Reload the voucher.']);
+                    }
+                    $set = $approvalItem->itemSet ?? $approvalItem->legacyItemSet ?? $row->itemSet;
+                    if ($set) {
+                        $set = ItemSet::whereKey($set->id)->lockForUpdate()->firstOrFail();
+                        if ((int) $set->is_sold === 1) {
+                            throw \Illuminate\Validation\ValidationException::withMessages(['remove_items' => 'This label was used again; the return cannot be reversed.']);
+                        }
+                        \App\Services\BatchInventory::consume($set, max(1, (int) ($row->qty ?? 1)));
+                    }
+                    $approvalItem->update(['status' => 'pending']);
+                    $row->delete();
+                    $this->refreshApprovalStatus((int) $approvalItem->approval_id);
+                }
+
+                if ($selectedIds !== null) {
+                    $currentIds = $return->items()->pluck('approval_item_id')->filter()->map(fn ($v) => (int) $v);
+                    $customerId = (int) (optional(ApprovalItem::whereIn('id', $currentIds)->first()?->approval)->customer_id ?? 0);
+                    foreach ($selectedIds->diff($currentIds) as $approvalId) {
+                        $approvalItem = TransactionItemGuard::lockApprovalItemForReturn($companyId, (int) $approvalId);
+                        if ($customerId && (int) $approvalItem->approval->customer_id !== $customerId) {
+                            throw \Illuminate\Validation\ValidationException::withMessages(['approval_item_ids' => 'Added item must belong to the same customer.']);
+                        }
+                        if (strtolower((string) $approvalItem->status) !== 'pending') {
+                            throw \Illuminate\Validation\ValidationException::withMessages(['approval_item_ids' => 'Only pending approval items can be added.']);
+                        }
+                        $set = $approvalItem->itemSet ?? $approvalItem->legacyItemSet;
+                        if (!$set) throw \Illuminate\Validation\ValidationException::withMessages(['approval_item_ids' => 'Approval item label was not found.']);
+                        $qty = max(1, (int) ($approvalItem->qty ?? 1));
+                        SaleReturnItem::create([
+                            'sale_return_id' => $return->id,
+                            'approval_item_id' => $approvalItem->id,
+                            'itemset_id' => $set->id,
+                            'qty' => $qty,
+                            'return_amount' => (float) ($approvalItem->total_amount ?? 0),
+                        ]);
+                        $approvalItem->update(['status' => 'returned']);
+                        \App\Services\BatchInventory::restore($set, $qty);
+                        $this->refreshApprovalStatus((int) $approvalItem->approval_id);
+                        $addedApprovalIds->push((int) $approvalItem->id);
+                    }
+                }
+
+                // Items selected from the return cart are now part of this voucher.
+                // Remove only those successfully added rows so they cannot remain
+                // visible as cart items after the edit is saved.
+                if ($addedApprovalIds->isNotEmpty() && Schema::hasColumn('return_carts', 'approval_item_id')) {
+                    ReturnCart::where('user_id', auth()->id())
+                        ->where('company_id', $companyId)
+                        ->whereIn('approval_item_id', $addedApprovalIds->all())
+                        ->delete();
+                }
+
+                $return->return_date = $data['return_date'] ?? $return->return_date;
+                if (array_key_exists('remarks', $data)) $return->remarks = $data['remarks'];
+                if ($removeIds->isNotEmpty() && filled($data['removal_reason'] ?? null)) {
+                    $return->remarks = trim((string) $return->remarks . "\n" . now()->toDateTimeString() . ' - Removed return items: ' . $data['removal_reason']);
+                }
+                $return->return_total = (float) $return->items()->sum('return_amount');
+                $return->save();
+                return $return->load('items');
+            }, 3);
+
+            return response()->json(['success' => true, 'message' => 'Approval return updated.', 'data' => [
+                'return_id' => (int) $result->id,
+                'voucher_no' => $result->return_voucher_no,
+                'return_date' => $result->return_date,
+                'remarks' => $result->remarks,
+                'return_total' => (float) $result->return_total,
+                'items' => $result->items->map(fn ($row) => [
+                    'return_item_id' => (int) $row->id,
+                    'approval_item_id' => (int) $row->approval_item_id,
+                    'itemset_id' => (int) $row->itemset_id,
+                    'qty' => (int) $row->qty,
+                    'return_amount' => (float) $row->return_amount,
+                ])->values(),
+            ]]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            Log::error('Approval return update failed.', ['return_id' => $id, 'company_id' => $companyId, 'message' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Could not update approval return.'], 500);
+        }
+    }
+
     public function store(Request $request)
     {
         $companyId = \App\Services\CompanyBranches::apiManagementCompanyId($request);
